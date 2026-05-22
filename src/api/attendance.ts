@@ -236,3 +236,20 @@ export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
 
   return response.data;
 }
+
+export async function updateAttendanceRecord(id: string, input: ManualAttendanceInput) {
+  const response = await apiRequest<ManualAttendanceSaveResult>(`/api/attendance/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+
+  return response.data;
+}
+
+export async function deleteAttendanceRecord(id: string) {
+  const response = await apiRequest<AttendanceRecord>(`/api/attendance/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+
+  return response.data;
+}

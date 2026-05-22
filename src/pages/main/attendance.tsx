@@ -3,11 +3,13 @@ import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAttendanceRecord,
   getAcceptedAttendanceFileTypes,
   listAttendanceRecords,
   previewAttendanceFile,
   saveAttendanceFile,
-  saveManualAttendanceRecord
+  saveManualAttendanceRecord,
+  updateAttendanceRecord
 } from "../../api/attendance";
 import type {
   AttendancePreviewResult,
@@ -15,6 +17,17 @@ import type {
   AttendanceRecord,
   ManualAttendanceInput
 } from "../../api/attendance";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -127,6 +140,42 @@ function FileDropZone(props: {
   );
 }
 
+
+function DeleteAttendanceConfirmation(props: {
+  record: AttendanceRecord;
+  isDeleting: boolean;
+  onConfirm: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="destructive" disabled={props.isDeleting} className={props.className}>
+          {props.isDeleting ? "Deleting..." : "Delete"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete attendance record?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete the attendance record for {props.record.name}. Any generated fine linked to
+            this attendance record will also be removed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => props.onConfirm(props.record.id)}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Delete Record
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
@@ -138,6 +187,8 @@ export default function AttendancePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingManual, setIsSavingManual] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState("");
+  const [deletingRecordId, setDeletingRecordId] = useState("");
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
@@ -252,22 +303,84 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const result = await saveManualAttendanceRecord(payload);
+      const result = editingRecordId
+        ? await updateAttendanceRecord(editingRecordId, payload)
+        : await saveManualAttendanceRecord(payload);
 
       if (result?.record) {
-        setRecords((current) => [result.record, ...current.filter((record) => record.id !== result.record.id)]);
+        setRecords((current) => {
+          if (editingRecordId) {
+            return current.map((record) => (record.id === result.record.id ? result.record : record));
+          }
+
+          return [result.record, ...current.filter((record) => record.id !== result.record.id)];
+        });
       } else {
         await loadRecords();
       }
 
+      setEditingRecordId("");
       setManualForm(emptyManualAttendanceForm);
-      toast.success(result?.fine ? "Manual attendance saved and fine generated." : "Manual attendance saved successfully.");
+
+      if (editingRecordId) {
+        toast.success(result?.fine ? "Attendance record updated and fine synced." : "Attendance record updated successfully.");
+      } else {
+        toast.success(result?.fine ? "Manual attendance saved and fine generated." : "Manual attendance saved successfully.");
+      }
     } catch (manualError) {
-      const message = manualError instanceof Error ? manualError.message : "Unable to save manual attendance.";
+      const message = manualError instanceof Error ? manualError.message : "Unable to save attendance record.";
       setError(message);
       toast.error(message);
     } finally {
       setIsSavingManual(false);
+    }
+  }
+
+  function handleEditRecord(record: AttendanceRecord) {
+    setEditingRecordId(record.id);
+    setManualForm({
+      studentId: record.student_id,
+      name: record.name,
+      yearLevel: record.year_level ?? "",
+      college: record.college ?? "",
+      program: record.program ?? "",
+      institution: record.institution ?? "",
+      noOfAbsences: String(record.no_of_absences ?? 0),
+      remarks: record.remarks ?? ""
+    });
+    setError("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }
+
+  function handleCancelEdit() {
+    setEditingRecordId("");
+    setManualForm(emptyManualAttendanceForm);
+    setError("");
+  }
+
+  async function handleDeleteRecord(id: string) {
+    setDeletingRecordId(id);
+    setError("");
+
+    try {
+      await deleteAttendanceRecord(id);
+      setRecords((current) => current.filter((record) => record.id !== id));
+
+      if (editingRecordId === id) {
+        handleCancelEdit();
+      }
+
+      toast.success("Attendance record deleted successfully.");
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance record.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingRecordId("");
     }
   }
 
@@ -333,9 +446,13 @@ export default function AttendancePage() {
             </div>
 
             <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <h2 className="text-xl font-black">Manual paper attendance</h2>
+              <h2 className="text-xl font-black">
+                {editingRecordId ? "Edit attendance record" : "Manual paper attendance"}
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Encode attendance records from paper forms when no file upload is available.
+                {editingRecordId
+                  ? "Update the selected attendance record and synchronize its generated fine."
+                  : "Encode attendance records from paper forms when no file upload is available."}
               </p>
 
               <form onSubmit={handleManualSubmit} className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -434,16 +551,16 @@ export default function AttendancePage() {
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
                   <Button type="submit" disabled={isSavingManual} className="min-h-12 rounded-2xl">
-                    {isSavingManual ? "Saving..." : "Save Manual Attendance"}
+                    {isSavingManual ? "Saving..." : editingRecordId ? "Update Attendance" : "Save Manual Attendance"}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     disabled={isSavingManual}
-                    onClick={() => setManualForm(emptyManualAttendanceForm)}
+                    onClick={handleCancelEdit}
                     className="min-h-12 rounded-2xl"
                   >
-                    Clear
+                    {editingRecordId ? "Cancel Edit" : "Clear"}
                   </Button>
                 </div>
               </form>
@@ -498,6 +615,7 @@ export default function AttendancePage() {
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Absences</th>
                       <th className="px-3 py-3">Remarks</th>
+                      <th className="px-3 py-3">Actions</th>
                       <th className="px-3 py-3">Status</th>
                     </tr>
                   </thead>
@@ -573,6 +691,21 @@ export default function AttendancePage() {
                     <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {record.import_id ? "File import" : "Manual paper record"}
                     </p>
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                      <Button
+                        type="button"
+                        onClick={() => handleEditRecord(record)}
+                        className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-muted"
+                      >
+                        Edit
+                      </Button>
+                      <DeleteAttendanceConfirmation
+                        record={record}
+                        isDeleting={deletingRecordId === record.id}
+                        onConfirm={handleDeleteRecord}
+                        className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                    </div>
                   </article>
                 ))}
               </div>
@@ -588,6 +721,7 @@ export default function AttendancePage() {
                       <th className="px-3 py-3">Program</th>
                       <th className="px-3 py-3">Absences</th>
                       <th className="px-3 py-3">Remarks</th>
+                      <th className="px-3 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -604,6 +738,23 @@ export default function AttendancePage() {
                         <td className="px-3 py-3">{record.program || "—"}</td>
                         <td className="px-3 py-3">{record.no_of_absences}</td>
                         <td className="px-3 py-3 text-muted-foreground">{record.remarks || "—"}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              onClick={() => handleEditRecord(record)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted"
+                            >
+                              Edit
+                            </Button>
+                            <DeleteAttendanceConfirmation
+                              record={record}
+                              isDeleting={deletingRecordId === record.id}
+                              onConfirm={handleDeleteRecord}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            />
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

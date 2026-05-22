@@ -528,7 +528,7 @@ export default function FinesPage() {
         <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-xl font-black tracking-tight">Penalty CRUD</h2>
+              <h2 className="text-xl font-black tracking-tight">Penalty Rules</h2>
               <p className="text-sm text-muted-foreground">Create, read, update, and delete penalty rules used when fines are generated.</p>
             </div>
             <Button
