@@ -1,10 +1,42 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
-import { listFines, updateFineStatus } from "../../api/fines";
-import type { FineRecord, FineStatus } from "../../api/fines";
+import {
+  createPenalty,
+  deletePenalty,
+  listFines,
+  listPenalties,
+  seedDefaultPenalties,
+  updateFineStatus,
+  updatePenalty
+} from "../../api/fines";
+import type { FineRecord, FineStatus, PenaltyRecord } from "../../api/fines";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
-const statuses: Array<FineStatus | ""> = ["", "unpaid", "paid", "waived"];
+type StatusFilter = FineStatus | "all";
+
+type PenaltyFormState = {
+  noOfAbsences: string;
+  prescribedPenalty: string;
+};
+
+const statusOptions: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "ALL STATUS" },
+  { value: "unpaid", label: "UNPAID" },
+  { value: "paid", label: "PAID" },
+  { value: "waived", label: "WAIVED" }
+];
+
+const fineStatusOptions: Array<{ value: FineStatus; label: string }> = [
+  { value: "unpaid", label: "UNPAID" },
+  { value: "paid", label: "PAID" },
+  { value: "waived", label: "WAIVED" }
+];
+
+const emptyPenaltyForm: PenaltyFormState = {
+  noOfAbsences: "",
+  prescribedPenalty: ""
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -25,21 +57,36 @@ function statusClass(status: FineStatus) {
   return "border-red-200 bg-red-50 text-red-700";
 }
 
+function getFineStatusLabel(status: FineStatus) {
+  return fineStatusOptions.find((item) => item.value === status)?.label ?? status.toUpperCase();
+}
+
 export default function FinesPage() {
   const [fines, setFines] = useState<FineRecord[]>([]);
-  const [status, setStatus] = useState<FineStatus | "">("");
+  const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [studentId, setStudentId] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingFines, setIsLoadingFines] = useState(true);
+  const [isLoadingPenalties, setIsLoadingPenalties] = useState(true);
   const [updatingId, setUpdatingId] = useState("");
+  const [savingPenalty, setSavingPenalty] = useState(false);
+  const [seedingPenalties, setSeedingPenalties] = useState(false);
+  const [deletingPenaltyId, setDeletingPenaltyId] = useState("");
+  const [editingPenaltyId, setEditingPenaltyId] = useState("");
+  const [penaltyForm, setPenaltyForm] = useState<PenaltyFormState>(emptyPenaltyForm);
   const [error, setError] = useState("");
+  const [penaltyError, setPenaltyError] = useState("");
+
+  const totalFines = fines.length;
+  const unpaidFines = useMemo(() => fines.filter((fine) => fine.status === "unpaid").length, [fines]);
 
   async function loadFines() {
-    setIsLoading(true);
+    setIsLoadingFines(true);
     setError("");
 
     try {
       const rows = await listFines({
-        status,
+        status: status === "all" ? "" : status,
         studentId: studentId.trim() || undefined,
         limit: 100,
         offset: 0
@@ -49,13 +96,50 @@ export default function FinesPage() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load fines.");
     } finally {
-      setIsLoading(false);
+      setIsLoadingFines(false);
     }
+  }
+
+  async function loadPenalties() {
+    setIsLoadingPenalties(true);
+    setPenaltyError("");
+
+    try {
+      const rows = await listPenalties();
+      setPenalties(rows);
+    } catch (loadError) {
+      setPenaltyError(loadError instanceof Error ? loadError.message : "Unable to load penalties.");
+    } finally {
+      setIsLoadingPenalties(false);
+    }
+  }
+
+  async function loadPageData() {
+    await Promise.all([loadFines(), loadPenalties()]);
   }
 
   async function handleFilter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await loadFines();
+  }
+
+  async function handleResetFilters() {
+    setStatus("all");
+    setStudentId("");
+    setIsLoadingFines(true);
+    setError("");
+
+    try {
+      const rows = await listFines({
+        limit: 100,
+        offset: 0
+      });
+      setFines(rows);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load fines.");
+    } finally {
+      setIsLoadingFines(false);
+    }
   }
 
   async function handleStatusChange(id: string, nextStatus: FineStatus) {
@@ -74,24 +158,134 @@ export default function FinesPage() {
     }
   }
 
+  async function handlePenaltySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingPenalty(true);
+    setPenaltyError("");
+
+    const noOfAbsences = Number(penaltyForm.noOfAbsences);
+    const prescribedPenalty = penaltyForm.prescribedPenalty.trim();
+
+    if (!Number.isInteger(noOfAbsences) || noOfAbsences <= 0) {
+      setPenaltyError("No. of Absences must be a positive whole number.");
+      setSavingPenalty(false);
+      return;
+    }
+
+    if (!prescribedPenalty) {
+      setPenaltyError("Prescribed penalty is required.");
+      setSavingPenalty(false);
+      return;
+    }
+
+    try {
+      const saved = editingPenaltyId
+        ? await updatePenalty(editingPenaltyId, noOfAbsences, prescribedPenalty)
+        : await createPenalty(noOfAbsences, prescribedPenalty);
+
+      if (saved) {
+        setPenalties((current) => {
+          const exists = current.some((penalty) => penalty.id === saved.id);
+          const next = exists
+            ? current.map((penalty) => (penalty.id === saved.id ? saved : penalty))
+            : [...current, saved];
+
+          return next.sort((first, second) => first.no_of_absences - second.no_of_absences);
+        });
+      }
+
+      setEditingPenaltyId("");
+      setPenaltyForm(emptyPenaltyForm);
+      await loadFines();
+    } catch (saveError) {
+      setPenaltyError(saveError instanceof Error ? saveError.message : "Unable to save penalty.");
+    } finally {
+      setSavingPenalty(false);
+    }
+  }
+
+  function handleEditPenalty(penalty: PenaltyRecord) {
+    setEditingPenaltyId(penalty.id);
+    setPenaltyForm({
+      noOfAbsences: String(penalty.no_of_absences),
+      prescribedPenalty: penalty.prescribed_penalty
+    });
+    setPenaltyError("");
+  }
+
+  function handleCancelPenaltyEdit() {
+    setEditingPenaltyId("");
+    setPenaltyForm(emptyPenaltyForm);
+    setPenaltyError("");
+  }
+
+  async function handleDeletePenalty(id: string) {
+    setDeletingPenaltyId(id);
+    setPenaltyError("");
+
+    try {
+      await deletePenalty(id);
+      setPenalties((current) => current.filter((penalty) => penalty.id !== id));
+      await loadFines();
+    } catch (deleteError) {
+      setPenaltyError(deleteError instanceof Error ? deleteError.message : "Unable to delete penalty.");
+    } finally {
+      setDeletingPenaltyId("");
+    }
+  }
+
+  async function handleSeedPenalties() {
+    setSeedingPenalties(true);
+    setPenaltyError("");
+
+    try {
+      const rows = await seedDefaultPenalties();
+      setPenalties(rows.sort((first, second) => first.no_of_absences - second.no_of_absences));
+      await loadFines();
+    } catch (seedError) {
+      setPenaltyError(seedError instanceof Error ? seedError.message : "Unable to seed default penalties.");
+    } finally {
+      setSeedingPenalties(false);
+    }
+  }
+
   useEffect(() => {
-    void loadFines();
+    void loadPageData();
   }, []);
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div>
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Penalty records</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Fines</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Search, filter, and update student fine statuses from desktop or mobile screens.
+            Display existing student fines, filter records, update fine statuses, and manage penalty rules.
           </p>
         </div>
 
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-3xl border bg-card p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Displayed fines</p>
+            <p className="mt-2 text-3xl font-black">{isLoadingFines ? "—" : totalFines}</p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Displayed unpaid</p>
+            <p className="mt-2 text-3xl font-black">{isLoadingFines ? "—" : unpaidFines}</p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Penalty rules</p>
+            <p className="mt-2 text-3xl font-black">{isLoadingPenalties ? "—" : penalties.length}</p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current filter</p>
+            <p className="mt-2 text-lg font-black uppercase">{status === "all" ? "All" : status}</p>
+          </div>
+        </section>
+
         <form
           onSubmit={handleFilter}
-          className="mb-6 flex flex-col gap-3 rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row"
+          className="flex flex-col gap-3 rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row"
         >
           <input
             value={studentId}
@@ -100,34 +294,60 @@ export default function FinesPage() {
             className="min-h-12 rounded-2xl border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:flex-1"
           />
 
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as FineStatus | "")}
-            className="min-h-12 rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:w-56"
-          >
-            {statuses.map((item) => (
-              <option key={item || "all"} value={item}>
-                {item ? item.toUpperCase() : "ALL STATUS"}
-              </option>
-            ))}
-          </select>
+          <Select value={status} onValueChange={(value) => setStatus(value as StatusFilter)}>
+            <SelectTrigger className="min-h-12 rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:w-56">
+              <SelectValue placeholder="ALL STATUS" />
+            </SelectTrigger>
+            <SelectContent>
+              {statusOptions.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isLoading ? "Loading..." : "Apply Filter"}
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row lg:w-auto">
+            <button
+              type="submit"
+              disabled={isLoadingFines}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoadingFines ? "Loading..." : "Apply Filter"}
+            </button>
+            <button
+              type="button"
+              disabled={isLoadingFines}
+              onClick={handleResetFilters}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-background px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Reset
+            </button>
+          </div>
         </form>
 
         {error ? (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
             {error}
           </div>
         ) : null}
 
         <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Existing Fines</h2>
+              <p className="text-sm text-muted-foreground">Fines are loaded from the saved fine records.</p>
+            </div>
+            <button
+              type="button"
+              disabled={isLoadingFines}
+              onClick={loadFines}
+              className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Refresh Fines
+            </button>
+          </div>
+
           <div className="space-y-3 lg:hidden">
             {fines.length ? (
               fines.map((fine) => (
@@ -146,22 +366,28 @@ export default function FinesPage() {
                     <p className="text-sm font-bold">
                       {fine.no_of_absences} absence/s • {formatDate(fine.created_at)}
                     </p>
-                    <select
+                    <Select
                       value={fine.status}
                       disabled={updatingId === fine.id}
-                      onChange={(event) => handleStatusChange(fine.id, event.target.value as FineStatus)}
-                      className="min-h-10 rounded-xl border bg-card px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      onValueChange={(value) => handleStatusChange(fine.id, value as FineStatus)}
                     >
-                      <option value="unpaid">UNPAID</option>
-                      <option value="paid">PAID</option>
-                      <option value="waived">WAIVED</option>
-                    </select>
+                      <SelectTrigger className="min-h-10 rounded-xl border bg-card px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40">
+                        <SelectValue placeholder={getFineStatusLabel(fine.status)} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fineStatusOptions.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </article>
               ))
             ) : (
               <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                No fine records found.
+                {isLoadingFines ? "Loading fine records..." : "No fine records found."}
               </div>
             )}
           </div>
@@ -194,23 +420,172 @@ export default function FinesPage() {
                         </span>
                       </td>
                       <td className="px-3 py-3">
-                        <select
+                        <Select
                           value={fine.status}
                           disabled={updatingId === fine.id}
-                          onChange={(event) => handleStatusChange(fine.id, event.target.value as FineStatus)}
-                          className="min-h-10 rounded-xl border bg-background px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          onValueChange={(value) => handleStatusChange(fine.id, value as FineStatus)}
                         >
-                          <option value="unpaid">UNPAID</option>
-                          <option value="paid">PAID</option>
-                          <option value="waived">WAIVED</option>
-                        </select>
+                          <SelectTrigger className="min-h-10 rounded-xl border bg-background px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 lg:w-36">
+                            <SelectValue placeholder={getFineStatusLabel(fine.status)} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {fineStatusOptions.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td colSpan={7} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
-                      No fine records found.
+                      {isLoadingFines ? "Loading fine records..." : "No fine records found."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Penalty CRUD</h2>
+              <p className="text-sm text-muted-foreground">Create, read, update, and delete penalty rules used when fines are generated.</p>
+            </div>
+            <button
+              type="button"
+              disabled={seedingPenalties}
+              onClick={handleSeedPenalties}
+              className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
+            </button>
+          </div>
+
+          <form onSubmit={handlePenaltySubmit} className="mb-5 grid gap-3 rounded-2xl border bg-background p-4 lg:grid-cols-12">
+            <input
+              type="number"
+              min="1"
+              value={penaltyForm.noOfAbsences}
+              onChange={(event) => setPenaltyForm((current) => ({ ...current, noOfAbsences: event.target.value }))}
+              placeholder="No. of Absences"
+              className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-3"
+            />
+            <input
+              value={penaltyForm.prescribedPenalty}
+              onChange={(event) => setPenaltyForm((current) => ({ ...current, prescribedPenalty: event.target.value }))}
+              placeholder="Prescribed penalty"
+              className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-6"
+            />
+            <button
+              type="submit"
+              disabled={savingPenalty}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-2"
+            >
+              {savingPenalty ? "Saving..." : editingPenaltyId ? "Update" : "Create"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelPenaltyEdit}
+              disabled={savingPenalty && !editingPenaltyId}
+              className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-card px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-1"
+            >
+              Clear
+            </button>
+          </form>
+
+          {penaltyError ? (
+            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {penaltyError}
+            </div>
+          ) : null}
+
+          <div className="space-y-3 lg:hidden">
+            {penalties.length ? (
+              penalties.map((penalty) => (
+                <article key={penalty.id} className="rounded-2xl border bg-background p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-muted-foreground">{penalty.no_of_absences} absence/s</p>
+                      <p className="mt-1 font-black">{penalty.prescribed_penalty}</p>
+                    </div>
+                    <p className="text-xs font-semibold text-muted-foreground">{formatDate(penalty.updated_at)}</p>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => handleEditPenalty(penalty)}
+                      className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-muted"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deletingPenaltyId === penalty.id}
+                      onClick={() => handleDeletePenalty(penalty.id)}
+                      className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deletingPenaltyId === penalty.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                {isLoadingPenalties ? "Loading penalty records..." : "No penalty records found."}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full min-w-max text-left text-sm">
+              <thead className="border-b text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-3">Absences</th>
+                  <th className="px-3 py-3">Prescribed Penalty</th>
+                  <th className="px-3 py-3">Created</th>
+                  <th className="px-3 py-3">Updated</th>
+                  <th className="px-3 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {penalties.length ? (
+                  penalties.map((penalty) => (
+                    <tr key={penalty.id} className="border-b last:border-b-0">
+                      <td className="px-3 py-3 font-black">{penalty.no_of_absences}</td>
+                      <td className="max-w-xl px-3 py-3 text-muted-foreground">{penalty.prescribed_penalty}</td>
+                      <td className="px-3 py-3 font-semibold">{formatDate(penalty.created_at)}</td>
+                      <td className="px-3 py-3 font-semibold">{formatDate(penalty.updated_at)}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditPenalty(penalty)}
+                            className="inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingPenaltyId === penalty.id}
+                            onClick={() => handleDeletePenalty(penalty.id)}
+                            className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {deletingPenaltyId === penalty.id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
+                      {isLoadingPenalties ? "Loading penalty records..." : "No penalty records found."}
                     </td>
                   </tr>
                 )}

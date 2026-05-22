@@ -129,13 +129,37 @@ export async function listPenalties() {
   return response.data ?? [];
 }
 
-export async function savePenalty(noOfAbsences: number, prescribedPenalty: string) {
+export async function createPenalty(noOfAbsences: number, prescribedPenalty: string) {
   const response = await apiRequest<PenaltyRecord>("/api/fines/penalties", {
     method: "POST",
     body: JSON.stringify({
       noOfAbsences,
       prescribedPenalty
     })
+  });
+
+  return response.data;
+}
+
+export async function savePenalty(noOfAbsences: number, prescribedPenalty: string) {
+  return createPenalty(noOfAbsences, prescribedPenalty);
+}
+
+export async function updatePenalty(id: string, noOfAbsences: number, prescribedPenalty: string) {
+  const response = await apiRequest<PenaltyRecord>(`/api/fines/penalties/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      noOfAbsences,
+      prescribedPenalty
+    })
+  });
+
+  return response.data;
+}
+
+export async function deletePenalty(id: string) {
+  const response = await apiRequest<PenaltyRecord>(`/api/fines/penalties/${encodeURIComponent(id)}`, {
+    method: "DELETE"
   });
 
   return response.data;
