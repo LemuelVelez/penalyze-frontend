@@ -2479,7 +2479,7 @@ export default function AttendancePage() {
                           aria-label={`Select attendance records for ${group.name}`}
                           className="mt-1 shrink-0"
                         />
-                        <AccordionTrigger className="min-h-0 w-full flex-1 justify-between gap-3 py-0 text-left hover:no-underline [&>svg]:ml-auto [&>svg]:shrink-0">
+                        <AccordionTrigger className="relative min-h-0 w-full flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
                           <div className="flex flex-1 flex-col gap-3 pr-2 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <p className="font-black">
