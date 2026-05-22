@@ -196,6 +196,8 @@ type AttendanceStudentRecordGroup = {
   studentId: string;
   name: string;
   records: AttendanceRecord[];
+  attendedEvents: string[];
+  scannedAtValues: string[];
   totalAbsences: number;
   latestScannedAt: string | null;
   yearLevel: string;
@@ -978,6 +980,40 @@ function getAttendanceStudentGroupKey(record: AttendanceRecord) {
   return studentId || `unknown-student:${record.id}`;
 }
 
+function getUniqueAttendanceTextValues(values: string[]) {
+  const uniqueValues = new Map<string, string>();
+
+  values.forEach((value) => {
+    const cleanedValue = cleanImportValue(value);
+    const normalizedValue = normalizeImportHeader(cleanedValue);
+
+    if (cleanedValue && !uniqueValues.has(normalizedValue)) {
+      uniqueValues.set(normalizedValue, cleanedValue);
+    }
+  });
+
+  return Array.from(uniqueValues.values());
+}
+
+function getUniqueAttendanceScannedAtValues(values: Array<string | null>) {
+  const uniqueValues = new Map<number, string>();
+
+  values.forEach((value) => {
+    if (!value) return;
+
+    const scannedAtDate = new Date(value);
+    const scannedAtTime = scannedAtDate.getTime();
+
+    if (!Number.isNaN(scannedAtTime) && !uniqueValues.has(scannedAtTime)) {
+      uniqueValues.set(scannedAtTime, value);
+    }
+  });
+
+  return Array.from(uniqueValues.entries())
+    .sort(([leftTime], [rightTime]) => rightTime - leftTime)
+    .map(([, value]) => value);
+}
+
 function getAttendanceStudentGroups(records: AttendanceRecord[]) {
   const groups = new Map<string, AttendanceStudentRecordGroup>();
 
@@ -993,6 +1029,8 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
         studentId: record.student_id,
         name: record.name,
         records: [record],
+        attendedEvents: [],
+        scannedAtValues: [],
         totalAbsences: record.no_of_absences ?? 0,
         latestScannedAt: record.scanned_at ?? null,
         yearLevel: record.year_level ?? "",
@@ -1022,15 +1060,21 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
     if (!currentGroup.institution && record.institution) currentGroup.institution = record.institution;
   });
 
-  return Array.from(groups.values()).map((group) => ({
-    ...group,
-    records: [...group.records].sort((leftRecord, rightRecord) => {
+  return Array.from(groups.values()).map((group) => {
+    const sortedRecords = [...group.records].sort((leftRecord, rightRecord) => {
       const leftTime = leftRecord.scanned_at ? new Date(leftRecord.scanned_at).getTime() : 0;
       const rightTime = rightRecord.scanned_at ? new Date(rightRecord.scanned_at).getTime() : 0;
 
       return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
-    })
-  }));
+    });
+
+    return {
+      ...group,
+      records: sortedRecords,
+      attendedEvents: getUniqueAttendanceTextValues(sortedRecords.map(getManualRecordSource)),
+      scannedAtValues: getUniqueAttendanceScannedAtValues(sortedRecords.map((record) => record.scanned_at))
+    };
+  });
 }
 
 function FileDropZone(props: {
@@ -1609,10 +1653,15 @@ function AttendanceStudentGroupTriggerContent(props: {
           {props.group.studentId} - {props.group.name}
         </span>
         <span className="mt-1 block wrap-break-word text-sm text-muted-foreground">
-          {props.group.records.length} attended event/s
+          {props.group.attendedEvents.length} attended event/s · {props.group.scannedAtValues.length} scan/s
         </span>
       </span>
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+        {props.group.latestScannedAt ? (
+          <span className="rounded-full border bg-background px-3 py-1 font-bold text-muted-foreground">
+            Latest: {formatDateTime(props.group.latestScannedAt)}
+          </span>
+        ) : null}
         <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
           {props.group.totalAbsences} absence/s
         </span>
@@ -1636,8 +1685,47 @@ function AttendanceStudentRecordsList(props: {
   onDeleteRecord: (id: string) => void;
 }) {
   return (
-    <div className="space-y-3">
-      {props.group.records.map((record) => (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className="min-w-0 rounded-2xl border bg-card p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events Attended</p>
+          <div className="mt-3 flex min-w-0 flex-wrap gap-2">
+            {props.group.attendedEvents.length ? (
+              props.group.attendedEvents.map((eventName) => (
+                <span
+                  key={eventName}
+                  className="min-w-0 rounded-full border bg-background px-3 py-1 text-xs font-bold text-muted-foreground wrap-break-word"
+                >
+                  {eventName}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm font-semibold text-muted-foreground">No event recorded</span>
+            )}
+          </div>
+        </section>
+
+        <section className="min-w-0 rounded-2xl border bg-card p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned At</p>
+          <div className="mt-3 flex min-w-0 flex-wrap gap-2">
+            {props.group.scannedAtValues.length ? (
+              props.group.scannedAtValues.map((scannedAtValue) => (
+                <span
+                  key={scannedAtValue}
+                  className="min-w-0 rounded-full border bg-background px-3 py-1 text-xs font-bold text-muted-foreground wrap-break-word"
+                >
+                  {formatDateTime(scannedAtValue)}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm font-semibold text-muted-foreground">No scan time recorded</span>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <div className="space-y-3">
+        {props.group.records.map((record) => (
         <article key={record.id} className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word">
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -1700,8 +1788,9 @@ function AttendanceStudentRecordsList(props: {
               />
             </div>
           </div>
-        </article>
-      ))}
+          </article>
+        ))}
+      </div>
     </div>
   );
 }
