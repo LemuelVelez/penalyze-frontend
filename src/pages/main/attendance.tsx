@@ -196,8 +196,8 @@ type AttendanceStudentRecordGroup = {
   studentId: string;
   name: string;
   records: AttendanceRecord[];
-  attendedEvents: string[];
-  scannedAtValues: string[];
+  events: string[];
+  scannedAtValues: Array<string | null>;
   totalAbsences: number;
   latestScannedAt: string | null;
   yearLevel: string;
@@ -486,11 +486,6 @@ function getAttendancePreviewEventNames(previewResult: AttendancePreviewResult |
   return Array.from(new Set(previewResult?.rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean) ?? []));
 }
 
-function getAttendanceImportRecordKey(row: NormalizedAttendanceImportRow) {
-  const normalizedEventName = normalizeImportHeader(row.eventName);
-  return `${normalizedEventName || "no-event"}:${row.studentId}`;
-}
-
 function countHeaderAliasMatches(row: AttendanceSpreadsheetRow) {
   return (Object.keys(ATTENDANCE_HEADER_ALIASES) as AttendanceHeaderKey[]).reduce((count, key) => {
     return getHeaderIndex(row.map(cleanImportValue), key) >= 0 ? count + 1 : count;
@@ -545,7 +540,8 @@ function getNormalizedAttendanceRowsFromTabularRows(
     .join("\n");
   const metadataEventName =
     getLabeledValue(metadataText, ATTENDANCE_HEADER_ALIASES.eventName) || cleanImportValue(fallbackEventName);
-  const recordsByImportKey = new Map<string, NormalizedAttendanceImportRow>();
+  const normalizedRows: NormalizedAttendanceImportRow[] = [];
+  const latestRecordByImportKey = new Map<string, NormalizedAttendanceImportRow>();
 
   cleanedRows.slice(headerRowIndex + 1).forEach((row, index) => {
     const searchableText = row.join("\n");
@@ -562,7 +558,7 @@ function getNormalizedAttendanceRowsFromTabularRows(
       getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
       metadataEventName;
     const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${normalizedStudentId}`;
-    const currentRecord = recordsByImportKey.get(importKey);
+    const currentRecord = latestRecordByImportKey.get(importKey);
 
     const eventStartAt = normalizeAttendanceDateTimeValue(
       getHeaderValue(row, headers, "eventStartAt") ||
@@ -619,10 +615,11 @@ function getNormalizedAttendanceRowsFromTabularRows(
         `Imported from ${fileName} row ${headerRowIndex + index + 2}`
     };
 
-    recordsByImportKey.set(importKey, normalizedRow);
+    normalizedRows.push(normalizedRow);
+    latestRecordByImportKey.set(importKey, normalizedRow);
   });
 
-  return Array.from(recordsByImportKey.values());
+  return normalizedRows;
 }
 
 function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
@@ -865,7 +862,7 @@ async function getNormalizedAttendanceRowsFromOpenXmlWorkbook(file: File) {
   const sharedStringsDocument = parseXmlDocument(await getZipEntryText(bytes, entries, "xl/sharedStrings.xml"));
   const sharedStrings = getSharedStrings(sharedStringsDocument);
   const sheets = getWorkbookSheets(workbookDocument, workbookRelationshipsDocument);
-  const recordsByImportKey = new Map<string, NormalizedAttendanceImportRow>();
+  const normalizedRows: NormalizedAttendanceImportRow[] = [];
 
   for (const sheet of sheets) {
     const worksheetDocument = parseXmlDocument(await getZipEntryText(bytes, entries, sheet.path));
@@ -879,12 +876,10 @@ async function getNormalizedAttendanceRowsFromOpenXmlWorkbook(file: File) {
       fallbackEventName
     );
 
-    rows.forEach((row) => {
-      recordsByImportKey.set(getAttendanceImportRecordKey(row), row);
-    });
+    normalizedRows.push(...rows);
   }
 
-  return Array.from(recordsByImportKey.values());
+  return normalizedRows;
 }
 
 async function getAttendanceUploadFile(file: File): Promise<AttendancePreparedUpload> {
@@ -980,40 +975,6 @@ function getAttendanceStudentGroupKey(record: AttendanceRecord) {
   return studentId || `unknown-student:${record.id}`;
 }
 
-function getUniqueAttendanceTextValues(values: string[]) {
-  const uniqueValues = new Map<string, string>();
-
-  values.forEach((value) => {
-    const cleanedValue = cleanImportValue(value);
-    const normalizedValue = normalizeImportHeader(cleanedValue);
-
-    if (cleanedValue && !uniqueValues.has(normalizedValue)) {
-      uniqueValues.set(normalizedValue, cleanedValue);
-    }
-  });
-
-  return Array.from(uniqueValues.values());
-}
-
-function getUniqueAttendanceScannedAtValues(values: Array<string | null>) {
-  const uniqueValues = new Map<number, string>();
-
-  values.forEach((value) => {
-    if (!value) return;
-
-    const scannedAtDate = new Date(value);
-    const scannedAtTime = scannedAtDate.getTime();
-
-    if (!Number.isNaN(scannedAtTime) && !uniqueValues.has(scannedAtTime)) {
-      uniqueValues.set(scannedAtTime, value);
-    }
-  });
-
-  return Array.from(uniqueValues.entries())
-    .sort(([leftTime], [rightTime]) => rightTime - leftTime)
-    .map(([, value]) => value);
-}
-
 function getAttendanceStudentGroups(records: AttendanceRecord[]) {
   const groups = new Map<string, AttendanceStudentRecordGroup>();
 
@@ -1029,8 +990,8 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
         studentId: record.student_id,
         name: record.name,
         records: [record],
-        attendedEvents: [],
-        scannedAtValues: [],
+        events: [getManualRecordSource(record)],
+        scannedAtValues: [record.scanned_at ?? null],
         totalAbsences: record.no_of_absences ?? 0,
         latestScannedAt: record.scanned_at ?? null,
         yearLevel: record.year_level ?? "",
@@ -1046,6 +1007,8 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
       latestScannedAtDate && !Number.isNaN(latestScannedAtDate.getTime()) ? latestScannedAtDate.getTime() : 0;
 
     currentGroup.records.push(record);
+    currentGroup.events.push(getManualRecordSource(record));
+    currentGroup.scannedAtValues.push(record.scanned_at ?? null);
     currentGroup.totalAbsences += record.no_of_absences ?? 0;
 
     if (scannedAtTime > latestScannedAtTime) {
@@ -1071,8 +1034,8 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
     return {
       ...group,
       records: sortedRecords,
-      attendedEvents: getUniqueAttendanceTextValues(sortedRecords.map(getManualRecordSource)),
-      scannedAtValues: getUniqueAttendanceScannedAtValues(sortedRecords.map((record) => record.scanned_at))
+      events: sortedRecords.map(getManualRecordSource),
+      scannedAtValues: sortedRecords.map((record) => record.scanned_at ?? null)
     };
   });
 }
@@ -1653,15 +1616,10 @@ function AttendanceStudentGroupTriggerContent(props: {
           {props.group.studentId} - {props.group.name}
         </span>
         <span className="mt-1 block wrap-break-word text-sm text-muted-foreground">
-          {props.group.attendedEvents.length} attended event/s · {props.group.scannedAtValues.length} scan/s
+          {props.group.events.length} attendance scan/s across {props.group.records.length} event record/s
         </span>
       </span>
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-        {props.group.latestScannedAt ? (
-          <span className="rounded-full border bg-background px-3 py-1 font-bold text-muted-foreground">
-            Latest: {formatDateTime(props.group.latestScannedAt)}
-          </span>
-        ) : null}
         <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
           {props.group.totalAbsences} absence/s
         </span>
@@ -1685,47 +1643,31 @@ function AttendanceStudentRecordsList(props: {
   onDeleteRecord: (id: string) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 lg:grid-cols-2">
-        <section className="min-w-0 rounded-2xl border bg-card p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events Attended</p>
-          <div className="mt-3 flex min-w-0 flex-wrap gap-2">
-            {props.group.attendedEvents.length ? (
-              props.group.attendedEvents.map((eventName) => (
-                <span
-                  key={eventName}
-                  className="min-w-0 rounded-full border bg-background px-3 py-1 text-xs font-bold text-muted-foreground wrap-break-word"
-                >
-                  {eventName}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm font-semibold text-muted-foreground">No event recorded</span>
-            )}
+    <div className="space-y-3">
+      <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm md:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events attended</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {props.group.events.map((eventName, index) => (
+              <span key={`${eventName}-${index}`} className="rounded-full border bg-background px-3 py-1 font-bold">
+                {eventName}
+              </span>
+            ))}
           </div>
-        </section>
-
-        <section className="min-w-0 rounded-2xl border bg-card p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned At</p>
-          <div className="mt-3 flex min-w-0 flex-wrap gap-2">
-            {props.group.scannedAtValues.length ? (
-              props.group.scannedAtValues.map((scannedAtValue) => (
-                <span
-                  key={scannedAtValue}
-                  className="min-w-0 rounded-full border bg-background px-3 py-1 text-xs font-bold text-muted-foreground wrap-break-word"
-                >
-                  {formatDateTime(scannedAtValue)}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm font-semibold text-muted-foreground">No scan time recorded</span>
-            )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned at</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {props.group.scannedAtValues.map((scannedAt, index) => (
+              <span key={`${scannedAt ?? "no-scan"}-${index}`} className="rounded-full border bg-background px-3 py-1 font-bold">
+                {formatDateTime(scannedAt)}
+              </span>
+            ))}
           </div>
-        </section>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {props.group.records.map((record) => (
+      {props.group.records.map((record) => (
         <article key={record.id} className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word">
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -1788,9 +1730,8 @@ function AttendanceStudentRecordsList(props: {
               />
             </div>
           </div>
-          </article>
-        ))}
-      </div>
+        </article>
+      ))}
     </div>
   );
 }
