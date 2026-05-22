@@ -56,6 +56,318 @@ const emptyManualAttendanceForm: ManualAttendanceFormState = {
   remarks: ""
 };
 
+const ATTENDANCE_EXCEL_FILE_TYPES = [
+  ".xlsx",
+  ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel"
+];
+
+const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
+
+const ATTENDANCE_SEARCH_FIELDS = [
+  {
+    label: "Student ID",
+    aliases: ["Student ID", "Student Id", "StudentID", "ID Number", "Student Number"]
+  },
+  {
+    label: "Full name",
+    aliases: ["Full name", "Full Name", "Name", "Student Name"]
+  },
+  {
+    label: "Year level",
+    aliases: ["Year level", "Year Level", "Year", "Level"]
+  },
+  {
+    label: "College",
+    aliases: ["College", "Department"]
+  },
+  {
+    label: "Program",
+    aliases: ["Program", "Course"]
+  },
+  {
+    label: "Institution",
+    aliases: ["Institution", "School", "Campus"]
+  }
+];
+
+const ATTENDANCE_IMPORT_HEADERS = [
+  "Student ID",
+  "Name",
+  "Year Level",
+  "College",
+  "Program",
+  "Institution",
+  "No. of Absences",
+  "Remarks"
+];
+
+type NormalizedAttendanceImportRow = {
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  noOfAbsences: string;
+  remarks: string;
+};
+
+type AttendanceHeaderKey = keyof NormalizedAttendanceImportRow;
+
+const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
+  studentId: [
+    "student id",
+    "studentid",
+    "student no",
+    "student number",
+    "student id no",
+    "student id number",
+    "id number",
+    "id no"
+  ],
+  name: ["name", "full name", "fullname", "student name", "complete name"],
+  yearLevel: ["year level", "yearlevel", "year", "level", "grade level"],
+  college: ["college", "department", "school college"],
+  program: ["program", "course", "degree", "section program"],
+  institution: ["institution", "school", "campus", "university"],
+  noOfAbsences: ["no of absences", "no. of absences", "number of absences", "absences", "absence", "total absences"],
+  remarks: ["remarks", "remark", "notes", "note", "status"]
+};
+
+function getAttendanceUploadAccept() {
+  const configuredTypes = getAcceptedAttendanceFileTypes()
+    .split(",")
+    .map((type) => type.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set([...configuredTypes, ...ATTENDANCE_EXCEL_FILE_TYPES, ...ATTENDANCE_TEXT_FILE_TYPES])).join(",");
+}
+
+function getFileExtension(fileName: string) {
+  return fileName.toLowerCase().split(".").pop() ?? "";
+}
+
+function isTextBasedAttendanceFile(file: File) {
+  const extension = getFileExtension(file.name);
+  const type = file.type.toLowerCase();
+
+  return extension === "csv" || extension === "txt" || type.includes("csv") || type.includes("text");
+}
+
+function cleanImportValue(value?: string | number | null) {
+  return String(value ?? "")
+    .replace(/\u0000/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+function normalizeImportHeader(value?: string | number | null) {
+  return cleanImportValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function detectDelimiter(text: string) {
+  const sampleLine = text
+    .split(/\r?\n/)
+    .find((line) => line.trim().length > 0) ?? "";
+
+  const delimiters = [",", "\t", ";", "|"];
+
+  return delimiters.reduce(
+    (selected, delimiter) => {
+      const count = sampleLine.split(delimiter).length;
+      return count > selected.count ? { delimiter, count } : selected;
+    },
+    { delimiter: ",", count: 0 }
+  ).delimiter;
+}
+
+function parseDelimitedText(text: string, delimiter = detectDelimiter(text)) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let isQuoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const nextCharacter = text[index + 1];
+
+    if (character === '"') {
+      if (isQuoted && nextCharacter === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        isQuoted = !isQuoted;
+      }
+      continue;
+    }
+
+    if (character === delimiter && !isQuoted) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((character === "\n" || character === "\r") && !isQuoted) {
+      if (character === "\r" && nextCharacter === "\n") {
+        index += 1;
+      }
+
+      row.push(cell);
+      if (row.some((value) => value.trim().length > 0)) {
+        rows.push(row);
+      }
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += character;
+  }
+
+  row.push(cell);
+  if (row.some((value) => value.trim().length > 0)) {
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function getHeaderIndex(headers: string[], key: AttendanceHeaderKey) {
+  const normalizedAliases = ATTENDANCE_HEADER_ALIASES[key].map(normalizeImportHeader);
+
+  return headers.findIndex((header) => normalizedAliases.includes(normalizeImportHeader(header)));
+}
+
+function getHeaderValue(row: string[], headers: string[], key: AttendanceHeaderKey) {
+  const index = getHeaderIndex(headers, key);
+  return index >= 0 ? cleanImportValue(row[index]) : "";
+}
+
+function getLabeledValue(text: string, labels: string[]) {
+  for (const label of labels) {
+    const pattern = new RegExp(`${escapeRegExp(label)}\\s*[:=\\-]\\s*([^\\n\\r]+)`, "i");
+    const match = text.match(pattern);
+
+    if (match?.[1]) {
+      return cleanImportValue(match[1]);
+    }
+  }
+
+  return "";
+}
+
+function getNumericAbsenceValue(value: string) {
+  const numericValue = Number.parseInt(value.replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(numericValue) && numericValue >= 0 ? String(numericValue) : "0";
+}
+
+function escapeCsvValue(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function toNormalizedAttendanceCsv(rows: NormalizedAttendanceImportRow[]) {
+  const csvRows = [
+    ATTENDANCE_IMPORT_HEADERS,
+    ...rows.map((row) => [
+      row.studentId,
+      row.name,
+      row.yearLevel,
+      row.college,
+      row.program,
+      row.institution,
+      row.noOfAbsences,
+      row.remarks
+    ])
+  ];
+
+  return csvRows.map((row) => row.map(escapeCsvValue).join(",")).join("\n");
+}
+
+function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
+  const rows = parseDelimitedText(text);
+  if (!rows.length) return [];
+
+  const headers = rows[0].map(cleanImportValue);
+  const recordsByStudentId = new Map<string, NormalizedAttendanceImportRow>();
+
+  rows.slice(1).forEach((row, index) => {
+    const searchableText = row.join("\n");
+    const studentId =
+      getHeaderValue(row, headers, "studentId") ||
+      getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[0].aliases);
+    const name = getHeaderValue(row, headers, "name") || getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[1].aliases);
+
+    if (!studentId || !name) return;
+
+    const normalizedStudentId = cleanImportValue(studentId).toUpperCase();
+    const currentRecord = recordsByStudentId.get(normalizedStudentId);
+
+    const normalizedRow: NormalizedAttendanceImportRow = {
+      studentId: normalizedStudentId,
+      name: cleanImportValue(name),
+      yearLevel:
+        getHeaderValue(row, headers, "yearLevel") ||
+        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[2].aliases) ||
+        currentRecord?.yearLevel ||
+        "",
+      college:
+        getHeaderValue(row, headers, "college") ||
+        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[3].aliases) ||
+        currentRecord?.college ||
+        "",
+      program:
+        getHeaderValue(row, headers, "program") ||
+        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[4].aliases) ||
+        currentRecord?.program ||
+        "",
+      institution:
+        getHeaderValue(row, headers, "institution") ||
+        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[5].aliases) ||
+        currentRecord?.institution ||
+        "",
+      noOfAbsences: getNumericAbsenceValue(getHeaderValue(row, headers, "noOfAbsences") || currentRecord?.noOfAbsences || "0"),
+      remarks:
+        getHeaderValue(row, headers, "remarks") ||
+        currentRecord?.remarks ||
+        `Imported from ${fileName} row ${index + 2}`
+    };
+
+    recordsByStudentId.set(normalizedStudentId, normalizedRow);
+  });
+
+  return Array.from(recordsByStudentId.values());
+}
+
+async function getAttendanceUploadFile(file: File) {
+  if (!isTextBasedAttendanceFile(file)) {
+    return { file, normalizedRowsCount: 0 };
+  }
+
+  const fileText = await file.text();
+  const normalizedRows = getNormalizedAttendanceRowsFromText(fileText, file.name);
+
+  if (!normalizedRows.length) {
+    return { file, normalizedRowsCount: 0 };
+  }
+
+  const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
+  const normalizedFileName = file.name.replace(/\.[^.]+$/, "") || "attendance-import";
+
+  return {
+    file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
+    normalizedRowsCount: normalizedRows.length
+  };
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
@@ -118,7 +430,7 @@ function FileDropZone(props: {
         ref={inputRef}
         id="attendance-upload"
         type="file"
-        accept={getAcceptedAttendanceFileTypes()}
+        accept={getAttendanceUploadAccept()}
         onChange={handleInputChange}
         className="sr-only"
       />
@@ -128,7 +440,12 @@ function FileDropZone(props: {
       </div>
       <h2 className="mt-4 text-2xl font-black">Upload attendance file</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-        Drop an Excel, CSV, TXT, DOC, or DOCX file here, or click this area to browse from your device.
+        Drop an Excel workbook (.xlsx/.xls), CSV, TXT, DOC, or DOCX file here, or click this area to browse from
+        your device.
+      </p>
+      <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">
+        The importer searches for Student ID, Full name/Name, Year level, College, Program, and Institution,
+        including QR scanner exports where these values are inside one messy text column.
       </p>
 
       {props.file ? (
@@ -291,9 +608,14 @@ export default function AttendancePage() {
     setSaved(null);
 
     try {
-      const result = await previewAttendanceFile(file);
+      const upload = await getAttendanceUploadFile(file);
+      const result = await previewAttendanceFile(upload.file);
       setPreview(result ?? null);
-      toast.success("Attendance file preview generated.");
+      toast.success(
+        upload.normalizedRowsCount
+          ? `Attendance preview generated from ${upload.normalizedRowsCount} extracted student row/s.`
+          : "Attendance file preview generated."
+      );
     } catch (previewError) {
       const message = previewError instanceof Error ? previewError.message : "Unable to preview attendance file.";
       setPreview(null);
@@ -315,11 +637,18 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const result = await saveAttendanceFile(file);
+      const upload = await getAttendanceUploadFile(file);
+      const result = await saveAttendanceFile(upload.file);
       setSaved(result ?? null);
       setPreview(result ?? null);
       await loadRecords();
-      toast.success(`Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`);
+      toast.success(
+        upload.normalizedRowsCount
+          ? `Attendance imported successfully from ${upload.normalizedRowsCount} extracted student row/s. Created ${
+              result?.createdFines.length ?? 0
+            } fine record/s.`
+          : `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`
+      );
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Unable to save attendance file.";
       setError(message);
@@ -542,6 +871,22 @@ export default function AttendancePage() {
                 {isSaving ? "Saving..." : "Save Import"}
               </Button>
             </div>
+
+            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <h2 className="text-lg font-black">Upload field search</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                The upload will look for the most important identifiers first, especially Student ID and Full name,
+                then use the other available student details when they are found.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {ATTENDANCE_SEARCH_FIELDS.map((field) => (
+                  <div key={field.label} className="rounded-2xl border bg-background p-3">
+                    <p className="text-sm font-black">{field.label}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{field.aliases.join(", ")}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
 
             <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
               <h2 className="text-xl font-black">
