@@ -1,9 +1,92 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 import { login } from "../../api/auth";
 import { LogoMark, navigateTo } from "../../components/layout";
+
+const AUTH_STORAGE_KEYS = [
+  "penalyze.auth.session",
+  "penalyze.auth.token",
+  "penalyze.session",
+  "penalyze.token",
+  "auth.session",
+  "auth.token",
+  "session",
+  "token",
+  "accessToken"
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getExpiryTime(value: unknown) {
+  if (typeof value === "number") {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsedNumericValue = Number(value);
+    if (!Number.isNaN(parsedNumericValue)) {
+      return parsedNumericValue < 1_000_000_000_000 ? parsedNumericValue * 1000 : parsedNumericValue;
+    }
+
+    const parsedDateValue = new Date(value).getTime();
+    if (!Number.isNaN(parsedDateValue)) return parsedDateValue;
+  }
+
+  return null;
+}
+
+function hasUsableSessionPayload(payload: Record<string, unknown>) {
+  const expiresAt = payload.expiresAt ?? payload.expires_at ?? payload.exp;
+  const expiryTime = getExpiryTime(expiresAt);
+
+  if (expiryTime !== null && expiryTime <= Date.now()) return false;
+
+  return Boolean(
+    payload.token ||
+      payload.accessToken ||
+      payload.access_token ||
+      payload.jwt ||
+      payload.user ||
+      payload.email ||
+      payload.id
+  );
+}
+
+function hasStoredSessionValue(value: string | null) {
+  if (!value) return false;
+
+  const cleanValue = value.trim();
+  if (!cleanValue || cleanValue === "null" || cleanValue === "undefined") return false;
+
+  try {
+    const parsedValue: unknown = JSON.parse(cleanValue);
+
+    if (typeof parsedValue === "string") return parsedValue.trim().length > 0;
+    if (!isRecord(parsedValue)) return Boolean(parsedValue);
+
+    return hasUsableSessionPayload(parsedValue);
+  } catch {
+    return true;
+  }
+}
+
+function hasCurrentSession() {
+  if (typeof window === "undefined") return false;
+
+  const storageAreas: Storage[] = [window.localStorage, window.sessionStorage];
+
+  return storageAreas.some((storageArea) => {
+    try {
+      return AUTH_STORAGE_KEYS.some((key) => hasStoredSessionValue(storageArea.getItem(key)));
+    } catch {
+      return false;
+    }
+  });
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,7 +94,17 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (hasCurrentSession()) {
+      navigateTo("/dashboard");
+      return;
+    }
+
+    setIsCheckingSession(false);
+  }, []);
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,6 +120,14 @@ export default function LoginPage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (isCheckingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/40 text-foreground">
+        <LogoMark textClassName="text-3xl" />
+      </main>
+    );
   }
 
   return (

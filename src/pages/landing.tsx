@@ -1,17 +1,100 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import { getStudentAttendanceRecords } from "../api/attendance";
 import type { AttendanceRecord } from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
-import { LogoMark } from "../components/layout";
+import { LogoMark, navigateTo } from "../components/layout";
 
 type LookupState = {
   attendance: AttendanceRecord[];
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
 };
+
+const AUTH_STORAGE_KEYS = [
+  "penalyze.auth.session",
+  "penalyze.auth.token",
+  "penalyze.session",
+  "penalyze.token",
+  "auth.session",
+  "auth.token",
+  "session",
+  "token",
+  "accessToken"
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getExpiryTime(value: unknown) {
+  if (typeof value === "number") {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsedNumericValue = Number(value);
+    if (!Number.isNaN(parsedNumericValue)) {
+      return parsedNumericValue < 1_000_000_000_000 ? parsedNumericValue * 1000 : parsedNumericValue;
+    }
+
+    const parsedDateValue = new Date(value).getTime();
+    if (!Number.isNaN(parsedDateValue)) return parsedDateValue;
+  }
+
+  return null;
+}
+
+function hasUsableSessionPayload(payload: Record<string, unknown>) {
+  const expiresAt = payload.expiresAt ?? payload.expires_at ?? payload.exp;
+  const expiryTime = getExpiryTime(expiresAt);
+
+  if (expiryTime !== null && expiryTime <= Date.now()) return false;
+
+  return Boolean(
+    payload.token ||
+      payload.accessToken ||
+      payload.access_token ||
+      payload.jwt ||
+      payload.user ||
+      payload.email ||
+      payload.id
+  );
+}
+
+function hasStoredSessionValue(value: string | null) {
+  if (!value) return false;
+
+  const cleanValue = value.trim();
+  if (!cleanValue || cleanValue === "null" || cleanValue === "undefined") return false;
+
+  try {
+    const parsedValue: unknown = JSON.parse(cleanValue);
+
+    if (typeof parsedValue === "string") return parsedValue.trim().length > 0;
+    if (!isRecord(parsedValue)) return Boolean(parsedValue);
+
+    return hasUsableSessionPayload(parsedValue);
+  } catch {
+    return true;
+  }
+}
+
+function hasCurrentSession() {
+  if (typeof window === "undefined") return false;
+
+  const storageAreas: Storage[] = [window.localStorage, window.sessionStorage];
+
+  return storageAreas.some((storageArea) => {
+    try {
+      return AUTH_STORAGE_KEYS.some((key) => hasStoredSessionValue(storageArea.getItem(key)));
+    } catch {
+      return false;
+    }
+  });
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -100,7 +183,17 @@ export default function LandingPage() {
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [searchedId, setSearchedId] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (hasCurrentSession()) {
+      navigateTo("/dashboard");
+      return;
+    }
+
+    setIsCheckingSession(false);
+  }, []);
 
   const totalAbsences = useMemo(() => {
     return lookup ? getTotalAbsences(lookup.attendance) : 0;
@@ -159,6 +252,14 @@ export default function LandingPage() {
     } finally {
       setIsSearching(false);
     }
+  }
+
+  if (isCheckingSession) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <LogoMark textClassName="text-2xl" />
+      </main>
+    );
   }
 
   return (
