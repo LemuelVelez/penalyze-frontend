@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { SyntheticEvent } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { register } from "../../api/auth";
 import type { AuthSession, RegisterInput } from "../../api/auth";
@@ -12,6 +13,7 @@ export default function UsersPage() {
     role: "admin"
   });
   const [createdUsers, setCreatedUsers] = useState<AuthSession["user"][]>([]);
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +22,7 @@ export default function UsersPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setIsSubmitting(true);
@@ -31,6 +33,7 @@ export default function UsersPage() {
       const session = await register(form, false);
       setCreatedUsers((current) => [session.user, ...current]);
       setForm({ name: "", email: "", password: "", role: "admin" });
+      setShowPassword(false);
       setMessage("User account created successfully.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create user.");
@@ -89,15 +92,30 @@ export default function UsersPage() {
                 <label htmlFor="password" className="text-sm font-bold">
                   Password
                 </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={form.password}
-                  onChange={(event) => updateForm("password", event.target.value)}
-                  className="mt-2 min-h-12 w-full rounded-2xl border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
-                  placeholder="At least 6 characters"
-                  required
-                />
+                <div className="relative mt-2">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(event) => updateForm("password", event.target.value)}
+                    className="min-h-12 w-full rounded-2xl border bg-background px-4 pr-12 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
+                    placeholder="At least 6 characters"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    className="absolute inset-y-0 right-3 inline-flex items-center justify-center px-2 text-muted-foreground transition hover:text-foreground focus:outline-none"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-5" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-5" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {error ? (
