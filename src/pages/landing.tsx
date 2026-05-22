@@ -3,13 +3,14 @@ import type { FormEvent } from "react";
 
 import { getStudentAttendanceRecords } from "../api/attendance";
 import type { AttendanceRecord } from "../api/attendance";
-import { getStudentFines } from "../api/fines";
-import type { FineRecord } from "../api/fines";
+import { getStudentFines, matchPenalty } from "../api/fines";
+import type { FineRecord, PenaltyRecord } from "../api/fines";
 import { LogoMark } from "../components/layout";
 
 type LookupState = {
   attendance: AttendanceRecord[];
   fines: FineRecord[];
+  fallbackFine: FineRecord | null;
 };
 
 function formatDate(value?: string | null) {
@@ -39,9 +40,59 @@ function statusBadge(status: FineRecord["status"]) {
   );
 }
 
-function formatAbsenceCount(value: number, useTenPlusFallback: boolean) {
-  if (useTenPlusFallback && Number(value || 0) <= 0) return "10+";
-  return String(value ?? 0);
+function formatAbsenceCount(value: number, forceTenPlus = false) {
+  const numericValue = Number(value || 0);
+
+  if (forceTenPlus || numericValue >= 10) return "10+";
+
+  return String(numericValue);
+}
+
+function getTotalAbsences(attendance: AttendanceRecord[]) {
+  return attendance.reduce((total, row) => total + Number(row.no_of_absences || 0), 0);
+}
+
+function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
+  const total = getTotalAbsences(attendance);
+
+  if (!attendance.length || total <= 0) return 10;
+
+  return total;
+}
+
+function isFallbackFine(fine: FineRecord) {
+  return fine.id.startsWith("fallback-fine-");
+}
+
+async function resolveFallbackPenalty(noOfAbsences: number) {
+  try {
+    return await matchPenalty(noOfAbsences);
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackFine(
+  studentId: string,
+  attendance: AttendanceRecord[],
+  noOfAbsences: number,
+  penalty: PenaltyRecord | null
+): FineRecord {
+  const latestAttendance = attendance[0];
+  const now = new Date().toISOString();
+
+  return {
+    id: `fallback-fine-${studentId}-${noOfAbsences}`,
+    attendance_record_id: latestAttendance?.id ?? null,
+    penalty_id: penalty?.id ?? null,
+    student_id: latestAttendance?.student_id ?? studentId,
+    name: latestAttendance?.name ?? "Student record pending",
+    no_of_absences: noOfAbsences,
+    prescribed_penalty: penalty?.prescribed_penalty ?? "No prescribed penalty configured.",
+    status: "unpaid",
+    created_at: String(latestAttendance?.created_at ?? now),
+    updated_at: String(latestAttendance?.updated_at ?? latestAttendance?.created_at ?? now)
+  };
 }
 
 export default function LandingPage() {
@@ -52,17 +103,23 @@ export default function LandingPage() {
   const [error, setError] = useState("");
 
   const totalAbsences = useMemo(() => {
-    return lookup?.attendance.reduce((total, row) => total + Number(row.no_of_absences || 0), 0) ?? 0;
+    return lookup ? getTotalAbsences(lookup.attendance) : 0;
+  }, [lookup]);
+
+  const displayedFines = useMemo(() => {
+    if (!lookup) return [];
+    return lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines;
   }, [lookup]);
 
   const unpaidFines = useMemo(() => {
-    return lookup?.fines.filter((fine) => fine.status === "unpaid").length ?? 0;
-  }, [lookup]);
+    return displayedFines.filter((fine) => fine.status === "unpaid").length;
+  }, [displayedFines]);
 
-  const zeroOrNoResultMeansTenPlus = Boolean(
-    lookup && lookup.fines.length === 0 && (lookup.attendance.length === 0 || totalAbsences === 0)
-  );
-  const totalAbsencesLabel = zeroOrNoResultMeansTenPlus ? "10+" : String(totalAbsences);
+  const fallbackFineActive = Boolean(lookup?.fallbackFine);
+  const fallbackFineUsesTenPlus = Boolean(lookup?.fallbackFine && lookup.fallbackFine.no_of_absences >= 10);
+  const totalAbsencesLabel = lookup?.fallbackFine
+    ? formatAbsenceCount(lookup.fallbackFine.no_of_absences, fallbackFineUsesTenPlus)
+    : formatAbsenceCount(totalAbsences);
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,7 +141,18 @@ export default function LandingPage() {
         getStudentFines(cleanStudentId)
       ]);
 
-      setLookup({ attendance, fines });
+      const fallbackAbsenceCount = getFallbackAbsenceCount(attendance);
+      const shouldBuildFallbackFine = fines.length === 0;
+      const fallbackFine = shouldBuildFallbackFine
+        ? buildFallbackFine(
+            cleanStudentId,
+            attendance,
+            fallbackAbsenceCount,
+            await resolveFallbackPenalty(fallbackAbsenceCount)
+          )
+        : null;
+
+      setLookup({ attendance, fines, fallbackFine });
     } catch (searchError) {
       setLookup(null);
       setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
@@ -179,20 +247,22 @@ export default function LandingPage() {
               <div className="rounded-2xl border bg-card px-5 py-4">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Total absences</p>
                 <p className="text-2xl font-black">{totalAbsencesLabel}</p>
-                {zeroOrNoResultMeansTenPlus ? (
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground">Zero/no result means 10+ absences.</p>
+                {fallbackFineActive ? (
+                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                    Computed from the configured penalty table.
+                  </p>
                 ) : null}
               </div>
               <div className="rounded-2xl border bg-card px-5 py-4">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Unpaid fines</p>
-                <p className="text-2xl font-black">{zeroOrNoResultMeansTenPlus ? "Review" : unpaidFines}</p>
+                <p className="text-2xl font-black">{unpaidFines}</p>
               </div>
             </div>
           </div>
 
-          {zeroOrNoResultMeansTenPlus ? (
+          {fallbackFineActive ? (
             <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
-              No fine record or zero-absence result was returned. This search is treated as 10 or more absences.
+              No saved fine record was returned. A computed unpaid fine is shown using the configured penalty table.
             </div>
           ) : null}
 
@@ -215,7 +285,7 @@ export default function LandingPage() {
                           <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
                         </div>
                         <p className="text-sm font-bold">
-                          {formatAbsenceCount(row.no_of_absences, zeroOrNoResultMeansTenPlus)} absence/s
+                          {formatAbsenceCount(row.no_of_absences)} absence/s
                         </p>
                       </div>
                       <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
@@ -241,7 +311,7 @@ export default function LandingPage() {
                           <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
                           <td className="px-3 py-3">{row.name}</td>
                           <td className="px-3 py-3">
-                            {formatAbsenceCount(row.no_of_absences, zeroOrNoResultMeansTenPlus)}
+                            {formatAbsenceCount(row.no_of_absences)}
                           </td>
                           <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
                         </tr>
@@ -260,19 +330,21 @@ export default function LandingPage() {
               <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-xl font-black">Fines</h3>
                 <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                  {lookup.fines.length} record/s
+                  {displayedFines.length} record/s
                 </span>
               </div>
 
-              {lookup.fines.length ? (
+              {displayedFines.length ? (
                 <div className="space-y-3">
-                  {lookup.fines.map((fine) => (
+                  {displayedFines.map((fine) => (
                     <article key={fine.id} className="rounded-2xl border bg-background p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-sm font-black">{fine.prescribed_penalty}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {fine.no_of_absences} absence/s • {formatDate(fine.created_at)}
+                            {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} absence/s •{" "}
+                            {formatDate(fine.created_at)}
+                            {isFallbackFine(fine) ? " • computed" : ""}
                           </p>
                         </div>
                         {statusBadge(fine.status)}
@@ -282,7 +354,7 @@ export default function LandingPage() {
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No fine record found. Zero/no result means 10 or more absences.
+                  No fine record found.
                 </div>
               )}
             </div>
