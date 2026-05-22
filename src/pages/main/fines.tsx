@@ -85,7 +85,7 @@ function DeletePenaltyConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" disabled={props.isDeleting} className={props.className}>
+        <Button type="button" variant="destructiveOutline" disabled={props.isDeleting} className={props.className}>
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -385,15 +385,16 @@ export default function FinesPage() {
             <Button
               type="submit"
               disabled={isLoadingFines}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
               {isLoadingFines ? "Loading..." : "Apply Filter"}
             </Button>
             <Button
               type="button"
+              variant="outline"
               disabled={isLoadingFines}
               onClick={handleResetFilters}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-background px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
               Reset
             </Button>
@@ -414,9 +415,10 @@ export default function FinesPage() {
             </div>
             <Button
               type="button"
+              variant="outline"
               disabled={isLoadingFines}
               onClick={loadFines}
-              className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
             >
               Refresh Fines
             </Button>
@@ -533,9 +535,10 @@ export default function FinesPage() {
             </div>
             <Button
               type="button"
+              variant="outline"
               disabled={seedingPenalties}
               onClick={handleSeedPenalties}
-              className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
             >
               {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
             </Button>
@@ -559,15 +562,16 @@ export default function FinesPage() {
             <Button
               type="submit"
               disabled={savingPenalty}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-2"
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black lg:col-span-2"
             >
               {savingPenalty ? "Saving..." : editingPenaltyId ? "Update" : "Create"}
             </Button>
             <Button
               type="button"
+              variant="outline"
               onClick={handleCancelPenaltyEdit}
               disabled={savingPenalty && !editingPenaltyId}
-              className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-card px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-1"
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black lg:col-span-1"
             >
               Clear
             </Button>
@@ -593,8 +597,9 @@ export default function FinesPage() {
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                     <Button
                       type="button"
+                      variant="outline"
                       onClick={() => handleEditPenalty(penalty)}
-                      className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-muted"
+                      className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
                     >
                       Edit
                     </Button>
@@ -602,7 +607,7 @@ export default function FinesPage() {
                       penalty={penalty}
                       isDeleting={deletingPenaltyId === penalty.id}
                       onConfirm={handleDeletePenalty}
-                      className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
                     />
                   </div>
                 </article>
@@ -637,8 +642,9 @@ export default function FinesPage() {
                         <div className="flex gap-2">
                           <Button
                             type="button"
+                            variant="outline"
                             onClick={() => handleEditPenalty(penalty)}
-                            className="inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted"
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                           >
                             Edit
                           </Button>
@@ -646,7 +652,7 @@ export default function FinesPage() {
                       penalty={penalty}
                       isDeleting={deletingPenaltyId === penalty.id}
                       onConfirm={handleDeletePenalty}
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                     />
                         </div>
                       </td>

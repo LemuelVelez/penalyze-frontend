@@ -143,9 +143,13 @@
     font: inherit;
   }
 
-  [role="dialog"] {
+  [role="dialog"]:not([data-slot="sheet-content"]) {
     max-height: 95svh;
     overflow: auto;
+  }
+
+  [data-slot="sheet-content"] {
+    max-height: none;
   }
 }
 

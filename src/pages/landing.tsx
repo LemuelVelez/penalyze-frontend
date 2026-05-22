@@ -6,6 +6,7 @@ import type { AttendanceRecord } from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
 import { LogoMark, navigateTo } from "../components/layout";
+import { Button } from "../components/ui/button";
 
 type LookupState = {
   attendance: AttendanceRecord[];
@@ -270,12 +271,9 @@ export default function LandingPage() {
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
             </a>
-            <a
-              href="/login"
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border bg-card px-5 py-2 text-sm font-bold shadow-sm transition hover:bg-accent"
-            >
-              Admin Login
-            </a>
+            <Button asChild variant="outline" className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold">
+              <a href="/login">Admin Login</a>
+            </Button>
           </header>
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
@@ -304,13 +302,9 @@ export default function LandingPage() {
                 placeholder="Enter Student ID"
                 className="min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 sm:flex-1"
               />
-              <button
-                type="submit"
-                disabled={isSearching}
-                className="inline-flex min-h-12 w-full items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-              >
+              <Button type="submit" disabled={isSearching} className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:w-auto">
                 {isSearching ? "Searching..." : "Search Records"}
-              </button>
+              </Button>
             </form>
 
             {error ? (

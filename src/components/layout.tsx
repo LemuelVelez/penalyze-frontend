@@ -147,7 +147,7 @@ export default function AppLayout(props: LayoutProps) {
               </Button>
             </SheetTrigger>
 
-            <SheetContent side="right" className="w-80 px-5 py-6 sm:px-6 lg:hidden">
+            <SheetContent side="right" className="h-svh min-h-svh w-80 px-5 py-6 sm:px-6 lg:hidden">
               <SheetHeader className="mb-6 text-left">
                 <SheetTitle>
                   <LogoMark textClassName="text-xl" />

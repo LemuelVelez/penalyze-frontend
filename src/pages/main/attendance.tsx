@@ -150,7 +150,7 @@ function DeleteAttendanceConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructive" disabled={props.isDeleting} className={props.className}>
+        <Button type="button" variant="destructiveOutline" disabled={props.isDeleting} className={props.className}>
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -694,8 +694,9 @@ export default function AttendancePage() {
                     <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                       <Button
                         type="button"
+                        variant="outline"
                         onClick={() => handleEditRecord(record)}
-                        className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-muted"
+                        className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
                       >
                         Edit
                       </Button>
@@ -703,7 +704,7 @@ export default function AttendancePage() {
                         record={record}
                         isDeleting={deletingRecordId === record.id}
                         onConfirm={handleDeleteRecord}
-                        className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
                       />
                     </div>
                   </article>
@@ -742,8 +743,9 @@ export default function AttendancePage() {
                           <div className="flex gap-2">
                             <Button
                               type="button"
+                              variant="outline"
                               onClick={() => handleEditRecord(record)}
-                              className="inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted"
+                              className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                             >
                               Edit
                             </Button>
@@ -751,7 +753,7 @@ export default function AttendancePage() {
                               record={record}
                               isDeleting={deletingRecordId === record.id}
                               onConfirm={handleDeleteRecord}
-                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                             />
                           </div>
                         </td>

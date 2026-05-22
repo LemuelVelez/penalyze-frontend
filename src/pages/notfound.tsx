@@ -1,4 +1,5 @@
 import { LogoMark, navigateTo } from "../components/layout";
+import { Button } from "../components/ui/button";
 
 export default function NotFoundPage() {
   return (
@@ -13,20 +14,17 @@ export default function NotFoundPage() {
           The page you are trying to open does not exist or may have been moved.
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <button
-            type="button"
-            onClick={() => navigateTo("/")}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-5 py-2 text-sm font-black text-primary-foreground transition hover:opacity-90"
-          >
+          <Button type="button" onClick={() => navigateTo("/")} className="min-h-11 rounded-xl px-5 py-2 text-sm font-black">
             Go to student lookup
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigateTo("/dashboard")}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border bg-card px-5 py-2 text-sm font-black transition hover:bg-accent"
+            className="min-h-11 rounded-xl px-5 py-2 text-sm font-black"
           >
             Go to dashboard
-          </button>
+          </Button>
         </div>
       </section>
     </main>

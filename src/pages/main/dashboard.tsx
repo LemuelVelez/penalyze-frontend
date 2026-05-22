@@ -4,6 +4,7 @@ import { listAttendanceImports, listAttendanceRecords } from "../../api/attendan
 import type { AttendanceImportRecord, AttendanceRecord } from "../../api/attendance";
 import { getFineSummary } from "../../api/fines";
 import type { FineSummary } from "../../api/fines";
+import { Button } from "../../components/ui/button";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -71,14 +72,15 @@ export default function DashboardPage() {
               Monitor attendance imports, unpaid fines, paid records, and waived penalties in one responsive view.
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={loadDashboard}
             disabled={isLoading}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border bg-card px-5 py-2 text-sm font-black shadow-sm transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-11 rounded-xl px-5 py-2 text-sm font-black"
           >
             {isLoading ? "Loading..." : "Refresh"}
-          </button>
+          </Button>
         </div>
 
         {error ? (
