@@ -37,6 +37,8 @@ export type AttendanceImportInput = {
   remarks?: string;
 };
 
+export type ManualAttendanceInput = AttendanceImportInput;
+
 export type ParsedAttendanceRow = AttendanceImportInput & {
   rowNumber: number;
   errors: string[];
@@ -63,6 +65,11 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
     prescribed_penalty: string;
     status: string;
   }>;
+};
+
+export type ManualAttendanceSaveResult = {
+  record: AttendanceRecord;
+  fine: SavedAttendanceImportResult["createdFines"][number] | null;
 };
 
 type ApiEnvelope<T> = {
@@ -214,6 +221,15 @@ export async function saveAttendanceRows(input: {
   rows: ParsedAttendanceRow[];
 }) {
   const response = await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return response.data;
+}
+
+export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
+  const response = await apiRequest<ManualAttendanceSaveResult>("/api/attendance/manual", {
     method: "POST",
     body: JSON.stringify(input)
   });

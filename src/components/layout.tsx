@@ -3,6 +3,18 @@ import type { ReactNode } from "react";
 import { Menu } from "lucide-react";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -36,6 +48,29 @@ export function LogoMark(props: { className?: string; textClassName?: string }) 
   );
 }
 
+function LogoutConfirmation(props: {
+  trigger: ReactNode;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{props.trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Logout confirmation</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to logout? You will need to sign in again to access the dashboard.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={props.onConfirm}>Logout</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function AppLayout(props: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -62,51 +97,54 @@ export default function AppLayout(props: LayoutProps) {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => navigateTo("/dashboard")}
-            className="text-left"
+            className="h-auto justify-start px-0 text-left hover:bg-transparent"
             aria-label="Go to dashboard"
           >
             <LogoMark textClassName="text-xl" />
-          </button>
+          </Button>
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Dashboard navigation">
             {navItems.map((item) => {
               const active = props.currentPath === item.path;
 
               return (
-                <button
+                <Button
                   key={item.path}
                   type="button"
+                  variant={active ? "default" : "outline"}
                   onClick={() => navigateTo(item.path)}
-                  className={`min-h-10 rounded-xl px-4 py-2 text-sm font-black transition ${
-                    active ? "bg-primary text-primary-foreground" : "border bg-card hover:bg-accent"
-                  }`}
+                  className="min-h-10 px-4 py-2"
                 >
                   {item.label}
-                </button>
+                </Button>
               );
             })}
           </nav>
 
-          <button
-            type="button"
-            onClick={props.onLogout}
-            className="hidden min-h-10 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-accent lg:inline-flex"
-          >
-            Logout
-          </button>
+          <LogoutConfirmation
+            onConfirm={handleLogout}
+            trigger={
+              <Button type="button" variant="outline" className="hidden min-h-10 px-4 py-2 text-xs lg:inline-flex">
+                Logout
+              </Button>
+            }
+          />
 
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
-              <button
+              <Button
                 type="button"
-                className="inline-flex size-11 items-center justify-center rounded-xl border bg-card text-foreground transition hover:bg-accent lg:hidden"
+                variant="outline"
+                size="icon"
+                className="inline-flex size-11 lg:hidden"
                 aria-label="Open navigation menu"
               >
                 <Menu className="size-5" aria-hidden="true" />
-              </button>
+              </Button>
             </SheetTrigger>
 
             <SheetContent side="right" className="w-80 px-5 py-6 sm:px-6 lg:hidden">
@@ -121,26 +159,26 @@ export default function AppLayout(props: LayoutProps) {
                   const active = props.currentPath === item.path;
 
                   return (
-                    <button
+                    <Button
                       key={item.path}
                       type="button"
+                      variant={active ? "default" : "outline"}
                       onClick={() => handleNavigate(item.path)}
-                      className={`min-h-12 rounded-2xl px-4 py-3 text-left text-sm font-black transition ${
-                        active ? "bg-primary text-primary-foreground" : "border bg-card hover:bg-accent"
-                      }`}
+                      className="min-h-12 justify-start rounded-2xl px-4 py-3 text-left"
                     >
                       {item.label}
-                    </button>
+                    </Button>
                   );
                 })}
 
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="mt-3 inline-flex min-h-12 items-center justify-center rounded-2xl border bg-card px-4 py-3 text-sm font-black transition hover:bg-accent"
-                >
-                  Logout
-                </button>
+                <LogoutConfirmation
+                  onConfirm={handleLogout}
+                  trigger={
+                    <Button type="button" variant="outline" className="mt-3 min-h-12 rounded-2xl px-4 py-3">
+                      Logout
+                    </Button>
+                  }
+                />
               </nav>
             </SheetContent>
           </Sheet>

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 
 import { isAuthenticated, logout } from "./api/auth";
 import AppLayout, { navigateTo } from "./components/layout";
+import { Toaster } from "./components/ui/sonner";
 import LoginPage from "./pages/auth/login";
 import AttendancePage from "./pages/main/attendance";
 import DashboardPage from "./pages/main/dashboard";
@@ -65,17 +67,27 @@ export default function App() {
     logout();
     setAuthenticated(false);
     navigateTo("/");
+    toast.success("Logged out successfully.");
   }
 
-  if (!matchedRoute) return <NotFoundPage />;
+  const page = (() => {
+    if (!matchedRoute) return <NotFoundPage />;
 
-  if (matchedRoute.requiresAuth && !authenticated) {
-    return <LoginPage />;
-  }
+    if (matchedRoute.requiresAuth && !authenticated) {
+      return <LoginPage />;
+    }
+
+    return (
+      <AppLayout currentPath={currentPath} authenticated={authenticated} onLogout={handleLogout}>
+        {matchedRoute.element}
+      </AppLayout>
+    );
+  })();
 
   return (
-    <AppLayout currentPath={currentPath} authenticated={authenticated} onLogout={handleLogout}>
-      {matchedRoute.element}
-    </AppLayout>
+    <>
+      {page}
+      <Toaster />
+    </>
   );
 }

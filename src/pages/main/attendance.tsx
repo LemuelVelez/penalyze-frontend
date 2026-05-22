@@ -1,17 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent } from "react";
+import type { ChangeEvent, DragEvent, FormEvent } from "react";
+import { toast } from "sonner";
 
 import {
   getAcceptedAttendanceFileTypes,
   listAttendanceRecords,
   previewAttendanceFile,
-  saveAttendanceFile
+  saveAttendanceFile,
+  saveManualAttendanceRecord
 } from "../../api/attendance";
 import type {
   AttendancePreviewResult,
   SavedAttendanceImportResult,
-  AttendanceRecord
+  AttendanceRecord,
+  ManualAttendanceInput
 } from "../../api/attendance";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { Textarea } from "../../components/ui/textarea";
+
+type ManualAttendanceFormState = {
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  noOfAbsences: string;
+  remarks: string;
+};
+
+const emptyManualAttendanceForm: ManualAttendanceFormState = {
+  studentId: "",
+  name: "",
+  yearLevel: "",
+  college: "",
+  program: "",
+  institution: "",
+  noOfAbsences: "0",
+  remarks: ""
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -62,7 +91,7 @@ function FileDropZone(props: {
   }
 
   return (
-    <label
+    <Label
       htmlFor="attendance-upload"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
@@ -71,7 +100,7 @@ function FileDropZone(props: {
         props.isDragging ? "border-primary bg-accent" : "border-border hover:border-primary/70 hover:bg-accent/40"
       }`}
     >
-      <input
+      <Input
         ref={inputRef}
         id="attendance-upload"
         type="file"
@@ -94,7 +123,7 @@ function FileDropZone(props: {
           <p className="mt-1 text-xs text-muted-foreground">{(props.file.size / 1024).toFixed(1)} KB</p>
         </div>
       ) : null}
-    </label>
+    </Label>
   );
 }
 
@@ -103,13 +132,19 @@ export default function AttendancePage() {
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingManual, setIsSavingManual] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
+
+  function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
+    setManualForm((current) => ({ ...current, [key]: value }));
+  }
 
   async function loadRecords() {
     setIsLoadingRecords(true);
@@ -119,7 +154,9 @@ export default function AttendancePage() {
       const rows = await listAttendanceRecords({ limit: 100, offset: 0 });
       setRecords(rows);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load attendance records.");
+      const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsLoadingRecords(false);
     }
@@ -128,6 +165,7 @@ export default function AttendancePage() {
   async function handlePreview() {
     if (!file) {
       setError("Please choose or drop a file first.");
+      toast.error("Please choose or drop a file first.");
       return;
     }
 
@@ -138,9 +176,12 @@ export default function AttendancePage() {
     try {
       const result = await previewAttendanceFile(file);
       setPreview(result ?? null);
+      toast.success("Attendance file preview generated.");
     } catch (previewError) {
+      const message = previewError instanceof Error ? previewError.message : "Unable to preview attendance file.";
       setPreview(null);
-      setError(previewError instanceof Error ? previewError.message : "Unable to preview attendance file.");
+      setError(message);
+      toast.error(message);
     } finally {
       setIsPreviewing(false);
     }
@@ -149,6 +190,7 @@ export default function AttendancePage() {
   async function handleSave() {
     if (!file) {
       setError("Please choose or drop a file first.");
+      toast.error("Please choose or drop a file first.");
       return;
     }
 
@@ -160,10 +202,72 @@ export default function AttendancePage() {
       setSaved(result ?? null);
       setPreview(result ?? null);
       await loadRecords();
+      toast.success(`Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save attendance file.");
+      const message = saveError instanceof Error ? saveError.message : "Unable to save attendance file.";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleManualSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const studentId = manualForm.studentId.trim();
+    const name = manualForm.name.trim();
+    const noOfAbsences = Number(manualForm.noOfAbsences);
+
+    if (!studentId) {
+      setError("Student ID is required.");
+      toast.error("Student ID is required.");
+      return;
+    }
+
+    if (!name) {
+      setError("Name is required.");
+      toast.error("Name is required.");
+      return;
+    }
+
+    if (!Number.isInteger(noOfAbsences) || noOfAbsences < 0) {
+      setError("No. of Absences must be zero or a positive whole number.");
+      toast.error("No. of Absences must be zero or a positive whole number.");
+      return;
+    }
+
+    const payload: ManualAttendanceInput = {
+      studentId,
+      name,
+      yearLevel: manualForm.yearLevel.trim(),
+      college: manualForm.college.trim(),
+      program: manualForm.program.trim(),
+      institution: manualForm.institution.trim(),
+      noOfAbsences,
+      remarks: manualForm.remarks.trim()
+    };
+
+    setIsSavingManual(true);
+    setError("");
+
+    try {
+      const result = await saveManualAttendanceRecord(payload);
+
+      if (result?.record) {
+        setRecords((current) => [result.record, ...current.filter((record) => record.id !== result.record.id)]);
+      } else {
+        await loadRecords();
+      }
+
+      setManualForm(emptyManualAttendanceForm);
+      toast.success(result?.fine ? "Manual attendance saved and fine generated." : "Manual attendance saved successfully.");
+    } catch (manualError) {
+      const message = manualError instanceof Error ? manualError.message : "Unable to save manual attendance.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSavingManual(false);
     }
   }
 
@@ -179,18 +283,19 @@ export default function AttendancePage() {
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Attendance import</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Upload and manage attendance</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Import attendance records through a responsive drag-and-drop file uploader. Preview rows first, then save
-              valid records and automatically generate fines for students with absences.
+              Import attendance records through a file uploader or manually encode attendance recorded on paper.
+              Saved records automatically generate fines for students with absences.
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={loadRecords}
             disabled={isLoadingRecords}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border bg-card px-5 py-2 text-sm font-black shadow-sm transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-11 rounded-xl px-5 py-2"
           >
             {isLoadingRecords ? "Loading..." : "Refresh Records"}
-          </button>
+          </Button>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-2">
@@ -208,23 +313,141 @@ export default function AttendancePage() {
             />
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={handlePreview}
                 disabled={isPreviewing || isSaving}
-                className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-card px-5 py-3 text-sm font-black shadow-sm transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-12 rounded-2xl px-5 py-3"
               >
                 {isPreviewing ? "Previewing..." : "Preview File"}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={handleSave}
                 disabled={isPreviewing || isSaving}
-                className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-5 py-3 text-sm font-black text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-12 rounded-2xl px-5 py-3"
               >
                 {isSaving ? "Saving..." : "Save Import"}
-              </button>
+              </Button>
             </div>
+
+            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <h2 className="text-xl font-black">Manual paper attendance</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Encode attendance records from paper forms when no file upload is available.
+              </p>
+
+              <form onSubmit={handleManualSubmit} className="mt-5 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <Label htmlFor="manual-student-id">Student ID</Label>
+                  <Input
+                    id="manual-student-id"
+                    value={manualForm.studentId}
+                    onChange={(event) => updateManualForm("studentId", event.target.value)}
+                    className="mt-2"
+                    placeholder="Student ID"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-name">Name</Label>
+                  <Input
+                    id="manual-name"
+                    value={manualForm.name}
+                    onChange={(event) => updateManualForm("name", event.target.value)}
+                    className="mt-2"
+                    placeholder="Full name"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-year-level">Year level</Label>
+                  <Input
+                    id="manual-year-level"
+                    value={manualForm.yearLevel}
+                    onChange={(event) => updateManualForm("yearLevel", event.target.value)}
+                    className="mt-2"
+                    placeholder="Year level"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-college">College</Label>
+                  <Input
+                    id="manual-college"
+                    value={manualForm.college}
+                    onChange={(event) => updateManualForm("college", event.target.value)}
+                    className="mt-2"
+                    placeholder="College"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-program">Program</Label>
+                  <Input
+                    id="manual-program"
+                    value={manualForm.program}
+                    onChange={(event) => updateManualForm("program", event.target.value)}
+                    className="mt-2"
+                    placeholder="Program"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-institution">Institution</Label>
+                  <Input
+                    id="manual-institution"
+                    value={manualForm.institution}
+                    onChange={(event) => updateManualForm("institution", event.target.value)}
+                    className="mt-2"
+                    placeholder="Institution"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="manual-absences">No. of Absences</Label>
+                  <Input
+                    id="manual-absences"
+                    type="number"
+                    min="0"
+                    value={manualForm.noOfAbsences}
+                    onChange={(event) => updateManualForm("noOfAbsences", event.target.value)}
+                    className="mt-2"
+                    placeholder="0"
+                    required
+                  />
+                </div>
+
+                <div className="lg:col-span-2">
+                  <Label htmlFor="manual-remarks">Remarks</Label>
+                  <Textarea
+                    id="manual-remarks"
+                    value={manualForm.remarks}
+                    onChange={(event) => updateManualForm("remarks", event.target.value)}
+                    className="mt-2"
+                    placeholder="Optional notes from the paper attendance record"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
+                  <Button type="submit" disabled={isSavingManual} className="min-h-12 rounded-2xl">
+                    {isSavingManual ? "Saving..." : "Save Manual Attendance"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSavingManual}
+                    onClick={() => setManualForm(emptyManualAttendanceForm)}
+                    className="min-h-12 rounded-2xl"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </form>
+            </section>
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
@@ -328,7 +551,7 @@ export default function AttendancePage() {
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Recent attendance records</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Latest imported attendance entries.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Latest uploaded and manually encoded attendance entries.</p>
             </div>
           </div>
 
@@ -347,6 +570,9 @@ export default function AttendancePage() {
                     <p className="mt-3 text-sm text-muted-foreground">
                       {record.program || "No program"} • {formatDate(record.created_at)}
                     </p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {record.import_id ? "File import" : "Manual paper record"}
+                    </p>
                   </article>
                 ))}
               </div>
@@ -356,6 +582,7 @@ export default function AttendancePage() {
                   <thead className="border-b text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="px-3 py-3">Date</th>
+                      <th className="px-3 py-3">Source</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Program</th>
@@ -367,6 +594,11 @@ export default function AttendancePage() {
                     {records.map((record) => (
                       <tr key={record.id} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
+                        <td className="px-3 py-3">
+                          <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
+                            {record.import_id ? "Import" : "Manual"}
+                          </span>
+                        </td>
                         <td className="px-3 py-3">{record.student_id}</td>
                         <td className="px-3 py-3">{record.name}</td>
                         <td className="px-3 py-3">{record.program || "—"}</td>

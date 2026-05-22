@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { toast } from "sonner";
 
 import {
   createPenalty,
@@ -11,6 +12,19 @@ import {
   updatePenalty
 } from "../../api/fines";
 import type { FineRecord, FineStatus, PenaltyRecord } from "../../api/fines";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "../../components/ui/alert-dialog";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
 type StatusFilter = FineStatus | "all";
@@ -61,6 +75,42 @@ function getFineStatusLabel(status: FineStatus) {
   return fineStatusOptions.find((item) => item.value === status)?.label ?? status.toUpperCase();
 }
 
+
+function DeletePenaltyConfirmation(props: {
+  penalty: PenaltyRecord;
+  isDeleting: boolean;
+  onConfirm: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="destructive" disabled={props.isDeleting} className={props.className}>
+          {props.isDeleting ? "Deleting..." : "Delete"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete penalty rule?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete the penalty rule for {props.penalty.no_of_absences} absence/s. This action
+            cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => props.onConfirm(props.penalty.id)}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Delete Penalty
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function FinesPage() {
   const [fines, setFines] = useState<FineRecord[]>([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
@@ -94,7 +144,9 @@ export default function FinesPage() {
 
       setFines(rows);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load fines.");
+      const message = loadError instanceof Error ? loadError.message : "Unable to load fines.";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsLoadingFines(false);
     }
@@ -108,7 +160,9 @@ export default function FinesPage() {
       const rows = await listPenalties();
       setPenalties(rows);
     } catch (loadError) {
-      setPenaltyError(loadError instanceof Error ? loadError.message : "Unable to load penalties.");
+      const message = loadError instanceof Error ? loadError.message : "Unable to load penalties.";
+      setPenaltyError(message);
+      toast.error(message);
     } finally {
       setIsLoadingPenalties(false);
     }
@@ -136,7 +190,9 @@ export default function FinesPage() {
       });
       setFines(rows);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load fines.");
+      const message = loadError instanceof Error ? loadError.message : "Unable to load fines.";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsLoadingFines(false);
     }
@@ -150,9 +206,12 @@ export default function FinesPage() {
       const updated = await updateFineStatus(id, nextStatus);
       if (updated) {
         setFines((current) => current.map((fine) => (fine.id === id ? updated : fine)));
+        toast.success("Fine status updated successfully.");
       }
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Unable to update fine status.");
+      const message = updateError instanceof Error ? updateError.message : "Unable to update fine status.";
+      setError(message);
+      toast.error(message);
     } finally {
       setUpdatingId("");
     }
@@ -168,15 +227,21 @@ export default function FinesPage() {
 
     if (!Number.isInteger(noOfAbsences) || noOfAbsences <= 0) {
       setPenaltyError("No. of Absences must be a positive whole number.");
+      toast.error("No. of Absences must be a positive whole number.");
       setSavingPenalty(false);
       return;
     }
 
     if (!prescribedPenalty) {
       setPenaltyError("Prescribed penalty is required.");
+      toast.error("Prescribed penalty is required.");
       setSavingPenalty(false);
       return;
     }
+
+    const successMessage = editingPenaltyId
+      ? "Penalty rule updated successfully."
+      : "Penalty rule created successfully.";
 
     try {
       const saved = editingPenaltyId
@@ -197,8 +262,11 @@ export default function FinesPage() {
       setEditingPenaltyId("");
       setPenaltyForm(emptyPenaltyForm);
       await loadFines();
+      toast.success(successMessage);
     } catch (saveError) {
-      setPenaltyError(saveError instanceof Error ? saveError.message : "Unable to save penalty.");
+      const message = saveError instanceof Error ? saveError.message : "Unable to save penalty.";
+      setPenaltyError(message);
+      toast.error(message);
     } finally {
       setSavingPenalty(false);
     }
@@ -227,8 +295,11 @@ export default function FinesPage() {
       await deletePenalty(id);
       setPenalties((current) => current.filter((penalty) => penalty.id !== id));
       await loadFines();
+      toast.success("Penalty rule deleted successfully.");
     } catch (deleteError) {
-      setPenaltyError(deleteError instanceof Error ? deleteError.message : "Unable to delete penalty.");
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete penalty.";
+      setPenaltyError(message);
+      toast.error(message);
     } finally {
       setDeletingPenaltyId("");
     }
@@ -242,8 +313,11 @@ export default function FinesPage() {
       const rows = await seedDefaultPenalties();
       setPenalties(rows.sort((first, second) => first.no_of_absences - second.no_of_absences));
       await loadFines();
+      toast.success("Default penalty rules seeded successfully.");
     } catch (seedError) {
-      setPenaltyError(seedError instanceof Error ? seedError.message : "Unable to seed default penalties.");
+      const message = seedError instanceof Error ? seedError.message : "Unable to seed default penalties.";
+      setPenaltyError(message);
+      toast.error(message);
     } finally {
       setSeedingPenalties(false);
     }
@@ -287,7 +361,7 @@ export default function FinesPage() {
           onSubmit={handleFilter}
           className="flex flex-col gap-3 rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row"
         >
-          <input
+          <Input
             value={studentId}
             onChange={(event) => setStudentId(event.target.value)}
             placeholder="Search by Student ID"
@@ -308,21 +382,21 @@ export default function FinesPage() {
           </Select>
 
           <div className="flex flex-col gap-3 sm:flex-row lg:w-auto">
-            <button
+            <Button
               type="submit"
               disabled={isLoadingFines}
               className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoadingFines ? "Loading..." : "Apply Filter"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               disabled={isLoadingFines}
               onClick={handleResetFilters}
               className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-background px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               Reset
-            </button>
+            </Button>
           </div>
         </form>
 
@@ -338,14 +412,14 @@ export default function FinesPage() {
               <h2 className="text-xl font-black tracking-tight">Existing Fines</h2>
               <p className="text-sm text-muted-foreground">Fines are loaded from the saved fine records.</p>
             </div>
-            <button
+            <Button
               type="button"
               disabled={isLoadingFines}
               onClick={loadFines}
               className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               Refresh Fines
-            </button>
+            </Button>
           </div>
 
           <div className="space-y-3 lg:hidden">
@@ -457,18 +531,18 @@ export default function FinesPage() {
               <h2 className="text-xl font-black tracking-tight">Penalty CRUD</h2>
               <p className="text-sm text-muted-foreground">Create, read, update, and delete penalty rules used when fines are generated.</p>
             </div>
-            <button
+            <Button
               type="button"
               disabled={seedingPenalties}
               onClick={handleSeedPenalties}
               className="inline-flex min-h-10 items-center justify-center rounded-2xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
-            </button>
+            </Button>
           </div>
 
           <form onSubmit={handlePenaltySubmit} className="mb-5 grid gap-3 rounded-2xl border bg-background p-4 lg:grid-cols-12">
-            <input
+            <Input
               type="number"
               min="1"
               value={penaltyForm.noOfAbsences}
@@ -476,27 +550,27 @@ export default function FinesPage() {
               placeholder="No. of Absences"
               className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-3"
             />
-            <input
+            <Input
               value={penaltyForm.prescribedPenalty}
               onChange={(event) => setPenaltyForm((current) => ({ ...current, prescribedPenalty: event.target.value }))}
               placeholder="Prescribed penalty"
               className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-6"
             />
-            <button
+            <Button
               type="submit"
               disabled={savingPenalty}
               className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-2"
             >
               {savingPenalty ? "Saving..." : editingPenaltyId ? "Update" : "Create"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={handleCancelPenaltyEdit}
               disabled={savingPenalty && !editingPenaltyId}
               className="inline-flex min-h-12 items-center justify-center rounded-2xl border bg-card px-6 py-3 text-sm font-black transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 lg:col-span-1"
             >
               Clear
-            </button>
+            </Button>
           </form>
 
           {penaltyError ? (
@@ -517,21 +591,19 @@ export default function FinesPage() {
                     <p className="text-xs font-semibold text-muted-foreground">{formatDate(penalty.updated_at)}</p>
                   </div>
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => handleEditPenalty(penalty)}
                       className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border bg-card px-4 py-2 text-xs font-black transition hover:bg-muted"
                     >
                       Edit
-                    </button>
-                    <button
-                      type="button"
-                      disabled={deletingPenaltyId === penalty.id}
-                      onClick={() => handleDeletePenalty(penalty.id)}
+                    </Button>
+                    <DeletePenaltyConfirmation
+                      penalty={penalty}
+                      isDeleting={deletingPenaltyId === penalty.id}
+                      onConfirm={handleDeletePenalty}
                       className="inline-flex min-h-10 flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {deletingPenaltyId === penalty.id ? "Deleting..." : "Delete"}
-                    </button>
+                    />
                   </div>
                 </article>
               ))
@@ -563,21 +635,19 @@ export default function FinesPage() {
                       <td className="px-3 py-3 font-semibold">{formatDate(penalty.updated_at)}</td>
                       <td className="px-3 py-3">
                         <div className="flex gap-2">
-                          <button
+                          <Button
                             type="button"
                             onClick={() => handleEditPenalty(penalty)}
                             className="inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-xs font-black transition hover:bg-muted"
                           >
                             Edit
-                          </button>
-                          <button
-                            type="button"
-                            disabled={deletingPenaltyId === penalty.id}
-                            onClick={() => handleDeletePenalty(penalty.id)}
-                            className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {deletingPenaltyId === penalty.id ? "Deleting..." : "Delete"}
-                          </button>
+                          </Button>
+                          <DeletePenaltyConfirmation
+                      penalty={penalty}
+                      isDeleting={deletingPenaltyId === penalty.id}
+                      onConfirm={handleDeletePenalty}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
                         </div>
                       </td>
                     </tr>

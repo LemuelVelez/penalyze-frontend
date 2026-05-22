@@ -26,6 +26,12 @@ export type RegisterInput = {
   role?: UserRole;
 };
 
+export type UpdateUserInput = {
+  name?: string;
+  email?: string;
+  password?: string;
+};
+
 type ApiEnvelope<T> = {
   message?: string;
   data?: T;
@@ -158,6 +164,47 @@ export async function register(input: RegisterInput, remember = false) {
 export async function getCurrentUser() {
   const response = await apiRequest<{ user: AuthUser }>("/api/auth/me");
   return response.data?.user ?? null;
+}
+
+export async function listUsers() {
+  try {
+    const response = await apiRequest<AuthUser[]>("/api/users");
+    return response.data ?? [];
+  } catch (error) {
+    throw new Error(getErrorMessage(error, "Unable to load users."));
+  }
+}
+
+export async function updateUser(id: string, input: UpdateUserInput) {
+  try {
+    const response = await apiRequest<AuthUser>(`/api/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+
+    if (response.data) {
+      const storage = localStorage.getItem(AUTH_USER_KEY) ? localStorage : sessionStorage;
+      const storedUser = getStoredUser();
+
+      if (storedUser?.id === response.data.id) {
+        storage.setItem(AUTH_USER_KEY, JSON.stringify(response.data));
+      }
+    }
+
+    return response.data ?? null;
+  } catch (error) {
+    throw new Error(getErrorMessage(error, "Unable to update user."));
+  }
+}
+
+export async function deleteUser(id: string) {
+  try {
+    await apiRequest<{ id: string }>(`/api/users/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+  } catch (error) {
+    throw new Error(getErrorMessage(error, "Unable to delete user."));
+  }
 }
 
 export function logout() {
