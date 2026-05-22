@@ -273,6 +273,16 @@ function getNumericAbsenceValue(value: string) {
   return Number.isFinite(numericValue) && numericValue >= 0 ? String(numericValue) : "0";
 }
 
+function getDefaultUploadEventName(selectedFile: File) {
+  const baseName = selectedFile.name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return baseName || "Attendance event";
+}
+
 function escapeCsvValue(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -485,7 +495,7 @@ function EventFields(props: {
           onChange={(event) => props.onEventIdChange(event.target.value)}
           className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <option value="">Create from event name</option>
+          <option value="">Create new event from the uploaded file</option>
           {props.events.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}
@@ -502,7 +512,7 @@ function EventFields(props: {
           onChange={(event) => props.onEventNameChange(event.target.value)}
           disabled={Boolean(props.eventId)}
           className="mt-2"
-          placeholder="Required when no event is selected"
+          placeholder="Required before saving the import"
         />
       </div>
 
@@ -542,11 +552,11 @@ function DeleteAttendanceConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}>
+        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="rounded-3xl">
         <AlertDialogHeader>
           <AlertDialogTitle>Delete attendance record?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -583,12 +593,12 @@ function DeleteAttendanceRecordsConfirmation(props: {
           type="button"
           variant="outline"
           disabled={props.disabled || props.isDeleting}
-          className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}
+          className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}
         >
           {props.isDeleting ? "Deleting..." : props.label}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="rounded-3xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{props.title}</AlertDialogTitle>
           <AlertDialogDescription>{props.description}</AlertDialogDescription>
@@ -619,11 +629,11 @@ function DeleteEventConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}>
+        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="rounded-3xl">
         <AlertDialogHeader>
           <AlertDialogTitle>Delete event?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -898,6 +908,7 @@ export default function AttendancePage() {
   const selectedRecordCount = selectedRecordIds.length;
   const allRecordsSelected = records.length > 0 && selectedRecordCount === records.length;
   const recordHeaderChecked = allRecordsSelected ? true : selectedRecordCount > 0 ? "indeterminate" : false;
+  const uploadEventReady = Boolean(uploadEventId || uploadEventName.trim());
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
     setManualForm((current) => ({ ...current, [key]: value }));
@@ -919,6 +930,36 @@ export default function AttendancePage() {
 
   function handleToggleAllRecords(checked: boolean | "indeterminate") {
     setSelectedRecordIds(checked === true ? records.map((record) => record.id) : []);
+  }
+
+  function handleUploadFileChange(selectedFile: File | null) {
+    setFile(selectedFile);
+    setPreview(null);
+    setSaved(null);
+    setError("");
+
+    if (selectedFile) {
+      setUploadEventId("");
+      setUploadEventName(getDefaultUploadEventName(selectedFile));
+      setUploadEventDate("");
+      setUploadEventDescription("");
+      return;
+    }
+
+    setUploadEventId("");
+    setUploadEventName("");
+    setUploadEventDate("");
+    setUploadEventDescription("");
+  }
+
+  function handleUploadEventIdChange(value: string) {
+    setUploadEventId(value);
+
+    if (value) {
+      setUploadEventName("");
+      setUploadEventDate("");
+      setUploadEventDescription("");
+    }
   }
 
   async function loadRecords() {
@@ -981,6 +1022,15 @@ export default function AttendancePage() {
       return;
     }
 
+    const eventName = uploadEventName.trim();
+
+    if (!uploadEventId && !eventName) {
+      const message = "Please select an existing event or enter a new event name before saving the import.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
     setIsSaving(true);
     setError("");
 
@@ -988,7 +1038,7 @@ export default function AttendancePage() {
       const upload = await getAttendanceUploadFile(file);
       const result = await saveAttendanceFile(upload.file, {
         eventId: uploadEventId || undefined,
-        eventName: uploadEventId ? undefined : uploadEventName.trim() || undefined,
+        eventName: uploadEventId ? undefined : eventName,
         eventDate: uploadEventId ? undefined : uploadEventDate || undefined,
         eventDescription: uploadEventId ? undefined : uploadEventDescription.trim() || undefined
       });
@@ -1290,38 +1340,40 @@ export default function AttendancePage() {
             <FileDropZone
               file={file}
               isDragging={isDragging}
-              onFileChange={(selectedFile) => {
-                setFile(selectedFile);
-                setPreview(null);
-                setSaved(null);
-                setError("");
-              }}
+              onFileChange={handleUploadFileChange}
               onDragStateChange={setIsDragging}
             />
 
-            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <h2 className="text-xl font-black">Upload event</h2>
-              <div className="mt-5">
-                <EventFields
-                  events={events}
-                  eventId={uploadEventId}
-                  eventName={uploadEventName}
-                  eventDate={uploadEventDate}
-                  eventDescription={uploadEventDescription}
-                  onEventIdChange={setUploadEventId}
-                  onEventNameChange={setUploadEventName}
-                  onEventDateChange={setUploadEventDate}
-                  onEventDescriptionChange={setUploadEventDescription}
-                />
-              </div>
-            </section>
+            {file ? (
+              <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-xl font-black">Upload event</h2>
+                  <p className="text-sm font-semibold text-muted-foreground">
+                    Required before saving so the uploaded attendees are attached to an event.
+                  </p>
+                </div>
+                <div className="mt-5">
+                  <EventFields
+                    events={events}
+                    eventId={uploadEventId}
+                    eventName={uploadEventName}
+                    eventDate={uploadEventDate}
+                    eventDescription={uploadEventDescription}
+                    onEventIdChange={handleUploadEventIdChange}
+                    onEventNameChange={setUploadEventName}
+                    onEventDateChange={setUploadEventDate}
+                    onEventDescriptionChange={setUploadEventDescription}
+                  />
+                </div>
+              </section>
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={handlePreview}
-                disabled={isPreviewing || isSaving}
+                disabled={!file || isPreviewing || isSaving}
                 className="min-h-12 rounded-2xl px-5 py-3"
               >
                 {isPreviewing ? "Previewing..." : "Preview File"}
@@ -1329,7 +1381,7 @@ export default function AttendancePage() {
               <Button
                 type="button"
                 onClick={handleSave}
-                disabled={isPreviewing || isSaving}
+                disabled={!file || !uploadEventReady || isPreviewing || isSaving}
                 className="min-h-12 rounded-2xl px-5 py-3"
               >
                 {isSaving ? "Saving..." : "Save Import"}

@@ -55,7 +55,7 @@ function LogoutConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>{props.trigger}</AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="rounded-3xl">
         <AlertDialogHeader>
           <AlertDialogTitle>Logout confirmation</AlertDialogTitle>
           <AlertDialogDescription>
@@ -101,7 +101,7 @@ export default function AppLayout(props: LayoutProps) {
             type="button"
             variant="ghost"
             onClick={() => navigateTo("/dashboard")}
-            className="h-auto justify-start px-0 text-left hover:bg-transparent"
+            className="h-auto justify-start rounded-2xl px-0 text-left hover:bg-transparent"
             aria-label="Go to dashboard"
           >
             <LogoMark textClassName="text-xl" />
@@ -117,7 +117,7 @@ export default function AppLayout(props: LayoutProps) {
                   type="button"
                   variant={active ? "default" : "outline"}
                   onClick={() => navigateTo(item.path)}
-                  className="min-h-10 px-4 py-2"
+                  className="min-h-10 rounded-xl px-4 py-2"
                 >
                   {item.label}
                 </Button>
@@ -128,7 +128,7 @@ export default function AppLayout(props: LayoutProps) {
           <LogoutConfirmation
             onConfirm={handleLogout}
             trigger={
-              <Button type="button" variant="outline" className="hidden min-h-10 px-4 py-2 text-xs lg:inline-flex">
+              <Button type="button" variant="outline" className="hidden min-h-10 rounded-xl px-4 py-2 text-xs lg:inline-flex">
                 Logout
               </Button>
             }
@@ -140,7 +140,7 @@ export default function AppLayout(props: LayoutProps) {
                 type="button"
                 variant="outline"
                 size="icon"
-                className="inline-flex size-11 lg:hidden"
+                className="inline-flex size-11 rounded-xl lg:hidden"
                 aria-label="Open navigation menu"
               >
                 <Menu className="size-5" aria-hidden="true" />
