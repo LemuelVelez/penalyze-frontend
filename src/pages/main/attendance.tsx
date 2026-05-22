@@ -974,9 +974,8 @@ function getManualRecordSource(record: AttendanceRecord) {
 
 function getAttendanceStudentGroupKey(record: AttendanceRecord) {
   const studentId = cleanImportValue(record.student_id).toUpperCase();
-  const name = normalizeImportHeader(record.name);
 
-  return `${studentId || "unknown-student"}:${name || "unnamed-student"}`;
+  return studentId || `unknown-student:${record.id}`;
 }
 
 function getAttendanceStudentGroups(records: AttendanceRecord[]) {
@@ -1013,8 +1012,10 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
 
     if (scannedAtTime > latestScannedAtTime) {
       currentGroup.latestScannedAt = record.scanned_at ?? currentGroup.latestScannedAt;
+      if (record.name) currentGroup.name = record.name;
     }
 
+    if (!currentGroup.name && record.name) currentGroup.name = record.name;
     if (!currentGroup.yearLevel && record.year_level) currentGroup.yearLevel = record.year_level;
     if (!currentGroup.college && record.college) currentGroup.college = record.college;
     if (!currentGroup.program && record.program) currentGroup.program = record.program;
@@ -2567,7 +2568,12 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 md:hidden">
+              <Accordion
+                type="multiple"
+                value={openStudentGroupKeys}
+                onValueChange={setOpenStudentGroupKeys}
+                className="space-y-3"
+              >
                 {attendanceStudentGroups.map((group) => {
                   const selectedGroupRecordCount = group.records.filter((record) =>
                     selectedRecordIdsSet.has(record.id)
@@ -2578,36 +2584,27 @@ export default function AttendancePage() {
                     allStudentRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
 
                   return (
-                    <Dialog key={group.key}>
-                      <div className="rounded-2xl border bg-background p-4">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <Checkbox
-                            checked={studentRecordChecked}
-                            onCheckedChange={(checked) => handleToggleStudentRecordsSelected(group.records, checked)}
-                            aria-label={`Select attendance records for ${group.name}`}
-                            className="mt-3 shrink-0"
+                    <AccordionItem
+                      key={group.key}
+                      value={group.key}
+                      className="rounded-2xl border bg-background px-0"
+                    >
+                      <div className="flex min-w-0 w-full items-start gap-3 px-4 py-4">
+                        <Checkbox
+                          checked={studentRecordChecked}
+                          onCheckedChange={(checked) => handleToggleStudentRecordsSelected(group.records, checked)}
+                          aria-label={`Select attendance records for ${group.name}`}
+                          className="mt-1 shrink-0"
+                        />
+                        <AccordionTrigger className="relative min-h-0 min-w-0 flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
+                          <AttendanceStudentGroupTriggerContent
+                            group={group}
+                            selectedGroupRecordCount={selectedGroupRecordCount}
                           />
-                          <DialogTrigger asChild>
-                            <button
-                              type="button"
-                              className="min-w-0 flex-1 rounded-xl border bg-card px-3 py-3 text-left shadow-sm transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            >
-                              <AttendanceStudentGroupTriggerContent
-                                group={group}
-                                selectedGroupRecordCount={selectedGroupRecordCount}
-                              />
-                            </button>
-                          </DialogTrigger>
-                        </div>
+                        </AccordionTrigger>
                       </div>
 
-                      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-3xl">
-                        <DialogHeader>
-                          <DialogTitle className="wrap-break-word text-left">
-                            {group.studentId} - {group.name}
-                          </DialogTitle>
-                        </DialogHeader>
-
+                      <AccordionContent className="border-t px-4 pb-4 pt-4">
                         <AttendanceStudentRecordsList
                           group={group}
                           selectedRecordIdsSet={selectedRecordIdsSet}
@@ -2617,65 +2614,11 @@ export default function AttendancePage() {
                           onEditRecord={handleEditRecord}
                           onDeleteRecord={handleDeleteRecord}
                         />
-                      </DialogContent>
-                    </Dialog>
+                      </AccordionContent>
+                    </AccordionItem>
                   );
                 })}
-              </div>
-
-              <div className="hidden md:block">
-                <Accordion
-                  type="multiple"
-                  value={openStudentGroupKeys}
-                  onValueChange={setOpenStudentGroupKeys}
-                  className="space-y-3"
-                >
-                  {attendanceStudentGroups.map((group) => {
-                    const selectedGroupRecordCount = group.records.filter((record) =>
-                      selectedRecordIdsSet.has(record.id)
-                    ).length;
-                    const allStudentRecordsSelected =
-                      group.records.length > 0 && selectedGroupRecordCount === group.records.length;
-                    const studentRecordChecked =
-                      allStudentRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
-
-                    return (
-                      <AccordionItem
-                        key={group.key}
-                        value={group.key}
-                        className="rounded-2xl border bg-background px-0"
-                      >
-                        <div className="flex min-w-0 w-full items-start gap-3 px-4 py-4">
-                          <Checkbox
-                            checked={studentRecordChecked}
-                            onCheckedChange={(checked) => handleToggleStudentRecordsSelected(group.records, checked)}
-                            aria-label={`Select attendance records for ${group.name}`}
-                            className="mt-1 shrink-0"
-                          />
-                          <AccordionTrigger className="relative min-h-0 min-w-0 flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
-                            <AttendanceStudentGroupTriggerContent
-                              group={group}
-                              selectedGroupRecordCount={selectedGroupRecordCount}
-                            />
-                          </AccordionTrigger>
-                        </div>
-
-                        <AccordionContent className="border-t px-4 pb-4 pt-4">
-                          <AttendanceStudentRecordsList
-                            group={group}
-                            selectedRecordIdsSet={selectedRecordIdsSet}
-                            deletingRecordId={deletingRecordId}
-                            isDeletingBulk={isDeletingBulk}
-                            onToggleRecordSelected={handleToggleRecordSelected}
-                            onEditRecord={handleEditRecord}
-                            onDeleteRecord={handleDeleteRecord}
-                          />
-                        </AccordionContent>
-                      </AccordionItem>
-                    );
-                  })}
-                </Accordion>
-              </div>
+              </Accordion>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
