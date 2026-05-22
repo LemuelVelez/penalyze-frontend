@@ -83,12 +83,33 @@ const emptyAttendanceEventForm: AttendanceEventFormState = {
   description: ""
 };
 
-const ATTENDANCE_EXCEL_FILE_TYPES = [
-  ".xlsx",
-  ".xls",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel"
-];
+const ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  xla: "application/vnd.ms-excel",
+  xlam: "application/vnd.ms-excel.addin.macroEnabled.12",
+  xls: "application/vnd.ms-excel",
+  xlsb: "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+  xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xlt: "application/vnd.ms-excel",
+  xltm: "application/vnd.ms-excel.template.macroEnabled.12",
+  xltx: "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+  xlw: "application/vnd.ms-excel"
+};
+
+const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
+  new Set([
+    ...Object.keys(ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION).map((extension) => `.${extension}`),
+    ...Object.values(ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION),
+    "application/msexcel",
+    "application/vnd.ms-office",
+    "application/x-excel",
+    "application/x-msexcel",
+    "application/x-ms-excel",
+    "application/xls",
+    "application/x-xls",
+    "application/octet-stream"
+  ])
+);
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 
@@ -150,6 +171,35 @@ function getAttendanceUploadAccept() {
 
 function getFileExtension(fileName: string) {
   return fileName.toLowerCase().split(".").pop() ?? "";
+}
+
+function isExcelBasedAttendanceFile(file: File) {
+  const extension = getFileExtension(file.name);
+  const type = file.type.toLowerCase();
+
+  return (
+    extension in ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION ||
+    type.includes("excel") ||
+    type.includes("spreadsheet") ||
+    type.includes("ms-office") ||
+    type.includes("officedocument")
+  );
+}
+
+function getAttendanceExcelMimeType(fileName: string) {
+  return ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION[getFileExtension(fileName)] ?? "application/vnd.ms-excel";
+}
+
+function getAttendanceUploadFileWithNormalizedType(file: File) {
+  if (!isExcelBasedAttendanceFile(file)) return file;
+
+  const normalizedType = getAttendanceExcelMimeType(file.name);
+  if (file.type === normalizedType) return file;
+
+  return new File([file], file.name, {
+    type: normalizedType,
+    lastModified: file.lastModified
+  });
 }
 
 function isTextBasedAttendanceFile(file: File) {
@@ -367,11 +417,13 @@ function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
 }
 
 async function getAttendanceUploadFile(file: File) {
-  if (!isTextBasedAttendanceFile(file)) {
-    return { file, normalizedRowsCount: 0 };
+  const uploadFile = getAttendanceUploadFileWithNormalizedType(file);
+
+  if (!isTextBasedAttendanceFile(uploadFile)) {
+    return { file: uploadFile, normalizedRowsCount: 0 };
   }
 
-  const fileText = await file.text();
+  const fileText = await uploadFile.text();
   const normalizedRows = getNormalizedAttendanceRowsFromText(fileText, file.name);
 
   if (!normalizedRows.length) {
@@ -379,7 +431,7 @@ async function getAttendanceUploadFile(file: File) {
   }
 
   const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
-  const normalizedFileName = file.name.replace(/\.[^.]+$/, "") || "attendance-import";
+  const normalizedFileName = uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
 
   return {
     file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
@@ -460,7 +512,7 @@ function FileDropZone(props: {
       />
 
       <div className="rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
-        XLSX, XLS, CSV, TXT, DOCX, DOC
+        Excel, CSV, TXT, DOCX, DOC
       </div>
       <h2 className="mt-4 text-2xl font-black">Upload attendance file</h2>
 
