@@ -24,6 +24,7 @@ import {
   AlertDialogTrigger
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
@@ -75,7 +76,6 @@ function getFineStatusLabel(status: FineStatus) {
   return fineStatusOptions.find((item) => item.value === status)?.label ?? status.toUpperCase();
 }
 
-
 function DeletePenaltyConfirmation(props: {
   penalty: PenaltyRecord;
   isDeleting: boolean;
@@ -111,9 +111,53 @@ function DeletePenaltyConfirmation(props: {
   );
 }
 
+function DeletePenaltiesConfirmation(props: {
+  label: string;
+  title: string;
+  description: string;
+  isDeleting: boolean;
+  disabled: boolean;
+  onConfirm: () => void | Promise<void>;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          type="button"
+          variant="destructiveOutline"
+          disabled={props.disabled || props.isDeleting}
+          className={props.className}
+        >
+          {props.isDeleting ? "Deleting..." : props.label}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{props.title}</AlertDialogTitle>
+          <AlertDialogDescription>{props.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={props.isDeleting}
+            onClick={() => {
+              void props.onConfirm();
+            }}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Confirm Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function FinesPage() {
   const [fines, setFines] = useState<FineRecord[]>([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
+  const [selectedPenaltyIds, setSelectedPenaltyIds] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [studentId, setStudentId] = useState("");
   const [isLoadingFines, setIsLoadingFines] = useState(true);
@@ -122,6 +166,7 @@ export default function FinesPage() {
   const [savingPenalty, setSavingPenalty] = useState(false);
   const [seedingPenalties, setSeedingPenalties] = useState(false);
   const [deletingPenaltyId, setDeletingPenaltyId] = useState("");
+  const [isDeletingPenaltyBulk, setIsDeletingPenaltyBulk] = useState(false);
   const [editingPenaltyId, setEditingPenaltyId] = useState("");
   const [penaltyForm, setPenaltyForm] = useState<PenaltyFormState>(emptyPenaltyForm);
   const [error, setError] = useState("");
@@ -129,6 +174,24 @@ export default function FinesPage() {
 
   const totalFines = fines.length;
   const unpaidFines = useMemo(() => fines.filter((fine) => fine.status === "unpaid").length, [fines]);
+  const selectedPenaltyIdsSet = useMemo(() => new Set(selectedPenaltyIds), [selectedPenaltyIds]);
+  const selectedPenaltyCount = selectedPenaltyIds.length;
+  const allPenaltiesSelected = penalties.length > 0 && selectedPenaltyCount === penalties.length;
+  const penaltyHeaderChecked = allPenaltiesSelected ? true : selectedPenaltyCount > 0 ? "indeterminate" : false;
+
+  function handleTogglePenaltySelected(id: string, checked: boolean | "indeterminate") {
+    setSelectedPenaltyIds((current) => {
+      if (checked === true) {
+        return current.includes(id) ? current : [...current, id];
+      }
+
+      return current.filter((penaltyId) => penaltyId !== id);
+    });
+  }
+
+  function handleToggleAllPenalties(checked: boolean | "indeterminate") {
+    setSelectedPenaltyIds(checked === true ? penalties.map((penalty) => penalty.id) : []);
+  }
 
   async function loadFines() {
     setIsLoadingFines(true);
@@ -158,7 +221,10 @@ export default function FinesPage() {
 
     try {
       const rows = await listPenalties();
+      const rowIds = new Set(rows.map((penalty) => penalty.id));
+
       setPenalties(rows);
+      setSelectedPenaltyIds((current) => current.filter((id) => rowIds.has(id)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load penalties.";
       setPenaltyError(message);
@@ -294,6 +360,12 @@ export default function FinesPage() {
     try {
       await deletePenalty(id);
       setPenalties((current) => current.filter((penalty) => penalty.id !== id));
+      setSelectedPenaltyIds((current) => current.filter((penaltyId) => penaltyId !== id));
+
+      if (editingPenaltyId === id) {
+        handleCancelPenaltyEdit();
+      }
+
       await loadFines();
       toast.success("Penalty rule deleted successfully.");
     } catch (deleteError) {
@@ -305,6 +377,39 @@ export default function FinesPage() {
     }
   }
 
+  async function handleDeletePenalties(ids: string[]) {
+    const idsToDelete = Array.from(new Set(ids)).filter(Boolean);
+
+    if (!idsToDelete.length) {
+      toast.error("Please select penalty rule/s to delete.");
+      return;
+    }
+
+    setIsDeletingPenaltyBulk(true);
+    setPenaltyError("");
+
+    try {
+      await Promise.all(idsToDelete.map((id) => deletePenalty(id)));
+      setPenalties((current) => current.filter((penalty) => !idsToDelete.includes(penalty.id)));
+      setSelectedPenaltyIds((current) => current.filter((id) => !idsToDelete.includes(id)));
+
+      if (editingPenaltyId && idsToDelete.includes(editingPenaltyId)) {
+        handleCancelPenaltyEdit();
+      }
+
+      await loadFines();
+      toast.success(`${idsToDelete.length} penalty rule/s deleted successfully.`);
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete penalty rules.";
+      setPenaltyError(message);
+      toast.error(message);
+      await loadPenalties();
+      await loadFines();
+    } finally {
+      setIsDeletingPenaltyBulk(false);
+    }
+  }
+
   async function handleSeedPenalties() {
     setSeedingPenalties(true);
     setPenaltyError("");
@@ -312,6 +417,7 @@ export default function FinesPage() {
     try {
       const rows = await seedDefaultPenalties();
       setPenalties(rows.sort((first, second) => first.no_of_absences - second.no_of_absences));
+      setSelectedPenaltyIds([]);
       await loadFines();
       toast.success("Default penalty rules seeded successfully.");
     } catch (seedError) {
@@ -533,15 +639,40 @@ export default function FinesPage() {
               <h2 className="text-xl font-black tracking-tight">Penalty Rules</h2>
               <p className="text-sm text-muted-foreground">Create, read, update, and delete penalty rules used when fines are generated.</p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={seedingPenalties}
-              onClick={handleSeedPenalties}
-              className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-            >
-              {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+              {selectedPenaltyCount ? (
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                  {selectedPenaltyCount} selected
+                </p>
+              ) : null}
+              <DeletePenaltiesConfirmation
+                label="Delete Selected"
+                title="Delete selected penalty rules?"
+                description={`This will permanently delete ${selectedPenaltyCount} selected penalty rule/s. This action cannot be undone.`}
+                isDeleting={isDeletingPenaltyBulk}
+                disabled={!selectedPenaltyCount}
+                onConfirm={() => handleDeletePenalties(selectedPenaltyIds)}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              />
+              <DeletePenaltiesConfirmation
+                label="Delete All"
+                title="Delete all penalty rules?"
+                description={`This will permanently delete all ${penalties.length} loaded penalty rule/s. This action cannot be undone.`}
+                isDeleting={isDeletingPenaltyBulk}
+                disabled={!penalties.length}
+                onConfirm={() => handleDeletePenalties(penalties.map((penalty) => penalty.id))}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={seedingPenalties || isDeletingPenaltyBulk}
+                onClick={handleSeedPenalties}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
+              </Button>
+            </div>
           </div>
 
           <form onSubmit={handlePenaltySubmit} className="mb-5 grid gap-3 rounded-2xl border bg-background p-4 lg:grid-cols-12">
@@ -587,28 +718,38 @@ export default function FinesPage() {
             {penalties.length ? (
               penalties.map((penalty) => (
                 <article key={penalty.id} className="rounded-2xl border bg-background p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-muted-foreground">{penalty.no_of_absences} absence/s</p>
-                      <p className="mt-1 font-black">{penalty.prescribed_penalty}</p>
-                    </div>
-                    <p className="text-xs font-semibold text-muted-foreground">{formatDate(penalty.updated_at)}</p>
-                  </div>
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => handleEditPenalty(penalty)}
-                      className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
-                    >
-                      Edit
-                    </Button>
-                    <DeletePenaltyConfirmation
-                      penalty={penalty}
-                      isDeleting={deletingPenaltyId === penalty.id}
-                      onConfirm={handleDeletePenalty}
-                      className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={selectedPenaltyIdsSet.has(penalty.id)}
+                      onCheckedChange={(checked) => handleTogglePenaltySelected(penalty.id, checked)}
+                      aria-label={`Select penalty rule for ${penalty.no_of_absences} absence/s`}
+                      className="mt-1"
                     />
+                    <div className="flex-1">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-muted-foreground">{penalty.no_of_absences} absence/s</p>
+                          <p className="mt-1 font-black">{penalty.prescribed_penalty}</p>
+                        </div>
+                        <p className="text-xs font-semibold text-muted-foreground">{formatDate(penalty.updated_at)}</p>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => handleEditPenalty(penalty)}
+                          className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                        >
+                          Edit
+                        </Button>
+                        <DeletePenaltyConfirmation
+                          penalty={penalty}
+                          isDeleting={deletingPenaltyId === penalty.id || isDeletingPenaltyBulk}
+                          onConfirm={handleDeletePenalty}
+                          className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </article>
               ))
@@ -623,6 +764,13 @@ export default function FinesPage() {
             <table className="w-full min-w-max text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-3 py-3">
+                    <Checkbox
+                      checked={penaltyHeaderChecked}
+                      onCheckedChange={handleToggleAllPenalties}
+                      aria-label="Select all penalty rules"
+                    />
+                  </th>
                   <th className="px-3 py-3">Absences</th>
                   <th className="px-3 py-3">Prescribed Penalty</th>
                   <th className="px-3 py-3">Created</th>
@@ -634,6 +782,13 @@ export default function FinesPage() {
                 {penalties.length ? (
                   penalties.map((penalty) => (
                     <tr key={penalty.id} className="border-b last:border-b-0">
+                      <td className="px-3 py-3">
+                        <Checkbox
+                          checked={selectedPenaltyIdsSet.has(penalty.id)}
+                          onCheckedChange={(checked) => handleTogglePenaltySelected(penalty.id, checked)}
+                          aria-label={`Select penalty rule for ${penalty.no_of_absences} absence/s`}
+                        />
+                      </td>
                       <td className="px-3 py-3 font-black">{penalty.no_of_absences}</td>
                       <td className="max-w-xl px-3 py-3 text-muted-foreground">{penalty.prescribed_penalty}</td>
                       <td className="px-3 py-3 font-semibold">{formatDate(penalty.created_at)}</td>
@@ -649,18 +804,18 @@ export default function FinesPage() {
                             Edit
                           </Button>
                           <DeletePenaltyConfirmation
-                      penalty={penalty}
-                      isDeleting={deletingPenaltyId === penalty.id}
-                      onConfirm={handleDeletePenalty}
-                      className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                    />
+                            penalty={penalty}
+                            isDeleting={deletingPenaltyId === penalty.id || isDeletingPenaltyBulk}
+                            onConfirm={handleDeletePenalty}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          />
                         </div>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
+                    <td colSpan={6} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
                       {isLoadingPenalties ? "Loading penalty records..." : "No penalty records found."}
                     </td>
                   </tr>

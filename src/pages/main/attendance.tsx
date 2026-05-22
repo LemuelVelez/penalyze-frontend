@@ -29,6 +29,7 @@ import {
   AlertDialogTrigger
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
@@ -140,7 +141,6 @@ function FileDropZone(props: {
   );
 }
 
-
 function DeleteAttendanceConfirmation(props: {
   record: AttendanceRecord;
   isDeleting: boolean;
@@ -176,25 +176,88 @@ function DeleteAttendanceConfirmation(props: {
   );
 }
 
+function DeleteAttendanceRecordsConfirmation(props: {
+  label: string;
+  title: string;
+  description: string;
+  isDeleting: boolean;
+  disabled: boolean;
+  onConfirm: () => void | Promise<void>;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          type="button"
+          variant="destructiveOutline"
+          disabled={props.disabled || props.isDeleting}
+          className={props.className}
+        >
+          {props.isDeleting ? "Deleting..." : props.label}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{props.title}</AlertDialogTitle>
+          <AlertDialogDescription>{props.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={props.isDeleting}
+            onClick={() => {
+              void props.onConfirm();
+            }}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Confirm Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingManual, setIsSavingManual] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
   const [deletingRecordId, setDeletingRecordId] = useState("");
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
+  const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
+  const selectedRecordCount = selectedRecordIds.length;
+  const allRecordsSelected = records.length > 0 && selectedRecordCount === records.length;
+  const recordHeaderChecked = allRecordsSelected ? true : selectedRecordCount > 0 ? "indeterminate" : false;
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
     setManualForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleToggleRecordSelected(id: string, checked: boolean | "indeterminate") {
+    setSelectedRecordIds((current) => {
+      if (checked === true) {
+        return current.includes(id) ? current : [...current, id];
+      }
+
+      return current.filter((recordId) => recordId !== id);
+    });
+  }
+
+  function handleToggleAllRecords(checked: boolean | "indeterminate") {
+    setSelectedRecordIds(checked === true ? records.map((record) => record.id) : []);
   }
 
   async function loadRecords() {
@@ -203,7 +266,10 @@ export default function AttendancePage() {
 
     try {
       const rows = await listAttendanceRecords({ limit: 100, offset: 0 });
+      const rowIds = new Set(rows.map((record) => record.id));
+
       setRecords(rows);
+      setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
       setError(message);
@@ -369,6 +435,7 @@ export default function AttendancePage() {
     try {
       await deleteAttendanceRecord(id);
       setRecords((current) => current.filter((record) => record.id !== id));
+      setSelectedRecordIds((current) => current.filter((recordId) => recordId !== id));
 
       if (editingRecordId === id) {
         handleCancelEdit();
@@ -381,6 +448,37 @@ export default function AttendancePage() {
       toast.error(message);
     } finally {
       setDeletingRecordId("");
+    }
+  }
+
+  async function handleDeleteRecords(ids: string[]) {
+    const idsToDelete = Array.from(new Set(ids)).filter(Boolean);
+
+    if (!idsToDelete.length) {
+      toast.error("Please select attendance record/s to delete.");
+      return;
+    }
+
+    setIsDeletingBulk(true);
+    setError("");
+
+    try {
+      await Promise.all(idsToDelete.map((id) => deleteAttendanceRecord(id)));
+      setRecords((current) => current.filter((record) => !idsToDelete.includes(record.id)));
+      setSelectedRecordIds((current) => current.filter((id) => !idsToDelete.includes(id)));
+
+      if (editingRecordId && idsToDelete.includes(editingRecordId)) {
+        handleCancelEdit();
+      }
+
+      toast.success(`${idsToDelete.length} attendance record/s deleted successfully.`);
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance records.";
+      setError(message);
+      toast.error(message);
+      await loadRecords();
+    } finally {
+      setIsDeletingBulk(false);
     }
   }
 
@@ -615,7 +713,6 @@ export default function AttendancePage() {
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Absences</th>
                       <th className="px-3 py-3">Remarks</th>
-                      <th className="px-3 py-3">Actions</th>
                       <th className="px-3 py-3">Status</th>
                     </tr>
                   </thead>
@@ -671,6 +768,31 @@ export default function AttendancePage() {
               <h2 className="text-xl font-black">Recent attendance records</h2>
               <p className="mt-1 text-sm text-muted-foreground">Latest uploaded and manually encoded attendance entries.</p>
             </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {selectedRecordCount ? (
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                  {selectedRecordCount} selected
+                </p>
+              ) : null}
+              <DeleteAttendanceRecordsConfirmation
+                label="Delete Selected"
+                title="Delete selected attendance records?"
+                description={`This will permanently delete ${selectedRecordCount} selected attendance record/s and any generated fines linked to them.`}
+                isDeleting={isDeletingBulk}
+                disabled={!selectedRecordCount}
+                onConfirm={() => handleDeleteRecords(selectedRecordIds)}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              />
+              <DeleteAttendanceRecordsConfirmation
+                label="Delete All"
+                title="Delete all attendance records?"
+                description={`This will permanently delete all ${records.length} loaded attendance record/s and any generated fines linked to them.`}
+                isDeleting={isDeletingBulk}
+                disabled={!records.length}
+                onConfirm={() => handleDeleteRecords(records.map((record) => record.id))}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              />
+            </div>
           </div>
 
           {records.length ? (
@@ -678,34 +800,44 @@ export default function AttendancePage() {
               <div className="space-y-3 lg:hidden">
                 {records.map((record) => (
                   <article key={record.id} className="rounded-2xl border bg-background p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="font-black">{record.name}</p>
-                        <p className="text-sm text-muted-foreground">{record.student_id}</p>
-                      </div>
-                      <p className="text-sm font-bold">{record.no_of_absences} absence/s</p>
-                    </div>
-                    <p className="mt-3 text-sm text-muted-foreground">
-                      {record.program || "No program"} • {formatDate(record.created_at)}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {record.import_id ? "File import" : "Manual paper record"}
-                    </p>
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => handleEditRecord(record)}
-                        className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
-                      >
-                        Edit
-                      </Button>
-                      <DeleteAttendanceConfirmation
-                        record={record}
-                        isDeleting={deletingRecordId === record.id}
-                        onConfirm={handleDeleteRecord}
-                        className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedRecordIdsSet.has(record.id)}
+                        onCheckedChange={(checked) => handleToggleRecordSelected(record.id, checked)}
+                        aria-label={`Select attendance record for ${record.name}`}
+                        className="mt-1"
                       />
+                      <div className="flex-1">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-black">{record.name}</p>
+                            <p className="text-sm text-muted-foreground">{record.student_id}</p>
+                          </div>
+                          <p className="text-sm font-bold">{record.no_of_absences} absence/s</p>
+                        </div>
+                        <p className="mt-3 text-sm text-muted-foreground">
+                          {record.program || "No program"} • {formatDate(record.created_at)}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {record.import_id ? "File import" : "Manual paper record"}
+                        </p>
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleEditRecord(record)}
+                            className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Edit
+                          </Button>
+                          <DeleteAttendanceConfirmation
+                            record={record}
+                            isDeleting={deletingRecordId === record.id || isDeletingBulk}
+                            onConfirm={handleDeleteRecord}
+                            className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -715,6 +847,13 @@ export default function AttendancePage() {
                 <table className="w-full min-w-max text-left text-sm">
                   <thead className="border-b text-xs uppercase text-muted-foreground">
                     <tr>
+                      <th className="px-3 py-3">
+                        <Checkbox
+                          checked={recordHeaderChecked}
+                          onCheckedChange={handleToggleAllRecords}
+                          aria-label="Select all attendance records"
+                        />
+                      </th>
                       <th className="px-3 py-3">Date</th>
                       <th className="px-3 py-3">Source</th>
                       <th className="px-3 py-3">Student ID</th>
@@ -728,6 +867,13 @@ export default function AttendancePage() {
                   <tbody>
                     {records.map((record) => (
                       <tr key={record.id} className="border-b last:border-b-0">
+                        <td className="px-3 py-3">
+                          <Checkbox
+                            checked={selectedRecordIdsSet.has(record.id)}
+                            onCheckedChange={(checked) => handleToggleRecordSelected(record.id, checked)}
+                            aria-label={`Select attendance record for ${record.name}`}
+                          />
+                        </td>
                         <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
                         <td className="px-3 py-3">
                           <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
@@ -751,7 +897,7 @@ export default function AttendancePage() {
                             </Button>
                             <DeleteAttendanceConfirmation
                               record={record}
-                              isDeleting={deletingRecordId === record.id}
+                              isDeleting={deletingRecordId === record.id || isDeletingBulk}
                               onConfirm={handleDeleteRecord}
                               className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                             />
