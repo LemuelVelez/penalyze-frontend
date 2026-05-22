@@ -3,15 +3,21 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAttendanceEvent,
   deleteAttendanceRecord,
   getAcceptedAttendanceFileTypes,
+  listAttendanceEvents,
   listAttendanceRecords,
   previewAttendanceFile,
+  saveAttendanceEvent,
   saveAttendanceFile,
   saveManualAttendanceRecord,
+  updateAttendanceEvent,
   updateAttendanceRecord
 } from "../../api/attendance";
 import type {
+  AttendanceEvent,
+  AttendanceEventInput,
   AttendancePreviewResult,
   SavedAttendanceImportResult,
   AttendanceRecord,
@@ -30,11 +36,19 @@ import {
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 
 type ManualAttendanceFormState = {
+  eventId: string;
   studentId: string;
   name: string;
   yearLevel: string;
@@ -45,7 +59,14 @@ type ManualAttendanceFormState = {
   remarks: string;
 };
 
+type AttendanceEventFormState = {
+  name: string;
+  eventDate: string;
+  description: string;
+};
+
 const emptyManualAttendanceForm: ManualAttendanceFormState = {
+  eventId: "",
   studentId: "",
   name: "",
   yearLevel: "",
@@ -54,6 +75,12 @@ const emptyManualAttendanceForm: ManualAttendanceFormState = {
   institution: "",
   noOfAbsences: "0",
   remarks: ""
+};
+
+const emptyAttendanceEventForm: AttendanceEventFormState = {
+  name: "",
+  eventDate: "",
+  description: ""
 };
 
 const ATTENDANCE_EXCEL_FILE_TYPES = [
@@ -65,34 +92,8 @@ const ATTENDANCE_EXCEL_FILE_TYPES = [
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 
-const ATTENDANCE_SEARCH_FIELDS = [
-  {
-    label: "Student ID",
-    aliases: ["Student ID", "Student Id", "StudentID", "ID Number", "Student Number"]
-  },
-  {
-    label: "Full name",
-    aliases: ["Full name", "Full Name", "Name", "Student Name"]
-  },
-  {
-    label: "Year level",
-    aliases: ["Year level", "Year Level", "Year", "Level"]
-  },
-  {
-    label: "College",
-    aliases: ["College", "Department"]
-  },
-  {
-    label: "Program",
-    aliases: ["Program", "Course"]
-  },
-  {
-    label: "Institution",
-    aliases: ["Institution", "School", "Campus"]
-  }
-];
-
 const ATTENDANCE_IMPORT_HEADERS = [
+  "Event",
   "Student ID",
   "Name",
   "Year Level",
@@ -104,6 +105,7 @@ const ATTENDANCE_IMPORT_HEADERS = [
 ];
 
 type NormalizedAttendanceImportRow = {
+  eventName: string;
   studentId: string;
   name: string;
   yearLevel: string;
@@ -117,6 +119,7 @@ type NormalizedAttendanceImportRow = {
 type AttendanceHeaderKey = keyof NormalizedAttendanceImportRow;
 
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
+  eventName: ["event", "event name", "eventname", "activity", "activity name"],
   studentId: [
     "student id",
     "studentid",
@@ -278,6 +281,7 @@ function toNormalizedAttendanceCsv(rows: NormalizedAttendanceImportRow[]) {
   const csvRows = [
     ATTENDANCE_IMPORT_HEADERS,
     ...rows.map((row) => [
+      row.eventName,
       row.studentId,
       row.name,
       row.yearLevel,
@@ -303,8 +307,8 @@ function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
     const searchableText = row.join("\n");
     const studentId =
       getHeaderValue(row, headers, "studentId") ||
-      getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[0].aliases);
-    const name = getHeaderValue(row, headers, "name") || getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[1].aliases);
+      getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.studentId);
+    const name = getHeaderValue(row, headers, "name") || getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.name);
 
     if (!studentId || !name) return;
 
@@ -312,26 +316,31 @@ function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
     const currentRecord = recordsByStudentId.get(normalizedStudentId);
 
     const normalizedRow: NormalizedAttendanceImportRow = {
+      eventName:
+        getHeaderValue(row, headers, "eventName") ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
+        currentRecord?.eventName ||
+        "",
       studentId: normalizedStudentId,
       name: cleanImportValue(name),
       yearLevel:
         getHeaderValue(row, headers, "yearLevel") ||
-        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[2].aliases) ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.yearLevel) ||
         currentRecord?.yearLevel ||
         "",
       college:
         getHeaderValue(row, headers, "college") ||
-        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[3].aliases) ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.college) ||
         currentRecord?.college ||
         "",
       program:
         getHeaderValue(row, headers, "program") ||
-        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[4].aliases) ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.program) ||
         currentRecord?.program ||
         "",
       institution:
         getHeaderValue(row, headers, "institution") ||
-        getLabeledValue(searchableText, ATTENDANCE_SEARCH_FIELDS[5].aliases) ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.institution) ||
         currentRecord?.institution ||
         "",
       noOfAbsences: getNumericAbsenceValue(getHeaderValue(row, headers, "noOfAbsences") || currentRecord?.noOfAbsences || "0"),
@@ -379,6 +388,11 @@ function formatDate(value?: string | null) {
     month: "short",
     day: "2-digit"
   }).format(date);
+}
+
+function getManualRecordSource(record: AttendanceRecord) {
+  if (record.event_name) return record.event_name;
+  return record.import_id ? "File import" : "Manual";
 }
 
 function FileDropZone(props: {
@@ -436,17 +450,9 @@ function FileDropZone(props: {
       />
 
       <div className="rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
-        Drag and drop upload
+        XLSX, XLS, CSV, TXT, DOCX, DOC
       </div>
       <h2 className="mt-4 text-2xl font-black">Upload attendance file</h2>
-      <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-        Drop an Excel workbook (.xlsx/.xls), CSV, TXT, DOC, or DOCX file here, or click this area to browse from
-        your device.
-      </p>
-      <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">
-        The importer searches for Student ID, Full name/Name, Year level, College, Program, and Institution,
-        including QR scanner exports where these values are inside one messy text column.
-      </p>
 
       {props.file ? (
         <div className="mt-5 w-full max-w-xl rounded-2xl border bg-background p-4 text-left">
@@ -455,6 +461,75 @@ function FileDropZone(props: {
         </div>
       ) : null}
     </Label>
+  );
+}
+
+function EventFields(props: {
+  events: AttendanceEvent[];
+  eventId: string;
+  eventName: string;
+  eventDate: string;
+  eventDescription: string;
+  onEventIdChange: (value: string) => void;
+  onEventNameChange: (value: string) => void;
+  onEventDateChange: (value: string) => void;
+  onEventDescriptionChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div>
+        <Label htmlFor="upload-event-id">Event</Label>
+        <select
+          id="upload-event-id"
+          value={props.eventId}
+          onChange={(event) => props.onEventIdChange(event.target.value)}
+          className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <option value="">Create from event name</option>
+          {props.events.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <Label htmlFor="upload-event-name">Event name</Label>
+        <Input
+          id="upload-event-name"
+          value={props.eventName}
+          onChange={(event) => props.onEventNameChange(event.target.value)}
+          disabled={Boolean(props.eventId)}
+          className="mt-2"
+          placeholder="Required when no event is selected"
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="upload-event-date">Event date</Label>
+        <Input
+          id="upload-event-date"
+          type="date"
+          value={props.eventDate}
+          onChange={(event) => props.onEventDateChange(event.target.value)}
+          disabled={Boolean(props.eventId)}
+          className="mt-2"
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="upload-event-description">Description</Label>
+        <Input
+          id="upload-event-description"
+          value={props.eventDescription}
+          onChange={(event) => props.onEventDescriptionChange(event.target.value)}
+          disabled={Boolean(props.eventId)}
+          className="mt-2"
+          placeholder="Optional"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -467,7 +542,7 @@ function DeleteAttendanceConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="destructiveOutline" disabled={props.isDeleting} className={props.className}>
+        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}>
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -475,8 +550,7 @@ function DeleteAttendanceConfirmation(props: {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete attendance record?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the attendance record for {props.record.name}. Any generated fine linked to
-            this attendance record will also be removed.
+            This will permanently delete the attendance record for {props.record.name}.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -507,9 +581,9 @@ function DeleteAttendanceRecordsConfirmation(props: {
       <AlertDialogTrigger asChild>
         <Button
           type="button"
-          variant="destructiveOutline"
+          variant="outline"
           disabled={props.disabled || props.isDeleting}
-          className={props.className}
+          className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}
         >
           {props.isDeleting ? "Deleting..." : props.label}
         </Button>
@@ -536,21 +610,287 @@ function DeleteAttendanceRecordsConfirmation(props: {
   );
 }
 
+function DeleteEventConfirmation(props: {
+  event: AttendanceEvent;
+  isDeleting: boolean;
+  onConfirm: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:bg-destructive hover:text-destructive-foreground ${props.className ?? ""}`}>
+          {props.isDeleting ? "Deleting..." : "Delete"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete event?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete {props.event.name} and its linked attendance records.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => props.onConfirm(props.event.id)}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Delete Event
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function ManualAttendanceDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  events: AttendanceEvent[];
+  form: ManualAttendanceFormState;
+  editingRecordId: string;
+  isSaving: boolean;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onClear: () => void;
+  onChange: <K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" className="min-h-11 rounded-xl px-5 py-2">
+          Add Attendance
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{props.editingRecordId ? "Edit attendance" : "Add attendance"}</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
+          <div className="lg:col-span-2">
+            <Label htmlFor="manual-event-id">Event</Label>
+            <select
+              id="manual-event-id"
+              value={props.form.eventId}
+              onChange={(event) => props.onChange("eventId", event.target.value)}
+              className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <option value="">No event</option>
+              {props.events.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Label htmlFor="manual-student-id">Student ID</Label>
+            <Input
+              id="manual-student-id"
+              value={props.form.studentId}
+              onChange={(event) => props.onChange("studentId", event.target.value)}
+              className="mt-2"
+              required
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-name">Name</Label>
+            <Input
+              id="manual-name"
+              value={props.form.name}
+              onChange={(event) => props.onChange("name", event.target.value)}
+              className="mt-2"
+              required
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-year-level">Year level</Label>
+            <Input
+              id="manual-year-level"
+              value={props.form.yearLevel}
+              onChange={(event) => props.onChange("yearLevel", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-college">College</Label>
+            <Input
+              id="manual-college"
+              value={props.form.college}
+              onChange={(event) => props.onChange("college", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-program">Program</Label>
+            <Input
+              id="manual-program"
+              value={props.form.program}
+              onChange={(event) => props.onChange("program", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-institution">Institution</Label>
+            <Input
+              id="manual-institution"
+              value={props.form.institution}
+              onChange={(event) => props.onChange("institution", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="manual-absences">No. of Absences</Label>
+            <Input
+              id="manual-absences"
+              type="number"
+              min="0"
+              value={props.form.noOfAbsences}
+              onChange={(event) => props.onChange("noOfAbsences", event.target.value)}
+              className="mt-2"
+              required
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <Label htmlFor="manual-remarks">Remarks</Label>
+            <Textarea
+              id="manual-remarks"
+              value={props.form.remarks}
+              onChange={(event) => props.onChange("remarks", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
+            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl">
+              {props.isSaving ? "Saving..." : props.editingRecordId ? "Update Attendance" : "Save Attendance"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={props.onClear}
+              className="min-h-12 rounded-2xl"
+            >
+              {props.editingRecordId ? "Cancel Edit" : "Clear"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttendanceEventDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  form: AttendanceEventFormState;
+  editingEventId: string;
+  isSaving: boolean;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onClear: () => void;
+  onChange: <K extends keyof AttendanceEventFormState>(key: K, value: AttendanceEventFormState[K]) => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="min-h-11 rounded-xl px-5 py-2">
+          Add Event
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{props.editingEventId ? "Edit event" : "Add event"}</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="grid gap-4">
+          <div>
+            <Label htmlFor="event-name">Event name</Label>
+            <Input
+              id="event-name"
+              value={props.form.name}
+              onChange={(event) => props.onChange("name", event.target.value)}
+              className="mt-2"
+              required
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="event-date">Event date</Label>
+            <Input
+              id="event-date"
+              type="date"
+              value={props.form.eventDate}
+              onChange={(event) => props.onChange("eventDate", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="event-description">Description</Label>
+            <Textarea
+              id="event-description"
+              value={props.form.description}
+              onChange={(event) => props.onChange("description", event.target.value)}
+              className="mt-2"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl">
+              {props.isSaving ? "Saving..." : props.editingEventId ? "Update Event" : "Save Event"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={props.onClear}
+              className="min-h-12 rounded-2xl"
+            >
+              {props.editingEventId ? "Cancel Edit" : "Clear"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
+  const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
+  const [uploadEventId, setUploadEventId] = useState("");
+  const [uploadEventName, setUploadEventName] = useState("");
+  const [uploadEventDate, setUploadEventDate] = useState("");
+  const [uploadEventDescription, setUploadEventDescription] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingManual, setIsSavingManual] = useState(false);
+  const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
+  const [editingEventId, setEditingEventId] = useState("");
   const [deletingRecordId, setDeletingRecordId] = useState("");
+  const [deletingEventId, setDeletingEventId] = useState("");
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
@@ -561,6 +901,10 @@ export default function AttendancePage() {
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
     setManualForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateEventForm<K extends keyof AttendanceEventFormState>(key: K, value: AttendanceEventFormState[K]) {
+    setEventForm((current) => ({ ...current, [key]: value }));
   }
 
   function handleToggleRecordSelected(id: string, checked: boolean | "indeterminate") {
@@ -582,10 +926,14 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const rows = await listAttendanceRecords({ limit: 100, offset: 0 });
+      const [rows, eventRows] = await Promise.all([
+        listAttendanceRecords({ limit: 100, offset: 0 }),
+        listAttendanceEvents({ limit: 100, offset: 0 })
+      ]);
       const rowIds = new Set(rows.map((record) => record.id));
 
       setRecords(rows);
+      setEvents(eventRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
@@ -638,17 +986,16 @@ export default function AttendancePage() {
 
     try {
       const upload = await getAttendanceUploadFile(file);
-      const result = await saveAttendanceFile(upload.file);
+      const result = await saveAttendanceFile(upload.file, {
+        eventId: uploadEventId || undefined,
+        eventName: uploadEventId ? undefined : uploadEventName.trim() || undefined,
+        eventDate: uploadEventId ? undefined : uploadEventDate || undefined,
+        eventDescription: uploadEventId ? undefined : uploadEventDescription.trim() || undefined
+      });
       setSaved(result ?? null);
       setPreview(result ?? null);
       await loadRecords();
-      toast.success(
-        upload.normalizedRowsCount
-          ? `Attendance imported successfully from ${upload.normalizedRowsCount} extracted student row/s. Created ${
-              result?.createdFines.length ?? 0
-            } fine record/s.`
-          : `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`
-      );
+      toast.success(`Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`);
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Unable to save attendance file.";
       setError(message);
@@ -684,6 +1031,7 @@ export default function AttendancePage() {
     }
 
     const payload: ManualAttendanceInput = {
+      eventId: manualForm.eventId || undefined,
       studentId,
       name,
       yearLevel: manualForm.yearLevel.trim(),
@@ -714,14 +1062,10 @@ export default function AttendancePage() {
         await loadRecords();
       }
 
-      setEditingRecordId("");
-      setManualForm(emptyManualAttendanceForm);
-
-      if (editingRecordId) {
-        toast.success(result?.fine ? "Attendance record updated and fine synced." : "Attendance record updated successfully.");
-      } else {
-        toast.success(result?.fine ? "Manual attendance saved and fine generated." : "Manual attendance saved successfully.");
-      }
+      await loadRecords();
+      handleCancelEdit();
+      setManualDialogOpen(false);
+      toast.success(editingRecordId ? "Attendance record updated successfully." : "Attendance record saved successfully.");
     } catch (manualError) {
       const message = manualError instanceof Error ? manualError.message : "Unable to save attendance record.";
       setError(message);
@@ -731,9 +1075,50 @@ export default function AttendancePage() {
     }
   }
 
+  async function handleEventSubmit(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = eventForm.name.trim();
+    if (!name) {
+      setError("Event name is required.");
+      toast.error("Event name is required.");
+      return;
+    }
+
+    const payload: AttendanceEventInput = {
+      name,
+      eventDate: eventForm.eventDate || undefined,
+      description: eventForm.description.trim()
+    };
+
+    setIsSavingEvent(true);
+    setError("");
+
+    try {
+      if (editingEventId) {
+        await updateAttendanceEvent(editingEventId, payload);
+        toast.success("Event updated successfully.");
+      } else {
+        await saveAttendanceEvent(payload);
+        toast.success("Event saved successfully.");
+      }
+
+      await loadRecords();
+      handleCancelEventEdit();
+      setEventDialogOpen(false);
+    } catch (eventError) {
+      const message = eventError instanceof Error ? eventError.message : "Unable to save event.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSavingEvent(false);
+    }
+  }
+
   function handleEditRecord(record: AttendanceRecord) {
     setEditingRecordId(record.id);
     setManualForm({
+      eventId: record.event_id ?? "",
       studentId: record.student_id,
       name: record.name,
       yearLevel: record.year_level ?? "",
@@ -743,17 +1128,30 @@ export default function AttendancePage() {
       noOfAbsences: String(record.no_of_absences ?? 0),
       remarks: record.remarks ?? ""
     });
+    setManualDialogOpen(true);
     setError("");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    });
   }
 
   function handleCancelEdit() {
     setEditingRecordId("");
     setManualForm(emptyManualAttendanceForm);
+    setError("");
+  }
+
+  function handleEditEvent(record: AttendanceEvent) {
+    setEditingEventId(record.id);
+    setEventForm({
+      name: record.name,
+      eventDate: record.event_date ? String(record.event_date).slice(0, 10) : "",
+      description: record.description ?? ""
+    });
+    setEventDialogOpen(true);
+    setError("");
+  }
+
+  function handleCancelEventEdit() {
+    setEditingEventId("");
+    setEventForm(emptyAttendanceEventForm);
     setError("");
   }
 
@@ -763,8 +1161,7 @@ export default function AttendancePage() {
 
     try {
       await deleteAttendanceRecord(id);
-      setRecords((current) => current.filter((record) => record.id !== id));
-      setSelectedRecordIds((current) => current.filter((recordId) => recordId !== id));
+      await loadRecords();
 
       if (editingRecordId === id) {
         handleCancelEdit();
@@ -777,6 +1174,32 @@ export default function AttendancePage() {
       toast.error(message);
     } finally {
       setDeletingRecordId("");
+    }
+  }
+
+  async function handleDeleteEvent(id: string) {
+    setDeletingEventId(id);
+    setError("");
+
+    try {
+      await deleteAttendanceEvent(id);
+      await loadRecords();
+
+      if (editingEventId === id) {
+        handleCancelEventEdit();
+      }
+
+      if (uploadEventId === id) {
+        setUploadEventId("");
+      }
+
+      toast.success("Event deleted successfully.");
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete event.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingEventId("");
     }
   }
 
@@ -793,8 +1216,7 @@ export default function AttendancePage() {
 
     try {
       await Promise.all(idsToDelete.map((id) => deleteAttendanceRecord(id)));
-      setRecords((current) => current.filter((record) => !idsToDelete.includes(record.id)));
-      setSelectedRecordIds((current) => current.filter((id) => !idsToDelete.includes(id)));
+      await loadRecords();
 
       if (editingRecordId && idsToDelete.includes(editingRecordId)) {
         handleCancelEdit();
@@ -820,22 +1242,47 @@ export default function AttendancePage() {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Attendance import</p>
+            <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Attendance</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Upload and manage attendance</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Import attendance records through a file uploader or manually encode attendance recorded on paper.
-              Saved records automatically generate fines for students with absences.
-            </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={loadRecords}
-            disabled={isLoadingRecords}
-            className="min-h-11 rounded-xl px-5 py-2"
-          >
-            {isLoadingRecords ? "Loading..." : "Refresh Records"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <AttendanceEventDialog
+              open={eventDialogOpen}
+              onOpenChange={(open) => {
+                setEventDialogOpen(open);
+                if (!open) handleCancelEventEdit();
+              }}
+              form={eventForm}
+              editingEventId={editingEventId}
+              isSaving={isSavingEvent}
+              onSubmit={handleEventSubmit}
+              onClear={handleCancelEventEdit}
+              onChange={updateEventForm}
+            />
+            <ManualAttendanceDialog
+              open={manualDialogOpen}
+              onOpenChange={(open) => {
+                setManualDialogOpen(open);
+                if (!open) handleCancelEdit();
+              }}
+              events={events}
+              form={manualForm}
+              editingRecordId={editingRecordId}
+              isSaving={isSavingManual}
+              onSubmit={handleManualSubmit}
+              onClear={handleCancelEdit}
+              onChange={updateManualForm}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={loadRecords}
+              disabled={isLoadingRecords}
+              className="min-h-11 rounded-xl px-5 py-2"
+            >
+              {isLoadingRecords ? "Loading..." : "Refresh"}
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-2">
@@ -851,6 +1298,23 @@ export default function AttendancePage() {
               }}
               onDragStateChange={setIsDragging}
             />
+
+            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <h2 className="text-xl font-black">Upload event</h2>
+              <div className="mt-5">
+                <EventFields
+                  events={events}
+                  eventId={uploadEventId}
+                  eventName={uploadEventName}
+                  eventDate={uploadEventDate}
+                  eventDescription={uploadEventDescription}
+                  onEventIdChange={setUploadEventId}
+                  onEventNameChange={setUploadEventName}
+                  onEventDateChange={setUploadEventDate}
+                  onEventDescriptionChange={setUploadEventDescription}
+                />
+              </div>
+            </section>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
@@ -872,143 +1336,6 @@ export default function AttendancePage() {
               </Button>
             </div>
 
-            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <h2 className="text-lg font-black">Upload field search</h2>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                The upload will look for the most important identifiers first, especially Student ID and Full name,
-                then use the other available student details when they are found.
-              </p>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {ATTENDANCE_SEARCH_FIELDS.map((field) => (
-                  <div key={field.label} className="rounded-2xl border bg-background p-3">
-                    <p className="text-sm font-black">{field.label}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{field.aliases.join(", ")}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <h2 className="text-xl font-black">
-                {editingRecordId ? "Edit attendance record" : "Manual paper attendance"}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {editingRecordId
-                  ? "Update the selected attendance record and synchronize its generated fine."
-                  : "Encode attendance records from paper forms when no file upload is available."}
-              </p>
-
-              <form onSubmit={handleManualSubmit} className="mt-5 grid gap-4 lg:grid-cols-2">
-                <div>
-                  <Label htmlFor="manual-student-id">Student ID</Label>
-                  <Input
-                    id="manual-student-id"
-                    value={manualForm.studentId}
-                    onChange={(event) => updateManualForm("studentId", event.target.value)}
-                    className="mt-2"
-                    placeholder="Student ID"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-name">Name</Label>
-                  <Input
-                    id="manual-name"
-                    value={manualForm.name}
-                    onChange={(event) => updateManualForm("name", event.target.value)}
-                    className="mt-2"
-                    placeholder="Full name"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-year-level">Year level</Label>
-                  <Input
-                    id="manual-year-level"
-                    value={manualForm.yearLevel}
-                    onChange={(event) => updateManualForm("yearLevel", event.target.value)}
-                    className="mt-2"
-                    placeholder="Year level"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-college">College</Label>
-                  <Input
-                    id="manual-college"
-                    value={manualForm.college}
-                    onChange={(event) => updateManualForm("college", event.target.value)}
-                    className="mt-2"
-                    placeholder="College"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-program">Program</Label>
-                  <Input
-                    id="manual-program"
-                    value={manualForm.program}
-                    onChange={(event) => updateManualForm("program", event.target.value)}
-                    className="mt-2"
-                    placeholder="Program"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-institution">Institution</Label>
-                  <Input
-                    id="manual-institution"
-                    value={manualForm.institution}
-                    onChange={(event) => updateManualForm("institution", event.target.value)}
-                    className="mt-2"
-                    placeholder="Institution"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="manual-absences">No. of Absences</Label>
-                  <Input
-                    id="manual-absences"
-                    type="number"
-                    min="0"
-                    value={manualForm.noOfAbsences}
-                    onChange={(event) => updateManualForm("noOfAbsences", event.target.value)}
-                    className="mt-2"
-                    placeholder="0"
-                    required
-                  />
-                </div>
-
-                <div className="lg:col-span-2">
-                  <Label htmlFor="manual-remarks">Remarks</Label>
-                  <Textarea
-                    id="manual-remarks"
-                    value={manualForm.remarks}
-                    onChange={(event) => updateManualForm("remarks", event.target.value)}
-                    className="mt-2"
-                    placeholder="Optional notes from the paper attendance record"
-                  />
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
-                  <Button type="submit" disabled={isSavingManual} className="min-h-12 rounded-2xl">
-                    {isSavingManual ? "Saving..." : editingRecordId ? "Update Attendance" : "Save Manual Attendance"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSavingManual}
-                    onClick={handleCancelEdit}
-                    className="min-h-12 rounded-2xl"
-                  >
-                    {editingRecordId ? "Cancel Edit" : "Clear"}
-                  </Button>
-                </div>
-              </form>
-            </section>
-
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
                 {error}
@@ -1020,16 +1347,56 @@ export default function AttendancePage() {
                 Attendance imported successfully. Created {saved.createdFines.length} fine record/s.
               </div>
             ) : null}
+
+            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-xl font-black">Events</h2>
+                <p className="text-sm font-bold text-muted-foreground">{events.length} event/s</p>
+              </div>
+
+              {events.length ? (
+                <div className="space-y-3">
+                  {events.map((event) => (
+                    <article key={event.id} className="rounded-2xl border bg-background p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-black">{event.name}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {formatDate(event.event_date)} • {event.attendees_count} attendee/s
+                          </p>
+                          {event.description ? <p className="mt-2 text-sm text-muted-foreground">{event.description}</p> : null}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleEditEvent(event)}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Edit
+                          </Button>
+                          <DeleteEventConfirmation
+                            event={event}
+                            isDeleting={deletingEventId === event.id}
+                            onConfirm={handleDeleteEvent}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          />
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No events yet.
+                </div>
+              )}
+            </section>
           </section>
 
           <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-xl font-black">Preview result</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Review valid and invalid rows before saving the import.
-                </p>
-              </div>
+              <h2 className="text-xl font-black">Preview result</h2>
               {preview ? (
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-xl bg-muted px-3 py-2">
@@ -1054,6 +1421,7 @@ export default function AttendancePage() {
                   <thead className="border-b text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="px-3 py-3">Row</th>
+                      <th className="px-3 py-3">Event</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Absences</th>
@@ -1065,6 +1433,7 @@ export default function AttendancePage() {
                     {preview.rows.slice(0, 30).map((row) => (
                       <tr key={`${row.rowNumber}-${row.studentId}`} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">{row.rowNumber}</td>
+                        <td className="px-3 py-3">{row.eventName || uploadEventName || "—"}</td>
                         <td className="px-3 py-3">{row.studentId || "—"}</td>
                         <td className="px-3 py-3">{row.name || "—"}</td>
                         <td className="px-3 py-3">{row.noOfAbsences ?? 0}</td>
@@ -1085,23 +1454,19 @@ export default function AttendancePage() {
                   </tbody>
                 </table>
                 {preview.rows.length > 30 ? (
-                  <p className="mt-3 text-xs font-semibold text-muted-foreground">
-                    Showing first 30 rows only. Saving will process all valid rows.
-                  </p>
+                  <p className="mt-3 text-xs font-semibold text-muted-foreground">Showing first 30 rows only.</p>
                 ) : null}
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed bg-background p-8 text-center text-sm font-semibold text-muted-foreground">
-                Drop a file and click Preview File to see the parsed attendance rows.
+                No preview yet.
               </div>
             )}
 
             {invalidRows.length ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 <p className="font-black">Rows that need review</p>
-                <p className="mt-1">
-                  {invalidRows.length} invalid row/s will not be saved unless corrected in the source file.
-                </p>
+                <p className="mt-1">{invalidRows.length} invalid row/s will not be saved.</p>
               </div>
             ) : null}
           </section>
@@ -1111,7 +1476,6 @@ export default function AttendancePage() {
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Recent attendance records</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Latest uploaded and manually encoded attendance entries.</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               {selectedRecordCount ? (
@@ -1122,7 +1486,7 @@ export default function AttendancePage() {
               <DeleteAttendanceRecordsConfirmation
                 label="Delete Selected"
                 title="Delete selected attendance records?"
-                description={`This will permanently delete ${selectedRecordCount} selected attendance record/s and any generated fines linked to them.`}
+                description={`This will permanently delete ${selectedRecordCount} selected attendance record/s.`}
                 isDeleting={isDeletingBulk}
                 disabled={!selectedRecordCount}
                 onConfirm={() => handleDeleteRecords(selectedRecordIds)}
@@ -1131,7 +1495,7 @@ export default function AttendancePage() {
               <DeleteAttendanceRecordsConfirmation
                 label="Delete All"
                 title="Delete all attendance records?"
-                description={`This will permanently delete all ${records.length} loaded attendance record/s and any generated fines linked to them.`}
+                description={`This will permanently delete all ${records.length} loaded attendance record/s.`}
                 isDeleting={isDeletingBulk}
                 disabled={!records.length}
                 onConfirm={() => handleDeleteRecords(records.map((record) => record.id))}
@@ -1164,7 +1528,7 @@ export default function AttendancePage() {
                           {record.program || "No program"} • {formatDate(record.created_at)}
                         </p>
                         <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {record.import_id ? "File import" : "Manual paper record"}
+                          {getManualRecordSource(record)}
                         </p>
                         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                           <Button
@@ -1200,7 +1564,7 @@ export default function AttendancePage() {
                         />
                       </th>
                       <th className="px-3 py-3">Date</th>
-                      <th className="px-3 py-3">Source</th>
+                      <th className="px-3 py-3">Event</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Program</th>
@@ -1222,7 +1586,7 @@ export default function AttendancePage() {
                         <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
                         <td className="px-3 py-3">
                           <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
-                            {record.import_id ? "Import" : "Manual"}
+                            {getManualRecordSource(record)}
                           </span>
                         </td>
                         <td className="px-3 py-3">{record.student_id}</td>

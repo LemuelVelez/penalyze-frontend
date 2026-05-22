@@ -1,8 +1,20 @@
 export type ImportStatus = "previewed" | "saved" | "failed";
 
+export type AttendanceEvent = {
+  id: string;
+  name: string;
+  event_date: string | null;
+  description: string | null;
+  attendees_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AttendanceRecord = {
   id: string;
   import_id: string | null;
+  event_id: string | null;
+  event_name: string | null;
   student_id: string;
   name: string;
   year_level: string | null;
@@ -17,6 +29,8 @@ export type AttendanceRecord = {
 
 export type AttendanceImportRecord = {
   id: string;
+  event_id: string | null;
+  event_name: string | null;
   file_name: string;
   file_type: string;
   rows_total: number;
@@ -27,6 +41,8 @@ export type AttendanceImportRecord = {
 };
 
 export type AttendanceImportInput = {
+  eventId?: string;
+  eventName?: string;
   studentId: string;
   name: string;
   yearLevel?: string;
@@ -38,6 +54,12 @@ export type AttendanceImportInput = {
 };
 
 export type ManualAttendanceInput = AttendanceImportInput;
+
+export type AttendanceEventInput = {
+  name: string;
+  eventDate?: string;
+  description?: string;
+};
 
 export type ParsedAttendanceRow = AttendanceImportInput & {
   rowNumber: number;
@@ -56,6 +78,7 @@ export type AttendancePreviewResult = {
 
 export type SavedAttendanceImportResult = AttendancePreviewResult & {
   importId: string;
+  event: AttendanceEvent | null;
   savedRecords: AttendanceRecord[];
   createdFines: Array<{
     id: string;
@@ -68,6 +91,7 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
 };
 
 export type ManualAttendanceSaveResult = {
+  event: AttendanceEvent | null;
   record: AttendanceRecord;
   fine: SavedAttendanceImportResult["createdFines"][number] | null;
 };
@@ -79,8 +103,16 @@ type ApiEnvelope<T> = {
 
 type ListOptions = {
   studentId?: string;
+  eventId?: string;
   limit?: number;
   offset?: number;
+};
+
+export type AttendanceImportSaveOptions = {
+  eventId?: string;
+  eventName?: string;
+  eventDate?: string;
+  eventDescription?: string;
 };
 
 const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.csv,.txt,.docx,.doc";
@@ -140,6 +172,13 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   return payload as ApiEnvelope<T>;
 }
 
+function appendSaveOptions(body: FormData, options: AttendanceImportSaveOptions = {}) {
+  if (options.eventId) body.set("eventId", options.eventId);
+  if (options.eventName) body.set("eventName", options.eventName);
+  if (options.eventDate) body.set("eventDate", options.eventDate);
+  if (options.eventDescription) body.set("eventDescription", options.eventDescription);
+}
+
 export function getAcceptedAttendanceFileTypes() {
   return ACCEPTED_ATTENDANCE_FILE_TYPES;
 }
@@ -148,11 +187,48 @@ export function normalizeStudentId(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+export async function listAttendanceEvents(options: Pick<ListOptions, "limit" | "offset"> = {}) {
+  const query = buildSearchParams({
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0
+  });
+
+  const response = await apiRequest<AttendanceEvent[]>(`/api/attendance/events${query}`);
+  return response.data ?? [];
+}
+
+export async function saveAttendanceEvent(input: AttendanceEventInput) {
+  const response = await apiRequest<AttendanceEvent>("/api/attendance/events", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return response.data;
+}
+
+export async function updateAttendanceEvent(id: string, input: AttendanceEventInput) {
+  const response = await apiRequest<AttendanceEvent>(`/api/attendance/events/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+
+  return response.data;
+}
+
+export async function deleteAttendanceEvent(id: string) {
+  const response = await apiRequest<AttendanceEvent>(`/api/attendance/events/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+
+  return response.data;
+}
+
 export async function listAttendanceRecords(options: ListOptions = {}) {
   const query = buildSearchParams({
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
-    studentId: options.studentId
+    studentId: options.studentId,
+    eventId: options.eventId
   });
 
   const response = await apiRequest<AttendanceRecord[]>(`/api/attendance${query}`);
@@ -203,9 +279,10 @@ export async function previewAttendanceFile(file: File) {
   return response.data;
 }
 
-export async function saveAttendanceFile(file: File) {
+export async function saveAttendanceFile(file: File, options: AttendanceImportSaveOptions = {}) {
   const body = new FormData();
   body.set("file", file);
+  appendSaveOptions(body, options);
 
   const response = await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
     method: "POST",
@@ -216,6 +293,10 @@ export async function saveAttendanceFile(file: File) {
 }
 
 export async function saveAttendanceRows(input: {
+  eventId?: string;
+  eventName?: string;
+  eventDate?: string;
+  eventDescription?: string;
   fileName?: string;
   fileType?: string;
   rows: ParsedAttendanceRow[];
