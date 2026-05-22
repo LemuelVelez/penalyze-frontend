@@ -3,7 +3,8 @@ export type ImportStatus = "previewed" | "saved" | "failed";
 export type AttendanceEvent = {
   id: string;
   name: string;
-  event_date: string | null;
+  event_start_at: string | null;
+  event_end_at: string | null;
   description: string | null;
   attendees_count: number;
   created_at: string;
@@ -23,6 +24,7 @@ export type AttendanceRecord = {
   institution: string | null;
   no_of_absences: number;
   remarks: string | null;
+  scanned_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -48,6 +50,9 @@ export type DeletedAttendanceImportsResult = {
 export type AttendanceImportInput = {
   eventId?: string;
   eventName?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
+  scannedAt?: string;
   studentId: string;
   name: string;
   yearLevel?: string;
@@ -62,7 +67,8 @@ export type ManualAttendanceInput = AttendanceImportInput;
 
 export type AttendanceEventInput = {
   name: string;
-  eventDate?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
   description?: string;
 };
 
@@ -116,7 +122,8 @@ type ListOptions = {
 export type AttendanceImportSaveOptions = {
   eventId?: string;
   eventName?: string;
-  eventDate?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
   eventDescription?: string;
 };
 
@@ -180,7 +187,8 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
 function appendSaveOptions(body: FormData, options: AttendanceImportSaveOptions = {}) {
   if (options.eventId) body.set("eventId", options.eventId);
   if (options.eventName) body.set("eventName", options.eventName);
-  if (options.eventDate) body.set("eventDate", options.eventDate);
+  if (options.eventStartAt) body.set("eventStartAt", options.eventStartAt);
+  if (options.eventEndAt) body.set("eventEndAt", options.eventEndAt);
   if (options.eventDescription) body.set("eventDescription", options.eventDescription);
 }
 
@@ -316,7 +324,8 @@ export async function saveAttendanceFile(file: File, options: AttendanceImportSa
 export async function saveAttendanceRows(input: {
   eventId?: string;
   eventName?: string;
-  eventDate?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
   eventDescription?: string;
   fileName?: string;
   fileType?: string;

@@ -49,10 +49,18 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 
 type ManualAttendanceFormState = {
   eventId: string;
+  scannedAt: string;
   studentId: string;
   name: string;
   yearLevel: string;
@@ -65,12 +73,14 @@ type ManualAttendanceFormState = {
 
 type AttendanceEventFormState = {
   name: string;
-  eventDate: string;
+  eventStartAt: string;
+  eventEndAt: string;
   description: string;
 };
 
 const emptyManualAttendanceForm: ManualAttendanceFormState = {
   eventId: "",
+  scannedAt: "",
   studentId: "",
   name: "",
   yearLevel: "",
@@ -83,7 +93,8 @@ const emptyManualAttendanceForm: ManualAttendanceFormState = {
 
 const emptyAttendanceEventForm: AttendanceEventFormState = {
   name: "",
-  eventDate: "",
+  eventStartAt: "",
+  eventEndAt: "",
   description: ""
 };
 
@@ -116,9 +127,14 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
 );
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
+const NO_EVENT_SELECT_VALUE = "__no_event__";
+const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
 
 const ATTENDANCE_IMPORT_HEADERS = [
   "Event",
+  "Event Start At",
+  "Event End At",
+  "Scanned At",
   "Student ID",
   "Name",
   "Year Level",
@@ -131,6 +147,9 @@ const ATTENDANCE_IMPORT_HEADERS = [
 
 type NormalizedAttendanceImportRow = {
   eventName: string;
+  eventStartAt: string;
+  eventEndAt: string;
+  scannedAt: string;
   studentId: string;
   name: string;
   yearLevel: string;
@@ -168,6 +187,27 @@ type AttendanceHeaderKey = keyof NormalizedAttendanceImportRow;
 
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
   eventName: ["event", "event name", "eventname", "activity", "activity name"],
+  eventStartAt: [
+    "event start at",
+    "event start",
+    "eventstart",
+    "eventstartat",
+    "start at",
+    "start date",
+    "start time",
+    "started at"
+  ],
+  eventEndAt: [
+    "event end at",
+    "event end",
+    "eventend",
+    "eventendat",
+    "end at",
+    "end date",
+    "end time",
+    "ended at"
+  ],
+  scannedAt: ["scanned at", "scanned", "scannedat", "scan time", "scan date", "date scanned", "time scanned", "timestamp"],
   studentId: [
     "student id",
     "studentid",
@@ -355,6 +395,43 @@ function getNumericAbsenceValue(value: string) {
   return Number.isFinite(numericValue) && numericValue >= 0 ? String(numericValue) : "0";
 }
 
+function isNumericSpreadsheetDate(value: string) {
+  return /^\d+(?:\.\d+)?$/.test(value.trim());
+}
+
+function getDateFromExcelSerial(value: string) {
+  const serial = Number(value);
+  if (!Number.isFinite(serial) || serial <= 0 || serial > 100000) return null;
+
+  const wholeDays = Math.floor(serial);
+  const timeFraction = serial - wholeDays;
+  const milliseconds = Math.round((wholeDays - 25569) * 86400000 + timeFraction * 86400000);
+  const date = new Date(milliseconds);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeAttendanceDateTimeValue(value?: string | number | null) {
+  const text = cleanImportValue(value);
+  if (!text) return "";
+
+  const serialDate = isNumericSpreadsheetDate(text) ? getDateFromExcelSerial(text) : null;
+  const date = serialDate ?? new Date(text);
+
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toISOString();
+}
+
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
 function escapeCsvValue(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -364,6 +441,9 @@ function toNormalizedAttendanceCsv(rows: NormalizedAttendanceImportRow[]) {
     ATTENDANCE_IMPORT_HEADERS,
     ...rows.map((row) => [
       row.eventName,
+      row.eventStartAt,
+      row.eventEndAt,
+      row.scannedAt,
       row.studentId,
       row.name,
       row.yearLevel,
@@ -464,8 +544,30 @@ function getNormalizedAttendanceRowsFromTabularRows(
     const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${normalizedStudentId}`;
     const currentRecord = recordsByImportKey.get(importKey);
 
+    const eventStartAt = normalizeAttendanceDateTimeValue(
+      getHeaderValue(row, headers, "eventStartAt") ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventStartAt) ||
+        currentRecord?.eventStartAt ||
+        ""
+    );
+    const eventEndAt = normalizeAttendanceDateTimeValue(
+      getHeaderValue(row, headers, "eventEndAt") ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventEndAt) ||
+        currentRecord?.eventEndAt ||
+        ""
+    );
+    const scannedAt = normalizeAttendanceDateTimeValue(
+      getHeaderValue(row, headers, "scannedAt") ||
+        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.scannedAt) ||
+        currentRecord?.scannedAt ||
+        ""
+    );
+
     const normalizedRow: NormalizedAttendanceImportRow = {
       eventName: rowEventName || currentRecord?.eventName || "",
+      eventStartAt,
+      eventEndAt,
+      scannedAt,
       studentId: normalizedStudentId,
       name: cleanImportValue(name),
       yearLevel:
@@ -821,6 +923,32 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function formatEventSchedule(event: AttendanceEvent) {
+  const start = formatDateTime(event.event_start_at);
+  const end = formatDateTime(event.event_end_at);
+
+  if (start !== "—" && end !== "—") return `${start} - ${end}`;
+  if (start !== "—") return `Starts ${start}`;
+  if (end !== "—") return `Ends ${end}`;
+
+  return "No schedule set";
+}
+
 function getManualRecordSource(record: AttendanceRecord) {
   if (record.event_name) return record.event_name;
   return record.import_id ? "File import" : "Manual";
@@ -900,11 +1028,13 @@ function EventFields(props: {
   fileEventNames: string[];
   eventId: string;
   eventName: string;
-  eventDate: string;
+  eventStartAt: string;
+  eventEndAt: string;
   eventDescription: string;
   onEventIdChange: (value: string) => void;
   onEventNameChange: (value: string) => void;
-  onEventDateChange: (value: string) => void;
+  onEventStartAtChange: (value: string) => void;
+  onEventEndAtChange: (value: string) => void;
   onEventDescriptionChange: (value: string) => void;
 }) {
   const isUsingFileEvents = !props.eventId && props.fileEventNames.length > 0;
@@ -913,21 +1043,26 @@ function EventFields(props: {
     <div className="grid gap-4 lg:grid-cols-2">
       <div>
         <Label htmlFor="upload-event-id">Event</Label>
-        <select
-          id="upload-event-id"
-          value={props.eventId}
-          onChange={(event) => props.onEventIdChange(event.target.value)}
-          className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <Select
+          value={props.eventId || UPLOAD_FILE_EVENTS_SELECT_VALUE}
+          onValueChange={(value) => {
+            props.onEventIdChange(value === UPLOAD_FILE_EVENTS_SELECT_VALUE ? "" : value);
+          }}
         >
-          <option value="">
-            {isUsingFileEvents ? "Use event/s detected in the uploaded file" : "Use event from file or create a new event"}
-          </option>
-          {props.events.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="upload-event-id" className="mt-2 min-h-10">
+            <SelectValue placeholder="Use event from file or create a new event" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={UPLOAD_FILE_EVENTS_SELECT_VALUE}>
+              {isUsingFileEvents ? "Use event/s detected in the uploaded file" : "Use event from file or create a new event"}
+            </SelectItem>
+            {props.events.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
@@ -943,26 +1078,38 @@ function EventFields(props: {
       </div>
 
       <div>
-        <Label htmlFor="upload-event-date">Event date</Label>
+        <Label htmlFor="upload-event-start-at">Event start at</Label>
         <Input
-          id="upload-event-date"
-          type="date"
-          value={props.eventDate}
-          onChange={(event) => props.onEventDateChange(event.target.value)}
-          disabled={Boolean(props.eventId) || isUsingFileEvents}
+          id="upload-event-start-at"
+          type="datetime-local"
+          value={props.eventStartAt}
+          onChange={(event) => props.onEventStartAtChange(event.target.value)}
+          disabled={Boolean(props.eventId)}
           className="mt-2"
         />
       </div>
 
       <div>
+        <Label htmlFor="upload-event-end-at">Event end at</Label>
+        <Input
+          id="upload-event-end-at"
+          type="datetime-local"
+          value={props.eventEndAt}
+          onChange={(event) => props.onEventEndAtChange(event.target.value)}
+          disabled={Boolean(props.eventId)}
+          className="mt-2"
+        />
+      </div>
+
+      <div className="lg:col-span-2">
         <Label htmlFor="upload-event-description">Description</Label>
         <Input
           id="upload-event-description"
           value={props.eventDescription}
           onChange={(event) => props.onEventDescriptionChange(event.target.value)}
-          disabled={Boolean(props.eventId) || isUsingFileEvents}
+          disabled={Boolean(props.eventId)}
           className="mt-2"
-          placeholder={isUsingFileEvents ? "Using detected file event/s" : "Optional"}
+          placeholder={isUsingFileEvents ? "Optional for detected file event/s" : "Optional"}
         />
       </div>
 
@@ -1146,21 +1293,35 @@ function ManualAttendanceDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
-          <div className="lg:col-span-2">
+          <div>
             <Label htmlFor="manual-event-id">Event</Label>
-            <select
-              id="manual-event-id"
-              value={props.form.eventId}
-              onChange={(event) => props.onChange("eventId", event.target.value)}
-              className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            <Select
+              value={props.form.eventId || NO_EVENT_SELECT_VALUE}
+              onValueChange={(value) => props.onChange("eventId", value === NO_EVENT_SELECT_VALUE ? "" : value)}
             >
-              <option value="">No event</option>
-              {props.events.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="manual-event-id" className="mt-2 min-h-10">
+                <SelectValue placeholder="No event" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_EVENT_SELECT_VALUE}>No event</SelectItem>
+                {props.events.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label htmlFor="manual-scanned-at">Scanned at</Label>
+            <Input
+              id="manual-scanned-at"
+              type="datetime-local"
+              value={props.form.scannedAt}
+              onChange={(event) => props.onChange("scannedAt", event.target.value)}
+              className="mt-2"
+            />
           </div>
 
           <div>
@@ -1302,15 +1463,28 @@ function AttendanceEventDialog(props: {
             />
           </div>
 
-          <div>
-            <Label htmlFor="event-date">Event date</Label>
-            <Input
-              id="event-date"
-              type="date"
-              value={props.form.eventDate}
-              onChange={(event) => props.onChange("eventDate", event.target.value)}
-              className="mt-2"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="event-start-at">Event start at</Label>
+              <Input
+                id="event-start-at"
+                type="datetime-local"
+                value={props.form.eventStartAt}
+                onChange={(event) => props.onChange("eventStartAt", event.target.value)}
+                className="mt-2"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="event-end-at">Event end at</Label>
+              <Input
+                id="event-end-at"
+                type="datetime-local"
+                value={props.form.eventEndAt}
+                onChange={(event) => props.onChange("eventEndAt", event.target.value)}
+                className="mt-2"
+              />
+            </div>
           </div>
 
           <div>
@@ -1355,7 +1529,8 @@ export default function AttendancePage() {
   const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
   const [uploadEventId, setUploadEventId] = useState("");
   const [uploadEventName, setUploadEventName] = useState("");
-  const [uploadEventDate, setUploadEventDate] = useState("");
+  const [uploadEventStartAt, setUploadEventStartAt] = useState("");
+  const [uploadEventEndAt, setUploadEventEndAt] = useState("");
   const [uploadEventDescription, setUploadEventDescription] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -1413,14 +1588,16 @@ export default function AttendancePage() {
     if (selectedFile) {
       setUploadEventId("");
       setUploadEventName("");
-      setUploadEventDate("");
+      setUploadEventStartAt("");
+      setUploadEventEndAt("");
       setUploadEventDescription("");
       return;
     }
 
     setUploadEventId("");
     setUploadEventName("");
-    setUploadEventDate("");
+    setUploadEventStartAt("");
+    setUploadEventEndAt("");
     setUploadEventDescription("");
   }
 
@@ -1429,7 +1606,8 @@ export default function AttendancePage() {
 
     if (value) {
       setUploadEventName("");
-      setUploadEventDate("");
+      setUploadEventStartAt("");
+      setUploadEventEndAt("");
       setUploadEventDescription("");
     }
   }
@@ -1479,7 +1657,8 @@ export default function AttendancePage() {
 
       if (!uploadEventId && detectedEventNames.length) {
         setUploadEventName("");
-        setUploadEventDate("");
+        setUploadEventStartAt("");
+        setUploadEventEndAt("");
         setUploadEventDescription("");
       }
 
@@ -1529,7 +1708,8 @@ export default function AttendancePage() {
       const result = await saveAttendanceFile(upload.file, {
         eventId: uploadEventId || undefined,
         eventName: uploadEventId || shouldUseDetectedFileEvents ? undefined : eventName || undefined,
-        eventDate: uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDate || undefined,
+        eventStartAt: uploadEventId ? undefined : uploadEventStartAt || undefined,
+        eventEndAt: uploadEventId ? undefined : uploadEventEndAt || undefined,
         eventDescription:
           uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDescription.trim() || undefined
       });
@@ -1577,6 +1757,7 @@ export default function AttendancePage() {
 
     const payload: ManualAttendanceInput = {
       eventId: manualForm.eventId || undefined,
+      scannedAt: manualForm.scannedAt || undefined,
       studentId,
       name,
       yearLevel: manualForm.yearLevel.trim(),
@@ -1632,7 +1813,8 @@ export default function AttendancePage() {
 
     const payload: AttendanceEventInput = {
       name,
-      eventDate: eventForm.eventDate || undefined,
+      eventStartAt: eventForm.eventStartAt || undefined,
+      eventEndAt: eventForm.eventEndAt || undefined,
       description: eventForm.description.trim()
     };
 
@@ -1664,6 +1846,7 @@ export default function AttendancePage() {
     setEditingRecordId(record.id);
     setManualForm({
       eventId: record.event_id ?? "",
+      scannedAt: toDateTimeLocalValue(record.scanned_at),
       studentId: record.student_id,
       name: record.name,
       yearLevel: record.year_level ?? "",
@@ -1687,7 +1870,8 @@ export default function AttendancePage() {
     setEditingEventId(record.id);
     setEventForm({
       name: record.name,
-      eventDate: record.event_date ? String(record.event_date).slice(0, 10) : "",
+      eventStartAt: toDateTimeLocalValue(record.event_start_at),
+      eventEndAt: toDateTimeLocalValue(record.event_end_at),
       description: record.description ?? ""
     });
     setEventDialogOpen(true);
@@ -1900,11 +2084,13 @@ export default function AttendancePage() {
                     fileEventNames={previewEventNames}
                     eventId={uploadEventId}
                     eventName={uploadEventName}
-                    eventDate={uploadEventDate}
+                    eventStartAt={uploadEventStartAt}
+                    eventEndAt={uploadEventEndAt}
                     eventDescription={uploadEventDescription}
                     onEventIdChange={handleUploadEventIdChange}
                     onEventNameChange={setUploadEventName}
-                    onEventDateChange={setUploadEventDate}
+                    onEventStartAtChange={setUploadEventStartAt}
+                    onEventEndAtChange={setUploadEventEndAt}
                     onEventDescriptionChange={setUploadEventDescription}
                   />
                 </div>
@@ -1957,7 +2143,7 @@ export default function AttendancePage() {
                         <div>
                           <p className="font-black">{event.name}</p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            {formatDate(event.event_date)} • {event.attendees_count} attendee/s
+                            {formatEventSchedule(event)} • {event.attendees_count} attendee/s
                           </p>
                           {event.description ? <p className="mt-2 text-sm text-muted-foreground">{event.description}</p> : null}
                         </div>
@@ -2070,6 +2256,9 @@ export default function AttendancePage() {
                     <tr>
                       <th className="px-3 py-3">Row</th>
                       <th className="px-3 py-3">Event</th>
+                      <th className="px-3 py-3">Event Start At</th>
+                      <th className="px-3 py-3">Event End At</th>
+                      <th className="px-3 py-3">Scanned At</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
                       <th className="px-3 py-3">Absences</th>
@@ -2082,6 +2271,9 @@ export default function AttendancePage() {
                       <tr key={`${row.rowNumber}-${row.studentId}`} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">{row.rowNumber}</td>
                         <td className="px-3 py-3">{row.eventName || uploadEventName || "—"}</td>
+                        <td className="px-3 py-3">{formatDateTime(row.eventStartAt || uploadEventStartAt)}</td>
+                        <td className="px-3 py-3">{formatDateTime(row.eventEndAt || uploadEventEndAt)}</td>
+                        <td className="px-3 py-3">{formatDateTime(row.scannedAt)}</td>
                         <td className="px-3 py-3">{row.studentId || "—"}</td>
                         <td className="px-3 py-3">{row.name || "—"}</td>
                         <td className="px-3 py-3">{row.noOfAbsences ?? 0}</td>
@@ -2173,7 +2365,7 @@ export default function AttendancePage() {
                           <p className="text-sm font-bold">{record.no_of_absences} absence/s</p>
                         </div>
                         <p className="mt-3 text-sm text-muted-foreground">
-                          {record.program || "No program"} • {formatDate(record.created_at)}
+                          {record.program || "No program"} • Scanned {formatDateTime(record.scanned_at)}
                         </p>
                         <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           {getManualRecordSource(record)}
@@ -2211,7 +2403,7 @@ export default function AttendancePage() {
                           aria-label="Select all attendance records"
                         />
                       </th>
-                      <th className="px-3 py-3">Date</th>
+                      <th className="px-3 py-3">Scanned At</th>
                       <th className="px-3 py-3">Event</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
@@ -2231,7 +2423,7 @@ export default function AttendancePage() {
                             aria-label={`Select attendance record for ${record.name}`}
                           />
                         </td>
-                        <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
+                        <td className="px-3 py-3 font-semibold">{formatDateTime(record.scanned_at)}</td>
                         <td className="px-3 py-3">
                           <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
                             {getManualRecordSource(record)}
