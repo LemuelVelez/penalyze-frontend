@@ -26,6 +26,30 @@ const AUTH_STORAGE_KEYS = [
   "accessToken"
 ];
 
+const LANDING_RESOURCE_LINKS = [
+  {
+    audience: "SSG Officers",
+    title: "Download QR Scanner",
+    description: "Download the scanner for checking student QR codes during attendance and monitoring.",
+    href: "https://drive.google.com/file/d/19vu1IvWgpmASxRWUVDjIpe9ql6kbqrPw/view?usp=sharing",
+    cta: "Download Scanner"
+  },
+  {
+    audience: "Students",
+    title: "Generate Student QR Code",
+    description: "Create your QR code using your student details before presenting it for scanning.",
+    href: "https://ssg-qrcode-generator.vercel.app/",
+    cta: "Generate QR Code"
+  },
+  {
+    audience: "Researchers",
+    title: "Survey and Statistics Support",
+    description: "Access external services for thesis Chapter IV survey and statistics needs.",
+    href: "https://surveystat.jrmsu-tc.online/",
+    cta: "Visit SurveyStat"
+  }
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -325,6 +349,31 @@ export default function LandingPage() {
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
                 <p className="text-sm font-semibold text-muted-foreground">Monitor records</p>
                 <p className="mt-2 text-3xl font-black">Attendance</p>
+              </div>
+            </div>
+
+            <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/80 p-4 text-left shadow-xl shadow-black/5 sm:p-6">
+              <div className="flex flex-col gap-2 text-center sm:text-left">
+                <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Quick access services</p>
+                <h2 className="text-2xl font-black tracking-tight sm:text-3xl">Helpful links for officers, students, and researchers</h2>
+                <p className="text-sm leading-7 text-muted-foreground sm:text-base">
+                  Access the scanner, generate student QR codes, or open the thesis survey and statistics service.
+                </p>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                {LANDING_RESOURCE_LINKS.map((resource) => (
+                  <article key={resource.href} className="flex h-full flex-col rounded-2xl border bg-background p-5 shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{resource.audience}</p>
+                    <h3 className="mt-2 text-lg font-black">{resource.title}</h3>
+                    <p className="mt-2 flex-1 text-sm leading-6 text-muted-foreground">{resource.description}</p>
+                    <Button asChild className="mt-5 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black">
+                      <a href={resource.href} target="_blank" rel="noreferrer">
+                        {resource.cta}
+                      </a>
+                    </Button>
+                  </article>
+                ))}
               </div>
             </div>
           </div>
