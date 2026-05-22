@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent, FormEvent } from "react";
+import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
@@ -329,7 +329,7 @@ export default function AttendancePage() {
     }
   }
 
-  async function handleManualSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleManualSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const studentId = manualForm.studentId.trim();

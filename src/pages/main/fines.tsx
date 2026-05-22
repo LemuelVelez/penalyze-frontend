@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
@@ -238,7 +238,7 @@ export default function FinesPage() {
     await Promise.all([loadFines(), loadPenalties()]);
   }
 
-  async function handleFilter(event: FormEvent<HTMLFormElement>) {
+  async function handleFilter(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     await loadFines();
   }
@@ -283,7 +283,7 @@ export default function FinesPage() {
     }
   }
 
-  async function handlePenaltySubmit(event: FormEvent<HTMLFormElement>) {
+  async function handlePenaltySubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingPenalty(true);
     setPenaltyError("");
