@@ -1,122 +1,81 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
-function App() {
-  const [count, setCount] = useState(0)
+import { isAuthenticated, logout } from "./api/auth";
+import AppLayout, { navigateTo } from "./components/layout";
+import LoginPage from "./pages/auth/login";
+import AttendancePage from "./pages/main/attendance";
+import DashboardPage from "./pages/main/dashboard";
+import FinesPage from "./pages/main/fines";
+import UsersPage from "./pages/main/users";
+import LandingPage from "./pages/landing";
+import NotFoundPage from "./pages/notfound";
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+type RouteItem = {
+  path: string;
+  label: string;
+  requiresAuth?: boolean;
+  element: ReactNode;
+};
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+function normalizePath(pathname: string) {
+  const clean = pathname.replace(/\/+$/, "");
+  return clean || "/";
 }
 
-export default App
+export default function App() {
+  const [currentPath, setCurrentPath] = useState(() => normalizePath(window.location.pathname));
+  const [authenticated, setAuthenticated] = useState(() => isAuthenticated());
+
+  useEffect(() => {
+    function handlePopState() {
+      setCurrentPath(normalizePath(window.location.pathname));
+      setAuthenticated(isAuthenticated());
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const routes = useMemo<RouteItem[]>(
+    () => [
+      { path: "/", label: "Landing", element: <LandingPage /> },
+      { path: "/login", label: "Login", element: <LoginPage /> },
+      { path: "/dashboard", label: "Dashboard", requiresAuth: true, element: <DashboardPage /> },
+      { path: "/attendance", label: "Attendance", requiresAuth: true, element: <AttendancePage /> },
+      { path: "/fines", label: "Fines", requiresAuth: true, element: <FinesPage /> },
+      { path: "/users", label: "Users", requiresAuth: true, element: <UsersPage /> }
+    ],
+    []
+  );
+
+  const matchedRoute = routes.find((route) => route.path === currentPath);
+
+  useEffect(() => {
+    if (matchedRoute?.requiresAuth && !authenticated) {
+      navigateTo("/login");
+    }
+
+    if (currentPath === "/login" && authenticated) {
+      navigateTo("/dashboard");
+    }
+  }, [authenticated, currentPath, matchedRoute]);
+
+  function handleLogout() {
+    logout();
+    setAuthenticated(false);
+    navigateTo("/");
+  }
+
+  if (!matchedRoute) return <NotFoundPage />;
+
+  if (matchedRoute.requiresAuth && !authenticated) {
+    return <LoginPage />;
+  }
+
+  return (
+    <AppLayout currentPath={currentPath} authenticated={authenticated} onLogout={handleLogout}>
+      {matchedRoute.element}
+    </AppLayout>
+  );
+}

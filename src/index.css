@@ -120,11 +120,38 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
-  body {
-    @apply bg-background text-foreground;
-    }
+  }
+
   html {
     @apply font-mono;
-    }
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  [role="dialog"] {
+    max-height: 95svh;
+    overflow: auto;
+  }
+}
+
+@layer utilities {
+  .dialog-scrollable {
+    max-height: 95svh;
+    overflow: auto;
+  }
 }
