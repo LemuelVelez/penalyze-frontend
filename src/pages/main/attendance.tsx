@@ -41,12 +41,6 @@ import {
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from "../../components/ui/accordion";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -136,7 +130,9 @@ const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 const NO_EVENT_SELECT_VALUE = "__no_event__";
 const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
 const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
+const ALL_EVENTS_SELECT_VALUE = "__all_events__";
 const NO_COLLEGE_SELECT_VALUE = "__no_college__";
+const NO_EVENT_FILTER_SELECT_VALUE = "__no_event_filter__";
 
 const ATTENDANCE_IMPORT_HEADERS = [
   "Event",
@@ -998,12 +994,97 @@ function getCollegeFilterValue(value?: string | null) {
   return cleanImportValue(value) || NO_COLLEGE_SELECT_VALUE;
 }
 
+function getRecordEventFilterValue(record: AttendanceRecord) {
+  return record.event_id || NO_EVENT_FILTER_SELECT_VALUE;
+}
+
 function getRecordEventGroupKey(record: AttendanceRecord) {
   const eventName = getManualRecordSource(record);
   const eventKey = record.event_id || normalizeImportHeader(eventName) || `manual-event:${record.id}`;
   const collegeKey = normalizeImportHeader(record.college) || NO_COLLEGE_SELECT_VALUE;
 
   return `${eventKey}:${collegeKey}`;
+}
+
+function getRecordStudentProfileKey(record: AttendanceRecord) {
+  return cleanImportValue(record.student_id).toUpperCase() || `unknown-student:${record.id}`;
+}
+
+type AttendanceStudentProfile = {
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+};
+
+type AttendanceStudentProfileDraft = AttendanceStudentProfile & {
+  nameTime: number;
+  yearLevelTime: number;
+  collegeTime: number;
+  programTime: number;
+  institutionTime: number;
+};
+
+function updateAttendanceStudentProfileField(
+  profile: AttendanceStudentProfileDraft,
+  key: keyof AttendanceStudentProfile,
+  value: string | null | undefined,
+  recordTime: number
+) {
+  const cleanedValue = cleanImportValue(value);
+  if (!cleanedValue) return;
+
+  const timeKey = `${key}Time`;
+  const draft = profile as AttendanceStudentProfileDraft & Record<string, string | number>;
+  const currentTime = Number(draft[timeKey] ?? 0);
+
+  if (!profile[key] || recordTime >= currentTime) {
+    draft[key] = cleanedValue;
+    draft[timeKey] = recordTime;
+  }
+}
+
+function mergeAttendanceRecordsByStudentId(records: AttendanceRecord[]) {
+  const profiles = new Map<string, AttendanceStudentProfileDraft>();
+
+  records.forEach((record) => {
+    const key = getRecordStudentProfileKey(record);
+    const recordTime = getRecordTimestamp(record);
+    const profile = profiles.get(key) ?? {
+      name: "",
+      yearLevel: "",
+      college: "",
+      program: "",
+      institution: "",
+      nameTime: 0,
+      yearLevelTime: 0,
+      collegeTime: 0,
+      programTime: 0,
+      institutionTime: 0
+    };
+
+    updateAttendanceStudentProfileField(profile, "name", record.name, recordTime);
+    updateAttendanceStudentProfileField(profile, "yearLevel", record.year_level, recordTime);
+    updateAttendanceStudentProfileField(profile, "college", record.college, recordTime);
+    updateAttendanceStudentProfileField(profile, "program", record.program, recordTime);
+    updateAttendanceStudentProfileField(profile, "institution", record.institution, recordTime);
+    profiles.set(key, profile);
+  });
+
+  return records.map((record) => {
+    const profile = profiles.get(getRecordStudentProfileKey(record));
+    if (!profile) return record;
+
+    return {
+      ...record,
+      name: profile.name || record.name,
+      year_level: profile.yearLevel || record.year_level,
+      college: profile.college || record.college,
+      program: profile.program || record.program,
+      institution: profile.institution || record.institution
+    };
+  });
 }
 
 function getAttendeeKey(record: AttendanceRecord) {
@@ -1039,7 +1120,7 @@ function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
     const latestTime = currentAttendee.latestScannedAt ? new Date(currentAttendee.latestScannedAt).getTime() : 0;
 
     currentAttendee.records.push(record);
-    currentAttendee.totalAbsences += record.no_of_absences ?? 0;
+    currentAttendee.totalAbsences = Math.max(currentAttendee.totalAbsences, record.no_of_absences ?? 0);
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
       currentAttendee.latestScannedAt = record.scanned_at ?? record.created_at ?? currentAttendee.latestScannedAt;
@@ -1116,10 +1197,13 @@ function getAttendanceEventGroups(records: AttendanceRecord[], events: Attendanc
         return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
       });
 
+      const attendees = getAttendanceAttendeeSummaries(sortedRecords);
+
       return {
         ...group,
         records: sortedRecords,
-        attendees: getAttendanceAttendeeSummaries(sortedRecords)
+        attendees,
+        totalAbsences: attendees.reduce((total, attendee) => total + attendee.totalAbsences, 0)
       };
     })
     .sort((leftGroup, rightGroup) => {
@@ -1742,6 +1826,13 @@ function AttendanceEventGroupTriggerContent(props: {
 
 function AttendanceEventAttendeesDialog(props: {
   group: AttendanceEventRecordGroup;
+  selectedRecordIdsSet: Set<string>;
+  deletingRecordId: string;
+  isDeletingBulk: boolean;
+  onToggleRecordSelected: (id: string, checked: boolean | "indeterminate") => void;
+  onToggleAttendeeRecordsSelected: (records: AttendanceRecord[], checked: boolean | "indeterminate") => void;
+  onEditRecord: (record: AttendanceRecord) => void;
+  onDeleteRecord: (id: string) => void;
 }) {
   return (
     <Dialog>
@@ -1754,7 +1845,7 @@ function AttendanceEventAttendeesDialog(props: {
           Attendees
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
         </DialogHeader>
@@ -1779,29 +1870,16 @@ function AttendanceEventAttendeesDialog(props: {
             </div>
           </div>
 
-          <div className="space-y-3">
-            {props.group.attendees.map((attendee) => (
-              <article key={attendee.key} className="rounded-2xl border bg-card p-4 text-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="wrap-break-word font-black">
-                      {attendee.studentId} - {attendee.name}
-                    </p>
-                    <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
-                      {attendee.yearLevel || "No year level"} • {attendee.program || "No program"} •{" "}
-                      {getCollegeLabel(attendee.college)}
-                    </p>
-                    <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
-                      Latest scan: {formatDateTime(attendee.latestScannedAt)}
-                    </p>
-                  </div>
-                  <span className="rounded-full border bg-muted px-3 py-1 text-sm font-black text-muted-foreground">
-                    {attendee.totalAbsences} absence/s
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
+          <AttendanceEventAttendeesList
+            group={props.group}
+            selectedRecordIdsSet={props.selectedRecordIdsSet}
+            deletingRecordId={props.deletingRecordId}
+            isDeletingBulk={props.isDeletingBulk}
+            onToggleRecordSelected={props.onToggleRecordSelected}
+            onToggleAttendeeRecordsSelected={props.onToggleAttendeeRecordsSelected}
+            onEditRecord={props.onEditRecord}
+            onDeleteRecord={props.onDeleteRecord}
+          />
         </div>
       </DialogContent>
     </Dialog>
@@ -1954,7 +2032,7 @@ export default function AttendancePage() {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
-  const [openEventGroupKeys, setOpenEventGroupKeys] = useState<string[]>([]);
+  const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
   const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
   const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
@@ -1982,18 +2060,39 @@ export default function AttendancePage() {
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
   const previewEventNames = useMemo(() => getAttendancePreviewEventNames(preview), [preview]);
-  const collegeFilterOptions = useMemo(() => {
-    return Array.from(new Set(records.map((record) => getCollegeFilterValue(record.college)))).sort((left, right) => {
+  const mergedRecords = useMemo<AttendanceRecord[]>(() => mergeAttendanceRecordsByStudentId(records), [records]);
+  const eventFilterOptions = useMemo<Array<{ value: string; label: string }>>(() => {
+    const eventById = new Map<string, string>(events.map((event) => [event.id, event.name]));
+    const options = new Map<string, string>();
+
+    events.forEach((event) => options.set(event.id, event.name));
+    mergedRecords.forEach((record) => {
+      const value = getRecordEventFilterValue(record);
+      const label = record.event_id ? eventById.get(record.event_id) ?? getManualRecordSource(record) : "No event";
+      options.set(value, label);
+    });
+
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [events, mergedRecords]);
+  const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
+    if (eventFilter === ALL_EVENTS_SELECT_VALUE) return mergedRecords;
+
+    return mergedRecords.filter((record) => getRecordEventFilterValue(record) === eventFilter);
+  }, [eventFilter, mergedRecords]);
+  const collegeFilterOptions = useMemo<string[]>(() => {
+    return Array.from<string>(new Set(eventFilteredRecords.map((record) => getCollegeFilterValue(record.college)))).sort((left, right) => {
       return getCollegeLabel(left === NO_COLLEGE_SELECT_VALUE ? "" : left).localeCompare(
         getCollegeLabel(right === NO_COLLEGE_SELECT_VALUE ? "" : right)
       );
     });
-  }, [records]);
-  const filteredRecords = useMemo(() => {
-    if (collegeFilter === ALL_COLLEGES_SELECT_VALUE) return records;
+  }, [eventFilteredRecords]);
+  const filteredRecords = useMemo<AttendanceRecord[]>(() => {
+    if (collegeFilter === ALL_COLLEGES_SELECT_VALUE) return eventFilteredRecords;
 
-    return records.filter((record) => getCollegeFilterValue(record.college) === collegeFilter);
-  }, [collegeFilter, records]);
+    return eventFilteredRecords.filter((record) => getCollegeFilterValue(record.college) === collegeFilter);
+  }, [collegeFilter, eventFilteredRecords]);
   const attendanceEventGroups = useMemo(() => getAttendanceEventGroups(filteredRecords, events), [events, filteredRecords]);
   const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
   const selectedRecordCount = selectedRecordIds.length;
@@ -2092,13 +2191,11 @@ export default function AttendancePage() {
         listAttendanceImports({ limit: 100, offset: 0 })
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
-      const eventGroupKeys = new Set(getAttendanceEventGroups(rows, eventRows).map((group) => group.key));
 
       setRecords(rows);
       setEvents(eventRows);
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
-      setOpenEventGroupKeys((current) => current.filter((key) => eventGroupKeys.has(key)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
       setError(message);
@@ -2480,6 +2577,12 @@ export default function AttendancePage() {
   }
 
   useEffect(() => {
+    if (eventFilter !== ALL_EVENTS_SELECT_VALUE && !eventFilterOptions.some((option) => option.value === eventFilter)) {
+      setEventFilter(ALL_EVENTS_SELECT_VALUE);
+    }
+  }, [eventFilter, eventFilterOptions]);
+
+  useEffect(() => {
     if (collegeFilter !== ALL_COLLEGES_SELECT_VALUE && !collegeFilterOptions.includes(collegeFilter)) {
       setCollegeFilter(ALL_COLLEGES_SELECT_VALUE);
     }
@@ -2794,10 +2897,28 @@ export default function AttendancePage() {
             <div>
               <h2 className="text-xl font-black">Recent attendance records</h2>
               <p className="mt-1 text-sm font-semibold text-muted-foreground">
-                Events are grouped by college so absences stay scoped to the correct college event.
+Use the event switch and college filter to view merged attendees by student ID.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="min-w-56">
+                <Label htmlFor="attendance-event-filter" className="sr-only">
+                  Event filter
+                </Label>
+                <Select value={eventFilter} onValueChange={setEventFilter}>
+                  <SelectTrigger id="attendance-event-filter" className="min-h-10 w-full rounded-2xl">
+                    <SelectValue placeholder="Switch event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_EVENTS_SELECT_VALUE}>All events</SelectItem>
+                    {eventFilterOptions.map((eventOption) => (
+                      <SelectItem key={eventOption.value} value={eventOption.value}>
+                        {eventOption.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="min-w-48">
                 <Label htmlFor="attendance-college-filter" className="sr-only">
                   College filter
@@ -2854,18 +2975,13 @@ export default function AttendancePage() {
                 <div className="min-w-0">
                   <p className="wrap-break-word text-sm font-black">Select filtered attendance records</p>
                   <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
-                    {filteredRecordCount} shown from {records.length} loaded record/s
+                    {filteredRecordCount} shown from {mergedRecords.length} loaded record/s
                   </p>
                 </div>
               </div>
 
               {attendanceEventGroups.length ? (
-                <Accordion
-                  type="multiple"
-                  value={openEventGroupKeys}
-                  onValueChange={setOpenEventGroupKeys}
-                  className="space-y-3"
-                >
+                <div className="space-y-3">
                   {attendanceEventGroups.map((group) => {
                     const selectedGroupRecordCount = group.records.filter((record) =>
                       selectedRecordIdsSet.has(record.id)
@@ -2876,12 +2992,8 @@ export default function AttendancePage() {
                       allGroupRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
 
                     return (
-                      <AccordionItem
-                        key={group.key}
-                        value={group.key}
-                        className="rounded-2xl border bg-background px-0"
-                      >
-                        <div className="flex min-w-0 w-full flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start">
+                      <article key={group.key} className="rounded-2xl border bg-background px-4 py-4">
+                        <div className="flex min-w-0 w-full flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="flex min-w-0 flex-1 items-start gap-3">
                             <Checkbox
                               checked={eventRecordChecked}
@@ -2889,34 +3001,28 @@ export default function AttendancePage() {
                               aria-label={`Select attendance records for ${group.eventName}`}
                               className="mt-1 shrink-0"
                             />
-                            <AccordionTrigger className="relative min-h-0 min-w-0 flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
-                              <AttendanceEventGroupTriggerContent
-                                group={group}
-                                selectedGroupRecordCount={selectedGroupRecordCount}
-                              />
-                            </AccordionTrigger>
+                            <AttendanceEventGroupTriggerContent
+                              group={group}
+                              selectedGroupRecordCount={selectedGroupRecordCount}
+                            />
                           </div>
                           <div className="flex shrink-0 justify-start lg:justify-end">
-                            <AttendanceEventAttendeesDialog group={group} />
+                            <AttendanceEventAttendeesDialog
+                              group={group}
+                              selectedRecordIdsSet={selectedRecordIdsSet}
+                              deletingRecordId={deletingRecordId}
+                              isDeletingBulk={isDeletingBulk}
+                              onToggleRecordSelected={handleToggleRecordSelected}
+                              onToggleAttendeeRecordsSelected={handleToggleGroupedRecordsSelected}
+                              onEditRecord={handleEditRecord}
+                              onDeleteRecord={handleDeleteRecord}
+                            />
                           </div>
                         </div>
-
-                        <AccordionContent className="border-t px-4 pb-4 pt-4">
-                          <AttendanceEventAttendeesList
-                            group={group}
-                            selectedRecordIdsSet={selectedRecordIdsSet}
-                            deletingRecordId={deletingRecordId}
-                            isDeletingBulk={isDeletingBulk}
-                            onToggleRecordSelected={handleToggleRecordSelected}
-                            onToggleAttendeeRecordsSelected={handleToggleGroupedRecordsSelected}
-                            onEditRecord={handleEditRecord}
-                            onDeleteRecord={handleDeleteRecord}
-                          />
-                        </AccordionContent>
-                      </AccordionItem>
+                      </article>
                     );
                   })}
-                </Accordion>
+                </div>
               ) : (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                   No attendance records matched this college filter.
