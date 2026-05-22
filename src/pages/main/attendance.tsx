@@ -3,10 +3,13 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAllAttendanceImports,
   deleteAttendanceEvent,
+  deleteAttendanceImport,
   deleteAttendanceRecord,
   getAcceptedAttendanceFileTypes,
   listAttendanceEvents,
+  listAttendanceImports,
   listAttendanceRecords,
   previewAttendanceFile,
   saveAttendanceEvent,
@@ -18,6 +21,7 @@ import {
 import type {
   AttendanceEvent,
   AttendanceEventInput,
+  AttendanceImportRecord,
   AttendancePreviewResult,
   SavedAttendanceImportResult,
   AttendanceRecord,
@@ -137,6 +141,29 @@ type NormalizedAttendanceImportRow = {
   remarks: string;
 };
 
+type AttendancePreparedUpload = {
+  file: File;
+  normalizedRowsCount: number;
+  normalizedEventNames: string[];
+};
+
+type AttendanceSpreadsheetCell = string | number | null | undefined;
+type AttendanceSpreadsheetRow = AttendanceSpreadsheetCell[];
+
+type AttendanceZipEntry = {
+  name: string;
+  compressionMethod: number;
+  compressedSize: number;
+  localHeaderOffset: number;
+};
+
+type BrowserDecompressionStreamConstructor = new (format: string) => TransformStream<Uint8Array, Uint8Array>;
+
+type AttendanceWorkbookSheet = {
+  name: string;
+  path: string;
+};
+
 type AttendanceHeaderKey = keyof NormalizedAttendanceImportRow;
 
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
@@ -159,6 +186,11 @@ const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
   noOfAbsences: ["no of absences", "no. of absences", "number of absences", "absences", "absence", "total absences"],
   remarks: ["remarks", "remark", "notes", "note", "status"]
 };
+
+const ATTENDANCE_OPEN_XML_EXCEL_EXTENSIONS = new Set(["xlsx", "xlsm", "xltx", "xltm"]);
+const ATTENDANCE_ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
+const ATTENDANCE_ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const ATTENDANCE_ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 
 function getAttendanceUploadAccept() {
   const configuredTypes = getAcceptedAttendanceFileTypes()
@@ -323,16 +355,6 @@ function getNumericAbsenceValue(value: string) {
   return Number.isFinite(numericValue) && numericValue >= 0 ? String(numericValue) : "0";
 }
 
-function getDefaultUploadEventName(selectedFile: File) {
-  const baseName = selectedFile.name
-    .replace(/\.[^.]+$/, "")
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return baseName || "Attendance event";
-}
-
 function escapeCsvValue(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -356,14 +378,76 @@ function toNormalizedAttendanceCsv(rows: NormalizedAttendanceImportRow[]) {
   return csvRows.map((row) => row.map(escapeCsvValue).join(",")).join("\n");
 }
 
-function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
-  const rows = parseDelimitedText(text);
-  if (!rows.length) return [];
+function getUniqueAttendanceEventNames(rows: NormalizedAttendanceImportRow[]) {
+  return Array.from(new Set(rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean)));
+}
 
-  const headers = rows[0].map(cleanImportValue);
-  const recordsByStudentId = new Map<string, NormalizedAttendanceImportRow>();
+function getAttendancePreviewEventNames(previewResult: AttendancePreviewResult | null) {
+  return Array.from(new Set(previewResult?.rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean) ?? []));
+}
 
-  rows.slice(1).forEach((row, index) => {
+function getAttendanceImportRecordKey(row: NormalizedAttendanceImportRow) {
+  const normalizedEventName = normalizeImportHeader(row.eventName);
+  return `${normalizedEventName || "no-event"}:${row.studentId}`;
+}
+
+function countHeaderAliasMatches(row: AttendanceSpreadsheetRow) {
+  return (Object.keys(ATTENDANCE_HEADER_ALIASES) as AttendanceHeaderKey[]).reduce((count, key) => {
+    return getHeaderIndex(row.map(cleanImportValue), key) >= 0 ? count + 1 : count;
+  }, 0);
+}
+
+function getBestAttendanceHeaderRowIndex(rows: AttendanceSpreadsheetRow[]) {
+  let bestIndex = 0;
+  let bestScore = 0;
+
+  rows.slice(0, 25).forEach((row, index) => {
+    const headers = row.map(cleanImportValue);
+    const score = countHeaderAliasMatches(headers);
+    const hasStudentId = getHeaderIndex(headers, "studentId") >= 0;
+    const hasName = getHeaderIndex(headers, "name") >= 0;
+
+    if (hasStudentId && hasName) {
+      bestIndex = index;
+      bestScore = Number.MAX_SAFE_INTEGER;
+      return;
+    }
+
+    if (score > bestScore) {
+      bestIndex = index;
+      bestScore = score;
+    }
+  });
+
+  return bestScore > 0 ? bestIndex : 0;
+}
+
+function isGenericSpreadsheetSheetName(sheetName: string) {
+  return /^sheet\s*\d+$/i.test(cleanImportValue(sheetName));
+}
+
+function getNormalizedAttendanceRowsFromTabularRows(
+  rows: AttendanceSpreadsheetRow[],
+  fileName: string,
+  fallbackEventName = ""
+) {
+  const cleanedRows = rows
+    .map((row) => row.map(cleanImportValue))
+    .filter((row) => row.some((value) => value.length > 0));
+
+  if (!cleanedRows.length) return [];
+
+  const headerRowIndex = getBestAttendanceHeaderRowIndex(cleanedRows);
+  const headers = cleanedRows[headerRowIndex].map(cleanImportValue);
+  const metadataText = cleanedRows
+    .slice(0, headerRowIndex)
+    .map((row) => row.join("\n"))
+    .join("\n");
+  const metadataEventName =
+    getLabeledValue(metadataText, ATTENDANCE_HEADER_ALIASES.eventName) || cleanImportValue(fallbackEventName);
+  const recordsByImportKey = new Map<string, NormalizedAttendanceImportRow>();
+
+  cleanedRows.slice(headerRowIndex + 1).forEach((row, index) => {
     const searchableText = row.join("\n");
     const studentId =
       getHeaderValue(row, headers, "studentId") ||
@@ -373,14 +457,15 @@ function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
     if (!studentId || !name) return;
 
     const normalizedStudentId = cleanImportValue(studentId).toUpperCase();
-    const currentRecord = recordsByStudentId.get(normalizedStudentId);
+    const rowEventName =
+      getHeaderValue(row, headers, "eventName") ||
+      getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
+      metadataEventName;
+    const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${normalizedStudentId}`;
+    const currentRecord = recordsByImportKey.get(importKey);
 
     const normalizedRow: NormalizedAttendanceImportRow = {
-      eventName:
-        getHeaderValue(row, headers, "eventName") ||
-        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
-        currentRecord?.eventName ||
-        "",
+      eventName: rowEventName || currentRecord?.eventName || "",
       studentId: normalizedStudentId,
       name: cleanImportValue(name),
       yearLevel:
@@ -403,31 +488,314 @@ function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
         getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.institution) ||
         currentRecord?.institution ||
         "",
-      noOfAbsences: getNumericAbsenceValue(getHeaderValue(row, headers, "noOfAbsences") || currentRecord?.noOfAbsences || "0"),
+      noOfAbsences: getNumericAbsenceValue(
+        getHeaderValue(row, headers, "noOfAbsences") || currentRecord?.noOfAbsences || "0"
+      ),
       remarks:
         getHeaderValue(row, headers, "remarks") ||
         currentRecord?.remarks ||
-        `Imported from ${fileName} row ${index + 2}`
+        `Imported from ${fileName} row ${headerRowIndex + index + 2}`
     };
 
-    recordsByStudentId.set(normalizedStudentId, normalizedRow);
+    recordsByImportKey.set(importKey, normalizedRow);
   });
 
-  return Array.from(recordsByStudentId.values());
+  return Array.from(recordsByImportKey.values());
 }
 
-async function getAttendanceUploadFile(file: File) {
+function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
+  return getNormalizedAttendanceRowsFromTabularRows(parseDelimitedText(text), fileName);
+}
+
+function isOpenXmlBasedAttendanceFile(file: File) {
+  return ATTENDANCE_OPEN_XML_EXCEL_EXTENSIONS.has(getFileExtension(file.name));
+}
+
+function normalizeZipPath(path: string) {
+  const segments: string[] = [];
+
+  path
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .split("/")
+    .forEach((segment) => {
+      if (!segment || segment === ".") return;
+
+      if (segment === "..") {
+        segments.pop();
+        return;
+      }
+
+      segments.push(segment);
+    });
+
+  return segments.join("/");
+}
+
+function readZipEntries(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const entries = new Map<string, AttendanceZipEntry>();
+  const minimumSearchOffset = Math.max(0, view.byteLength - 65557);
+  let endOfCentralDirectoryOffset = -1;
+
+  for (let offset = view.byteLength - 22; offset >= minimumSearchOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === ATTENDANCE_ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+      endOfCentralDirectoryOffset = offset;
+      break;
+    }
+  }
+
+  if (endOfCentralDirectoryOffset < 0) return entries;
+
+  const entryCount = view.getUint16(endOfCentralDirectoryOffset + 10, true);
+  let centralDirectoryOffset = view.getUint32(endOfCentralDirectoryOffset + 16, true);
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(centralDirectoryOffset, true) !== ATTENDANCE_ZIP_CENTRAL_DIRECTORY_SIGNATURE) break;
+
+    const compressionMethod = view.getUint16(centralDirectoryOffset + 10, true);
+    const compressedSize = view.getUint32(centralDirectoryOffset + 20, true);
+    const fileNameLength = view.getUint16(centralDirectoryOffset + 28, true);
+    const extraFieldLength = view.getUint16(centralDirectoryOffset + 30, true);
+    const fileCommentLength = view.getUint16(centralDirectoryOffset + 32, true);
+    const localHeaderOffset = view.getUint32(centralDirectoryOffset + 42, true);
+    const fileNameBytes = bytes.slice(centralDirectoryOffset + 46, centralDirectoryOffset + 46 + fileNameLength);
+    const name = normalizeZipPath(new TextDecoder().decode(fileNameBytes));
+
+    if (name && !name.endsWith("/")) {
+      entries.set(name, {
+        name,
+        compressionMethod,
+        compressedSize,
+        localHeaderOffset
+      });
+    }
+
+    centralDirectoryOffset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+  }
+
+  return entries;
+}
+
+function getUint8ArrayBlobPart(data: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  return buffer;
+}
+
+async function decompressZipDeflate(data: Uint8Array) {
+  const DecompressionStreamConstructor = (
+    globalThis as typeof globalThis & { DecompressionStream?: BrowserDecompressionStreamConstructor }
+  ).DecompressionStream;
+
+  if (!DecompressionStreamConstructor) return null;
+
+  for (const format of ["deflate-raw", "deflate"]) {
+    try {
+      const decompressedStream = new Blob([getUint8ArrayBlobPart(data)]).stream().pipeThrough(
+        new DecompressionStreamConstructor(format)
+      );
+      return new Uint8Array(await new Response(decompressedStream).arrayBuffer());
+    } catch {
+      // Try the next browser-supported deflate format.
+    }
+  }
+
+  return null;
+}
+
+async function getZipEntryBytes(bytes: Uint8Array, entries: Map<string, AttendanceZipEntry>, path: string) {
+  const entry = entries.get(normalizeZipPath(path));
+  if (!entry) return null;
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const localHeaderOffset = entry.localHeaderOffset;
+
+  if (view.getUint32(localHeaderOffset, true) !== ATTENDANCE_ZIP_LOCAL_FILE_HEADER_SIGNATURE) return null;
+
+  const fileNameLength = view.getUint16(localHeaderOffset + 26, true);
+  const extraFieldLength = view.getUint16(localHeaderOffset + 28, true);
+  const dataStart = localHeaderOffset + 30 + fileNameLength + extraFieldLength;
+  const compressedData = bytes.slice(dataStart, dataStart + entry.compressedSize);
+
+  if (entry.compressionMethod === 0) return compressedData;
+  if (entry.compressionMethod !== 8) return null;
+
+  return decompressZipDeflate(compressedData);
+}
+
+async function getZipEntryText(bytes: Uint8Array, entries: Map<string, AttendanceZipEntry>, path: string) {
+  const entryBytes = await getZipEntryBytes(bytes, entries, path);
+  return entryBytes ? new TextDecoder().decode(entryBytes) : "";
+}
+
+function parseXmlDocument(text: string) {
+  if (!text.trim()) return null;
+
+  const document = new DOMParser().parseFromString(text, "application/xml");
+  return document.getElementsByTagName("parsererror").length ? null : document;
+}
+
+function getElementsByLocalName(parent: Document | Element, localName: string) {
+  return Array.from(parent.getElementsByTagName("*")).filter((element) => element.localName === localName);
+}
+
+function getFirstElementTextByLocalName(parent: Document | Element, localName: string) {
+  return getElementsByLocalName(parent, localName)[0]?.textContent ?? "";
+}
+
+function getWorkbookTargetPath(target: string) {
+  if (!target) return "";
+
+  return target.startsWith("/") ? normalizeZipPath(target) : normalizeZipPath(`xl/${target}`);
+}
+
+function getWorkbookSheets(workbookDocument: Document, workbookRelationshipsDocument: Document | null) {
+  const relationships = new Map<string, string>();
+
+  if (workbookRelationshipsDocument) {
+    getElementsByLocalName(workbookRelationshipsDocument, "Relationship").forEach((relationship) => {
+      const id = relationship.getAttribute("Id") ?? "";
+      const target = relationship.getAttribute("Target") ?? "";
+
+      if (id && target) {
+        relationships.set(id, getWorkbookTargetPath(target));
+      }
+    });
+  }
+
+  return getElementsByLocalName(workbookDocument, "sheet")
+    .map<AttendanceWorkbookSheet>((sheet, index) => {
+      const relationshipId =
+        sheet.getAttribute("r:id") ??
+        sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") ??
+        "";
+      const name = cleanImportValue(sheet.getAttribute("name") ?? `Sheet ${index + 1}`);
+      const path = relationships.get(relationshipId) ?? normalizeZipPath(`xl/worksheets/sheet${index + 1}.xml`);
+
+      return { name, path };
+    })
+    .filter((sheet) => sheet.path);
+}
+
+function getSharedStrings(sharedStringsDocument: Document | null) {
+  if (!sharedStringsDocument) return [];
+
+  return getElementsByLocalName(sharedStringsDocument, "si").map((item) => {
+    return getElementsByLocalName(item, "t")
+      .map((textNode) => textNode.textContent ?? "")
+      .join("");
+  });
+}
+
+function getColumnIndexFromCellReference(reference: string) {
+  const columnLetters = (reference.match(/^[A-Z]+/i)?.[0] ?? "").toUpperCase();
+  if (!columnLetters) return -1;
+
+  return columnLetters.split("").reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+}
+
+function getWorksheetCellValue(cell: Element, sharedStrings: string[]) {
+  const cellType = cell.getAttribute("t") ?? "";
+
+  if (cellType === "inlineStr") {
+    return getElementsByLocalName(cell, "t")
+      .map((textNode) => textNode.textContent ?? "")
+      .join("");
+  }
+
+  const rawValue = getFirstElementTextByLocalName(cell, "v");
+
+  if (cellType === "s") {
+    const sharedStringIndex = Number.parseInt(rawValue, 10);
+    return Number.isFinite(sharedStringIndex) ? sharedStrings[sharedStringIndex] ?? "" : "";
+  }
+
+  return rawValue;
+}
+
+function getWorksheetRows(worksheetDocument: Document, sharedStrings: string[]) {
+  return getElementsByLocalName(worksheetDocument, "row")
+    .map<AttendanceSpreadsheetRow>((row) => {
+      const rowValues: string[] = [];
+
+      getElementsByLocalName(row, "c").forEach((cell, fallbackIndex) => {
+        const columnIndex = getColumnIndexFromCellReference(cell.getAttribute("r") ?? "");
+        rowValues[columnIndex >= 0 ? columnIndex : fallbackIndex] = getWorksheetCellValue(cell, sharedStrings);
+      });
+
+      return rowValues;
+    })
+    .filter((row) => row.some((value) => cleanImportValue(value).length > 0));
+}
+
+async function getNormalizedAttendanceRowsFromOpenXmlWorkbook(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const entries = readZipEntries(bytes);
+  if (!entries.size) return [];
+
+  const workbookDocument = parseXmlDocument(await getZipEntryText(bytes, entries, "xl/workbook.xml"));
+  if (!workbookDocument) return [];
+
+  const workbookRelationshipsDocument = parseXmlDocument(
+    await getZipEntryText(bytes, entries, "xl/_rels/workbook.xml.rels")
+  );
+  const sharedStringsDocument = parseXmlDocument(await getZipEntryText(bytes, entries, "xl/sharedStrings.xml"));
+  const sharedStrings = getSharedStrings(sharedStringsDocument);
+  const sheets = getWorkbookSheets(workbookDocument, workbookRelationshipsDocument);
+  const recordsByImportKey = new Map<string, NormalizedAttendanceImportRow>();
+
+  for (const sheet of sheets) {
+    const worksheetDocument = parseXmlDocument(await getZipEntryText(bytes, entries, sheet.path));
+    if (!worksheetDocument) continue;
+
+    const fallbackEventName =
+      sheets.length > 1 || !isGenericSpreadsheetSheetName(sheet.name) ? cleanImportValue(sheet.name) : "";
+    const rows = getNormalizedAttendanceRowsFromTabularRows(
+      getWorksheetRows(worksheetDocument, sharedStrings),
+      `${file.name} ${sheet.name}`,
+      fallbackEventName
+    );
+
+    rows.forEach((row) => {
+      recordsByImportKey.set(getAttendanceImportRecordKey(row), row);
+    });
+  }
+
+  return Array.from(recordsByImportKey.values());
+}
+
+async function getAttendanceUploadFile(file: File): Promise<AttendancePreparedUpload> {
   const uploadFile = getAttendanceUploadFileWithNormalizedType(file);
 
+  if (isOpenXmlBasedAttendanceFile(uploadFile)) {
+    try {
+      const normalizedRows = await getNormalizedAttendanceRowsFromOpenXmlWorkbook(uploadFile);
+
+      if (normalizedRows.length) {
+        const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
+        const normalizedFileName = uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
+
+        return {
+          file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
+          normalizedRowsCount: normalizedRows.length,
+          normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows)
+        };
+      }
+    } catch {
+      // Keep the original Excel file so the API can still try to parse it.
+    }
+  }
+
   if (!isTextBasedAttendanceFile(uploadFile)) {
-    return { file: uploadFile, normalizedRowsCount: 0 };
+    return { file: uploadFile, normalizedRowsCount: 0, normalizedEventNames: [] };
   }
 
   const fileText = await uploadFile.text();
   const normalizedRows = getNormalizedAttendanceRowsFromText(fileText, file.name);
 
   if (!normalizedRows.length) {
-    return { file, normalizedRowsCount: 0 };
+    return { file, normalizedRowsCount: 0, normalizedEventNames: [] };
   }
 
   const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
@@ -435,7 +803,8 @@ async function getAttendanceUploadFile(file: File) {
 
   return {
     file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
-    normalizedRowsCount: normalizedRows.length
+    normalizedRowsCount: normalizedRows.length,
+    normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows)
   };
 }
 
@@ -512,7 +881,7 @@ function FileDropZone(props: {
       />
 
       <div className="rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
-        Excel, CSV, TXT, DOCX, DOC
+        Excel all sheets, CSV, TXT, DOCX, DOC
       </div>
       <h2 className="mt-4 text-2xl font-black">Upload attendance file</h2>
 
@@ -528,6 +897,7 @@ function FileDropZone(props: {
 
 function EventFields(props: {
   events: AttendanceEvent[];
+  fileEventNames: string[];
   eventId: string;
   eventName: string;
   eventDate: string;
@@ -537,6 +907,8 @@ function EventFields(props: {
   onEventDateChange: (value: string) => void;
   onEventDescriptionChange: (value: string) => void;
 }) {
+  const isUsingFileEvents = !props.eventId && props.fileEventNames.length > 0;
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div>
@@ -547,7 +919,9 @@ function EventFields(props: {
           onChange={(event) => props.onEventIdChange(event.target.value)}
           className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <option value="">Create new event from the uploaded file</option>
+          <option value="">
+            {isUsingFileEvents ? "Use event/s detected in the uploaded file" : "Use event from file or create a new event"}
+          </option>
           {props.events.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}
@@ -562,9 +936,9 @@ function EventFields(props: {
           id="upload-event-name"
           value={props.eventName}
           onChange={(event) => props.onEventNameChange(event.target.value)}
-          disabled={Boolean(props.eventId)}
+          disabled={Boolean(props.eventId) || isUsingFileEvents}
           className="mt-2"
-          placeholder="Required before saving the import"
+          placeholder={isUsingFileEvents ? "Using detected file event/s" : "Required only when the file has no event"}
         />
       </div>
 
@@ -575,7 +949,7 @@ function EventFields(props: {
           type="date"
           value={props.eventDate}
           onChange={(event) => props.onEventDateChange(event.target.value)}
-          disabled={Boolean(props.eventId)}
+          disabled={Boolean(props.eventId) || isUsingFileEvents}
           className="mt-2"
         />
       </div>
@@ -586,11 +960,18 @@ function EventFields(props: {
           id="upload-event-description"
           value={props.eventDescription}
           onChange={(event) => props.onEventDescriptionChange(event.target.value)}
-          disabled={Boolean(props.eventId)}
+          disabled={Boolean(props.eventId) || isUsingFileEvents}
           className="mt-2"
-          placeholder="Optional"
+          placeholder={isUsingFileEvents ? "Using detected file event/s" : "Optional"}
         />
       </div>
+
+      {isUsingFileEvents ? (
+        <p className="text-sm font-semibold text-muted-foreground lg:col-span-2">
+          Detected event/s: {props.fileEventNames.slice(0, 5).join(", ")}
+          {props.fileEventNames.length > 5 ? ` +${props.fileEventNames.length - 5} more` : ""}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -699,6 +1080,41 @@ function DeleteEventConfirmation(props: {
             className="bg-destructive text-destructive-foreground hover:opacity-90"
           >
             Delete Event
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeleteAttendanceImportConfirmation(props: {
+  attendanceImport: AttendanceImportRecord;
+  isDeleting: boolean;
+  onConfirm: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
+          {props.isDeleting ? "Deleting..." : "Delete"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent className="rounded-3xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete imported file?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete {props.attendanceImport.file_name} and all attendance records and fines created
+            from this import.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => props.onConfirm(props.attendanceImport.id)}
+            className="bg-destructive text-destructive-foreground hover:opacity-90"
+          >
+            Delete Import
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -933,6 +1349,7 @@ export default function AttendancePage() {
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
   const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
@@ -947,20 +1364,23 @@ export default function AttendancePage() {
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
   const [editingEventId, setEditingEventId] = useState("");
   const [deletingRecordId, setDeletingRecordId] = useState("");
   const [deletingEventId, setDeletingEventId] = useState("");
+  const [deletingImportId, setDeletingImportId] = useState("");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
+  const previewEventNames = useMemo(() => getAttendancePreviewEventNames(preview), [preview]);
   const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
   const selectedRecordCount = selectedRecordIds.length;
   const allRecordsSelected = records.length > 0 && selectedRecordCount === records.length;
   const recordHeaderChecked = allRecordsSelected ? true : selectedRecordCount > 0 ? "indeterminate" : false;
-  const uploadEventReady = Boolean(uploadEventId || uploadEventName.trim());
+  const uploadEventReady = Boolean(file);
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
     setManualForm((current) => ({ ...current, [key]: value }));
@@ -992,7 +1412,7 @@ export default function AttendancePage() {
 
     if (selectedFile) {
       setUploadEventId("");
-      setUploadEventName(getDefaultUploadEventName(selectedFile));
+      setUploadEventName("");
       setUploadEventDate("");
       setUploadEventDescription("");
       return;
@@ -1019,14 +1439,16 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const [rows, eventRows] = await Promise.all([
+      const [rows, eventRows, importRows] = await Promise.all([
         listAttendanceRecords({ limit: 100, offset: 0 }),
-        listAttendanceEvents({ limit: 100, offset: 0 })
+        listAttendanceEvents({ limit: 100, offset: 0 }),
+        listAttendanceImports({ limit: 100, offset: 0 })
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
 
       setRecords(rows);
       setEvents(eventRows);
+      setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
@@ -1051,10 +1473,21 @@ export default function AttendancePage() {
     try {
       const upload = await getAttendanceUploadFile(file);
       const result = await previewAttendanceFile(upload.file);
+      const detectedEventNames = getAttendancePreviewEventNames(result ?? null);
+
       setPreview(result ?? null);
+
+      if (!uploadEventId && detectedEventNames.length) {
+        setUploadEventName("");
+        setUploadEventDate("");
+        setUploadEventDescription("");
+      }
+
       toast.success(
         upload.normalizedRowsCount
-          ? `Attendance preview generated from ${upload.normalizedRowsCount} extracted student row/s.`
+          ? `Attendance preview generated from ${upload.normalizedRowsCount} extracted student row/s across the workbook.${
+              detectedEventNames.length ? ` Detected ${detectedEventNames.length} event/s.` : ""
+            }`
           : "Attendance file preview generated."
       );
     } catch (previewError) {
@@ -1076,28 +1509,38 @@ export default function AttendancePage() {
 
     const eventName = uploadEventName.trim();
 
-    if (!uploadEventId && !eventName) {
-      const message = "Please select an existing event or enter a new event name before saving the import.";
-      setError(message);
-      toast.error(message);
-      return;
-    }
-
     setIsSaving(true);
     setError("");
 
     try {
       const upload = await getAttendanceUploadFile(file);
+      const uploadEventNames = upload.normalizedEventNames.length ? upload.normalizedEventNames : previewEventNames;
+      const fileHasDetectedEvents = uploadEventNames.length > 0;
+      const canLetApiDetectFileEvents = !upload.normalizedRowsCount && isExcelBasedAttendanceFile(upload.file);
+
+      if (!uploadEventId && !eventName && !fileHasDetectedEvents && !canLetApiDetectFileEvents) {
+        const message = "Please select an existing event, enter a new event name, or upload a file that includes event names.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+
+      const shouldUseDetectedFileEvents = !uploadEventId && fileHasDetectedEvents;
       const result = await saveAttendanceFile(upload.file, {
         eventId: uploadEventId || undefined,
-        eventName: uploadEventId ? undefined : eventName,
-        eventDate: uploadEventId ? undefined : uploadEventDate || undefined,
-        eventDescription: uploadEventId ? undefined : uploadEventDescription.trim() || undefined
+        eventName: uploadEventId || shouldUseDetectedFileEvents ? undefined : eventName || undefined,
+        eventDate: uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDate || undefined,
+        eventDescription:
+          uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDescription.trim() || undefined
       });
       setSaved(result ?? null);
       setPreview(result ?? null);
       await loadRecords();
-      toast.success(`Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.`);
+      toast.success(
+        `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.${
+          shouldUseDetectedFileEvents ? " Used event/s from the uploaded file." : ""
+        }`
+      );
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Unable to save attendance file.";
       setError(message);
@@ -1305,6 +1748,52 @@ export default function AttendancePage() {
     }
   }
 
+  async function handleDeleteImport(id: string) {
+    setDeletingImportId(id);
+    setError("");
+
+    try {
+      await deleteAttendanceImport(id);
+      await loadRecords();
+
+      if (saved?.importId === id) {
+        setSaved(null);
+      }
+
+      toast.success("Attendance import deleted successfully.");
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance import.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingImportId("");
+    }
+  }
+
+  async function handleDeleteAllImports() {
+    if (!imports.length) {
+      toast.error("No attendance imports to delete.");
+      return;
+    }
+
+    setIsDeletingImports(true);
+    setError("");
+
+    try {
+      const result = await deleteAllAttendanceImports();
+      await loadRecords();
+      setSaved(null);
+      toast.success(`${result?.deletedCount ?? imports.length} attendance import/s deleted successfully.`);
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance imports.";
+      setError(message);
+      toast.error(message);
+      await loadRecords();
+    } finally {
+      setIsDeletingImports(false);
+    }
+  }
+
   async function handleDeleteRecords(ids: string[]) {
     const idsToDelete = Array.from(new Set(ids)).filter(Boolean);
 
@@ -1401,12 +1890,14 @@ export default function AttendancePage() {
                 <div className="flex flex-col gap-1">
                   <h2 className="text-xl font-black">Upload event</h2>
                   <p className="text-sm font-semibold text-muted-foreground">
-                    Required before saving so the uploaded attendees are attached to an event.
+                    Use the event/s detected in the file, select an existing event, or enter a new event name only when
+                    the file has no event column.
                   </p>
                 </div>
                 <div className="mt-5">
                   <EventFields
                     events={events}
+                    fileEventNames={previewEventNames}
                     eventId={uploadEventId}
                     eventName={uploadEventName}
                     eventDate={uploadEventDate}
@@ -1493,6 +1984,59 @@ export default function AttendancePage() {
               ) : (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                   No events yet.
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-black">Imported files</h2>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">
+                    Delete imported files and the attendance records created from them.
+                  </p>
+                </div>
+                <DeleteAttendanceRecordsConfirmation
+                  label="Delete All Imports"
+                  title="Delete all imported files?"
+                  description={`This will permanently delete all ${imports.length} imported file/s and their linked attendance records and fines.`}
+                  isDeleting={isDeletingImports}
+                  disabled={!imports.length}
+                  onConfirm={handleDeleteAllImports}
+                  className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                />
+              </div>
+
+              {imports.length ? (
+                <div className="space-y-3">
+                  {imports.map((attendanceImport) => (
+                    <article key={attendanceImport.id} className="rounded-2xl border bg-background p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="break-all font-black">{attendanceImport.file_name}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {attendanceImport.rows_valid} valid row/s • {attendanceImport.rows_invalid} invalid row/s •{" "}
+                            {formatDate(attendanceImport.created_at)}
+                          </p>
+                          {attendanceImport.event_name ? (
+                            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              {attendanceImport.event_name}
+                            </p>
+                          ) : null}
+                        </div>
+                        <DeleteAttendanceImportConfirmation
+                          attendanceImport={attendanceImport}
+                          isDeleting={deletingImportId === attendanceImport.id || isDeletingImports}
+                          onConfirm={handleDeleteImport}
+                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                        />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No imported files yet.
                 </div>
               )}
             </section>

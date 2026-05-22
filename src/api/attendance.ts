@@ -40,6 +40,11 @@ export type AttendanceImportRecord = {
   created_at: string;
 };
 
+export type DeletedAttendanceImportsResult = {
+  deletedCount: number;
+  deletedImports: AttendanceImportRecord[];
+};
+
 export type AttendanceImportInput = {
   eventId?: string;
   eventName?: string;
@@ -265,6 +270,22 @@ export async function getAttendanceImport(importId: string) {
   }>(`/api/attendance/imports/${encodeURIComponent(importId)}`);
 
   return response.data ?? null;
+}
+
+export async function deleteAttendanceImport(importId: string) {
+  const response = await apiRequest<AttendanceImportRecord>(`/api/attendance/imports/${encodeURIComponent(importId)}`, {
+    method: "DELETE"
+  });
+
+  return response.data;
+}
+
+export async function deleteAllAttendanceImports() {
+  const response = await apiRequest<DeletedAttendanceImportsResult>("/api/attendance/imports", {
+    method: "DELETE"
+  });
+
+  return response.data;
 }
 
 export async function previewAttendanceFile(file: File) {
