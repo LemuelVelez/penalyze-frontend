@@ -135,6 +135,8 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 const NO_EVENT_SELECT_VALUE = "__no_event__";
 const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
+const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
+const NO_COLLEGE_SELECT_VALUE = "__no_college__";
 
 const ATTENDANCE_IMPORT_HEADERS = [
   "Event",
@@ -191,19 +193,31 @@ type AttendanceWorkbookSheet = {
 
 type AttendanceHeaderKey = keyof NormalizedAttendanceImportRow;
 
-type AttendanceStudentRecordGroup = {
+type AttendanceEventAttendeeSummary = {
   key: string;
   studentId: string;
   name: string;
   records: AttendanceRecord[];
-  events: string[];
-  scannedAtValues: Array<string | null>;
   totalAbsences: number;
   latestScannedAt: string | null;
   yearLevel: string;
   college: string;
   program: string;
   institution: string;
+};
+
+type AttendanceEventRecordGroup = {
+  key: string;
+  eventId: string | null;
+  eventName: string;
+  eventStartAt: string | null;
+  eventEndAt: string | null;
+  eventDescription: string | null;
+  college: string;
+  records: AttendanceRecord[];
+  attendees: AttendanceEventAttendeeSummary[];
+  totalAbsences: number;
+  latestScannedAt: string | null;
 };
 
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
@@ -557,7 +571,11 @@ function getNormalizedAttendanceRowsFromTabularRows(
       getHeaderValue(row, headers, "eventName") ||
       getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
       metadataEventName;
-    const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${normalizedStudentId}`;
+    const rowCollege =
+      getHeaderValue(row, headers, "college") || getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.college);
+    const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${
+      normalizeImportHeader(rowCollege) || "no-college"
+    }:${normalizedStudentId}`;
     const currentRecord = latestRecordByImportKey.get(importKey);
 
     const eventStartAt = normalizeAttendanceDateTimeValue(
@@ -591,11 +609,7 @@ function getNormalizedAttendanceRowsFromTabularRows(
         getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.yearLevel) ||
         currentRecord?.yearLevel ||
         "",
-      college:
-        getHeaderValue(row, headers, "college") ||
-        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.college) ||
-        currentRecord?.college ||
-        "",
+      college: rowCollege || currentRecord?.college || "",
       program:
         getHeaderValue(row, headers, "program") ||
         getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.program) ||
@@ -969,31 +983,51 @@ function getManualRecordSource(record: AttendanceRecord) {
   return record.import_id ? "File import" : "Manual";
 }
 
-function getAttendanceStudentGroupKey(record: AttendanceRecord) {
-  const studentId = cleanImportValue(record.student_id).toUpperCase();
+function getRecordTimestamp(record: AttendanceRecord) {
+  const value = record.scanned_at ?? record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
 
-  return studentId || `unknown-student:${record.id}`;
+  return Number.isNaN(time) ? 0 : time;
 }
 
-function getAttendanceStudentGroups(records: AttendanceRecord[]) {
-  const groups = new Map<string, AttendanceStudentRecordGroup>();
+function getCollegeLabel(value?: string | null) {
+  return cleanImportValue(value) || "No college";
+}
+
+function getCollegeFilterValue(value?: string | null) {
+  return cleanImportValue(value) || NO_COLLEGE_SELECT_VALUE;
+}
+
+function getRecordEventGroupKey(record: AttendanceRecord) {
+  const eventName = getManualRecordSource(record);
+  const eventKey = record.event_id || normalizeImportHeader(eventName) || `manual-event:${record.id}`;
+  const collegeKey = normalizeImportHeader(record.college) || NO_COLLEGE_SELECT_VALUE;
+
+  return `${eventKey}:${collegeKey}`;
+}
+
+function getAttendeeKey(record: AttendanceRecord) {
+  const studentId = cleanImportValue(record.student_id).toUpperCase();
+
+  return studentId || `unknown-attendee:${record.id}`;
+}
+
+function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
+  const attendees = new Map<string, AttendanceEventAttendeeSummary>();
 
   records.forEach((record) => {
-    const key = getAttendanceStudentGroupKey(record);
-    const currentGroup = groups.get(key);
-    const scannedAtDate = record.scanned_at ? new Date(record.scanned_at) : null;
-    const scannedAtTime = scannedAtDate && !Number.isNaN(scannedAtDate.getTime()) ? scannedAtDate.getTime() : 0;
+    const key = getAttendeeKey(record);
+    const currentAttendee = attendees.get(key);
+    const recordTime = getRecordTimestamp(record);
 
-    if (!currentGroup) {
-      groups.set(key, {
+    if (!currentAttendee) {
+      attendees.set(key, {
         key,
         studentId: record.student_id,
         name: record.name,
         records: [record],
-        events: [getManualRecordSource(record)],
-        scannedAtValues: [record.scanned_at ?? null],
         totalAbsences: record.no_of_absences ?? 0,
-        latestScannedAt: record.scanned_at ?? null,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         yearLevel: record.year_level ?? "",
         college: record.college ?? "",
         program: record.program ?? "",
@@ -1002,42 +1036,109 @@ function getAttendanceStudentGroups(records: AttendanceRecord[]) {
       return;
     }
 
-    const latestScannedAtDate = currentGroup.latestScannedAt ? new Date(currentGroup.latestScannedAt) : null;
-    const latestScannedAtTime =
-      latestScannedAtDate && !Number.isNaN(latestScannedAtDate.getTime()) ? latestScannedAtDate.getTime() : 0;
+    const latestTime = currentAttendee.latestScannedAt ? new Date(currentAttendee.latestScannedAt).getTime() : 0;
 
-    currentGroup.records.push(record);
-    currentGroup.events.push(getManualRecordSource(record));
-    currentGroup.scannedAtValues.push(record.scanned_at ?? null);
-    currentGroup.totalAbsences += record.no_of_absences ?? 0;
+    currentAttendee.records.push(record);
+    currentAttendee.totalAbsences += record.no_of_absences ?? 0;
 
-    if (scannedAtTime > latestScannedAtTime) {
-      currentGroup.latestScannedAt = record.scanned_at ?? currentGroup.latestScannedAt;
-      if (record.name) currentGroup.name = record.name;
+    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+      currentAttendee.latestScannedAt = record.scanned_at ?? record.created_at ?? currentAttendee.latestScannedAt;
+      if (record.name) currentAttendee.name = record.name;
     }
 
-    if (!currentGroup.name && record.name) currentGroup.name = record.name;
-    if (!currentGroup.yearLevel && record.year_level) currentGroup.yearLevel = record.year_level;
-    if (!currentGroup.college && record.college) currentGroup.college = record.college;
-    if (!currentGroup.program && record.program) currentGroup.program = record.program;
-    if (!currentGroup.institution && record.institution) currentGroup.institution = record.institution;
+    if (!currentAttendee.name && record.name) currentAttendee.name = record.name;
+    if (!currentAttendee.yearLevel && record.year_level) currentAttendee.yearLevel = record.year_level;
+    if (!currentAttendee.college && record.college) currentAttendee.college = record.college;
+    if (!currentAttendee.program && record.program) currentAttendee.program = record.program;
+    if (!currentAttendee.institution && record.institution) currentAttendee.institution = record.institution;
   });
 
-  return Array.from(groups.values()).map((group) => {
-    const sortedRecords = [...group.records].sort((leftRecord, rightRecord) => {
-      const leftTime = leftRecord.scanned_at ? new Date(leftRecord.scanned_at).getTime() : 0;
-      const rightTime = rightRecord.scanned_at ? new Date(rightRecord.scanned_at).getTime() : 0;
+  return Array.from(attendees.values())
+    .map((attendee) => ({
+      ...attendee,
+      records: [...attendee.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+      })
+    }))
+    .sort((leftAttendee, rightAttendee) => {
+      const leftTime = leftAttendee.latestScannedAt ? new Date(leftAttendee.latestScannedAt).getTime() : 0;
+      const rightTime = rightAttendee.latestScannedAt ? new Date(rightAttendee.latestScannedAt).getTime() : 0;
 
       return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
     });
+}
 
-    return {
-      ...group,
-      records: sortedRecords,
-      events: sortedRecords.map(getManualRecordSource),
-      scannedAtValues: sortedRecords.map((record) => record.scanned_at ?? null)
-    };
+function getAttendanceEventGroups(records: AttendanceRecord[], events: AttendanceEvent[]) {
+  const eventById = new Map(events.map((event) => [event.id, event]));
+  const groups = new Map<string, AttendanceEventRecordGroup>();
+
+  records.forEach((record) => {
+    const key = getRecordEventGroupKey(record);
+    const event = record.event_id ? eventById.get(record.event_id) ?? null : null;
+    const currentGroup = groups.get(key);
+    const recordTime = getRecordTimestamp(record);
+
+    if (!currentGroup) {
+      groups.set(key, {
+        key,
+        eventId: record.event_id ?? null,
+        eventName: event?.name ?? getManualRecordSource(record),
+        eventStartAt: event?.event_start_at ?? null,
+        eventEndAt: event?.event_end_at ?? null,
+        eventDescription: event?.description ?? null,
+        college: record.college ?? "",
+        records: [record],
+        attendees: [],
+        totalAbsences: record.no_of_absences ?? 0,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null
+      });
+      return;
+    }
+
+    const latestTime = currentGroup.latestScannedAt ? new Date(currentGroup.latestScannedAt).getTime() : 0;
+
+    currentGroup.records.push(record);
+    currentGroup.totalAbsences += record.no_of_absences ?? 0;
+
+    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+      currentGroup.latestScannedAt = record.scanned_at ?? record.created_at ?? currentGroup.latestScannedAt;
+    }
+
+    if (!currentGroup.eventStartAt && event?.event_start_at) currentGroup.eventStartAt = event.event_start_at;
+    if (!currentGroup.eventEndAt && event?.event_end_at) currentGroup.eventEndAt = event.event_end_at;
+    if (!currentGroup.eventDescription && event?.description) currentGroup.eventDescription = event.description;
+    if (!currentGroup.college && record.college) currentGroup.college = record.college;
   });
+
+  return Array.from(groups.values())
+    .map((group) => {
+      const sortedRecords = [...group.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+      });
+
+      return {
+        ...group,
+        records: sortedRecords,
+        attendees: getAttendanceAttendeeSummaries(sortedRecords)
+      };
+    })
+    .sort((leftGroup, rightGroup) => {
+      const leftTime = leftGroup.latestScannedAt ? new Date(leftGroup.latestScannedAt).getTime() : 0;
+      const rightTime = rightGroup.latestScannedAt ? new Date(rightGroup.latestScannedAt).getTime() : 0;
+
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+}
+
+function formatEventGroupSchedule(group: AttendanceEventRecordGroup) {
+  const start = formatDateTime(group.eventStartAt);
+  const end = formatDateTime(group.eventEndAt);
+
+  if (start !== "—" && end !== "—") return `${start} - ${end}`;
+  if (start !== "—") return `Starts ${start}`;
+  if (end !== "—") return `Ends ${end}`;
+
+  return "No schedule set";
 }
 
 function FileDropZone(props: {
@@ -1605,21 +1706,27 @@ function AttendanceEventDialog(props: {
 }
 
 
-function AttendanceStudentGroupTriggerContent(props: {
-  group: AttendanceStudentRecordGroup;
+function AttendanceEventGroupTriggerContent(props: {
+  group: AttendanceEventRecordGroup;
   selectedGroupRecordCount: number;
 }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <span className="min-w-0">
-        <span className="block wrap-break-word font-black">
-          {props.group.studentId} - {props.group.name}
-        </span>
+        <span className="block wrap-break-word font-black">{props.group.eventName}</span>
         <span className="mt-1 block wrap-break-word text-sm text-muted-foreground">
-          {props.group.events.length} attendance scan/s across {props.group.records.length} event record/s
+          {getCollegeLabel(props.group.college)} • {formatEventGroupSchedule(props.group)}
         </span>
+        {props.group.eventDescription ? (
+          <span className="mt-1 block wrap-break-word text-xs font-semibold text-muted-foreground">
+            {props.group.eventDescription}
+          </span>
+        ) : null}
       </span>
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+        <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
+          {props.group.attendees.length} attendee/s
+        </span>
         <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
           {props.group.totalAbsences} absence/s
         </span>
@@ -1633,108 +1740,211 @@ function AttendanceStudentGroupTriggerContent(props: {
   );
 }
 
-function AttendanceStudentRecordsList(props: {
-  group: AttendanceStudentRecordGroup;
+function AttendanceEventAttendeesDialog(props: {
+  group: AttendanceEventRecordGroup;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+        >
+          Attendees
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{props.group.eventName} attendees</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
+              <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(props.group.college)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Schedule</p>
+              <p className="mt-1 wrap-break-word font-semibold">{formatEventGroupSchedule(props.group)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendees</p>
+              <p className="mt-1 wrap-break-word font-semibold">{props.group.attendees.length}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Event Absences</p>
+              <p className="mt-1 wrap-break-word font-semibold">{props.group.totalAbsences}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {props.group.attendees.map((attendee) => (
+              <article key={attendee.key} className="rounded-2xl border bg-card p-4 text-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="wrap-break-word font-black">
+                      {attendee.studentId} - {attendee.name}
+                    </p>
+                    <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
+                      {attendee.yearLevel || "No year level"} • {attendee.program || "No program"} •{" "}
+                      {getCollegeLabel(attendee.college)}
+                    </p>
+                    <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
+                      Latest scan: {formatDateTime(attendee.latestScannedAt)}
+                    </p>
+                  </div>
+                  <span className="rounded-full border bg-muted px-3 py-1 text-sm font-black text-muted-foreground">
+                    {attendee.totalAbsences} absence/s
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttendanceEventAttendeesList(props: {
+  group: AttendanceEventRecordGroup;
   selectedRecordIdsSet: Set<string>;
   deletingRecordId: string;
   isDeletingBulk: boolean;
   onToggleRecordSelected: (id: string, checked: boolean | "indeterminate") => void;
+  onToggleAttendeeRecordsSelected: (records: AttendanceRecord[], checked: boolean | "indeterminate") => void;
   onEditRecord: (record: AttendanceRecord) => void;
   onDeleteRecord: (id: string) => void;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm md:grid-cols-2">
+    <div className="space-y-4">
+      <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm md:grid-cols-3">
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events attended</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {props.group.events.map((eventName, index) => (
-              <span key={`${eventName}-${index}`} className="rounded-full border bg-background px-3 py-1 font-bold">
-                {eventName}
-              </span>
-            ))}
-          </div>
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Event</p>
+          <p className="mt-1 wrap-break-word font-semibold">{props.group.eventName}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned at</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {props.group.scannedAtValues.map((scannedAt, index) => (
-              <span key={`${scannedAt ?? "no-scan"}-${index}`} className="rounded-full border bg-background px-3 py-1 font-bold">
-                {formatDateTime(scannedAt)}
-              </span>
-            ))}
-          </div>
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
+          <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(props.group.college)}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Schedule</p>
+          <p className="mt-1 wrap-break-word font-semibold">{formatEventGroupSchedule(props.group)}</p>
         </div>
       </div>
 
-      {props.group.records.map((record) => (
-        <article key={record.id} className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word">
-          <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <Checkbox
-                checked={props.selectedRecordIdsSet.has(record.id)}
-                onCheckedChange={(checked) => props.onToggleRecordSelected(record.id, checked)}
-                aria-label={`Select attendance event ${getManualRecordSource(record)} for ${props.group.name}`}
-                className="mt-1 shrink-0"
-              />
-              <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Event</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{getManualRecordSource(record)}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned At</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{formatDateTime(record.scanned_at)}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Absences</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{record.no_of_absences}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Year Level</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{record.year_level || "—"}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{record.college || "—"}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Program</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{record.program || "—"}</p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Institution</p>
-                  <p className="mt-1 wrap-break-word font-semibold">{record.institution || "—"}</p>
-                </div>
-                <div className="min-w-0 sm:col-span-2 lg:col-span-3">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Remarks</p>
-                  <p className="mt-1 wrap-break-word font-semibold text-muted-foreground">{record.remarks || "—"}</p>
+      {props.group.attendees.map((attendee) => {
+        const selectedAttendeeRecordCount = attendee.records.filter((record) =>
+          props.selectedRecordIdsSet.has(record.id)
+        ).length;
+        const allAttendeeRecordsSelected =
+          attendee.records.length > 0 && selectedAttendeeRecordCount === attendee.records.length;
+        const attendeeRecordChecked =
+          allAttendeeRecordsSelected ? true : selectedAttendeeRecordCount > 0 ? "indeterminate" : false;
+
+        return (
+          <article key={attendee.key} className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word">
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <Checkbox
+                  checked={attendeeRecordChecked}
+                  onCheckedChange={(checked) => props.onToggleAttendeeRecordsSelected(attendee.records, checked)}
+                  aria-label={`Select attendance records for ${attendee.name}`}
+                  className="mt-1 shrink-0"
+                />
+                <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="min-w-0 sm:col-span-2">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendee</p>
+                    <p className="mt-1 wrap-break-word font-black">
+                      {attendee.studentId} - {attendee.name}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Absences</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{attendee.totalAbsences}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Latest Scan</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{formatDateTime(attendee.latestScannedAt)}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Year Level</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{attendee.yearLevel || "—"}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(attendee.college)}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Program</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{attendee.program || "—"}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Institution</p>
+                    <p className="mt-1 wrap-break-word font-semibold">{attendee.institution || "—"}</p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => props.onEditRecord(record)}
-                className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-              >
-                Edit
-              </Button>
-              <DeleteAttendanceConfirmation
-                record={record}
-                isDeleting={props.deletingRecordId === record.id || props.isDeletingBulk}
-                onConfirm={props.onDeleteRecord}
-                className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-              />
+              <div className="space-y-3 border-t pt-4">
+                {attendee.records.map((record) => (
+                  <div key={record.id} className="rounded-2xl border bg-background p-4">
+                    <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <Checkbox
+                          checked={props.selectedRecordIdsSet.has(record.id)}
+                          onCheckedChange={(checked) => props.onToggleRecordSelected(record.id, checked)}
+                          aria-label={`Select attendance record for ${attendee.name}`}
+                          className="mt-1 shrink-0"
+                        />
+                        <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned At</p>
+                            <p className="mt-1 wrap-break-word font-semibold">{formatDateTime(record.scanned_at)}</p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Absences</p>
+                            <p className="mt-1 wrap-break-word font-semibold">{record.no_of_absences}</p>
+                          </div>
+                          <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Remarks</p>
+                            <p className="mt-1 wrap-break-word font-semibold text-muted-foreground">
+                              {record.remarks || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => props.onEditRecord(record)}
+                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                        >
+                          Edit
+                        </Button>
+                        <DeleteAttendanceConfirmation
+                          record={record}
+                          isDeleting={props.deletingRecordId === record.id || props.isDeletingBulk}
+                          onConfirm={props.onDeleteRecord}
+                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </article>
-      ))}
+          </article>
+        );
+      })}
     </div>
   );
 }
+
 
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -1744,7 +1954,8 @@ export default function AttendancePage() {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
-  const [openStudentGroupKeys, setOpenStudentGroupKeys] = useState<string[]>([]);
+  const [openEventGroupKeys, setOpenEventGroupKeys] = useState<string[]>([]);
+  const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
   const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
   const [uploadEventId, setUploadEventId] = useState("");
@@ -1771,11 +1982,26 @@ export default function AttendancePage() {
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
   const previewEventNames = useMemo(() => getAttendancePreviewEventNames(preview), [preview]);
-  const attendanceStudentGroups = useMemo(() => getAttendanceStudentGroups(records), [records]);
+  const collegeFilterOptions = useMemo(() => {
+    return Array.from(new Set(records.map((record) => getCollegeFilterValue(record.college)))).sort((left, right) => {
+      return getCollegeLabel(left === NO_COLLEGE_SELECT_VALUE ? "" : left).localeCompare(
+        getCollegeLabel(right === NO_COLLEGE_SELECT_VALUE ? "" : right)
+      );
+    });
+  }, [records]);
+  const filteredRecords = useMemo(() => {
+    if (collegeFilter === ALL_COLLEGES_SELECT_VALUE) return records;
+
+    return records.filter((record) => getCollegeFilterValue(record.college) === collegeFilter);
+  }, [collegeFilter, records]);
+  const attendanceEventGroups = useMemo(() => getAttendanceEventGroups(filteredRecords, events), [events, filteredRecords]);
   const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
   const selectedRecordCount = selectedRecordIds.length;
-  const allRecordsSelected = records.length > 0 && selectedRecordCount === records.length;
-  const recordHeaderChecked = allRecordsSelected ? true : selectedRecordCount > 0 ? "indeterminate" : false;
+  const filteredRecordCount = filteredRecords.length;
+  const visibleSelectedRecordCount = filteredRecords.filter((record) => selectedRecordIdsSet.has(record.id)).length;
+  const allVisibleRecordsSelected = filteredRecordCount > 0 && visibleSelectedRecordCount === filteredRecordCount;
+  const recordHeaderChecked =
+    allVisibleRecordsSelected ? true : visibleSelectedRecordCount > 0 ? "indeterminate" : false;
   const uploadEventReady = Boolean(file);
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
@@ -1797,10 +2023,19 @@ export default function AttendancePage() {
   }
 
   function handleToggleAllRecords(checked: boolean | "indeterminate") {
-    setSelectedRecordIds(checked === true ? records.map((record) => record.id) : []);
+    const filteredRecordIds = filteredRecords.map((record) => record.id);
+    const filteredRecordIdsSet = new Set(filteredRecordIds);
+
+    setSelectedRecordIds((current) => {
+      if (checked === true) {
+        return Array.from(new Set([...current, ...filteredRecordIds]));
+      }
+
+      return current.filter((recordId) => !filteredRecordIdsSet.has(recordId));
+    });
   }
 
-  function handleToggleStudentRecordsSelected(groupRecords: AttendanceRecord[], checked: boolean | "indeterminate") {
+  function handleToggleGroupedRecordsSelected(groupRecords: AttendanceRecord[], checked: boolean | "indeterminate") {
     const groupRecordIds = groupRecords.map((record) => record.id);
     const groupRecordIdsSet = new Set(groupRecordIds);
 
@@ -1857,14 +2092,13 @@ export default function AttendancePage() {
         listAttendanceImports({ limit: 100, offset: 0 })
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
-
-      const studentGroupKeys = new Set(rows.map(getAttendanceStudentGroupKey));
+      const eventGroupKeys = new Set(getAttendanceEventGroups(rows, eventRows).map((group) => group.key));
 
       setRecords(rows);
       setEvents(eventRows);
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
-      setOpenStudentGroupKeys((current) => current.filter((key) => studentGroupKeys.has(key)));
+      setOpenEventGroupKeys((current) => current.filter((key) => eventGroupKeys.has(key)));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
       setError(message);
@@ -2246,6 +2480,12 @@ export default function AttendancePage() {
   }
 
   useEffect(() => {
+    if (collegeFilter !== ALL_COLLEGES_SELECT_VALUE && !collegeFilterOptions.includes(collegeFilter)) {
+      setCollegeFilter(ALL_COLLEGES_SELECT_VALUE);
+    }
+  }, [collegeFilter, collegeFilterOptions]);
+
+  useEffect(() => {
     void loadRecords();
   }, []);
 
@@ -2553,8 +2793,29 @@ export default function AttendancePage() {
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Recent attendance records</h2>
+              <p className="mt-1 text-sm font-semibold text-muted-foreground">
+                Events are grouped by college so absences stay scoped to the correct college event.
+              </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="min-w-48">
+                <Label htmlFor="attendance-college-filter" className="sr-only">
+                  College filter
+                </Label>
+                <Select value={collegeFilter} onValueChange={setCollegeFilter}>
+                  <SelectTrigger id="attendance-college-filter" className="min-h-10 w-full rounded-2xl">
+                    <SelectValue placeholder="Filter by college" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_COLLEGES_SELECT_VALUE}>All colleges</SelectItem>
+                    {collegeFilterOptions.map((college) => (
+                      <SelectItem key={college} value={college}>
+                        {college === NO_COLLEGE_SELECT_VALUE ? "No college" : college}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {selectedRecordCount ? (
                 <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                   {selectedRecordCount} selected
@@ -2587,68 +2848,80 @@ export default function AttendancePage() {
                 <Checkbox
                   checked={recordHeaderChecked}
                   onCheckedChange={handleToggleAllRecords}
-                  aria-label="Select all attendance records"
+                  aria-label="Select filtered attendance records"
                   className="shrink-0"
                 />
                 <div className="min-w-0">
-                  <p className="wrap-break-word text-sm font-black">Select all attendance records</p>
+                  <p className="wrap-break-word text-sm font-black">Select filtered attendance records</p>
                   <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
-                    {records.length} loaded record/s
+                    {filteredRecordCount} shown from {records.length} loaded record/s
                   </p>
                 </div>
               </div>
 
-              <Accordion
-                type="multiple"
-                value={openStudentGroupKeys}
-                onValueChange={setOpenStudentGroupKeys}
-                className="space-y-3"
-              >
-                {attendanceStudentGroups.map((group) => {
-                  const selectedGroupRecordCount = group.records.filter((record) =>
-                    selectedRecordIdsSet.has(record.id)
-                  ).length;
-                  const allStudentRecordsSelected =
-                    group.records.length > 0 && selectedGroupRecordCount === group.records.length;
-                  const studentRecordChecked =
-                    allStudentRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
+              {attendanceEventGroups.length ? (
+                <Accordion
+                  type="multiple"
+                  value={openEventGroupKeys}
+                  onValueChange={setOpenEventGroupKeys}
+                  className="space-y-3"
+                >
+                  {attendanceEventGroups.map((group) => {
+                    const selectedGroupRecordCount = group.records.filter((record) =>
+                      selectedRecordIdsSet.has(record.id)
+                    ).length;
+                    const allGroupRecordsSelected =
+                      group.records.length > 0 && selectedGroupRecordCount === group.records.length;
+                    const eventRecordChecked =
+                      allGroupRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
 
-                  return (
-                    <AccordionItem
-                      key={group.key}
-                      value={group.key}
-                      className="rounded-2xl border bg-background px-0"
-                    >
-                      <div className="flex min-w-0 w-full items-start gap-3 px-4 py-4">
-                        <Checkbox
-                          checked={studentRecordChecked}
-                          onCheckedChange={(checked) => handleToggleStudentRecordsSelected(group.records, checked)}
-                          aria-label={`Select attendance records for ${group.name}`}
-                          className="mt-1 shrink-0"
-                        />
-                        <AccordionTrigger className="relative min-h-0 min-w-0 flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
-                          <AttendanceStudentGroupTriggerContent
+                    return (
+                      <AccordionItem
+                        key={group.key}
+                        value={group.key}
+                        className="rounded-2xl border bg-background px-0"
+                      >
+                        <div className="flex min-w-0 w-full flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start">
+                          <div className="flex min-w-0 flex-1 items-start gap-3">
+                            <Checkbox
+                              checked={eventRecordChecked}
+                              onCheckedChange={(checked) => handleToggleGroupedRecordsSelected(group.records, checked)}
+                              aria-label={`Select attendance records for ${group.eventName}`}
+                              className="mt-1 shrink-0"
+                            />
+                            <AccordionTrigger className="relative min-h-0 min-w-0 flex-1 justify-start gap-3 py-0 pr-10 text-left hover:no-underline [&>svg]:absolute [&>svg]:right-0 [&>svg]:top-1/2 [&>svg]:-translate-y-1/2 [&>svg]:shrink-0">
+                              <AttendanceEventGroupTriggerContent
+                                group={group}
+                                selectedGroupRecordCount={selectedGroupRecordCount}
+                              />
+                            </AccordionTrigger>
+                          </div>
+                          <div className="flex shrink-0 justify-start lg:justify-end">
+                            <AttendanceEventAttendeesDialog group={group} />
+                          </div>
+                        </div>
+
+                        <AccordionContent className="border-t px-4 pb-4 pt-4">
+                          <AttendanceEventAttendeesList
                             group={group}
-                            selectedGroupRecordCount={selectedGroupRecordCount}
+                            selectedRecordIdsSet={selectedRecordIdsSet}
+                            deletingRecordId={deletingRecordId}
+                            isDeletingBulk={isDeletingBulk}
+                            onToggleRecordSelected={handleToggleRecordSelected}
+                            onToggleAttendeeRecordsSelected={handleToggleGroupedRecordsSelected}
+                            onEditRecord={handleEditRecord}
+                            onDeleteRecord={handleDeleteRecord}
                           />
-                        </AccordionTrigger>
-                      </div>
-
-                      <AccordionContent className="border-t px-4 pb-4 pt-4">
-                        <AttendanceStudentRecordsList
-                          group={group}
-                          selectedRecordIdsSet={selectedRecordIdsSet}
-                          deletingRecordId={deletingRecordId}
-                          isDeletingBulk={isDeletingBulk}
-                          onToggleRecordSelected={handleToggleRecordSelected}
-                          onEditRecord={handleEditRecord}
-                          onDeleteRecord={handleDeleteRecord}
-                        />
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-              </Accordion>
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No attendance records matched this college filter.
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">

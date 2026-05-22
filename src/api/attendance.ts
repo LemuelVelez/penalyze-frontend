@@ -115,6 +115,7 @@ type ApiEnvelope<T> = {
 type ListOptions = {
   studentId?: string;
   eventId?: string;
+  college?: string;
   limit?: number;
   offset?: number;
 };
@@ -241,16 +242,24 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
     studentId: options.studentId,
-    eventId: options.eventId
+    eventId: options.eventId,
+    college: options.college
   });
 
   const response = await apiRequest<AttendanceRecord[]>(`/api/attendance${query}`);
   const rows = response.data ?? [];
 
-  if (!options.studentId) return rows;
+  if (!options.studentId && !options.college) return rows;
 
-  const target = normalizeStudentId(options.studentId);
-  return rows.filter((row) => normalizeStudentId(row.student_id) === target);
+  const targetStudentId = options.studentId ? normalizeStudentId(options.studentId) : "";
+  const targetCollege = options.college ? String(options.college).trim().toLowerCase() : "";
+
+  return rows.filter((row) => {
+    const matchesStudent = !targetStudentId || normalizeStudentId(row.student_id) === targetStudentId;
+    const matchesCollege = !targetCollege || String(row.college ?? "").trim().toLowerCase() === targetCollege;
+
+    return matchesStudent && matchesCollege;
+  });
 }
 
 export async function getStudentAttendanceRecords(studentId: string) {
