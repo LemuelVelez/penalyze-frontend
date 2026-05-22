@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { FineRecord, FineStatus, listFines, updateFineStatus } from "../../api/fines";
+import { listFines, updateFineStatus } from "../../api/fines";
+import type { FineRecord, FineStatus } from "../../api/fines";
 
 const statuses: Array<FineStatus | ""> = ["", "unpaid", "paid", "waived"];
 

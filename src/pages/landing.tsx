@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
-import { AttendanceRecord, getStudentAttendanceRecords } from "../api/attendance";
-import { FineRecord, getStudentFines } from "../api/fines";
+import { getStudentAttendanceRecords } from "../api/attendance";
+import type { AttendanceRecord } from "../api/attendance";
+import { getStudentFines } from "../api/fines";
+import type { FineRecord } from "../api/fines";
 import { LogoMark } from "../components/layout";
 
 type LookupState = {
@@ -83,7 +85,7 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b bg-gradient-to-b from-muted/80 to-background">
+      <section className="border-b bg-linear-to-b from-muted/80 to-background">
         <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">

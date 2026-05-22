@@ -1,16 +1,15 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 
-import { AuthSession, RegisterInput, UserRole, register } from "../../api/auth";
-
-const roles: UserRole[] = ["staff", "admin"];
+import { register } from "../../api/auth";
+import type { AuthSession, RegisterInput } from "../../api/auth";
 
 export default function UsersPage() {
   const [form, setForm] = useState<RegisterInput>({
     name: "",
     email: "",
     password: "",
-    role: "staff"
+    role: "admin"
   });
   const [createdUsers, setCreatedUsers] = useState<AuthSession["user"][]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -31,7 +30,7 @@ export default function UsersPage() {
     try {
       const session = await register(form, false);
       setCreatedUsers((current) => [session.user, ...current]);
-      setForm({ name: "", email: "", password: "", role: "staff" });
+      setForm({ name: "", email: "", password: "", role: "admin" });
       setMessage("User account created successfully.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Unable to create user.");
@@ -47,14 +46,14 @@ export default function UsersPage() {
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">User management</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Users</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Create staff and admin accounts using a responsive form that works on mobile and desktop screens.
+            Create admin accounts using a responsive form that works on mobile and desktop screens.
           </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <h2 className="text-xl font-black">Create user</h2>
-            <p className="mt-1 text-sm text-muted-foreground">The first registered account becomes admin on the backend.</p>
+            <p className="mt-1 text-sm text-muted-foreground">All authenticated user accounts use the admin role.</p>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
@@ -86,39 +85,19 @@ export default function UsersPage() {
                 />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="password" className="text-sm font-bold">
-                    Password
-                  </label>
-                  <input
-                    id="password"
-                    type="password"
-                    value={form.password}
-                    onChange={(event) => updateForm("password", event.target.value)}
-                    className="mt-2 min-h-12 w-full rounded-2xl border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
-                    placeholder="At least 6 characters"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="role" className="text-sm font-bold">
-                    Role
-                  </label>
-                  <select
-                    id="role"
-                    value={form.role}
-                    onChange={(event) => updateForm("role", event.target.value as UserRole)}
-                    className="mt-2 min-h-12 w-full rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
-                  >
-                    {roles.map((role) => (
-                      <option key={role} value={role}>
-                        {role.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label htmlFor="password" className="text-sm font-bold">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={form.password}
+                  onChange={(event) => updateForm("password", event.target.value)}
+                  className="mt-2 min-h-12 w-full rounded-2xl border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
+                  placeholder="At least 6 characters"
+                  required
+                />
               </div>
 
               {error ? (

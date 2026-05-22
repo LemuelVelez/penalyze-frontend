@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
-import { AttendanceImportRecord, AttendanceRecord, listAttendanceImports, listAttendanceRecords } from "../../api/attendance";
-import { FineSummary, getFineSummary } from "../../api/fines";
+import { listAttendanceImports, listAttendanceRecords } from "../../api/attendance";
+import type { AttendanceImportRecord, AttendanceRecord } from "../../api/attendance";
+import { getFineSummary } from "../../api/fines";
+import type { FineSummary } from "../../api/fines";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
