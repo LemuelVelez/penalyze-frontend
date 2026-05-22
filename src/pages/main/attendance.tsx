@@ -437,8 +437,7 @@ function normalizeAttendanceDateTimeValue(value?: string | number | null) {
   const serialDate = isNumericSpreadsheetDate(text) ? getDateFromExcelSerial(text) : null;
   const date = serialDate ?? new Date(text);
 
-  if (Number.isNaN(date.getTime())) return text;
-  return date.toISOString();
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 function toDateTimeLocalValue(value?: string | null) {
@@ -1396,10 +1395,11 @@ function ManualAttendanceDialog(props: {
             <Label htmlFor="manual-scanned-at">Scanned at</Label>
             <Input
               id="manual-scanned-at"
-              type="datetime-local"
+              type="text"
               value={props.form.scannedAt}
               onChange={(event) => props.onChange("scannedAt", event.target.value)}
               className="mt-2"
+              placeholder="Optional date and time"
             />
           </div>
 
@@ -1963,7 +1963,7 @@ export default function AttendancePage() {
 
     const payload: ManualAttendanceInput = {
       eventId: manualForm.eventId || undefined,
-      scannedAt: manualForm.scannedAt || undefined,
+      scannedAt: normalizeAttendanceDateTimeValue(manualForm.scannedAt) || undefined,
       studentId,
       name,
       yearLevel: manualForm.yearLevel.trim(),
