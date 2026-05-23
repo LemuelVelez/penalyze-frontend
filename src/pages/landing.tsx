@@ -215,6 +215,85 @@ function normalizeEventKey(value: string) {
     .trim();
 }
 
+const eventNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function parseEventSequence(value?: string | null) {
+  const cleanValue = String(value ?? "").trim();
+  if (!cleanValue) return null;
+
+  const sequencePatterns = [
+    /^#?0*(\d+)\s*(?:[.)-]|$)/,
+    /\b(?:event|activity|program|attendance|attended|day|no\.?)[\s_-]*#?0*(\d+)\b/i,
+    /\b0*(\d+)\s*(?:st|nd|rd|th)?\s*(?:event|activity|program|attendance|day)\b/i
+  ];
+
+  for (const pattern of sequencePatterns) {
+    const match = cleanValue.match(pattern);
+    const parsedValue = match ? Number(match[1]) : Number.NaN;
+
+    if (Number.isFinite(parsedValue)) return parsedValue;
+  }
+
+  return null;
+}
+
+function getAttendanceEventSequence(record: AttendanceRecord) {
+  const candidates = [
+    record.event_name,
+    record.event_id,
+    record.import_id,
+    record.remarks
+  ];
+
+  for (const candidate of candidates) {
+    const sequence = parseEventSequence(candidate);
+    if (sequence !== null) return sequence;
+  }
+
+  return null;
+}
+
+function getSummaryEventSequence(summary: StudentAttendedEventSummary) {
+  const directSequence = parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
+  if (directSequence !== null) return directSequence;
+
+  for (const record of summary.records) {
+    const recordSequence = getAttendanceEventSequence(record);
+    if (recordSequence !== null) return recordSequence;
+  }
+
+  return null;
+}
+
+function getSummaryEarliestTime(summary: StudentAttendedEventSummary) {
+  const validTimes = summary.records
+    .map(getRecordTimestamp)
+    .filter((time) => time > 0);
+
+  if (!validTimes.length) return 0;
+
+  return Math.min(...validTimes);
+}
+
+function compareStudentAttendedEventSummaries(
+  leftSummary: StudentAttendedEventSummary,
+  rightSummary: StudentAttendedEventSummary
+) {
+  const leftSequence = getSummaryEventSequence(leftSummary);
+  const rightSequence = getSummaryEventSequence(rightSummary);
+
+  if (leftSequence !== null || rightSequence !== null) {
+    if (leftSequence === null) return 1;
+    if (rightSequence === null) return -1;
+    if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+  }
+
+  const timeDifference = getSummaryEarliestTime(leftSummary) - getSummaryEarliestTime(rightSummary);
+  if (timeDifference !== 0) return timeDifference;
+
+  return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
+}
+
 function isZeroAttendanceRecord(record: AttendanceRecord) {
   return !record.event_id && String(record.remarks ?? "").toLowerCase().includes("zero attendance");
 }
@@ -304,15 +383,10 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
     .map((summary) => ({
       ...summary,
       records: [...summary.records].sort((leftRecord, rightRecord) => {
-        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
       })
     }))
-    .sort((leftSummary, rightSummary) => {
-      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
-      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
-
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
-    });
+    .sort(compareStudentAttendedEventSummaries);
 }
 
 function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
@@ -429,15 +503,20 @@ function StudentAttendedEventsDialog(props: {
 
         {props.events.length ? (
           <div className="space-y-3">
-            {props.events.map((eventSummary) => (
+            {props.events.map((eventSummary, index) => (
               <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="font-black">{eventSummary.eventName}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s •{" "}
-                      Total: {formatAbsenceCount(eventSummary.totalAbsences)}
-                    </p>
+                  <div className="flex gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <p className="font-black">{eventSummary.eventName}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s •{" "}
+                        Total: {formatAbsenceCount(eventSummary.totalAbsences)}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
