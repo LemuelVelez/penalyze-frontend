@@ -21,6 +21,7 @@ import {
 import type {
   AttendanceEvent,
   AttendanceEventInput,
+  AttendanceImportProgress,
   AttendanceImportRecord,
   AttendancePreviewResult,
   SavedAttendanceImportResult,
@@ -49,6 +50,7 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Progress } from "../../components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -1388,6 +1390,21 @@ function formatEventGroupSchedule(group: AttendanceEventRecordGroup) {
   return "No schedule set";
 }
 
+function getSaveProgressPercent(progress: AttendanceImportProgress | null, isSaving: boolean) {
+  if (!progress) return isSaving ? 1 : 0;
+  return Math.max(0, Math.min(100, Math.round(progress.percent)));
+}
+
+function getSaveProgressRowText(progress: AttendanceImportProgress | null) {
+  if (!progress) return "Preparing rows...";
+  if (progress.totalRows > 0) return `${progress.processedRows}/${progress.totalRows} row/s processed`;
+  return "Preparing rows...";
+}
+
+function getSaveProgressMessage(progress: AttendanceImportProgress | null) {
+  return progress?.message || "Preparing attendance import...";
+}
+
 function FileDropZone(props: {
   file: File | null;
   isDragging: boolean;
@@ -2408,6 +2425,7 @@ export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
+  const [saveProgress, setSaveProgress] = useState<AttendanceImportProgress | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
@@ -2496,6 +2514,9 @@ export default function AttendancePage() {
   const recordHeaderChecked =
     allVisibleRecordsSelected ? true : visibleSelectedRecordCount > 0 ? "indeterminate" : false;
   const uploadEventReady = Boolean(file);
+  const saveProgressPercent = getSaveProgressPercent(saveProgress, isSaving);
+  const saveProgressMessage = getSaveProgressMessage(saveProgress);
+  const saveProgressRowText = getSaveProgressRowText(saveProgress);
   const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(null);
   const scrollRestoreFrameRef = useRef<number | null>(null);
 
@@ -2605,6 +2626,7 @@ export default function AttendancePage() {
     setFile(selectedFile);
     setPreview(null);
     setSaved(null);
+    setSaveProgress(null);
     setError("");
 
     if (selectedFile) {
@@ -2677,6 +2699,7 @@ export default function AttendancePage() {
     setIsPreviewing(true);
     setError("");
     setSaved(null);
+    setSaveProgress(null);
 
     try {
       const upload = await getAttendanceUploadFile(file);
@@ -2720,6 +2743,16 @@ export default function AttendancePage() {
 
     setIsSaving(true);
     setError("");
+    setSaved(null);
+    setSaveProgress({
+      stage: "preparing",
+      percent: 1,
+      message: "Preparing attendance import...",
+      processedRows: 0,
+      totalRows: 0,
+      savedRecords: 0,
+      createdFines: 0
+    });
 
     try {
       const upload = await getAttendanceUploadFile(file);
@@ -2727,9 +2760,20 @@ export default function AttendancePage() {
       const fileHasDetectedEvents = uploadEventNames.length > 0;
       const canLetApiDetectFileEvents = !upload.normalizedRowsCount && isExcelBasedAttendanceFile(upload.file);
 
+      setSaveProgress({
+        stage: "preparing",
+        percent: 3,
+        message: "Checking event details...",
+        processedRows: 0,
+        totalRows: upload.normalizedRowsCount,
+        savedRecords: 0,
+        createdFines: 0
+      });
+
       if (!uploadEventId && !eventName && !fileHasDetectedEvents && !canLetApiDetectFileEvents) {
         const message = "Please select an existing event, enter a new event name, or upload a file that includes event names.";
         setError(message);
+        setSaveProgress(null);
         toast.error(message);
         return;
       }
@@ -2741,10 +2785,20 @@ export default function AttendancePage() {
         eventStartAt: uploadEventId ? undefined : uploadEventStartAt || undefined,
         eventEndAt: uploadEventId ? undefined : uploadEventEndAt || undefined,
         eventDescription:
-          uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDescription.trim() || undefined
+          uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDescription.trim() || undefined,
+        onProgress: setSaveProgress
       });
       setSaved(result ?? null);
       setPreview(result ?? null);
+      setSaveProgress({
+        stage: "completed",
+        percent: 100,
+        message: "Attendance import completed.",
+        processedRows: result?.savedRecords.length ?? 0,
+        totalRows: result?.savedRecords.length ?? 0,
+        savedRecords: result?.savedRecords.length ?? 0,
+        createdFines: result?.createdFines.length ?? 0
+      });
       await loadRecords({ preserveScroll: true });
       toast.success(
         `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.${
@@ -3187,9 +3241,28 @@ export default function AttendancePage() {
                 disabled={!file || !uploadEventReady || isPreviewing || isSaving}
                 className="min-h-12 rounded-2xl px-5 py-3"
               >
-                {isSaving ? "Saving..." : "Save Import"}
+                {isSaving ? `Saving ${saveProgressPercent}%` : "Save Import"}
               </Button>
             </div>
+
+            {isSaving || saveProgress ? (
+              <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">Saving progress</p>
+                    <p className="mt-1 wrap-break-word text-sm font-semibold">{saveProgressMessage}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
+                    {saveProgressPercent}%
+                  </span>
+                </div>
+                <Progress value={saveProgressPercent} className="mt-4 h-3" />
+                <div className="mt-3 flex flex-col gap-1 text-xs font-bold text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>{saveProgressRowText}</span>
+                  <span>{saveProgress?.savedRecords ?? 0} record/s saved</span>
+                </div>
+              </section>
+            ) : null}
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">

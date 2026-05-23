@@ -1,4 +1,5 @@
 export type ImportStatus = "previewed" | "saved" | "failed";
+export type AttendanceImportProgressStage = "preparing" | "parsing" | "validating" | "saving" | "syncing" | "completed";
 
 export type AttendanceEvent = {
   id: string;
@@ -87,6 +88,18 @@ export type AttendancePreviewResult = {
   rows: ParsedAttendanceRow[];
 };
 
+export type AttendanceImportProgress = {
+  stage: AttendanceImportProgressStage;
+  percent: number;
+  message: string;
+  processedRows: number;
+  totalRows: number;
+  savedRecords: number;
+  createdFines: number;
+};
+
+export type AttendanceImportProgressCallback = (progress: AttendanceImportProgress) => void;
+
 export type SavedAttendanceImportResult = AttendancePreviewResult & {
   importId: string;
   event: AttendanceEvent | null;
@@ -126,6 +139,7 @@ export type AttendanceImportSaveOptions = {
   eventStartAt?: string;
   eventEndAt?: string;
   eventDescription?: string;
+  onProgress?: AttendanceImportProgressCallback;
 };
 
 const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.csv,.txt,.docx,.doc";
@@ -183,6 +197,119 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   }
 
   return payload as ApiEnvelope<T>;
+}
+
+type AttendanceImportProgressStreamMessage<T> =
+  | { type: "progress"; progress: AttendanceImportProgress }
+  | { type: "success"; message?: string; data?: T }
+  | { type: "error"; message?: string };
+
+function getApiRequestHeaders(options: RequestInit = {}) {
+  const headers = new Headers(options.headers);
+  const token = getAuthToken();
+
+  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return headers;
+}
+
+function parseAttendanceProgressStreamLine<T>(line: string) {
+  try {
+    return JSON.parse(line) as AttendanceImportProgressStreamMessage<T>;
+  } catch {
+    return null;
+  }
+}
+
+async function readAttendanceProgressStream<T>(
+  response: Response,
+  onProgress?: AttendanceImportProgressCallback
+): Promise<ApiEnvelope<T>> {
+  if (!response.body) {
+    const payload = (await response.json()) as ApiEnvelope<T>;
+    return payload;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let successPayload: ApiEnvelope<T> | null = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      const message = parseAttendanceProgressStreamLine<T>(line);
+      if (!message) continue;
+
+      if (message.type === "progress") {
+        onProgress?.(message.progress);
+        continue;
+      }
+
+      if (message.type === "success") {
+        successPayload = { message: message.message, data: message.data };
+        continue;
+      }
+
+      if (message.type === "error") {
+        throw new Error(message.message || "Unable to save attendance import.");
+      }
+    }
+
+    if (done) break;
+  }
+
+  const remainingMessage = buffer.trim() ? parseAttendanceProgressStreamLine<T>(buffer.trim()) : null;
+
+  if (remainingMessage?.type === "progress") {
+    onProgress?.(remainingMessage.progress);
+  }
+
+  if (remainingMessage?.type === "success") {
+    successPayload = { message: remainingMessage.message, data: remainingMessage.data };
+  }
+
+  if (remainingMessage?.type === "error") {
+    throw new Error(remainingMessage.message || "Unable to save attendance import.");
+  }
+
+  if (!successPayload) {
+    throw new Error("Attendance import finished without a saved result.");
+  }
+
+  return successPayload;
+}
+
+async function apiProgressRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  onProgress?: AttendanceImportProgressCallback
+) {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    ...options,
+    headers: getApiRequestHeaders(options),
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json") ? await response.json() : null;
+    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+  }
+
+  return readAttendanceProgressStream<T>(response, onProgress);
 }
 
 function appendSaveOptions(body: FormData, options: AttendanceImportSaveOptions = {}) {
@@ -341,14 +468,24 @@ export async function previewAttendanceFile(file: File) {
 }
 
 export async function saveAttendanceFile(file: File, options: AttendanceImportSaveOptions = {}) {
+  const { onProgress, ...saveOptions } = options;
   const body = new FormData();
   body.set("file", file);
-  appendSaveOptions(body, options);
+  appendSaveOptions(body, saveOptions);
 
-  const response = await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
-    method: "POST",
-    body
-  });
+  const response = onProgress
+    ? await apiProgressRequest<SavedAttendanceImportResult>(
+        "/api/attendance/import/save/progress",
+        {
+          method: "POST",
+          body
+        },
+        onProgress
+      )
+    : await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
+        method: "POST",
+        body
+      });
 
   return response.data;
 }
