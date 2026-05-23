@@ -2790,9 +2790,6 @@ function AttendanceEventGroupTriggerContent(props: {
         <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
           {props.group.attendees.length} attendee/s
         </span>
-        <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
-          Total: {props.group.totalAbsences}
-        </span>
         {props.selectedGroupRecordCount ? (
           <span className="rounded-full border bg-background px-3 py-1 text-xs font-black uppercase tracking-wide text-muted-foreground">
             {props.selectedGroupRecordCount} selected
