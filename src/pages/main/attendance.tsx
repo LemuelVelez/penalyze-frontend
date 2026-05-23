@@ -1750,18 +1750,33 @@ function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
 }
 
 function getAttendanceSearchRecordDeduplicationKey(record: AttendanceRecord) {
-  return [
-    getRecordEventGroupKey(record),
-    getAttendeeKey(record),
-    normalizeImportHeader(record.student_id),
-    normalizeImportHeader(record.name),
-    normalizeImportHeader(record.year_level),
-    normalizeImportHeader(record.college),
-    normalizeImportHeader(record.program),
-    normalizeImportHeader(record.institution),
-    Number(record.no_of_absences ?? 0),
-    normalizeImportHeader(record.remarks),
-  ].join(":");
+  return [getRecordEventGroupKey(record), getAttendeeKey(record)].join(":");
+}
+
+function getPreferredDeduplicatedAttendanceRecord(
+  currentRecord: AttendanceRecord,
+  candidateRecord: AttendanceRecord,
+) {
+  const currentAbsences = Number(currentRecord.no_of_absences ?? 0);
+  const candidateAbsences = Number(candidateRecord.no_of_absences ?? 0);
+  const shouldUseCandidate =
+    candidateAbsences > currentAbsences ||
+    (candidateAbsences === currentAbsences &&
+      getRecordTimestamp(candidateRecord) >= getRecordTimestamp(currentRecord));
+  const preferredRecord = shouldUseCandidate ? candidateRecord : currentRecord;
+  const fallbackRecord = shouldUseCandidate ? currentRecord : candidateRecord;
+
+  return {
+    ...preferredRecord,
+    student_id: preferredRecord.student_id || fallbackRecord.student_id,
+    name: preferredRecord.name || fallbackRecord.name,
+    year_level: preferredRecord.year_level || fallbackRecord.year_level,
+    college: preferredRecord.college || fallbackRecord.college,
+    program: preferredRecord.program || fallbackRecord.program,
+    institution: preferredRecord.institution || fallbackRecord.institution,
+    remarks: preferredRecord.remarks || fallbackRecord.remarks,
+    no_of_absences: Math.max(currentAbsences, candidateAbsences),
+  };
 }
 
 function getDeduplicatedAttendanceSearchRecords(records: AttendanceRecord[]) {
@@ -1776,9 +1791,10 @@ function getDeduplicatedAttendanceSearchRecords(records: AttendanceRecord[]) {
       return;
     }
 
-    if (getRecordTimestamp(record) >= getRecordTimestamp(currentRecord)) {
-      deduplicatedRecords.set(key, record);
-    }
+    deduplicatedRecords.set(
+      key,
+      getPreferredDeduplicatedAttendanceRecord(currentRecord, record),
+    );
   });
 
   return Array.from(deduplicatedRecords.values());
