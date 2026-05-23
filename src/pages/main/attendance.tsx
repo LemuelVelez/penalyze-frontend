@@ -1561,16 +1561,31 @@ function getAttendanceEventGroups(
       };
     })
     .sort((leftGroup, rightGroup) => {
-      const leftTime = leftGroup.latestScannedAt
-        ? new Date(leftGroup.latestScannedAt).getTime()
-        : 0;
-      const rightTime = rightGroup.latestScannedAt
-        ? new Date(rightGroup.latestScannedAt).getTime()
-        : 0;
+      const eventNameCompare = cleanImportValue(
+        leftGroup.eventName,
+      ).localeCompare(cleanImportValue(rightGroup.eventName), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
 
-      return (
-        (Number.isNaN(rightTime) ? 0 : rightTime) -
-        (Number.isNaN(leftTime) ? 0 : leftTime)
+      if (eventNameCompare !== 0) return eventNameCompare;
+
+      const collegeCompare = getAttendanceGroupCollegeLabel(
+        leftGroup,
+      ).localeCompare(getAttendanceGroupCollegeLabel(rightGroup), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+
+      if (collegeCompare !== 0) return collegeCompare;
+
+      return formatEventGroupSchedule(leftGroup).localeCompare(
+        formatEventGroupSchedule(rightGroup),
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base",
+        },
       );
     });
 }
@@ -2113,11 +2128,17 @@ function EventFields(props: {
   onEventDescriptionChange: (value: string) => void;
 }) {
   const isUsingFileEvents = !props.eventId && props.fileEventNames.length > 0;
+  const compactFieldClassName =
+    "mt-1 h-9 min-h-9 w-full min-w-0 max-w-full overflow-hidden rounded-xl px-3 text-sm";
+  const compactLabelClassName =
+    "text-xs font-bold uppercase tracking-wide text-muted-foreground";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <div>
-        <Label htmlFor="upload-event-id">Event</Label>
+    <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2">
+      <div className="min-w-0">
+        <Label htmlFor="upload-event-id" className={compactLabelClassName}>
+          Event
+        </Label>
         <Select
           value={props.eventId || UPLOAD_FILE_EVENTS_SELECT_VALUE}
           onValueChange={(value) => {
@@ -2128,18 +2149,25 @@ function EventFields(props: {
         >
           <SelectTrigger
             id="upload-event-id"
-            className="mt-2 min-h-10 w-full max-w-xs"
+            className={compactFieldClassName}
           >
-            <SelectValue placeholder="Use event from file or create a new event" />
+            <SelectValue placeholder="Use file event" />
           </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UPLOAD_FILE_EVENTS_SELECT_VALUE}>
+          <SelectContent className="max-h-72 max-w-72">
+            <SelectItem
+              value={UPLOAD_FILE_EVENTS_SELECT_VALUE}
+              className="max-w-full truncate text-sm"
+            >
               {isUsingFileEvents
-                ? "Use event/s detected in the uploaded file"
-                : "Use event from file or create a new event"}
+                ? "Use detected file event/s"
+                : "Use file event or create new"}
             </SelectItem>
             {props.events.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
+              <SelectItem
+                key={item.id}
+                value={item.id}
+                className="max-w-full truncate text-sm"
+              >
                 {item.name}
               </SelectItem>
             ))}
@@ -2147,48 +2175,62 @@ function EventFields(props: {
         </Select>
       </div>
 
-      <div>
-        <Label htmlFor="upload-event-name">Event name</Label>
+      <div className="min-w-0">
+        <Label htmlFor="upload-event-name" className={compactLabelClassName}>
+          Event name
+        </Label>
         <Input
           id="upload-event-name"
           value={props.eventName}
           onChange={(event) => props.onEventNameChange(event.target.value)}
           disabled={Boolean(props.eventId) || isUsingFileEvents}
-          className="mt-2"
+          className={compactFieldClassName}
           placeholder={
             isUsingFileEvents
-              ? "Using detected file event/s"
-              : "Required only when the file has no event"
+              ? "Using detected event/s"
+              : "Required if file has no event"
           }
         />
       </div>
 
-      <div>
-        <Label htmlFor="upload-event-start-at">Event start at</Label>
+      <div className="min-w-0">
+        <Label
+          htmlFor="upload-event-start-at"
+          className={compactLabelClassName}
+        >
+          Event start at
+        </Label>
         <Input
           id="upload-event-start-at"
           type="datetime-local"
           value={props.eventStartAt}
           onChange={(event) => props.onEventStartAtChange(event.target.value)}
           disabled={Boolean(props.eventId)}
-          className="mt-2"
+          className={compactFieldClassName}
         />
       </div>
 
-      <div>
-        <Label htmlFor="upload-event-end-at">Event end at</Label>
+      <div className="min-w-0">
+        <Label htmlFor="upload-event-end-at" className={compactLabelClassName}>
+          Event end at
+        </Label>
         <Input
           id="upload-event-end-at"
           type="datetime-local"
           value={props.eventEndAt}
           onChange={(event) => props.onEventEndAtChange(event.target.value)}
           disabled={Boolean(props.eventId)}
-          className="mt-2"
+          className={compactFieldClassName}
         />
       </div>
 
-      <div className="lg:col-span-2">
-        <Label htmlFor="upload-event-description">Description</Label>
+      <div className="min-w-0 sm:col-span-2">
+        <Label
+          htmlFor="upload-event-description"
+          className={compactLabelClassName}
+        >
+          Description
+        </Label>
         <Input
           id="upload-event-description"
           value={props.eventDescription}
@@ -2196,17 +2238,15 @@ function EventFields(props: {
             props.onEventDescriptionChange(event.target.value)
           }
           disabled={Boolean(props.eventId)}
-          className="mt-2"
+          className={compactFieldClassName}
           placeholder={
-            isUsingFileEvents
-              ? "Optional for detected file event/s"
-              : "Optional"
+            isUsingFileEvents ? "Optional for detected event/s" : "Optional"
           }
         />
       </div>
 
       {isUsingFileEvents ? (
-        <p className="text-sm font-semibold text-muted-foreground lg:col-span-2">
+        <p className="min-w-0 wrap-break-word text-xs font-semibold text-muted-foreground sm:col-span-2">
           Detected event/s: {props.fileEventNames.slice(0, 5).join(", ")}
           {props.fileEventNames.length > 5
             ? ` +${props.fileEventNames.length - 5} more`
