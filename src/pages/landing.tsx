@@ -7,11 +7,20 @@ import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
 import { LogoMark, navigateTo } from "../components/layout";
 import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 
 type LookupState = {
   attendance: AttendanceRecord[];
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
+};
+
+type StudentAttendedEventSummary = {
+  key: string;
+  eventName: string;
+  latestScannedAt: string | null;
+  records: AttendanceRecord[];
+  totalAbsences: number;
 };
 
 const AUTH_STORAGE_KEYS = [
@@ -160,12 +169,76 @@ function getTotalAbsences(attendance: AttendanceRecord[]) {
   return attendance.reduce((total, row) => total + Number(row.no_of_absences || 0), 0);
 }
 
+function getRecordTimestamp(record: AttendanceRecord) {
+  const value = record.scanned_at ?? record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getRecordEventName(record: AttendanceRecord) {
+  if (record.event_name) return record.event_name;
+  return record.import_id ? "File import" : "Manual attendance";
+}
+
+function normalizeEventKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getStudentDisplayName(attendance: AttendanceRecord[], fallbackId: string) {
+  return attendance.find((record) => record.name)?.name || fallbackId;
+}
+
+function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
+  const summaries = new Map<string, StudentAttendedEventSummary>();
+
+  attendance.forEach((record) => {
+    const eventName = getRecordEventName(record);
+    const key = record.event_id || normalizeEventKey(eventName) || `attendance-event-${record.id}`;
+    const currentSummary = summaries.get(key);
+    const recordTime = getRecordTimestamp(record);
+
+    if (!currentSummary) {
+      summaries.set(key, {
+        key,
+        eventName,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+        records: [record],
+        totalAbsences: Number(record.no_of_absences ?? 0)
+      });
+      return;
+    }
+
+    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+
+    currentSummary.records.push(record);
+    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+
+    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+    }
+  });
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      records: [...summary.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+      })
+    }))
+    .sort((leftSummary, rightSummary) => {
+      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
+      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
+
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+}
+
 function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
-  const total = getTotalAbsences(attendance);
-
-  if (!attendance.length || total <= 0) return 10;
-
-  return total;
+  return getTotalAbsences(attendance);
 }
 
 function isFallbackFine(fine: FineRecord) {
@@ -203,12 +276,68 @@ function buildFallbackFine(
   };
 }
 
+
+function StudentAttendedEventsDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  studentId: string;
+  studentName: string;
+  events: StudentAttendedEventSummary[];
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Events attended by {props.studentName || props.studentId}</DialogTitle>
+        </DialogHeader>
+
+        {props.events.length ? (
+          <div className="space-y-3">
+            {props.events.map((eventSummary) => (
+              <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-black">{eventSummary.eventName}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s •{" "}
+                      {formatAbsenceCount(eventSummary.totalAbsences)} absence/s
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {eventSummary.records.map((record) => (
+                    <div key={record.id} className="rounded-xl border bg-card px-3 py-2 text-sm">
+                      <p className="font-semibold">{formatDate(record.scanned_at ?? record.created_at)}</p>
+                      <p className="mt-1 text-muted-foreground">{record.remarks || "No remarks"}</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+            No attended events found for this student.
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
 export default function LandingPage() {
   const [studentId, setStudentId] = useState("");
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [searchedId, setSearchedId] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [resultDialogOpen, setResultDialogOpen] = useState(false);
+  const [eventsDialogOpen, setEventsDialogOpen] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -234,10 +363,13 @@ export default function LandingPage() {
   }, [displayedFines]);
 
   const fallbackFineActive = Boolean(lookup?.fallbackFine);
-  const fallbackFineUsesTenPlus = Boolean(lookup?.fallbackFine && lookup.fallbackFine.no_of_absences >= 10);
-  const totalAbsencesLabel = lookup?.fallbackFine
-    ? formatAbsenceCount(lookup.fallbackFine.no_of_absences, fallbackFineUsesTenPlus)
-    : formatAbsenceCount(totalAbsences);
+  const attendedEvents = useMemo(() => {
+    return lookup ? getStudentAttendedEventSummaries(lookup.attendance) : [];
+  }, [lookup]);
+  const studentDisplayName = useMemo(() => {
+    return lookup ? getStudentDisplayName(lookup.attendance, searchedId) : searchedId;
+  }, [lookup, searchedId]);
+  const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -246,6 +378,8 @@ export default function LandingPage() {
     if (!cleanStudentId) {
       setError("Please enter your Student ID.");
       setLookup(null);
+      setResultDialogOpen(false);
+      setEventsDialogOpen(false);
       return;
     }
 
@@ -260,7 +394,7 @@ export default function LandingPage() {
       ]);
 
       const fallbackAbsenceCount = getFallbackAbsenceCount(attendance);
-      const shouldBuildFallbackFine = fines.length === 0;
+      const shouldBuildFallbackFine = fines.length === 0 && fallbackAbsenceCount > 0;
       const fallbackFine = shouldBuildFallbackFine
         ? buildFallbackFine(
             cleanStudentId,
@@ -271,8 +405,11 @@ export default function LandingPage() {
         : null;
 
       setLookup({ attendance, fines, fallbackFine });
+      setResultDialogOpen(true);
     } catch (searchError) {
       setLookup(null);
+      setResultDialogOpen(false);
+      setEventsDialogOpen(false);
       setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
     } finally {
       setIsSearching(false);
@@ -290,7 +427,7 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b bg-linear-to-b from-muted/80 to-background">
-        <div className="mx-auto min-h-screen max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto min-h-screen  px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
@@ -380,131 +517,156 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {lookup ? (
-        <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result</p>
-              <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-3 lg:w-auto">
-              <div className="rounded-2xl border bg-card px-5 py-4">
-                <p className="text-xs font-bold uppercase text-muted-foreground">Total absences</p>
-                <p className="text-2xl font-black">{totalAbsencesLabel}</p>
-                {fallbackFineActive ? (
-                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                    Computed from the configured penalty table.
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-2xl border bg-card px-5 py-4">
-                <p className="text-xs font-bold uppercase text-muted-foreground">Unpaid fines</p>
-                <p className="text-2xl font-black">{unpaidFines}</p>
-              </div>
-            </div>
-          </div>
+      <Dialog open={Boolean(lookup) && resultDialogOpen} onOpenChange={setResultDialogOpen}>
+        <DialogContent
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
+        >
+          <DialogHeader>
+            <DialogTitle>Search result for Student ID: {searchedId}</DialogTitle>
+          </DialogHeader>
 
-          {fallbackFineActive ? (
-            <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
-              No saved fine record was returned. A computed unpaid fine is shown using the configured penalty table.
-            </div>
-          ) : null}
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-xl font-black">Attendance</h3>
-                <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                  {lookup.attendance.length} record/s
-                </span>
+          {lookup ? (
+            <section className="space-y-6">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result</p>
+                  <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:w-auto">
+                  <div className="rounded-2xl border bg-card px-5 py-4">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">Total absences</p>
+                    <p className="text-2xl font-black">{totalAbsencesLabel}</p>
+                    {fallbackFineActive ? (
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                        Computed from the configured penalty table.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-2xl border bg-card px-5 py-4">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">Unpaid fines</p>
+                    <p className="text-2xl font-black">{unpaidFines}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!lookup.attendance.length}
+                    onClick={() => setEventsDialogOpen(true)}
+                    className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                  >
+                    Events
+                  </Button>
+                </div>
               </div>
 
-              {lookup.attendance.length ? (
-                <div className="space-y-3 lg:hidden">
-                  {lookup.attendance.map((row) => (
-                    <article key={row.id} className="rounded-2xl border bg-background p-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="font-black">{row.name}</p>
-                          <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
-                        </div>
-                        <p className="text-sm font-bold">
-                          {formatAbsenceCount(row.no_of_absences)} absence/s
-                        </p>
-                      </div>
-                      <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
-                    </article>
-                  ))}
+              {fallbackFineActive ? (
+                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
+                  No saved fine record was returned. A computed unpaid fine is shown using the configured penalty table.
                 </div>
               ) : null}
 
-              {lookup.attendance.length ? (
-                <div className="hidden overflow-x-auto lg:block">
-                  <table className="w-full min-w-max text-left text-sm">
-                    <thead className="border-b text-xs uppercase text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-3">Date</th>
-                        <th className="px-3 py-3">Name</th>
-                        <th className="px-3 py-3">Absences</th>
-                        <th className="px-3 py-3">Remarks</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="text-xl font-black">Attendance</h3>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                      {lookup.attendance.length} record/s
+                    </span>
+                  </div>
+
+                  {lookup.attendance.length ? (
+                    <div className="space-y-3 lg:hidden">
                       {lookup.attendance.map((row) => (
-                        <tr key={row.id} className="border-b last:border-b-0">
-                          <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
-                          <td className="px-3 py-3">{row.name}</td>
-                          <td className="px-3 py-3">
-                            {formatAbsenceCount(row.no_of_absences)}
-                          </td>
-                          <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
-                        </tr>
+                        <article key={row.id} className="rounded-2xl border bg-background p-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="font-black">{row.name}</p>
+                              <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
+                            </div>
+                            <p className="text-sm font-bold">{formatAbsenceCount(row.no_of_absences)} absence/s</p>
+                          </div>
+                          <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
+                        </article>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No attendance record found. This search is treated as 10 or more absences.
-                </div>
-              )}
-            </div>
+                    </div>
+                  ) : null}
 
-            <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="text-xl font-black">Fines</h3>
-                <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                  {displayedFines.length} record/s
-                </span>
+                  {lookup.attendance.length ? (
+                    <div className="hidden overflow-x-auto lg:block">
+                      <table className="w-full min-w-max text-left text-sm">
+                        <thead className="border-b text-xs uppercase text-muted-foreground">
+                          <tr>
+                            <th className="px-3 py-3">Date</th>
+                            <th className="px-3 py-3">Name</th>
+                            <th className="px-3 py-3">Absences</th>
+                            <th className="px-3 py-3">Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lookup.attendance.map((row) => (
+                            <tr key={row.id} className="border-b last:border-b-0">
+                              <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
+                              <td className="px-3 py-3">{row.name}</td>
+                              <td className="px-3 py-3">{formatAbsenceCount(row.no_of_absences)}</td>
+                              <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                      No attendance record found for this Student ID.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="text-xl font-black">Fines</h3>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                      {displayedFines.length} record/s
+                    </span>
+                  </div>
+
+                  {displayedFines.length ? (
+                    <div className="space-y-3">
+                      {displayedFines.map((fine) => (
+                        <article key={fine.id} className="rounded-2xl border bg-background p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-sm font-black">{fine.prescribed_penalty}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} absence/s •{" "}
+                                {formatDate(fine.created_at)}
+                                {isFallbackFine(fine) ? " • computed" : ""}
+                              </p>
+                            </div>
+                            {statusBadge(fine.status)}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                      No fine record found.
+                    </div>
+                  )}
+                </div>
               </div>
+            </section>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
-              {displayedFines.length ? (
-                <div className="space-y-3">
-                  {displayedFines.map((fine) => (
-                    <article key={fine.id} className="rounded-2xl border bg-background p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-sm font-black">{fine.prescribed_penalty}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} absence/s •{" "}
-                            {formatDate(fine.created_at)}
-                            {isFallbackFine(fine) ? " • computed" : ""}
-                          </p>
-                        </div>
-                        {statusBadge(fine.status)}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No fine record found.
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      ) : null}
+      <StudentAttendedEventsDialog
+        open={eventsDialogOpen}
+        onOpenChange={setEventsDialogOpen}
+        studentId={searchedId}
+        studentName={studentDisplayName}
+        events={attendedEvents}
+      />
+
     </main>
   );
 }

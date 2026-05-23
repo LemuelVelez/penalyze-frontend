@@ -199,7 +199,7 @@ export default function UsersPage() {
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto ">
         <div className="mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">User management</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Users</h1>

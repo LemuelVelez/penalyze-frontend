@@ -435,7 +435,7 @@ export default function FinesPage() {
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto  space-y-6">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Penalty records</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Fines</h1>

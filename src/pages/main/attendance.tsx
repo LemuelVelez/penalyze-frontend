@@ -216,6 +216,34 @@ type AttendanceEventRecordGroup = {
   latestScannedAt: string | null;
 };
 
+type AttendanceStudentRecordSummary = {
+  key: string;
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  records: AttendanceRecord[];
+  totalAbsences: number;
+  latestScannedAt: string | null;
+};
+
+type AttendanceStudentEventSummary = {
+  key: string;
+  eventName: string;
+  schedule: string;
+  latestScannedAt: string | null;
+  records: AttendanceRecord[];
+  totalAbsences: number;
+};
+
+type AttendanceStudentEventsDialogState = {
+  studentId: string;
+  name: string;
+  records: AttendanceRecord[];
+} | null;
+
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
   eventName: ["event", "event name", "eventname", "activity", "activity name"],
   eventStartAt: [
@@ -1214,6 +1242,141 @@ function getAttendanceEventGroups(records: AttendanceRecord[], events: Attendanc
     });
 }
 
+
+function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
+  return records.reduce((total, record) => total + Number(record.no_of_absences ?? 0), 0);
+}
+
+function getAttendanceRecordSearchText(record: AttendanceRecord) {
+  return [
+    record.student_id,
+    record.name,
+    record.year_level,
+    record.college,
+    record.program,
+    record.institution,
+    record.remarks,
+    getManualRecordSource(record)
+  ]
+    .map((value) => cleanImportValue(value))
+    .join(" ")
+    .toLowerCase();
+}
+
+function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
+  const summaries = new Map<string, AttendanceStudentRecordSummary>();
+
+  records.forEach((record) => {
+    const key = getRecordStudentProfileKey(record);
+    const recordTime = getRecordTimestamp(record);
+    const currentSummary = summaries.get(key);
+
+    if (!currentSummary) {
+      summaries.set(key, {
+        key,
+        studentId: cleanImportValue(record.student_id),
+        name: cleanImportValue(record.name),
+        yearLevel: cleanImportValue(record.year_level),
+        college: cleanImportValue(record.college),
+        program: cleanImportValue(record.program),
+        institution: cleanImportValue(record.institution),
+        records: [record],
+        totalAbsences: Number(record.no_of_absences ?? 0),
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null
+      });
+      return;
+    }
+
+    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+
+    currentSummary.records.push(record);
+    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+
+    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+      if (record.student_id) currentSummary.studentId = cleanImportValue(record.student_id);
+      if (record.name) currentSummary.name = cleanImportValue(record.name);
+      if (record.year_level) currentSummary.yearLevel = cleanImportValue(record.year_level);
+      if (record.college) currentSummary.college = cleanImportValue(record.college);
+      if (record.program) currentSummary.program = cleanImportValue(record.program);
+      if (record.institution) currentSummary.institution = cleanImportValue(record.institution);
+    }
+
+    if (!currentSummary.studentId && record.student_id) currentSummary.studentId = cleanImportValue(record.student_id);
+    if (!currentSummary.name && record.name) currentSummary.name = cleanImportValue(record.name);
+    if (!currentSummary.yearLevel && record.year_level) currentSummary.yearLevel = cleanImportValue(record.year_level);
+    if (!currentSummary.college && record.college) currentSummary.college = cleanImportValue(record.college);
+    if (!currentSummary.program && record.program) currentSummary.program = cleanImportValue(record.program);
+    if (!currentSummary.institution && record.institution) currentSummary.institution = cleanImportValue(record.institution);
+  });
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      records: [...summary.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+      })
+    }))
+    .sort((leftSummary, rightSummary) => {
+      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
+      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
+
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+}
+
+function getAttendanceStudentEventSummaries(records: AttendanceRecord[], events: AttendanceEvent[]) {
+  const eventById = new Map(events.map((event) => [event.id, event]));
+  const summaries = new Map<string, AttendanceStudentEventSummary>();
+
+  records.forEach((record) => {
+    const event = record.event_id ? eventById.get(record.event_id) ?? null : null;
+    const eventName = event?.name ?? getManualRecordSource(record);
+    const key = record.event_id || normalizeImportHeader(eventName) || `student-event:${record.id}`;
+    const currentSummary = summaries.get(key);
+    const recordTime = getRecordTimestamp(record);
+    const schedule =
+      event && (event.event_start_at || event.event_end_at)
+        ? formatEventSchedule(event)
+        : formatDateTime(record.scanned_at ?? record.created_at ?? null);
+
+    if (!currentSummary) {
+      summaries.set(key, {
+        key,
+        eventName,
+        schedule,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+        records: [record],
+        totalAbsences: Number(record.no_of_absences ?? 0)
+      });
+      return;
+    }
+
+    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+
+    currentSummary.records.push(record);
+    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+
+    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+    }
+  });
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      records: [...summary.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+      })
+    }))
+    .sort((leftSummary, rightSummary) => {
+      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
+      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
+
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+}
+
 function formatEventGroupSchedule(group: AttendanceEventRecordGroup) {
   const start = formatDateTime(group.eventStartAt);
   const end = formatDateTime(group.eventEndAt);
@@ -2033,6 +2196,214 @@ function AttendanceEventAttendeesList(props: {
 }
 
 
+
+function AttendanceStudentEventsDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  student: AttendanceStudentEventsDialogState;
+  events: AttendanceEvent[];
+}) {
+  const attendedEvents = useMemo(() => {
+    return props.student ? getAttendanceStudentEventSummaries(props.student.records, props.events) : [];
+  }, [props.events, props.student]);
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>
+            Events attended{props.student ? ` by ${props.student.name || props.student.studentId}` : ""}
+          </DialogTitle>
+        </DialogHeader>
+
+        {props.student ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-3">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Student ID</p>
+                <p className="mt-1 wrap-break-word font-semibold">{props.student.studentId || "—"}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Name</p>
+                <p className="mt-1 wrap-break-word font-semibold">{props.student.name || "—"}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events</p>
+                <p className="mt-1 wrap-break-word font-semibold">{attendedEvents.length}</p>
+              </div>
+            </div>
+
+            {attendedEvents.length ? (
+              <div className="space-y-3">
+                {attendedEvents.map((eventSummary) => (
+                  <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
+                        <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
+                          {eventSummary.schedule} • {eventSummary.records.length} record/s •{" "}
+                          {eventSummary.totalAbsences} absence/s
+                        </p>
+                      </div>
+                      <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                        Latest {formatDateTime(eventSummary.latestScannedAt)}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {eventSummary.records.map((record) => (
+                        <div key={record.id} className="rounded-xl border bg-card px-3 py-2 text-sm">
+                          <p className="font-semibold">{formatDateTime(record.scanned_at ?? record.created_at)}</p>
+                          <p className="mt-1 text-muted-foreground">{record.remarks || "No remarks"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                No attended events found for this student.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+            No student selected.
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttendanceRecordSearchDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  query: string;
+  records: AttendanceRecord[];
+  studentSummaries: AttendanceStudentRecordSummary[];
+  deletingRecordId: string;
+  isDeletingBulk: boolean;
+  onEditRecord: (record: AttendanceRecord) => void;
+  onDeleteRecord: (id: string) => void;
+  onOpenStudentEvents: (summary: AttendanceStudentRecordSummary) => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Search records{props.query ? ` for “${props.query}”` : ""}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Matched records</p>
+              <p className="mt-1 text-2xl font-black">{props.records.length}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Matched students</p>
+              <p className="mt-1 text-2xl font-black">{props.studentSummaries.length}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Total absences</p>
+              <p className="mt-1 text-2xl font-black">{getAttendanceRecordTotalAbsences(props.records)}</p>
+            </div>
+          </div>
+
+          {props.studentSummaries.length ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {props.studentSummaries.map((summary) => (
+                <article key={summary.key} className="rounded-2xl border bg-background p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="wrap-break-word font-black">
+                        {summary.studentId || "No Student ID"} - {summary.name || "No name"}
+                      </p>
+                      <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
+                        {summary.program || "No program"} • {getCollegeLabel(summary.college)} •{" "}
+                        {summary.records.length} record/s • {summary.totalAbsences} absence/s
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => props.onOpenStudentEvents(summary)}
+                      className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                    >
+                      Events
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {props.records.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-max text-left text-sm">
+                <thead className="border-b text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-3">Date</th>
+                    <th className="px-3 py-3">Student ID</th>
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Event</th>
+                    <th className="px-3 py-3">Absences</th>
+                    <th className="px-3 py-3">Remarks</th>
+                    <th className="px-3 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {props.records.map((record) => (
+                    <tr key={record.id} className="border-b last:border-b-0">
+                      <td className="px-3 py-3 font-semibold">{formatDateTime(record.scanned_at ?? record.created_at)}</td>
+                      <td className="px-3 py-3">{record.student_id || "—"}</td>
+                      <td className="px-3 py-3">{record.name || "—"}</td>
+                      <td className="px-3 py-3">{getManualRecordSource(record)}</td>
+                      <td className="px-3 py-3">{record.no_of_absences ?? 0}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{record.remarks || "—"}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => props.onEditRecord(record)}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Edit
+                          </Button>
+                          <DeleteAttendanceConfirmation
+                            record={record}
+                            isDeleting={props.deletingRecordId === record.id || props.isDeletingBulk}
+                            onConfirm={props.onDeleteRecord}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+              No attendance records matched this search.
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
@@ -2065,6 +2436,11 @@ export default function AttendancePage() {
   const [deletingImportId, setDeletingImportId] = useState("");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [recordSearch, setRecordSearch] = useState("");
+  const [recordSearchQuery, setRecordSearchQuery] = useState("");
+  const [recordSearchDialogOpen, setRecordSearchDialogOpen] = useState(false);
+  const [studentEventsDialogState, setStudentEventsDialogState] = useState<AttendanceStudentEventsDialogState>(null);
+  const [studentEventsDialogOpen, setStudentEventsDialogOpen] = useState(false);
   const [error, setError] = useState("");
 
   const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
@@ -2103,6 +2479,15 @@ export default function AttendancePage() {
     return eventFilteredRecords.filter((record) => getCollegeFilterValue(record.college) === collegeFilter);
   }, [collegeFilter, eventFilteredRecords]);
   const attendanceEventGroups = useMemo(() => getAttendanceEventGroups(filteredRecords, events), [events, filteredRecords]);
+  const recordSearchResults = useMemo<AttendanceRecord[]>(() => {
+    const query = recordSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+
+    return mergedRecords.filter((record) => getAttendanceRecordSearchText(record).includes(query));
+  }, [mergedRecords, recordSearchQuery]);
+  const recordSearchStudentSummaries = useMemo(() => {
+    return getAttendanceStudentRecordSummaries(recordSearchResults);
+  }, [recordSearchResults]);
   const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
   const selectedRecordCount = selectedRecordIds.length;
   const filteredRecordCount = filteredRecords.length;
@@ -2192,6 +2577,28 @@ export default function AttendancePage() {
 
       return current.filter((recordId) => !groupRecordIdsSet.has(recordId));
     });
+  }
+
+  function handleSearchRecords(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const query = recordSearch.trim();
+    if (!query) {
+      toast.error("Please enter a Student ID, name, event, college, or program to search.");
+      return;
+    }
+
+    setRecordSearchQuery(query);
+    setRecordSearchDialogOpen(true);
+  }
+
+  function handleOpenStudentEvents(summary: AttendanceStudentRecordSummary) {
+    setStudentEventsDialogState({
+      studentId: summary.studentId,
+      name: summary.name,
+      records: summary.records
+    });
+    setStudentEventsDialogOpen(true);
   }
 
   function handleUploadFileChange(selectedFile: File | null) {
@@ -2657,7 +3064,7 @@ export default function AttendancePage() {
 
   return (
     <main className="min-h-screen min-w-0 wrap-break-word bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl min-w-0">
+      <div className="mx-auto  min-w-0">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Attendance</p>
@@ -2690,6 +3097,30 @@ export default function AttendancePage() {
               onSubmit={handleManualSubmit}
               onClear={handleCancelEdit}
               onChange={updateManualForm}
+            />
+            <AttendanceRecordSearchDialog
+              open={recordSearchDialogOpen}
+              onOpenChange={setRecordSearchDialogOpen}
+              query={recordSearchQuery}
+              records={recordSearchResults}
+              studentSummaries={recordSearchStudentSummaries}
+              deletingRecordId={deletingRecordId}
+              isDeletingBulk={isDeletingBulk}
+              onEditRecord={(record) => {
+                setRecordSearchDialogOpen(false);
+                handleEditRecord(record);
+              }}
+              onDeleteRecord={handleDeleteRecord}
+              onOpenStudentEvents={handleOpenStudentEvents}
+            />
+            <AttendanceStudentEventsDialog
+              open={studentEventsDialogOpen}
+              onOpenChange={(open) => {
+                setStudentEventsDialogOpen(open);
+                if (!open) setStudentEventsDialogState(null);
+              }}
+              student={studentEventsDialogState}
+              events={events}
             />
             <Button
               type="button"
@@ -2964,6 +3395,21 @@ Use the event switch and college filter to view merged attendees by student ID.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <form onSubmit={handleSearchRecords} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Label htmlFor="attendance-record-search" className="sr-only">
+                  Search attendance records
+                </Label>
+                <Input
+                  id="attendance-record-search"
+                  value={recordSearch}
+                  onChange={(event) => setRecordSearch(event.target.value)}
+                  placeholder="Search Student ID or name"
+                  className="min-h-10 rounded-2xl sm:w-64"
+                />
+                <Button type="submit" variant="outline" className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black">
+                  Search Records
+                </Button>
+              </form>
               <div className="min-w-56">
                 <Label htmlFor="attendance-event-filter" className="sr-only">
                   Event filter
