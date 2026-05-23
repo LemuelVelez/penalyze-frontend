@@ -1400,6 +1400,12 @@ function getAttendeeKey(record: AttendanceRecord) {
   return studentId || `unknown-attendee:${record.id}`;
 }
 
+function getAttendanceCollegeScopeKey(value?: string | null) {
+  return normalizeImportHeader(value) || NO_COLLEGE_SELECT_VALUE;
+}
+
+type AttendanceRecordEditScope = "event-attendee" | "search-student-college";
+
 function getMatchingAttendanceAttendeeEventRecords(
   records: AttendanceRecord[],
   editingRecordId: string,
@@ -1416,6 +1422,36 @@ function getMatchingAttendanceAttendeeEventRecords(
       getAttendeeKey(record) === editingAttendeeKey
     );
   });
+}
+
+function getMatchingAttendanceSearchStudentCollegeRecords(
+  records: AttendanceRecord[],
+  editingRecordId: string,
+) {
+  const editingRecord = records.find((record) => record.id === editingRecordId);
+  if (!editingRecord) return [];
+
+  const editingAttendeeKey = getAttendeeKey(editingRecord);
+  const editingCollegeKey = getAttendanceCollegeScopeKey(editingRecord.college);
+
+  return records.filter((record) => {
+    return (
+      getAttendeeKey(record) === editingAttendeeKey &&
+      getAttendanceCollegeScopeKey(record.college) === editingCollegeKey
+    );
+  });
+}
+
+function getMatchingAttendanceEditRecords(
+  records: AttendanceRecord[],
+  editingRecordId: string,
+  scope: AttendanceRecordEditScope,
+) {
+  if (!editingRecordId) return [];
+
+  return scope === "search-student-college"
+    ? getMatchingAttendanceSearchStudentCollegeRecords(records, editingRecordId)
+    : getMatchingAttendanceAttendeeEventRecords(records, editingRecordId);
 }
 
 function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
@@ -3391,6 +3427,8 @@ export default function AttendancePage() {
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
+  const [editingRecordScope, setEditingRecordScope] =
+    useState<AttendanceRecordEditScope>("event-attendee");
   const [editingEventId, setEditingEventId] = useState("");
   const [deletingRecordId, setDeletingRecordId] = useState("");
   const [deletingEventId, setDeletingEventId] = useState("");
@@ -4153,9 +4191,11 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const matchingEditRecords = editingRecordId
-        ? getMatchingAttendanceAttendeeEventRecords(records, editingRecordId)
-        : [];
+      const matchingEditRecords = getMatchingAttendanceEditRecords(
+        records,
+        editingRecordId,
+        editingRecordScope,
+      );
       const editRecordIds = editingRecordId
         ? Array.from(
             new Set([
@@ -4267,8 +4307,12 @@ export default function AttendancePage() {
     }
   }
 
-  function handleEditRecord(record: AttendanceRecord) {
+  function handleEditRecord(
+    record: AttendanceRecord,
+    scope: AttendanceRecordEditScope = "event-attendee",
+  ) {
     setEditingRecordId(record.id);
+    setEditingRecordScope(scope);
     setManualForm({
       eventId: record.event_id ?? "",
       scannedAt: toDateTimeLocalValue(record.scanned_at),
@@ -4287,6 +4331,7 @@ export default function AttendancePage() {
 
   function handleCancelEdit() {
     setEditingRecordId("");
+    setEditingRecordScope("event-attendee");
     setManualForm(emptyManualAttendanceForm);
     setError("");
   }
@@ -4590,7 +4635,7 @@ export default function AttendancePage() {
               isDeletingBulk={isDeletingBulk}
               onEditRecord={(record) => {
                 setRecordSearchDialogOpen(false);
-                handleEditRecord(record);
+                handleEditRecord(record, "search-student-college");
               }}
               onDeleteRecord={handleDeleteRecord}
               onOpenStudentEvents={handleOpenStudentEvents}
