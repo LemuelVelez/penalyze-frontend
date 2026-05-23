@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Download, Eye } from "lucide-react";
 
 import type { AttendanceRecord } from "../api/attendance";
@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 type ExportReportProps = {
   attendanceRecords: AttendanceRecord[];
@@ -34,6 +35,8 @@ type ReportRow = {
   recordsCount: number;
   latestDate: string;
 };
+
+const ALL_COLLEGES_VALUE = "__all_colleges__";
 
 function cleanValue(value?: string | number | null) {
   return String(value ?? "").trim();
@@ -69,6 +72,14 @@ function escapeHtml(value: string | number) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function getSafeFileNamePart(value: string) {
+  const normalized = normalizeValue(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "all-colleges";
 }
 
 function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[]) {
@@ -195,7 +206,7 @@ function getFineText(row: ReportRow) {
   return row.fines.map((fine) => `${fine.penalty} (${fine.status})`).join("; ");
 }
 
-function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>) {
+function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selectedCollegeLabel: string) {
   const generatedAt = new Date().toLocaleString();
 
   const bodyRows = Object.entries(rowsByCollege)
@@ -245,6 +256,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>) {
     table {
       border-collapse: collapse;
       width: 100%;
+      table-layout: fixed;
     }
     th {
       background: #1d4ed8;
@@ -253,11 +265,15 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>) {
       padding: 10px;
       text-align: left;
       font-weight: 700;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     td {
       border: 1px solid #cbd5e1;
       padding: 9px;
       vertical-align: top;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .college-row td {
       background: #dbeafe;
@@ -273,6 +289,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>) {
 <body>
   <h1>Penalyze Attendees Absences and Fines Report</h1>
   <p>Generated: ${escapeHtml(generatedAt)}</p>
+  <p>College filter: ${escapeHtml(selectedCollegeLabel)}</p>
   <table>
     <thead>
       <tr>
@@ -294,26 +311,40 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>) {
 }
 
 export default function ExportReport(props: ExportReportProps) {
+  const [selectedCollege, setSelectedCollege] = useState(ALL_COLLEGES_VALUE);
   const reportRows = useMemo(
     () => getReportRows(props.attendanceRecords, props.fines),
     [props.attendanceRecords, props.fines],
   );
-  const rowsByCollege = useMemo(() => getRowsByCollege(reportRows), [reportRows]);
+  const collegeOptions = useMemo(() => Object.keys(getRowsByCollege(reportRows)), [reportRows]);
+  const filteredReportRows = useMemo(() => {
+    if (selectedCollege === ALL_COLLEGES_VALUE) return reportRows;
+    return reportRows.filter((row) => row.college === selectedCollege);
+  }, [reportRows, selectedCollege]);
+  const rowsByCollege = useMemo(() => getRowsByCollege(filteredReportRows), [filteredReportRows]);
   const totalAbsences = useMemo(
-    () => reportRows.reduce((total, row) => total + row.totalAbsences, 0),
-    [reportRows],
+    () => filteredReportRows.reduce((total, row) => total + row.totalAbsences, 0),
+    [filteredReportRows],
   );
+  const selectedCollegeLabel = selectedCollege === ALL_COLLEGES_VALUE ? "All colleges" : selectedCollege;
+
+  useEffect(() => {
+    if (selectedCollege !== ALL_COLLEGES_VALUE && !collegeOptions.includes(selectedCollege)) {
+      setSelectedCollege(ALL_COLLEGES_VALUE);
+    }
+  }, [collegeOptions, selectedCollege]);
 
   function handleExport() {
-    const workbook = buildExcelDocument(rowsByCollege);
+    const workbook = buildExcelDocument(rowsByCollege, selectedCollegeLabel);
     const blob = new Blob(["\ufeff", workbook], {
       type: "application/vnd.ms-excel;charset=utf-8;",
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+    const collegeFileName = getSafeFileNamePart(selectedCollegeLabel);
 
     link.href = url;
-    link.download = `penalyze-fines-report-by-college-${new Date().toISOString().slice(0, 10)}.xls`;
+    link.download = `penalyze-fines-report-${collegeFileName}-${new Date().toISOString().slice(0, 10)}.xls`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -340,14 +371,30 @@ export default function ExportReport(props: ExportReportProps) {
         <DialogHeader className="shrink-0">
           <DialogTitle>Report preview by college</DialogTitle>
           <DialogDescription>
-            Preview attendees with total absences and fines, including zero-absence attendees.
+            Preview attendees with total absences and fines, then export all colleges or one specific college.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid shrink-0 gap-3 sm:grid-cols-3">
+        <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border bg-muted/40 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College to preview/export</p>
+            <Select value={selectedCollege} onValueChange={setSelectedCollege}>
+              <SelectTrigger className="mt-2 min-h-11 rounded-2xl bg-background text-left text-sm font-semibold">
+                <SelectValue placeholder="All colleges" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_COLLEGES_VALUE}>All colleges</SelectItem>
+                {collegeOptions.map((college) => (
+                  <SelectItem key={college} value={college} className="wrap-break-word">
+                    {college}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendees</p>
-            <p className="mt-1 text-2xl font-black">{reportRows.length}</p>
+            <p className="mt-1 text-2xl font-black">{filteredReportRows.length}</p>
           </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Colleges</p>
@@ -377,17 +424,17 @@ export default function ExportReport(props: ExportReportProps) {
                 Object.entries(rowsByCollege).map(([college, rows]) => (
                   <Fragment key={college}>
                     <tr key={`${college}-heading`} className="bg-muted/60">
-                      <td colSpan={7} className="px-3 py-3 font-black">
+                      <td colSpan={7} className="wrap-break-word px-3 py-3 font-black">
                         {college}
                       </td>
                     </tr>
                     {rows.map((row) => (
                       <tr key={row.key} className="border-b last:border-b-0">
-                        <td className="px-3 py-3">{row.studentId || "—"}</td>
-                        <td className="px-3 py-3 font-semibold">{row.name || "—"}</td>
-                        <td className="px-3 py-3">{row.college}</td>
+                        <td className="max-w-40 break-all px-3 py-3">{row.studentId || "—"}</td>
+                        <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">{row.name || "—"}</td>
+                        <td className="max-w-56 wrap-break-word px-3 py-3">{row.college}</td>
                         <td className="px-3 py-3 font-black">{row.totalAbsences}</td>
-                        <td className="max-w-sm px-3 py-3 text-muted-foreground">{getFineText(row)}</td>
+                        <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">{getFineText(row)}</td>
                         <td className="px-3 py-3">{row.recordsCount}</td>
                         <td className="px-3 py-3">{formatDate(row.latestDate)}</td>
                       </tr>
@@ -408,7 +455,7 @@ export default function ExportReport(props: ExportReportProps) {
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:justify-end">
           <Button
             type="button"
-            disabled={props.isLoading || !reportRows.length}
+            disabled={props.isLoading || !filteredReportRows.length}
             onClick={handleExport}
             className="min-h-11 rounded-2xl px-5 py-2 text-sm font-black"
           >

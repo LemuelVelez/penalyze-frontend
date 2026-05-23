@@ -617,8 +617,8 @@ export default function FinesPage() {
                 <article key={fine.id} className="rounded-2xl border bg-background p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="font-black">{fine.name}</p>
-                      <p className="text-sm text-muted-foreground">{fine.student_id}</p>
+                      <p className="wrap-break-word font-black">{fine.name}</p>
+                      <p className="break-all text-sm text-muted-foreground">{fine.student_id}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {isZeroAttendanceFine(fine) ? (
@@ -631,7 +631,7 @@ export default function FinesPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{fine.prescribed_penalty}</p>
+                  <p className="mt-3 wrap-break-word text-sm text-muted-foreground">{fine.prescribed_penalty}</p>
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm font-bold">
                       {fine.no_of_absences} absence/s • {formatDate(fine.created_at)}
@@ -681,10 +681,10 @@ export default function FinesPage() {
                   fines.map((fine) => (
                     <tr key={fine.id} className="border-b last:border-b-0">
                       <td className="px-3 py-3 font-semibold">{formatDate(fine.created_at)}</td>
-                      <td className="px-3 py-3">{fine.student_id}</td>
-                      <td className="px-3 py-3">{fine.name}</td>
+                      <td className="max-w-40 break-all px-3 py-3">{fine.student_id}</td>
+                      <td className="max-w-56 wrap-break-word px-3 py-3">{fine.name}</td>
                       <td className="px-3 py-3">{fine.no_of_absences}</td>
-                      <td className="max-w-sm px-3 py-3 text-muted-foreground">{fine.prescribed_penalty}</td>
+                      <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">{fine.prescribed_penalty}</td>
                       <td className="px-3 py-3">
                         {isZeroAttendanceFine(fine) ? (
                           <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
@@ -829,7 +829,7 @@ export default function FinesPage() {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-sm font-bold text-muted-foreground">{penalty.no_of_absences} absence/s</p>
-                          <p className="mt-1 font-black">{penalty.prescribed_penalty}</p>
+                          <p className="mt-1 wrap-break-word font-black">{penalty.prescribed_penalty}</p>
                         </div>
                         <p className="text-xs font-semibold text-muted-foreground">{formatDate(penalty.updated_at)}</p>
                       </div>
@@ -890,7 +890,7 @@ export default function FinesPage() {
                         />
                       </td>
                       <td className="px-3 py-3 font-black">{penalty.no_of_absences}</td>
-                      <td className="max-w-xl px-3 py-3 text-muted-foreground">{penalty.prescribed_penalty}</td>
+                      <td className="max-w-xl wrap-break-word px-3 py-3 text-muted-foreground">{penalty.prescribed_penalty}</td>
                       <td className="px-3 py-3 font-semibold">{formatDate(penalty.created_at)}</td>
                       <td className="px-3 py-3 font-semibold">{formatDate(penalty.updated_at)}</td>
                       <td className="px-3 py-3">

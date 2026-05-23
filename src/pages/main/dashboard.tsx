@@ -108,7 +108,7 @@ export default function DashboardPage() {
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="wrap-break-word font-black">{record.name}</p>
-                        <p className="wrap-break-word text-sm text-muted-foreground">{record.student_id}</p>
+                        <p className="break-all text-sm text-muted-foreground">{record.student_id}</p>
                       </div>
                       <p className="text-sm font-bold">{record.no_of_absences} absence/s</p>
                     </div>
@@ -137,8 +137,8 @@ export default function DashboardPage() {
                     records.map((record) => (
                       <tr key={record.id} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
-                        <td className="px-3 py-3">{record.student_id}</td>
-                        <td className="px-3 py-3">{record.name}</td>
+                        <td className="max-w-40 break-all px-3 py-3">{record.student_id}</td>
+                        <td className="max-w-56 wrap-break-word px-3 py-3">{record.name}</td>
                         <td className="px-3 py-3">{record.no_of_absences}</td>
                       </tr>
                     ))
@@ -162,7 +162,7 @@ export default function DashboardPage() {
               {imports.length ? (
                 imports.map((item) => (
                   <article key={item.id} className="rounded-2xl border bg-background p-4">
-                    <p className="truncate text-sm font-black">{item.file_name}</p>
+                    <p className="break-all text-sm font-black">{item.file_name}</p>
                     <div className="mt-3 flex flex-col gap-2 text-xs">
                       <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
                         <p className="font-bold text-muted-foreground">Total</p>
