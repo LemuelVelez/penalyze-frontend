@@ -21,6 +21,7 @@ type ExportReportProps = {
 };
 
 type FineSummary = {
+  absences: number;
   penalty: string;
   status: string;
 };
@@ -78,6 +79,11 @@ function getSafeFileNamePart(value: string) {
     .replace(/^-+|-+$/g, "");
 
   return normalized || "all-colleges";
+}
+
+function getAbsenceCount(value?: number | null) {
+  const absences = Number(value ?? 0);
+  return Number.isFinite(absences) && absences > 0 ? absences : 0;
 }
 
 function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[]) {
@@ -157,12 +163,18 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
       if (!row.name && fine.name) row.name = cleanValue(fine.name);
       if (!row.studentId && fine.student_id) row.studentId = cleanValue(fine.student_id);
 
+      const absences = getAbsenceCount(fine.no_of_absences);
       const penalty = cleanValue(fine.prescribed_penalty) || "No prescribed penalty";
       const status = cleanValue(fine.status).toUpperCase() || "NO STATUS";
-      const fineKey = `${normalizeValue(penalty)}::${normalizeValue(status)}`;
+      const fineKey = `${absences}::${normalizeValue(penalty)}::${normalizeValue(status)}`;
 
-      if (!row.fines.some((item) => `${normalizeValue(item.penalty)}::${normalizeValue(item.status)}` === fineKey)) {
-        row.fines.push({ penalty, status });
+      if (
+        !row.fines.some(
+          (item) =>
+            `${item.absences}::${normalizeValue(item.penalty)}::${normalizeValue(item.status)}` === fineKey,
+        )
+      ) {
+        row.fines.push({ absences, penalty, status });
       }
     });
   });
@@ -190,6 +202,16 @@ function getRowsByCollege(rows: ReportRow[]) {
   }, {});
 }
 
+function getAbsenceText(row: ReportRow) {
+  if (!row.fines.length) return "0";
+
+  const absences = Array.from(new Set(row.fines.map((fine) => fine.absences)))
+    .filter((value) => value > 0)
+    .sort((left, right) => left - right);
+
+  return absences.length ? absences.join(", ") : "0";
+}
+
 function getFineText(row: ReportRow) {
   if (!row.fines.length) return "No fine";
   return row.fines.map((fine) => `${fine.penalty} (${fine.status})`).join("; ");
@@ -202,7 +224,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
     .map(([college, rows]) => {
       return `
         <tr class="college-row">
-          <td colspan="5">${escapeHtml(college)} — ${rows.length} attendee/s</td>
+          <td colspan="6">${escapeHtml(college)} — ${rows.length} attendee/s</td>
         </tr>
         ${rows
           .map(
@@ -211,6 +233,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
                 <td>${escapeHtml(row.studentId || "—")}</td>
                 <td>${escapeHtml(row.name || "—")}</td>
                 <td>${escapeHtml(row.college)}</td>
+                <td>${escapeHtml(getAbsenceText(row))}</td>
                 <td>${escapeHtml(getFineText(row))}</td>
                 <td>${escapeHtml(formatDate(row.latestDate))}</td>
               </tr>
@@ -277,12 +300,13 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
         <th>Student ID</th>
         <th>Name</th>
         <th>College</th>
+        <th>Absences</th>
         <th>Fine / Penalty</th>
         <th>Latest Date</th>
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || '<tr><td colspan="5">No report data available.</td></tr>'}
+      ${bodyRows || '<tr><td colspan="6">No report data available.</td></tr>'}
     </tbody>
   </table>
 </body>
@@ -384,6 +408,7 @@ export default function ExportReport(props: ExportReportProps) {
                 <th className="px-3 py-3">Student ID</th>
                 <th className="px-3 py-3">Name</th>
                 <th className="px-3 py-3">College</th>
+                <th className="px-3 py-3">Absences</th>
                 <th className="px-3 py-3">Fine / Penalty</th>
                 <th className="px-3 py-3">Latest</th>
               </tr>
@@ -393,7 +418,7 @@ export default function ExportReport(props: ExportReportProps) {
                 Object.entries(rowsByCollege).map(([college, rows]) => (
                   <Fragment key={college}>
                     <tr key={`${college}-heading`} className="bg-muted/60">
-                      <td colSpan={5} className="wrap-break-word px-3 py-3 font-black">
+                      <td colSpan={6} className="wrap-break-word px-3 py-3 font-black">
                         {college}
                       </td>
                     </tr>
@@ -402,6 +427,7 @@ export default function ExportReport(props: ExportReportProps) {
                         <td className="max-w-40 break-all px-3 py-3">{row.studentId || "—"}</td>
                         <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">{row.name || "—"}</td>
                         <td className="max-w-56 wrap-break-word px-3 py-3">{row.college}</td>
+                        <td className="px-3 py-3">{getAbsenceText(row)}</td>
                         <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">{getFineText(row)}</td>
                         <td className="px-3 py-3">{formatDate(row.latestDate)}</td>
                       </tr>
@@ -410,7 +436,7 @@ export default function ExportReport(props: ExportReportProps) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
+                  <td colSpan={6} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
                     No report data available.
                   </td>
                 </tr>
