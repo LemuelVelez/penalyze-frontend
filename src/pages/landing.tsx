@@ -887,7 +887,6 @@ export default function LandingPage() {
                               <p className="font-black">{row.name}</p>
                               <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
                             </div>
-                            <p className="text-sm font-bold">Total: {formatAbsenceCount(row.no_of_absences)}</p>
                           </div>
                           <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
                         </article>
@@ -902,7 +901,6 @@ export default function LandingPage() {
                           <tr>
                             <th className="px-3 py-3">Date</th>
                             <th className="px-3 py-3">Name</th>
-                            <th className="px-3 py-3">Total</th>
                             <th className="px-3 py-3">Remarks</th>
                           </tr>
                         </thead>
@@ -911,7 +909,6 @@ export default function LandingPage() {
                             <tr key={row.id} className="border-b last:border-b-0">
                               <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
                               <td className="px-3 py-3">{row.name}</td>
-                              <td className="px-3 py-3">{formatAbsenceCount(row.no_of_absences)}</td>
                               <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
                             </tr>
                           ))}
