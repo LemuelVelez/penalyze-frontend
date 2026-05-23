@@ -199,7 +199,7 @@ export default function UsersPage() {
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto ">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">User management</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Users</h1>
@@ -208,7 +208,7 @@ export default function UsersPage() {
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,420px)_1fr]">
           <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <h2 className="text-xl font-black">{isEditing ? "Edit user" : "Create user"}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -307,7 +307,7 @@ export default function UsersPage() {
               </Button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border bg-background p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Displayed users</p>
                 <p className="mt-2 text-3xl font-black">{isLoadingUsers ? "—" : users.length}</p>
@@ -322,17 +322,17 @@ export default function UsersPage() {
               </div>
             </div>
 
-            <div className="mt-5 space-y-3 lg:hidden">
+            <div className="mt-5 space-y-3 xl:hidden">
               {users.length ? (
                 users.map((user) => {
                   const isCurrentUser = currentUser?.id === user.id;
 
                   return (
                     <article key={user.id} className="rounded-2xl border bg-background p-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="font-black">{user.name}</p>
-                          <p className="text-sm text-muted-foreground">{user.email}</p>
+                      <div className="flex flex-col gap-3">
+                        <div className="min-w-0">
+                          <p className="wrap-break-word font-black">{user.name}</p>
+                          <p className="wrap-break-word text-sm text-muted-foreground">{user.email}</p>
                           <p className="mt-1 text-xs font-semibold text-muted-foreground">
                             Created {formatDate(user.createdAt)}
                           </p>
@@ -341,7 +341,7 @@ export default function UsersPage() {
                           {isCurrentUser ? "Current" : user.role}
                         </span>
                       </div>
-                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      <div className="mt-4 grid gap-2 md:grid-cols-2">
                         <Button type="button" variant="outline" onClick={() => handleEditUser(user)} className="min-h-10">
                           Edit
                         </Button>
@@ -385,7 +385,7 @@ export default function UsersPage() {
               )}
             </div>
 
-            <div className="mt-5 hidden overflow-x-auto lg:block">
+            <div className="mt-5 hidden overflow-x-auto xl:block">
               <table className="w-full min-w-max text-left text-sm">
                 <thead className="border-b text-xs uppercase text-muted-foreground">
                   <tr>

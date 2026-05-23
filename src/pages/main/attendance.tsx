@@ -2477,7 +2477,7 @@ function ManualAttendanceDialog(props: {
           </DialogTitle>
           <DialogDescription className="sr-only">
             Add or update an attendance record with student details, event
-            assignment, absences, and remarks.
+            assignment, count, and remarks.
           </DialogDescription>
         </DialogHeader>
 
@@ -2594,7 +2594,7 @@ function ManualAttendanceDialog(props: {
           </div>
 
           <div>
-            <Label htmlFor="manual-absences">No. of Absences</Label>
+            <Label htmlFor="manual-absences">Count</Label>
             <Input
               id="manual-absences"
               type="number"
@@ -2791,7 +2791,7 @@ function AttendanceEventGroupTriggerContent(props: {
           {props.group.attendees.length} attendee/s
         </span>
         <span className="rounded-full border bg-muted px-3 py-1 font-bold text-muted-foreground">
-          {props.group.totalAbsences} absence/s
+          Total: {props.group.totalAbsences}
         </span>
         {props.selectedGroupRecordCount ? (
           <span className="rounded-full border bg-background px-3 py-1 text-xs font-black uppercase tracking-wide text-muted-foreground">
@@ -2837,7 +2837,7 @@ function AttendanceEventAttendeesDialog(props: {
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
           <DialogDescription className="sr-only">
-            View attendees, selected records, absence totals, and record actions
+            View attendees, selected records, totals, and record actions
             for this attendance event.
           </DialogDescription>
         </DialogHeader>
@@ -2870,7 +2870,7 @@ function AttendanceEventAttendeesDialog(props: {
             </div>
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                Event Absences
+                Total
               </p>
               <p className="mt-1 wrap-break-word font-semibold">
                 {props.group.totalAbsences}
@@ -2983,7 +2983,7 @@ function AttendanceEventAttendeesList(props: {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                      Absences
+                      Total
                     </p>
                     <p className="mt-1 wrap-break-word font-semibold">
                       {attendee.totalAbsences}
@@ -3059,7 +3059,7 @@ function AttendanceEventAttendeesList(props: {
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                              Absences
+                              Total
                             </p>
                             <p className="mt-1 wrap-break-word font-semibold">
                               {record.no_of_absences}
@@ -3182,7 +3182,7 @@ function AttendanceStudentEventsDialog(props: {
                         <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                           {eventSummary.schedule} •{" "}
                           {eventSummary.records.length} record/s •{" "}
-                          {eventSummary.totalAbsences} absence/s
+                          Total: {eventSummary.totalAbsences}
                         </p>
                       </div>
                       <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
@@ -3272,7 +3272,7 @@ function AttendanceRecordSearchDialog(props: {
             </div>
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                Total absences
+                Total count
               </p>
               <p className="mt-1 text-2xl font-black">
                 {getAttendanceRecordTotalAbsences(props.records)}
@@ -3297,7 +3297,7 @@ function AttendanceRecordSearchDialog(props: {
                         {summary.program || "No program"} •{" "}
                         {getCollegeLabel(summary.college)} •{" "}
                         {summary.records.length} record/s •{" "}
-                        {summary.totalAbsences} absence/s
+                        Total: {summary.totalAbsences}
                       </p>
                     </div>
                     <Button
@@ -3323,7 +3323,7 @@ function AttendanceRecordSearchDialog(props: {
                     <th className="px-3 py-3">Student ID</th>
                     <th className="px-3 py-3">Name</th>
                     <th className="px-3 py-3">Event</th>
-                    <th className="px-3 py-3">Absences</th>
+                    <th className="px-3 py-3">Total</th>
                     <th className="px-3 py-3">Remarks</th>
                     <th className="px-3 py-3">Actions</th>
                   </tr>
@@ -4157,8 +4157,8 @@ export default function AttendancePage() {
     }
 
     if (!Number.isInteger(noOfAbsences) || noOfAbsences < 0) {
-      setError("No. of Absences must be zero or a positive whole number.");
-      toast.error("No. of Absences must be zero or a positive whole number.");
+      setError("Count must be zero or a positive whole number.");
+      toast.error("Count must be zero or a positive whole number.");
       return;
     }
 
@@ -4952,7 +4952,7 @@ export default function AttendancePage() {
                       <th className="px-3 py-3">Scanned At</th>
                       <th className="px-3 py-3">Student ID</th>
                       <th className="px-3 py-3">Name</th>
-                      <th className="px-3 py-3">Absences</th>
+                      <th className="px-3 py-3">Total</th>
                       <th className="px-3 py-3">Remarks</th>
                       <th className="px-3 py-3">Status</th>
                     </tr>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Menu } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import {
   AlertDialog,
@@ -11,7 +12,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger
+  AlertDialogTrigger,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import {
@@ -19,7 +20,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger
+  SheetTrigger,
 } from "./ui/sheet";
 
 type LayoutProps = {
@@ -42,8 +43,14 @@ export function navigateTo(path: string) {
 export function LogoMark(props: { className?: string; textClassName?: string }) {
   return (
     <span className={`inline-flex items-center gap-3 ${props.className ?? ""}`}>
-      <img src="/logo.svg" alt="Penalyze logo" className="size-10 rounded-xl object-contain" />
-      <span className={`font-black tracking-tight ${props.textClassName ?? ""}`}>Penalyze</span>
+      <img
+        src="/logo.svg"
+        alt="Penalyze logo"
+        className="size-10 rounded-xl object-contain"
+      />
+      <span className={`font-black tracking-tight ${props.textClassName ?? ""}`}>
+        Penalyze
+      </span>
     </span>
   );
 }
@@ -72,18 +79,19 @@ function LogoutConfirmation(props: {
 }
 
 export default function AppLayout(props: LayoutProps) {
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard" },
     { path: "/attendance", label: "Attendance" },
     { path: "/fines", label: "Fines" },
-    { path: "/users", label: "Users" }
+    { path: "/users", label: "Users" },
   ];
 
   function handleNavigate(path: string) {
     setMobileMenuOpen(false);
-    navigateTo(path);
+    navigate(path);
   }
 
   function handleLogout() {
@@ -95,12 +103,12 @@ export default function AppLayout(props: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+      <header className="fixed left-0 right-0 top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <Button
             type="button"
             variant="ghost"
-            onClick={() => navigateTo("/dashboard")}
+            onClick={() => navigate("/dashboard")}
             className="h-auto justify-start rounded-2xl px-0 text-left hover:bg-transparent"
             aria-label="Go to dashboard"
           >
@@ -116,7 +124,7 @@ export default function AppLayout(props: LayoutProps) {
                   key={item.path}
                   type="button"
                   variant={active ? "default" : "outline"}
-                  onClick={() => navigateTo(item.path)}
+                  onClick={() => navigate(item.path)}
                   className="min-h-10 rounded-xl px-4 py-2"
                 >
                   {item.label}
@@ -128,7 +136,11 @@ export default function AppLayout(props: LayoutProps) {
           <LogoutConfirmation
             onConfirm={handleLogout}
             trigger={
-              <Button type="button" variant="outline" className="hidden min-h-10 rounded-xl px-4 py-2 text-xs lg:inline-flex">
+              <Button
+                type="button"
+                variant="outline"
+                className="hidden min-h-10 rounded-xl px-4 py-2 text-xs lg:inline-flex"
+              >
                 Logout
               </Button>
             }
@@ -185,7 +197,7 @@ export default function AppLayout(props: LayoutProps) {
         </div>
       </header>
 
-      {props.children}
+      <div className="pt-20">{props.children}</div>
     </div>
   );
 }

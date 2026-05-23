@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { toast } from "sonner";
 
 import { isAuthenticated, logout } from "./api/auth";
-import AppLayout, { navigateTo } from "./components/layout";
+import AppLayout from "./components/layout";
+import Loading from "./components/loading";
 import { Toaster } from "./components/ui/sonner";
 import LoginPage from "./pages/auth/login";
 import AttendancePage from "./pages/main/attendance";
@@ -13,81 +22,97 @@ import UsersPage from "./pages/main/users";
 import LandingPage from "./pages/landing";
 import NotFoundPage from "./pages/notfound";
 
-type RouteItem = {
-  path: string;
-  label: string;
-  requiresAuth?: boolean;
-  element: ReactNode;
+type ProtectedPageProps = {
+  authenticated: boolean;
+  onLogout: () => void;
+  children: ReactNode;
 };
 
-function normalizePath(pathname: string) {
-  const clean = pathname.replace(/\/+$/, "");
-  return clean || "/";
+function ProtectedPage(props: ProtectedPageProps) {
+  const location = useLocation();
+
+  if (!props.authenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return (
+    <AppLayout
+      currentPath={location.pathname}
+      authenticated={props.authenticated}
+      onLogout={props.onLogout}
+    >
+      {props.children}
+    </AppLayout>
+  );
 }
 
-export default function App() {
-  const [currentPath, setCurrentPath] = useState(() => normalizePath(window.location.pathname));
-  const [authenticated, setAuthenticated] = useState(() => isAuthenticated());
+function LoginRoute(props: { authenticated: boolean }) {
+  if (props.authenticated) return <Navigate to="/dashboard" replace />;
+
+  return <LoginPage />;
+}
+
+function AppRoutes() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    function handlePopState() {
-      setCurrentPath(normalizePath(window.location.pathname));
-      setAuthenticated(isAuthenticated());
-    }
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    setAuthenticated(isAuthenticated());
+    setIsCheckingSession(false);
   }, []);
 
-  const routes = useMemo<RouteItem[]>(
-    () => [
-      { path: "/", label: "Landing", element: <LandingPage /> },
-      { path: "/login", label: "Login", element: <LoginPage /> },
-      { path: "/dashboard", label: "Dashboard", requiresAuth: true, element: <DashboardPage /> },
-      { path: "/attendance", label: "Attendance", requiresAuth: true, element: <AttendancePage /> },
-      { path: "/fines", label: "Fines", requiresAuth: true, element: <FinesPage /> },
-      { path: "/users", label: "Users", requiresAuth: true, element: <UsersPage /> }
-    ],
-    []
-  );
-
-  const matchedRoute = routes.find((route) => route.path === currentPath);
-
   useEffect(() => {
-    if (matchedRoute?.requiresAuth && !authenticated) {
-      navigateTo("/login");
-    }
+    setAuthenticated(isAuthenticated());
+  }, [location.pathname]);
 
-    if (currentPath === "/login" && authenticated) {
-      navigateTo("/dashboard");
-    }
-  }, [authenticated, currentPath, matchedRoute]);
+  const protectedRoutes = useMemo(
+    () => [
+      { path: "/dashboard", element: <DashboardPage /> },
+      { path: "/attendance", element: <AttendancePage /> },
+      { path: "/fines", element: <FinesPage /> },
+      { path: "/users", element: <UsersPage /> },
+    ],
+    [],
+  );
 
   function handleLogout() {
     logout();
     setAuthenticated(false);
-    navigateTo("/");
+    navigate("/", { replace: true });
     toast.success("Logged out successfully.");
   }
 
-  const page = (() => {
-    if (!matchedRoute) return <NotFoundPage />;
-
-    if (matchedRoute.requiresAuth && !authenticated) {
-      return <LoginPage />;
-    }
-
-    return (
-      <AppLayout currentPath={currentPath} authenticated={authenticated} onLogout={handleLogout}>
-        {matchedRoute.element}
-      </AppLayout>
-    );
-  })();
+  if (isCheckingSession) {
+    return <Loading label="Checking session..." />;
+  }
 
   return (
-    <>
-      {page}
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/login" element={<LoginRoute authenticated={authenticated} />} />
+      {protectedRoutes.map((route) => (
+        <Route
+          key={route.path}
+          path={route.path}
+          element={
+            <ProtectedPage authenticated={authenticated} onLogout={handleLogout}>
+              {route.element}
+            </ProtectedPage>
+          }
+        />
+      ))}
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
       <Toaster />
-    </>
+    </BrowserRouter>
   );
 }

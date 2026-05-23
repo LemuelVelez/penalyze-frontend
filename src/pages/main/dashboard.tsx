@@ -63,7 +63,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto ">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Overview</p>
@@ -89,7 +89,7 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Attendance records" value={records.length} helper="Latest entries loaded" />
           <StatCard label="Unpaid fines" value={summary.unpaid} helper="Needs settlement" />
           <StatCard label="Paid fines" value={summary.paid} helper="Settled penalties" />
@@ -104,11 +104,11 @@ export default function DashboardPage() {
             <div className="mt-4 space-y-3 lg:hidden">
               {records.length ? (
                 records.map((record) => (
-                  <article key={record.id} className="rounded-2xl border bg-background p-4">
+                  <article key={record.id} className="min-w-0 rounded-2xl border bg-background p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="font-black">{record.name}</p>
-                        <p className="text-sm text-muted-foreground">{record.student_id}</p>
+                        <p className="wrap-break-word font-black">{record.name}</p>
+                        <p className="wrap-break-word text-sm text-muted-foreground">{record.student_id}</p>
                       </div>
                       <p className="text-sm font-bold">{record.no_of_absences} absence/s</p>
                     </div>
@@ -163,16 +163,16 @@ export default function DashboardPage() {
                 imports.map((item) => (
                   <article key={item.id} className="rounded-2xl border bg-background p-4">
                     <p className="truncate text-sm font-black">{item.file_name}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                      <div className="rounded-xl bg-muted px-2 py-2">
+                    <div className="mt-3 flex flex-col gap-2 text-xs">
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
                         <p className="font-bold text-muted-foreground">Total</p>
                         <p className="font-black">{item.rows_total}</p>
                       </div>
-                      <div className="rounded-xl bg-muted px-2 py-2">
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
                         <p className="font-bold text-muted-foreground">Valid</p>
                         <p className="font-black">{item.rows_valid}</p>
                       </div>
-                      <div className="rounded-xl bg-muted px-2 py-2">
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
                         <p className="font-bold text-muted-foreground">Invalid</p>
                         <p className="font-black">{item.rows_invalid}</p>
                       </div>

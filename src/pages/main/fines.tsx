@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
+import { listAttendanceRecords } from "../../api/attendance";
+import type { AttendanceRecord } from "../../api/attendance";
 import {
   createPenalty,
   deletePenalty,
@@ -23,6 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from "../../components/ui/alert-dialog";
+import ExportReport from "../../components/exportReport";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
@@ -192,11 +195,13 @@ function DeletePenaltiesConfirmation(props: {
 
 export default function FinesPage() {
   const [fines, setFines] = useState<FineRecord[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [selectedPenaltyIds, setSelectedPenaltyIds] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [studentId, setStudentId] = useState("");
   const [isLoadingFines, setIsLoadingFines] = useState(true);
+  const [isLoadingAttendanceRecords, setIsLoadingAttendanceRecords] = useState(true);
   const [isLoadingPenalties, setIsLoadingPenalties] = useState(true);
   const [updatingId, setUpdatingId] = useState("");
   const [savingPenalty, setSavingPenalty] = useState(false);
@@ -215,6 +220,14 @@ export default function FinesPage() {
   const selectedPenaltyCount = selectedPenaltyIds.length;
   const allPenaltiesSelected = penalties.length > 0 && selectedPenaltyCount === penalties.length;
   const penaltyHeaderChecked = allPenaltiesSelected ? true : selectedPenaltyCount > 0 ? "indeterminate" : false;
+  const reportAttendanceRecords = useMemo(() => {
+    const cleanStudentId = studentId.trim().toLowerCase();
+    if (!cleanStudentId) return attendanceRecords;
+
+    return attendanceRecords.filter((record) =>
+      String(record.student_id ?? "").toLowerCase().includes(cleanStudentId),
+    );
+  }, [attendanceRecords, studentId]);
 
   function handleTogglePenaltySelected(id: string, checked: boolean | "indeterminate") {
     setSelectedPenaltyIds((current) => {
@@ -252,6 +265,23 @@ export default function FinesPage() {
     }
   }
 
+  async function loadAttendanceRecords() {
+    setIsLoadingAttendanceRecords(true);
+
+    try {
+      const rows = await listAttendanceRecords({ limit: 1000, offset: 0 });
+      setAttendanceRecords(rows);
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load attendance records for report.";
+      toast.error(message);
+    } finally {
+      setIsLoadingAttendanceRecords(false);
+    }
+  }
+
   async function loadPenalties() {
     setIsLoadingPenalties(true);
     setPenaltyError("");
@@ -272,7 +302,7 @@ export default function FinesPage() {
   }
 
   async function loadPageData() {
-    await Promise.all([loadFines(), loadPenalties()]);
+    await Promise.all([loadFines(), loadAttendanceRecords(), loadPenalties()]);
   }
 
   async function handleFilter(event: SyntheticEvent<HTMLFormElement>) {
@@ -292,6 +322,7 @@ export default function FinesPage() {
         offset: 0
       });
       setFines(getUniqueDisplayFines(rows));
+      await loadAttendanceRecords();
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load fines.";
       setError(message);
@@ -472,7 +503,7 @@ export default function FinesPage() {
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto  space-y-6">
+      <div className="mx-auto w-full max-w-7xl space-y-6">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Penalty records</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Fines</h1>
@@ -555,20 +586,29 @@ export default function FinesPage() {
         ) : null}
 
         <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-xl font-black tracking-tight">Existing Fines</h2>
               <p className="text-sm text-muted-foreground">Fines are loaded from the saved fine records.</p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isLoadingFines}
-              onClick={loadFines}
-              className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-            >
-              Refresh Fines
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+              <ExportReport
+                attendanceRecords={reportAttendanceRecords}
+                fines={fines}
+                isLoading={isLoadingFines || isLoadingAttendanceRecords}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isLoadingFines || isLoadingAttendanceRecords}
+                onClick={() => {
+                  void Promise.all([loadFines(), loadAttendanceRecords()]);
+                }}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {isLoadingFines || isLoadingAttendanceRecords ? "Loading..." : "Refresh Fines"}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-3 lg:hidden">

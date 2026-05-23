@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { getStudentAttendanceRecords } from "../api/attendance";
 import type { AttendanceRecord } from "../api/attendance";
 import { getStudentFines, matchPenalty, registerZeroAttendanceFine } from "../api/fines";
 import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../api/fines";
-import { LogoMark, navigateTo } from "../components/layout";
+import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 
@@ -403,7 +404,7 @@ function StudentAttendedEventsDialog(props: {
                     <p className="font-black">{eventSummary.eventName}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s •{" "}
-                      {formatAbsenceCount(eventSummary.totalAbsences)} absence/s
+                      Total: {formatAbsenceCount(eventSummary.totalAbsences)}
                     </p>
                   </div>
                 </div>
@@ -538,6 +539,7 @@ function ZeroAttendanceRegistrationDialog(props: {
 }
 
 export default function LandingPage() {
+  const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [searchedId, setSearchedId] = useState("");
@@ -553,12 +555,12 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (hasCurrentSession()) {
-      navigateTo("/dashboard");
+      navigate("/dashboard", { replace: true });
       return;
     }
 
     setIsCheckingSession(false);
-  }, []);
+  }, [navigate]);
 
   const displayedFines = useMemo(() => {
     if (!lookup) return [];
@@ -719,7 +721,7 @@ export default function LandingPage() {
               <LogoMark textClassName="text-2xl" />
             </a>
             <Button asChild variant="outline" className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold">
-              <a href="/login">Admin Login</a>
+              <Link to="/login">Admin Login</Link>
             </Button>
           </header>
 
@@ -885,7 +887,7 @@ export default function LandingPage() {
                               <p className="font-black">{row.name}</p>
                               <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
                             </div>
-                            <p className="text-sm font-bold">{formatAbsenceCount(row.no_of_absences)} absence/s</p>
+                            <p className="text-sm font-bold">Total: {formatAbsenceCount(row.no_of_absences)}</p>
                           </div>
                           <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
                         </article>
@@ -900,7 +902,7 @@ export default function LandingPage() {
                           <tr>
                             <th className="px-3 py-3">Date</th>
                             <th className="px-3 py-3">Name</th>
-                            <th className="px-3 py-3">Absences</th>
+                            <th className="px-3 py-3">Total</th>
                             <th className="px-3 py-3">Remarks</th>
                           </tr>
                         </thead>
@@ -946,7 +948,7 @@ export default function LandingPage() {
                                 ) : null}
                               </div>
                               <p className="mt-1 text-xs text-muted-foreground">
-                                {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} absence/s •{" "}
+                                Total: {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} •{" "}
                                 {formatDate(fine.created_at)}
                                 {isFallbackFine(fine) ? " • computed" : ""}
                               </p>
