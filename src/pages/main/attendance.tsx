@@ -13,10 +13,10 @@ import {
   listAllAttendanceRecords,
   previewAttendanceFile,
   saveAttendanceEvent,
-  saveAttendanceFile,
+  saveAttendanceRows,
   saveManualAttendanceRecord,
   updateAttendanceEvent,
-  updateAttendanceRecord
+  updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
@@ -26,7 +26,8 @@ import type {
   AttendancePreviewResult,
   SavedAttendanceImportResult,
   AttendanceRecord,
-  ManualAttendanceInput
+  ManualAttendanceInput,
+  ParsedAttendanceRow,
 } from "../../api/attendance";
 import {
   AlertDialog,
@@ -37,7 +38,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger
+  AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -47,7 +48,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
+  DialogTrigger,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -57,7 +58,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 
@@ -91,14 +92,14 @@ const emptyManualAttendanceForm: ManualAttendanceFormState = {
   program: "",
   institution: "",
   noOfAbsences: "0",
-  remarks: ""
+  remarks: "",
 };
 
 const emptyAttendanceEventForm: AttendanceEventFormState = {
   name: "",
   eventStartAt: "",
   eventEndAt: "",
-  description: ""
+  description: "",
 };
 
 const ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
@@ -111,12 +112,14 @@ const ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   xlt: "application/vnd.ms-excel",
   xltm: "application/vnd.ms-excel.template.macroEnabled.12",
   xltx: "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
-  xlw: "application/vnd.ms-excel"
+  xlw: "application/vnd.ms-excel",
 };
 
 const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
   new Set([
-    ...Object.keys(ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION).map((extension) => `.${extension}`),
+    ...Object.keys(ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION).map(
+      (extension) => `.${extension}`,
+    ),
     ...Object.values(ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION),
     "application/msexcel",
     "application/vnd.ms-office",
@@ -125,8 +128,8 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
     "application/x-ms-excel",
     "application/xls",
     "application/x-xls",
-    "application/octet-stream"
-  ])
+    "application/octet-stream",
+  ]),
 );
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
@@ -136,6 +139,9 @@ const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
 const ALL_EVENTS_SELECT_VALUE = "__all_events__";
 const NO_COLLEGE_SELECT_VALUE = "__no_college__";
 const NO_EVENT_FILTER_SELECT_VALUE = "__no_event_filter__";
+const ATTENDANCE_RESUMABLE_IMPORT_STORAGE_KEY =
+  "penalyze.attendance.resumableImport";
+const ATTENDANCE_RESUMABLE_IMPORT_CHUNK_SIZE = 100;
 
 const ATTENDANCE_IMPORT_HEADERS = [
   "Event",
@@ -149,7 +155,7 @@ const ATTENDANCE_IMPORT_HEADERS = [
   "Program",
   "Institution",
   "No. of Absences",
-  "Remarks"
+  "Remarks",
 ];
 
 type NormalizedAttendanceImportRow = {
@@ -183,7 +189,9 @@ type AttendanceZipEntry = {
   localHeaderOffset: number;
 };
 
-type BrowserDecompressionStreamConstructor = new (format: string) => TransformStream<Uint8Array, Uint8Array>;
+type BrowserDecompressionStreamConstructor = new (
+  format: string,
+) => TransformStream<Uint8Array, Uint8Array>;
 
 type AttendanceWorkbookSheet = {
   name: string;
@@ -247,6 +255,29 @@ type AttendanceStudentEventsDialogState = {
   records: AttendanceRecord[];
 } | null;
 
+type AttendanceImportOptionsSnapshot = {
+  eventId: string;
+  eventName: string;
+  eventStartAt: string;
+  eventEndAt: string;
+  eventDescription: string;
+};
+
+type AttendanceResumableImportSnapshot = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSignature: string;
+  preview: AttendancePreviewResult;
+  rows: ParsedAttendanceRow[];
+  processedRows: number;
+  savedRecordsCount: number;
+  createdFinesCount: number;
+  importId: string;
+  options: AttendanceImportOptionsSnapshot;
+  updatedAt: string;
+};
+
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
   eventName: ["event", "event name", "eventname", "activity", "activity name"],
   eventStartAt: [
@@ -257,7 +288,7 @@ const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
     "start at",
     "start date",
     "start time",
-    "started at"
+    "started at",
   ],
   eventEndAt: [
     "event end at",
@@ -267,9 +298,18 @@ const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
     "end at",
     "end date",
     "end time",
-    "ended at"
+    "ended at",
   ],
-  scannedAt: ["scanned at", "scanned", "scannedat", "scan time", "scan date", "date scanned", "time scanned", "timestamp"],
+  scannedAt: [
+    "scanned at",
+    "scanned",
+    "scannedat",
+    "scan time",
+    "scan date",
+    "date scanned",
+    "time scanned",
+    "timestamp",
+  ],
   studentId: [
     "student id",
     "studentid",
@@ -278,18 +318,30 @@ const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
     "student id no",
     "student id number",
     "id number",
-    "id no"
+    "id no",
   ],
   name: ["name", "full name", "fullname", "student name", "complete name"],
   yearLevel: ["year level", "yearlevel", "year", "level", "grade level"],
   college: ["college", "department", "school college"],
   program: ["program", "course", "degree", "section program"],
   institution: ["institution", "school", "campus", "university"],
-  noOfAbsences: ["no of absences", "no. of absences", "number of absences", "absences", "absence", "total absences"],
-  remarks: ["remarks", "remark", "notes", "note", "status"]
+  noOfAbsences: [
+    "no of absences",
+    "no. of absences",
+    "number of absences",
+    "absences",
+    "absence",
+    "total absences",
+  ],
+  remarks: ["remarks", "remark", "notes", "note", "status"],
 };
 
-const ATTENDANCE_OPEN_XML_EXCEL_EXTENSIONS = new Set(["xlsx", "xlsm", "xltx", "xltm"]);
+const ATTENDANCE_OPEN_XML_EXCEL_EXTENSIONS = new Set([
+  "xlsx",
+  "xlsm",
+  "xltx",
+  "xltm",
+]);
 const ATTENDANCE_ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const ATTENDANCE_ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const ATTENDANCE_ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
@@ -300,7 +352,13 @@ function getAttendanceUploadAccept() {
     .map((type) => type.trim())
     .filter(Boolean);
 
-  return Array.from(new Set([...configuredTypes, ...ATTENDANCE_EXCEL_FILE_TYPES, ...ATTENDANCE_TEXT_FILE_TYPES])).join(",");
+  return Array.from(
+    new Set([
+      ...configuredTypes,
+      ...ATTENDANCE_EXCEL_FILE_TYPES,
+      ...ATTENDANCE_TEXT_FILE_TYPES,
+    ]),
+  ).join(",");
 }
 
 function getFileExtension(fileName: string) {
@@ -321,7 +379,10 @@ function isExcelBasedAttendanceFile(file: File) {
 }
 
 function getAttendanceExcelMimeType(fileName: string) {
-  return ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION[getFileExtension(fileName)] ?? "application/vnd.ms-excel";
+  return (
+    ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION[getFileExtension(fileName)] ??
+    "application/vnd.ms-excel"
+  );
 }
 
 function getAttendanceUploadFileWithNormalizedType(file: File) {
@@ -332,7 +393,7 @@ function getAttendanceUploadFileWithNormalizedType(file: File) {
 
   return new File([file], file.name, {
     type: normalizedType,
-    lastModified: file.lastModified
+    lastModified: file.lastModified,
   });
 }
 
@@ -340,7 +401,12 @@ function isTextBasedAttendanceFile(file: File) {
   const extension = getFileExtension(file.name);
   const type = file.type.toLowerCase();
 
-  return extension === "csv" || extension === "txt" || type.includes("csv") || type.includes("text");
+  return (
+    extension === "csv" ||
+    extension === "txt" ||
+    type.includes("csv") ||
+    type.includes("text")
+  );
 }
 
 function cleanImportValue(value?: string | number | null) {
@@ -362,9 +428,8 @@ function escapeRegExp(value: string) {
 }
 
 function detectDelimiter(text: string) {
-  const sampleLine = text
-    .split(/\r?\n/)
-    .find((line) => line.trim().length > 0) ?? "";
+  const sampleLine =
+    text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
 
   const delimiters = [",", "\t", ";", "|"];
 
@@ -373,7 +438,7 @@ function detectDelimiter(text: string) {
       const count = sampleLine.split(delimiter).length;
       return count > selected.count ? { delimiter, count } : selected;
     },
-    { delimiter: ",", count: 0 }
+    { delimiter: ",", count: 0 },
   ).delimiter;
 }
 
@@ -429,19 +494,30 @@ function parseDelimitedText(text: string, delimiter = detectDelimiter(text)) {
 }
 
 function getHeaderIndex(headers: string[], key: AttendanceHeaderKey) {
-  const normalizedAliases = ATTENDANCE_HEADER_ALIASES[key].map(normalizeImportHeader);
+  const normalizedAliases = ATTENDANCE_HEADER_ALIASES[key].map(
+    normalizeImportHeader,
+  );
 
-  return headers.findIndex((header) => normalizedAliases.includes(normalizeImportHeader(header)));
+  return headers.findIndex((header) =>
+    normalizedAliases.includes(normalizeImportHeader(header)),
+  );
 }
 
-function getHeaderValue(row: string[], headers: string[], key: AttendanceHeaderKey) {
+function getHeaderValue(
+  row: string[],
+  headers: string[],
+  key: AttendanceHeaderKey,
+) {
   const index = getHeaderIndex(headers, key);
   return index >= 0 ? cleanImportValue(row[index]) : "";
 }
 
 function getLabeledValue(text: string, labels: string[]) {
   for (const label of labels) {
-    const pattern = new RegExp(`${escapeRegExp(label)}\\s*[:=\\-]\\s*([^\\n\\r]+)`, "i");
+    const pattern = new RegExp(
+      `${escapeRegExp(label)}\\s*[:=\\-]\\s*([^\\n\\r]+)`,
+      "i",
+    );
     const match = text.match(pattern);
 
     if (match?.[1]) {
@@ -454,7 +530,9 @@ function getLabeledValue(text: string, labels: string[]) {
 
 function getNumericAbsenceValue(value: string) {
   const numericValue = Number.parseInt(value.replace(/[^0-9]/g, ""), 10);
-  return Number.isFinite(numericValue) && numericValue >= 0 ? String(numericValue) : "0";
+  return Number.isFinite(numericValue) && numericValue >= 0
+    ? String(numericValue)
+    : "0";
 }
 
 function isNumericSpreadsheetDate(value: string) {
@@ -467,7 +545,9 @@ function getDateFromExcelSerial(value: string) {
 
   const wholeDays = Math.floor(serial);
   const timeFraction = serial - wholeDays;
-  const milliseconds = Math.round((wholeDays - 25569) * 86400000 + timeFraction * 86400000);
+  const milliseconds = Math.round(
+    (wholeDays - 25569) * 86400000 + timeFraction * 86400000,
+  );
   const date = new Date(milliseconds);
 
   return Number.isNaN(date.getTime()) ? null : date;
@@ -477,7 +557,9 @@ function normalizeAttendanceDateTimeValue(value?: string | number | null) {
   const text = cleanImportValue(value);
   if (!text) return "";
 
-  const serialDate = isNumericSpreadsheetDate(text) ? getDateFromExcelSerial(text) : null;
+  const serialDate = isNumericSpreadsheetDate(text)
+    ? getDateFromExcelSerial(text)
+    : null;
   const date = serialDate ?? new Date(text);
 
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
@@ -512,24 +594,38 @@ function toNormalizedAttendanceCsv(rows: NormalizedAttendanceImportRow[]) {
       row.program,
       row.institution,
       row.noOfAbsences,
-      row.remarks
-    ])
+      row.remarks,
+    ]),
   ];
 
   return csvRows.map((row) => row.map(escapeCsvValue).join(",")).join("\n");
 }
 
 function getUniqueAttendanceEventNames(rows: NormalizedAttendanceImportRow[]) {
-  return Array.from(new Set(rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean)));
+  return Array.from(
+    new Set(rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean)),
+  );
 }
 
-function getAttendancePreviewEventNames(previewResult: AttendancePreviewResult | null) {
-  return Array.from(new Set(previewResult?.rows.map((row) => cleanImportValue(row.eventName)).filter(Boolean) ?? []));
+function getAttendancePreviewEventNames(
+  previewResult: AttendancePreviewResult | null,
+) {
+  return Array.from(
+    new Set(
+      previewResult?.rows
+        .map((row) => cleanImportValue(row.eventName))
+        .filter(Boolean) ?? [],
+    ),
+  );
 }
 
 function countHeaderAliasMatches(row: AttendanceSpreadsheetRow) {
-  return (Object.keys(ATTENDANCE_HEADER_ALIASES) as AttendanceHeaderKey[]).reduce((count, key) => {
-    return getHeaderIndex(row.map(cleanImportValue), key) >= 0 ? count + 1 : count;
+  return (
+    Object.keys(ATTENDANCE_HEADER_ALIASES) as AttendanceHeaderKey[]
+  ).reduce((count, key) => {
+    return getHeaderIndex(row.map(cleanImportValue), key) >= 0
+      ? count + 1
+      : count;
   }, 0);
 }
 
@@ -565,7 +661,7 @@ function isGenericSpreadsheetSheetName(sheetName: string) {
 function getNormalizedAttendanceRowsFromTabularRows(
   rows: AttendanceSpreadsheetRow[],
   fileName: string,
-  fallbackEventName = ""
+  fallbackEventName = "",
 ) {
   const cleanedRows = rows
     .map((row) => row.map(cleanImportValue))
@@ -580,16 +676,22 @@ function getNormalizedAttendanceRowsFromTabularRows(
     .map((row) => row.join("\n"))
     .join("\n");
   const metadataEventName =
-    getLabeledValue(metadataText, ATTENDANCE_HEADER_ALIASES.eventName) || cleanImportValue(fallbackEventName);
+    getLabeledValue(metadataText, ATTENDANCE_HEADER_ALIASES.eventName) ||
+    cleanImportValue(fallbackEventName);
   const normalizedRows: NormalizedAttendanceImportRow[] = [];
-  const latestRecordByImportKey = new Map<string, NormalizedAttendanceImportRow>();
+  const latestRecordByImportKey = new Map<
+    string,
+    NormalizedAttendanceImportRow
+  >();
 
   cleanedRows.slice(headerRowIndex + 1).forEach((row, index) => {
     const searchableText = row.join("\n");
     const studentId =
       getHeaderValue(row, headers, "studentId") ||
       getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.studentId);
-    const name = getHeaderValue(row, headers, "name") || getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.name);
+    const name =
+      getHeaderValue(row, headers, "name") ||
+      getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.name);
 
     if (!studentId || !name) return;
 
@@ -599,7 +701,8 @@ function getNormalizedAttendanceRowsFromTabularRows(
       getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventName) ||
       metadataEventName;
     const rowCollege =
-      getHeaderValue(row, headers, "college") || getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.college);
+      getHeaderValue(row, headers, "college") ||
+      getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.college);
     const importKey = `${normalizeImportHeader(rowEventName) || "no-event"}:${
       normalizeImportHeader(rowCollege) || "no-college"
     }:${normalizedStudentId}`;
@@ -607,21 +710,24 @@ function getNormalizedAttendanceRowsFromTabularRows(
 
     const eventStartAt = normalizeAttendanceDateTimeValue(
       getHeaderValue(row, headers, "eventStartAt") ||
-        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventStartAt) ||
+        getLabeledValue(
+          searchableText,
+          ATTENDANCE_HEADER_ALIASES.eventStartAt,
+        ) ||
         currentRecord?.eventStartAt ||
-        ""
+        "",
     );
     const eventEndAt = normalizeAttendanceDateTimeValue(
       getHeaderValue(row, headers, "eventEndAt") ||
         getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.eventEndAt) ||
         currentRecord?.eventEndAt ||
-        ""
+        "",
     );
     const scannedAt = normalizeAttendanceDateTimeValue(
       getHeaderValue(row, headers, "scannedAt") ||
         getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.scannedAt) ||
         currentRecord?.scannedAt ||
-        ""
+        "",
     );
 
     const normalizedRow: NormalizedAttendanceImportRow = {
@@ -644,16 +750,21 @@ function getNormalizedAttendanceRowsFromTabularRows(
         "",
       institution:
         getHeaderValue(row, headers, "institution") ||
-        getLabeledValue(searchableText, ATTENDANCE_HEADER_ALIASES.institution) ||
+        getLabeledValue(
+          searchableText,
+          ATTENDANCE_HEADER_ALIASES.institution,
+        ) ||
         currentRecord?.institution ||
         "",
       noOfAbsences: getNumericAbsenceValue(
-        getHeaderValue(row, headers, "noOfAbsences") || currentRecord?.noOfAbsences || "0"
+        getHeaderValue(row, headers, "noOfAbsences") ||
+          currentRecord?.noOfAbsences ||
+          "0",
       ),
       remarks:
         getHeaderValue(row, headers, "remarks") ||
         currentRecord?.remarks ||
-        `Imported from ${fileName} row ${headerRowIndex + index + 2}`
+        `Imported from ${fileName} row ${headerRowIndex + index + 2}`,
     };
 
     normalizedRows.push(normalizedRow);
@@ -664,7 +775,10 @@ function getNormalizedAttendanceRowsFromTabularRows(
 }
 
 function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
-  return getNormalizedAttendanceRowsFromTabularRows(parseDelimitedText(text), fileName);
+  return getNormalizedAttendanceRowsFromTabularRows(
+    parseDelimitedText(text),
+    fileName,
+  );
 }
 
 function isOpenXmlBasedAttendanceFile(file: File) {
@@ -698,8 +812,15 @@ function readZipEntries(bytes: Uint8Array) {
   const minimumSearchOffset = Math.max(0, view.byteLength - 65557);
   let endOfCentralDirectoryOffset = -1;
 
-  for (let offset = view.byteLength - 22; offset >= minimumSearchOffset; offset -= 1) {
-    if (view.getUint32(offset, true) === ATTENDANCE_ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+  for (
+    let offset = view.byteLength - 22;
+    offset >= minimumSearchOffset;
+    offset -= 1
+  ) {
+    if (
+      view.getUint32(offset, true) ===
+      ATTENDANCE_ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE
+    ) {
       endOfCentralDirectoryOffset = offset;
       break;
     }
@@ -708,10 +829,17 @@ function readZipEntries(bytes: Uint8Array) {
   if (endOfCentralDirectoryOffset < 0) return entries;
 
   const entryCount = view.getUint16(endOfCentralDirectoryOffset + 10, true);
-  let centralDirectoryOffset = view.getUint32(endOfCentralDirectoryOffset + 16, true);
+  let centralDirectoryOffset = view.getUint32(
+    endOfCentralDirectoryOffset + 16,
+    true,
+  );
 
   for (let index = 0; index < entryCount; index += 1) {
-    if (view.getUint32(centralDirectoryOffset, true) !== ATTENDANCE_ZIP_CENTRAL_DIRECTORY_SIGNATURE) break;
+    if (
+      view.getUint32(centralDirectoryOffset, true) !==
+      ATTENDANCE_ZIP_CENTRAL_DIRECTORY_SIGNATURE
+    )
+      break;
 
     const compressionMethod = view.getUint16(centralDirectoryOffset + 10, true);
     const compressedSize = view.getUint32(centralDirectoryOffset + 20, true);
@@ -719,7 +847,10 @@ function readZipEntries(bytes: Uint8Array) {
     const extraFieldLength = view.getUint16(centralDirectoryOffset + 30, true);
     const fileCommentLength = view.getUint16(centralDirectoryOffset + 32, true);
     const localHeaderOffset = view.getUint32(centralDirectoryOffset + 42, true);
-    const fileNameBytes = bytes.slice(centralDirectoryOffset + 46, centralDirectoryOffset + 46 + fileNameLength);
+    const fileNameBytes = bytes.slice(
+      centralDirectoryOffset + 46,
+      centralDirectoryOffset + 46 + fileNameLength,
+    );
     const name = normalizeZipPath(new TextDecoder().decode(fileNameBytes));
 
     if (name && !name.endsWith("/")) {
@@ -727,11 +858,12 @@ function readZipEntries(bytes: Uint8Array) {
         name,
         compressionMethod,
         compressedSize,
-        localHeaderOffset
+        localHeaderOffset,
       });
     }
 
-    centralDirectoryOffset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+    centralDirectoryOffset +=
+      46 + fileNameLength + extraFieldLength + fileCommentLength;
   }
 
   return entries;
@@ -745,17 +877,21 @@ function getUint8ArrayBlobPart(data: Uint8Array): ArrayBuffer {
 
 async function decompressZipDeflate(data: Uint8Array) {
   const DecompressionStreamConstructor = (
-    globalThis as typeof globalThis & { DecompressionStream?: BrowserDecompressionStreamConstructor }
+    globalThis as typeof globalThis & {
+      DecompressionStream?: BrowserDecompressionStreamConstructor;
+    }
   ).DecompressionStream;
 
   if (!DecompressionStreamConstructor) return null;
 
   for (const format of ["deflate-raw", "deflate"]) {
     try {
-      const decompressedStream = new Blob([getUint8ArrayBlobPart(data)]).stream().pipeThrough(
-        new DecompressionStreamConstructor(format)
+      const decompressedStream = new Blob([getUint8ArrayBlobPart(data)])
+        .stream()
+        .pipeThrough(new DecompressionStreamConstructor(format));
+      return new Uint8Array(
+        await new Response(decompressedStream).arrayBuffer(),
       );
-      return new Uint8Array(await new Response(decompressedStream).arrayBuffer());
     } catch {
       // Try the next browser-supported deflate format.
     }
@@ -764,19 +900,30 @@ async function decompressZipDeflate(data: Uint8Array) {
   return null;
 }
 
-async function getZipEntryBytes(bytes: Uint8Array, entries: Map<string, AttendanceZipEntry>, path: string) {
+async function getZipEntryBytes(
+  bytes: Uint8Array,
+  entries: Map<string, AttendanceZipEntry>,
+  path: string,
+) {
   const entry = entries.get(normalizeZipPath(path));
   if (!entry) return null;
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const localHeaderOffset = entry.localHeaderOffset;
 
-  if (view.getUint32(localHeaderOffset, true) !== ATTENDANCE_ZIP_LOCAL_FILE_HEADER_SIGNATURE) return null;
+  if (
+    view.getUint32(localHeaderOffset, true) !==
+    ATTENDANCE_ZIP_LOCAL_FILE_HEADER_SIGNATURE
+  )
+    return null;
 
   const fileNameLength = view.getUint16(localHeaderOffset + 26, true);
   const extraFieldLength = view.getUint16(localHeaderOffset + 28, true);
   const dataStart = localHeaderOffset + 30 + fileNameLength + extraFieldLength;
-  const compressedData = bytes.slice(dataStart, dataStart + entry.compressedSize);
+  const compressedData = bytes.slice(
+    dataStart,
+    dataStart + entry.compressedSize,
+  );
 
   if (entry.compressionMethod === 0) return compressedData;
   if (entry.compressionMethod !== 8) return null;
@@ -784,7 +931,11 @@ async function getZipEntryBytes(bytes: Uint8Array, entries: Map<string, Attendan
   return decompressZipDeflate(compressedData);
 }
 
-async function getZipEntryText(bytes: Uint8Array, entries: Map<string, AttendanceZipEntry>, path: string) {
+async function getZipEntryText(
+  bytes: Uint8Array,
+  entries: Map<string, AttendanceZipEntry>,
+  path: string,
+) {
   const entryBytes = await getZipEntryBytes(bytes, entries, path);
   return entryBytes ? new TextDecoder().decode(entryBytes) : "";
 }
@@ -797,24 +948,37 @@ function parseXmlDocument(text: string) {
 }
 
 function getElementsByLocalName(parent: Document | Element, localName: string) {
-  return Array.from(parent.getElementsByTagName("*")).filter((element) => element.localName === localName);
+  return Array.from(parent.getElementsByTagName("*")).filter(
+    (element) => element.localName === localName,
+  );
 }
 
-function getFirstElementTextByLocalName(parent: Document | Element, localName: string) {
+function getFirstElementTextByLocalName(
+  parent: Document | Element,
+  localName: string,
+) {
   return getElementsByLocalName(parent, localName)[0]?.textContent ?? "";
 }
 
 function getWorkbookTargetPath(target: string) {
   if (!target) return "";
 
-  return target.startsWith("/") ? normalizeZipPath(target) : normalizeZipPath(`xl/${target}`);
+  return target.startsWith("/")
+    ? normalizeZipPath(target)
+    : normalizeZipPath(`xl/${target}`);
 }
 
-function getWorkbookSheets(workbookDocument: Document, workbookRelationshipsDocument: Document | null) {
+function getWorkbookSheets(
+  workbookDocument: Document,
+  workbookRelationshipsDocument: Document | null,
+) {
   const relationships = new Map<string, string>();
 
   if (workbookRelationshipsDocument) {
-    getElementsByLocalName(workbookRelationshipsDocument, "Relationship").forEach((relationship) => {
+    getElementsByLocalName(
+      workbookRelationshipsDocument,
+      "Relationship",
+    ).forEach((relationship) => {
       const id = relationship.getAttribute("Id") ?? "";
       const target = relationship.getAttribute("Target") ?? "";
 
@@ -828,10 +992,17 @@ function getWorkbookSheets(workbookDocument: Document, workbookRelationshipsDocu
     .map<AttendanceWorkbookSheet>((sheet, index) => {
       const relationshipId =
         sheet.getAttribute("r:id") ??
-        sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") ??
+        sheet.getAttributeNS(
+          "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "id",
+        ) ??
         "";
-      const name = cleanImportValue(sheet.getAttribute("name") ?? `Sheet ${index + 1}`);
-      const path = relationships.get(relationshipId) ?? normalizeZipPath(`xl/worksheets/sheet${index + 1}.xml`);
+      const name = cleanImportValue(
+        sheet.getAttribute("name") ?? `Sheet ${index + 1}`,
+      );
+      const path =
+        relationships.get(relationshipId) ??
+        normalizeZipPath(`xl/worksheets/sheet${index + 1}.xml`);
 
       return { name, path };
     })
@@ -852,7 +1023,11 @@ function getColumnIndexFromCellReference(reference: string) {
   const columnLetters = (reference.match(/^[A-Z]+/i)?.[0] ?? "").toUpperCase();
   if (!columnLetters) return -1;
 
-  return columnLetters.split("").reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+  return (
+    columnLetters
+      .split("")
+      .reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1
+  );
 }
 
 function getWorksheetCellValue(cell: Element, sharedStrings: string[]) {
@@ -868,20 +1043,28 @@ function getWorksheetCellValue(cell: Element, sharedStrings: string[]) {
 
   if (cellType === "s") {
     const sharedStringIndex = Number.parseInt(rawValue, 10);
-    return Number.isFinite(sharedStringIndex) ? sharedStrings[sharedStringIndex] ?? "" : "";
+    return Number.isFinite(sharedStringIndex)
+      ? (sharedStrings[sharedStringIndex] ?? "")
+      : "";
   }
 
   return rawValue;
 }
 
-function getWorksheetRows(worksheetDocument: Document, sharedStrings: string[]) {
+function getWorksheetRows(
+  worksheetDocument: Document,
+  sharedStrings: string[],
+) {
   return getElementsByLocalName(worksheetDocument, "row")
     .map<AttendanceSpreadsheetRow>((row) => {
       const rowValues: string[] = [];
 
       getElementsByLocalName(row, "c").forEach((cell, fallbackIndex) => {
-        const columnIndex = getColumnIndexFromCellReference(cell.getAttribute("r") ?? "");
-        rowValues[columnIndex >= 0 ? columnIndex : fallbackIndex] = getWorksheetCellValue(cell, sharedStrings);
+        const columnIndex = getColumnIndexFromCellReference(
+          cell.getAttribute("r") ?? "",
+        );
+        rowValues[columnIndex >= 0 ? columnIndex : fallbackIndex] =
+          getWorksheetCellValue(cell, sharedStrings);
       });
 
       return rowValues;
@@ -894,27 +1077,38 @@ async function getNormalizedAttendanceRowsFromOpenXmlWorkbook(file: File) {
   const entries = readZipEntries(bytes);
   if (!entries.size) return [];
 
-  const workbookDocument = parseXmlDocument(await getZipEntryText(bytes, entries, "xl/workbook.xml"));
+  const workbookDocument = parseXmlDocument(
+    await getZipEntryText(bytes, entries, "xl/workbook.xml"),
+  );
   if (!workbookDocument) return [];
 
   const workbookRelationshipsDocument = parseXmlDocument(
-    await getZipEntryText(bytes, entries, "xl/_rels/workbook.xml.rels")
+    await getZipEntryText(bytes, entries, "xl/_rels/workbook.xml.rels"),
   );
-  const sharedStringsDocument = parseXmlDocument(await getZipEntryText(bytes, entries, "xl/sharedStrings.xml"));
+  const sharedStringsDocument = parseXmlDocument(
+    await getZipEntryText(bytes, entries, "xl/sharedStrings.xml"),
+  );
   const sharedStrings = getSharedStrings(sharedStringsDocument);
-  const sheets = getWorkbookSheets(workbookDocument, workbookRelationshipsDocument);
+  const sheets = getWorkbookSheets(
+    workbookDocument,
+    workbookRelationshipsDocument,
+  );
   const normalizedRows: NormalizedAttendanceImportRow[] = [];
 
   for (const sheet of sheets) {
-    const worksheetDocument = parseXmlDocument(await getZipEntryText(bytes, entries, sheet.path));
+    const worksheetDocument = parseXmlDocument(
+      await getZipEntryText(bytes, entries, sheet.path),
+    );
     if (!worksheetDocument) continue;
 
     const fallbackEventName =
-      sheets.length > 1 || !isGenericSpreadsheetSheetName(sheet.name) ? cleanImportValue(sheet.name) : "";
+      sheets.length > 1 || !isGenericSpreadsheetSheetName(sheet.name)
+        ? cleanImportValue(sheet.name)
+        : "";
     const rows = getNormalizedAttendanceRowsFromTabularRows(
       getWorksheetRows(worksheetDocument, sharedStrings),
       `${file.name} ${sheet.name}`,
-      fallbackEventName
+      fallbackEventName,
     );
 
     normalizedRows.push(...rows);
@@ -923,21 +1117,29 @@ async function getNormalizedAttendanceRowsFromOpenXmlWorkbook(file: File) {
   return normalizedRows;
 }
 
-async function getAttendanceUploadFile(file: File): Promise<AttendancePreparedUpload> {
+async function getAttendanceUploadFile(
+  file: File,
+): Promise<AttendancePreparedUpload> {
   const uploadFile = getAttendanceUploadFileWithNormalizedType(file);
 
   if (isOpenXmlBasedAttendanceFile(uploadFile)) {
     try {
-      const normalizedRows = await getNormalizedAttendanceRowsFromOpenXmlWorkbook(uploadFile);
+      const normalizedRows =
+        await getNormalizedAttendanceRowsFromOpenXmlWorkbook(uploadFile);
 
       if (normalizedRows.length) {
         const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
-        const normalizedFileName = uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
+        const normalizedFileName =
+          uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
 
         return {
-          file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
+          file: new File(
+            [normalizedCsv],
+            `${normalizedFileName}-normalized.csv`,
+            { type: "text/csv" },
+          ),
           normalizedRowsCount: normalizedRows.length,
-          normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows)
+          normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows),
         };
       }
     } catch {
@@ -946,23 +1148,33 @@ async function getAttendanceUploadFile(file: File): Promise<AttendancePreparedUp
   }
 
   if (!isTextBasedAttendanceFile(uploadFile)) {
-    return { file: uploadFile, normalizedRowsCount: 0, normalizedEventNames: [] };
+    return {
+      file: uploadFile,
+      normalizedRowsCount: 0,
+      normalizedEventNames: [],
+    };
   }
 
   const fileText = await uploadFile.text();
-  const normalizedRows = getNormalizedAttendanceRowsFromText(fileText, file.name);
+  const normalizedRows = getNormalizedAttendanceRowsFromText(
+    fileText,
+    file.name,
+  );
 
   if (!normalizedRows.length) {
     return { file, normalizedRowsCount: 0, normalizedEventNames: [] };
   }
 
   const normalizedCsv = toNormalizedAttendanceCsv(normalizedRows);
-  const normalizedFileName = uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
+  const normalizedFileName =
+    uploadFile.name.replace(/\.[^.]+$/, "") || "attendance-import";
 
   return {
-    file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, { type: "text/csv" }),
+    file: new File([normalizedCsv], `${normalizedFileName}-normalized.csv`, {
+      type: "text/csv",
+    }),
     normalizedRowsCount: normalizedRows.length,
-    normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows)
+    normalizedEventNames: getUniqueAttendanceEventNames(normalizedRows),
   };
 }
 
@@ -975,7 +1187,7 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
-    day: "2-digit"
+    day: "2-digit",
   }).format(date);
 }
 
@@ -990,7 +1202,7 @@ function formatDateTime(value?: string | null) {
     month: "short",
     day: "2-digit",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   }).format(date);
 }
 
@@ -1025,20 +1237,48 @@ function getCollegeFilterValue(value?: string | null) {
   return cleanImportValue(value) || NO_COLLEGE_SELECT_VALUE;
 }
 
+function getAttendanceEventIdentityKey(
+  eventName?: string | null,
+  eventId?: string | null,
+) {
+  const normalizedEventName = normalizeImportHeader(eventName);
+  if (normalizedEventName) return `event:${normalizedEventName}`;
+  if (eventId) return `event-id:${eventId}`;
+
+  return NO_EVENT_FILTER_SELECT_VALUE;
+}
+
+function getAttendanceEventFilterValue(event: AttendanceEvent) {
+  return getAttendanceEventIdentityKey(event.name, event.id);
+}
+
 function getRecordEventFilterValue(record: AttendanceRecord) {
-  return record.event_id || NO_EVENT_FILTER_SELECT_VALUE;
+  if (!record.event_id && !cleanImportValue(record.event_name))
+    return NO_EVENT_FILTER_SELECT_VALUE;
+
+  return getAttendanceEventIdentityKey(
+    getManualRecordSource(record),
+    record.event_id,
+  );
 }
 
 function getRecordEventGroupKey(record: AttendanceRecord) {
-  const eventName = getManualRecordSource(record);
-  const eventKey = record.event_id || normalizeImportHeader(eventName) || `manual-event:${record.id}`;
-  const collegeKey = normalizeImportHeader(record.college) || NO_COLLEGE_SELECT_VALUE;
+  if (!record.event_id && !cleanImportValue(record.event_name))
+    return NO_EVENT_FILTER_SELECT_VALUE;
 
-  return `${eventKey}:${collegeKey}`;
+  return (
+    getAttendanceEventIdentityKey(
+      getManualRecordSource(record),
+      record.event_id,
+    ) || `manual-event:${record.id}`
+  );
 }
 
 function getRecordStudentProfileKey(record: AttendanceRecord) {
-  return cleanImportValue(record.student_id).toUpperCase() || `unknown-student:${record.id}`;
+  return (
+    cleanImportValue(record.student_id).toUpperCase() ||
+    `unknown-student:${record.id}`
+  );
 }
 
 type AttendanceStudentProfile = {
@@ -1061,13 +1301,14 @@ function updateAttendanceStudentProfileField(
   profile: AttendanceStudentProfileDraft,
   key: keyof AttendanceStudentProfile,
   value: string | null | undefined,
-  recordTime: number
+  recordTime: number,
 ) {
   const cleanedValue = cleanImportValue(value);
   if (!cleanedValue) return;
 
   const timeKey = `${key}Time`;
-  const draft = profile as AttendanceStudentProfileDraft & Record<string, string | number>;
+  const draft = profile as AttendanceStudentProfileDraft &
+    Record<string, string | number>;
   const currentTime = Number(draft[timeKey] ?? 0);
 
   if (!profile[key] || recordTime >= currentTime) {
@@ -1092,14 +1333,39 @@ function mergeAttendanceRecordsByStudentId(records: AttendanceRecord[]) {
       yearLevelTime: 0,
       collegeTime: 0,
       programTime: 0,
-      institutionTime: 0
+      institutionTime: 0,
     };
 
-    updateAttendanceStudentProfileField(profile, "name", record.name, recordTime);
-    updateAttendanceStudentProfileField(profile, "yearLevel", record.year_level, recordTime);
-    updateAttendanceStudentProfileField(profile, "college", record.college, recordTime);
-    updateAttendanceStudentProfileField(profile, "program", record.program, recordTime);
-    updateAttendanceStudentProfileField(profile, "institution", record.institution, recordTime);
+    updateAttendanceStudentProfileField(
+      profile,
+      "name",
+      record.name,
+      recordTime,
+    );
+    updateAttendanceStudentProfileField(
+      profile,
+      "yearLevel",
+      record.year_level,
+      recordTime,
+    );
+    updateAttendanceStudentProfileField(
+      profile,
+      "college",
+      record.college,
+      recordTime,
+    );
+    updateAttendanceStudentProfileField(
+      profile,
+      "program",
+      record.program,
+      recordTime,
+    );
+    updateAttendanceStudentProfileField(
+      profile,
+      "institution",
+      record.institution,
+      recordTime,
+    );
     profiles.set(key, profile);
   });
 
@@ -1113,7 +1379,7 @@ function mergeAttendanceRecordsByStudentId(records: AttendanceRecord[]) {
       year_level: profile.yearLevel || record.year_level,
       college: profile.college || record.college,
       program: profile.program || record.program,
-      institution: profile.institution || record.institution
+      institution: profile.institution || record.institution,
     };
   });
 }
@@ -1143,26 +1409,39 @@ function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
         yearLevel: record.year_level ?? "",
         college: record.college ?? "",
         program: record.program ?? "",
-        institution: record.institution ?? ""
+        institution: record.institution ?? "",
       });
       return;
     }
 
-    const latestTime = currentAttendee.latestScannedAt ? new Date(currentAttendee.latestScannedAt).getTime() : 0;
+    const latestTime = currentAttendee.latestScannedAt
+      ? new Date(currentAttendee.latestScannedAt).getTime()
+      : 0;
 
     currentAttendee.records.push(record);
-    currentAttendee.totalAbsences = Math.max(currentAttendee.totalAbsences, record.no_of_absences ?? 0);
+    currentAttendee.totalAbsences = Math.max(
+      currentAttendee.totalAbsences,
+      record.no_of_absences ?? 0,
+    );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-      currentAttendee.latestScannedAt = record.scanned_at ?? record.created_at ?? currentAttendee.latestScannedAt;
+      currentAttendee.latestScannedAt =
+        record.scanned_at ??
+        record.created_at ??
+        currentAttendee.latestScannedAt;
       if (record.name) currentAttendee.name = record.name;
     }
 
-    if (!currentAttendee.name && record.name) currentAttendee.name = record.name;
-    if (!currentAttendee.yearLevel && record.year_level) currentAttendee.yearLevel = record.year_level;
-    if (!currentAttendee.college && record.college) currentAttendee.college = record.college;
-    if (!currentAttendee.program && record.program) currentAttendee.program = record.program;
-    if (!currentAttendee.institution && record.institution) currentAttendee.institution = record.institution;
+    if (!currentAttendee.name && record.name)
+      currentAttendee.name = record.name;
+    if (!currentAttendee.yearLevel && record.year_level)
+      currentAttendee.yearLevel = record.year_level;
+    if (!currentAttendee.college && record.college)
+      currentAttendee.college = record.college;
+    if (!currentAttendee.program && record.program)
+      currentAttendee.program = record.program;
+    if (!currentAttendee.institution && record.institution)
+      currentAttendee.institution = record.institution;
   });
 
   return Array.from(attendees.values())
@@ -1170,23 +1449,35 @@ function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
       ...attendee,
       records: [...attendee.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-      })
+      }),
     }))
     .sort((leftAttendee, rightAttendee) => {
-      const leftTime = leftAttendee.latestScannedAt ? new Date(leftAttendee.latestScannedAt).getTime() : 0;
-      const rightTime = rightAttendee.latestScannedAt ? new Date(rightAttendee.latestScannedAt).getTime() : 0;
+      const leftTime = leftAttendee.latestScannedAt
+        ? new Date(leftAttendee.latestScannedAt).getTime()
+        : 0;
+      const rightTime = rightAttendee.latestScannedAt
+        ? new Date(rightAttendee.latestScannedAt).getTime()
+        : 0;
 
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+      return (
+        (Number.isNaN(rightTime) ? 0 : rightTime) -
+        (Number.isNaN(leftTime) ? 0 : leftTime)
+      );
     });
 }
 
-function getAttendanceEventGroups(records: AttendanceRecord[], events: AttendanceEvent[]) {
+function getAttendanceEventGroups(
+  records: AttendanceRecord[],
+  events: AttendanceEvent[],
+) {
   const eventById = new Map(events.map((event) => [event.id, event]));
   const groups = new Map<string, AttendanceEventRecordGroup>();
 
   records.forEach((record) => {
     const key = getRecordEventGroupKey(record);
-    const event = record.event_id ? eventById.get(record.event_id) ?? null : null;
+    const event = record.event_id
+      ? (eventById.get(record.event_id) ?? null)
+      : null;
     const currentGroup = groups.get(key);
     const recordTime = getRecordTimestamp(record);
 
@@ -1202,31 +1493,42 @@ function getAttendanceEventGroups(records: AttendanceRecord[], events: Attendanc
         records: [record],
         attendees: [],
         totalAbsences: record.no_of_absences ?? 0,
-        latestScannedAt: record.scanned_at ?? record.created_at ?? null
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
       });
       return;
     }
 
-    const latestTime = currentGroup.latestScannedAt ? new Date(currentGroup.latestScannedAt).getTime() : 0;
+    const latestTime = currentGroup.latestScannedAt
+      ? new Date(currentGroup.latestScannedAt).getTime()
+      : 0;
 
     currentGroup.records.push(record);
     currentGroup.totalAbsences += record.no_of_absences ?? 0;
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-      currentGroup.latestScannedAt = record.scanned_at ?? record.created_at ?? currentGroup.latestScannedAt;
+      currentGroup.latestScannedAt =
+        record.scanned_at ?? record.created_at ?? currentGroup.latestScannedAt;
     }
 
-    if (!currentGroup.eventStartAt && event?.event_start_at) currentGroup.eventStartAt = event.event_start_at;
-    if (!currentGroup.eventEndAt && event?.event_end_at) currentGroup.eventEndAt = event.event_end_at;
-    if (!currentGroup.eventDescription && event?.description) currentGroup.eventDescription = event.description;
-    if (!currentGroup.college && record.college) currentGroup.college = record.college;
+    if (!currentGroup.eventStartAt && event?.event_start_at)
+      currentGroup.eventStartAt = event.event_start_at;
+    if (!currentGroup.eventEndAt && event?.event_end_at)
+      currentGroup.eventEndAt = event.event_end_at;
+    if (!currentGroup.eventDescription && event?.description)
+      currentGroup.eventDescription = event.description;
+    if (!currentGroup.college && record.college)
+      currentGroup.college = record.college;
   });
 
   return Array.from(groups.values())
     .map((group) => {
-      const sortedRecords = [...group.records].sort((leftRecord, rightRecord) => {
-        return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-      });
+      const sortedRecords = [...group.records].sort(
+        (leftRecord, rightRecord) => {
+          return (
+            getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord)
+          );
+        },
+      );
 
       const attendees = getAttendanceAttendeeSummaries(sortedRecords);
 
@@ -1234,20 +1536,76 @@ function getAttendanceEventGroups(records: AttendanceRecord[], events: Attendanc
         ...group,
         records: sortedRecords,
         attendees,
-        totalAbsences: attendees.reduce((total, attendee) => total + attendee.totalAbsences, 0)
+        totalAbsences: attendees.reduce(
+          (total, attendee) => total + attendee.totalAbsences,
+          0,
+        ),
       };
     })
     .sort((leftGroup, rightGroup) => {
-      const leftTime = leftGroup.latestScannedAt ? new Date(leftGroup.latestScannedAt).getTime() : 0;
-      const rightTime = rightGroup.latestScannedAt ? new Date(rightGroup.latestScannedAt).getTime() : 0;
+      const leftTime = leftGroup.latestScannedAt
+        ? new Date(leftGroup.latestScannedAt).getTime()
+        : 0;
+      const rightTime = rightGroup.latestScannedAt
+        ? new Date(rightGroup.latestScannedAt).getTime()
+        : 0;
 
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+      return (
+        (Number.isNaN(rightTime) ? 0 : rightTime) -
+        (Number.isNaN(leftTime) ? 0 : leftTime)
+      );
     });
 }
 
+function getAttendanceGroupCollegeLabel(group: AttendanceEventRecordGroup) {
+  const colleges = Array.from(
+    new Set(
+      group.records
+        .map((record) => cleanImportValue(record.college))
+        .filter(Boolean),
+    ),
+  );
+
+  if (!colleges.length) return "No college";
+  if (colleges.length === 1) return colleges[0];
+
+  return `${colleges.length} colleges`;
+}
+
+function getDeduplicatedAttendanceEvents(events: AttendanceEvent[]) {
+  const eventMap = new Map<string, AttendanceEvent>();
+
+  events.forEach((event) => {
+    const key = getAttendanceEventFilterValue(event);
+    const currentEvent = eventMap.get(key);
+
+    if (!currentEvent) {
+      eventMap.set(key, { ...event });
+      return;
+    }
+
+    eventMap.set(key, {
+      ...currentEvent,
+      event_start_at: currentEvent.event_start_at || event.event_start_at,
+      event_end_at: currentEvent.event_end_at || event.event_end_at,
+      description: currentEvent.description || event.description,
+      attendees_count: Math.max(
+        currentEvent.attendees_count ?? 0,
+        event.attendees_count ?? 0,
+      ),
+    });
+  });
+
+  return Array.from(eventMap.values()).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+}
 
 function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
-  return records.reduce((total, record) => total + Number(record.no_of_absences ?? 0), 0);
+  return records.reduce(
+    (total, record) => total + Number(record.no_of_absences ?? 0),
+    0,
+  );
 }
 
 function getAttendanceRecordSearchText(record: AttendanceRecord) {
@@ -1259,7 +1617,7 @@ function getAttendanceRecordSearchText(record: AttendanceRecord) {
     record.program,
     record.institution,
     record.remarks,
-    getManualRecordSource(record)
+    getManualRecordSource(record),
   ]
     .map((value) => cleanImportValue(value))
     .join(" ")
@@ -1285,32 +1643,48 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
         institution: cleanImportValue(record.institution),
         records: [record],
         totalAbsences: Number(record.no_of_absences ?? 0),
-        latestScannedAt: record.scanned_at ?? record.created_at ?? null
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
       });
       return;
     }
 
-    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+    const latestTime = currentSummary.latestScannedAt
+      ? new Date(currentSummary.latestScannedAt).getTime()
+      : 0;
 
     currentSummary.records.push(record);
     currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
-      if (record.student_id) currentSummary.studentId = cleanImportValue(record.student_id);
+      currentSummary.latestScannedAt =
+        record.scanned_at ??
+        record.created_at ??
+        currentSummary.latestScannedAt;
+      if (record.student_id)
+        currentSummary.studentId = cleanImportValue(record.student_id);
       if (record.name) currentSummary.name = cleanImportValue(record.name);
-      if (record.year_level) currentSummary.yearLevel = cleanImportValue(record.year_level);
-      if (record.college) currentSummary.college = cleanImportValue(record.college);
-      if (record.program) currentSummary.program = cleanImportValue(record.program);
-      if (record.institution) currentSummary.institution = cleanImportValue(record.institution);
+      if (record.year_level)
+        currentSummary.yearLevel = cleanImportValue(record.year_level);
+      if (record.college)
+        currentSummary.college = cleanImportValue(record.college);
+      if (record.program)
+        currentSummary.program = cleanImportValue(record.program);
+      if (record.institution)
+        currentSummary.institution = cleanImportValue(record.institution);
     }
 
-    if (!currentSummary.studentId && record.student_id) currentSummary.studentId = cleanImportValue(record.student_id);
-    if (!currentSummary.name && record.name) currentSummary.name = cleanImportValue(record.name);
-    if (!currentSummary.yearLevel && record.year_level) currentSummary.yearLevel = cleanImportValue(record.year_level);
-    if (!currentSummary.college && record.college) currentSummary.college = cleanImportValue(record.college);
-    if (!currentSummary.program && record.program) currentSummary.program = cleanImportValue(record.program);
-    if (!currentSummary.institution && record.institution) currentSummary.institution = cleanImportValue(record.institution);
+    if (!currentSummary.studentId && record.student_id)
+      currentSummary.studentId = cleanImportValue(record.student_id);
+    if (!currentSummary.name && record.name)
+      currentSummary.name = cleanImportValue(record.name);
+    if (!currentSummary.yearLevel && record.year_level)
+      currentSummary.yearLevel = cleanImportValue(record.year_level);
+    if (!currentSummary.college && record.college)
+      currentSummary.college = cleanImportValue(record.college);
+    if (!currentSummary.program && record.program)
+      currentSummary.program = cleanImportValue(record.program);
+    if (!currentSummary.institution && record.institution)
+      currentSummary.institution = cleanImportValue(record.institution);
   });
 
   return Array.from(summaries.values())
@@ -1318,24 +1692,38 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
       ...summary,
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-      })
+      }),
     }))
     .sort((leftSummary, rightSummary) => {
-      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
-      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
+      const leftTime = leftSummary.latestScannedAt
+        ? new Date(leftSummary.latestScannedAt).getTime()
+        : 0;
+      const rightTime = rightSummary.latestScannedAt
+        ? new Date(rightSummary.latestScannedAt).getTime()
+        : 0;
 
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+      return (
+        (Number.isNaN(rightTime) ? 0 : rightTime) -
+        (Number.isNaN(leftTime) ? 0 : leftTime)
+      );
     });
 }
 
-function getAttendanceStudentEventSummaries(records: AttendanceRecord[], events: AttendanceEvent[]) {
+function getAttendanceStudentEventSummaries(
+  records: AttendanceRecord[],
+  events: AttendanceEvent[],
+) {
   const eventById = new Map(events.map((event) => [event.id, event]));
   const summaries = new Map<string, AttendanceStudentEventSummary>();
 
   records.forEach((record) => {
-    const event = record.event_id ? eventById.get(record.event_id) ?? null : null;
+    const event = record.event_id
+      ? (eventById.get(record.event_id) ?? null)
+      : null;
     const eventName = event?.name ?? getManualRecordSource(record);
-    const key = record.event_id || normalizeImportHeader(eventName) || `student-event:${record.id}`;
+    const key =
+      getAttendanceEventIdentityKey(eventName, record.event_id) ||
+      `student-event:${record.id}`;
     const currentSummary = summaries.get(key);
     const recordTime = getRecordTimestamp(record);
     const schedule =
@@ -1350,18 +1738,23 @@ function getAttendanceStudentEventSummaries(records: AttendanceRecord[], events:
         schedule,
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         records: [record],
-        totalAbsences: Number(record.no_of_absences ?? 0)
+        totalAbsences: Number(record.no_of_absences ?? 0),
       });
       return;
     }
 
-    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+    const latestTime = currentSummary.latestScannedAt
+      ? new Date(currentSummary.latestScannedAt).getTime()
+      : 0;
 
     currentSummary.records.push(record);
     currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+      currentSummary.latestScannedAt =
+        record.scanned_at ??
+        record.created_at ??
+        currentSummary.latestScannedAt;
     }
   });
 
@@ -1370,13 +1763,20 @@ function getAttendanceStudentEventSummaries(records: AttendanceRecord[], events:
       ...summary,
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-      })
+      }),
     }))
     .sort((leftSummary, rightSummary) => {
-      const leftTime = leftSummary.latestScannedAt ? new Date(leftSummary.latestScannedAt).getTime() : 0;
-      const rightTime = rightSummary.latestScannedAt ? new Date(rightSummary.latestScannedAt).getTime() : 0;
+      const leftTime = leftSummary.latestScannedAt
+        ? new Date(leftSummary.latestScannedAt).getTime()
+        : 0;
+      const rightTime = rightSummary.latestScannedAt
+        ? new Date(rightSummary.latestScannedAt).getTime()
+        : 0;
 
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+      return (
+        (Number.isNaN(rightTime) ? 0 : rightTime) -
+        (Number.isNaN(leftTime) ? 0 : leftTime)
+      );
     });
 }
 
@@ -1391,19 +1791,100 @@ function formatEventGroupSchedule(group: AttendanceEventRecordGroup) {
   return "No schedule set";
 }
 
-function getSaveProgressPercent(progress: AttendanceImportProgress | null, isSaving: boolean) {
+function getSaveProgressPercent(
+  progress: AttendanceImportProgress | null,
+  isSaving: boolean,
+) {
   if (!progress) return isSaving ? 1 : 0;
   return Math.max(0, Math.min(100, Math.round(progress.percent)));
 }
 
 function getSaveProgressRowText(progress: AttendanceImportProgress | null) {
   if (!progress) return "Preparing rows...";
-  if (progress.totalRows > 0) return `${progress.processedRows}/${progress.totalRows} row/s processed`;
+  if (progress.totalRows > 0)
+    return `${progress.processedRows}/${progress.totalRows} row/s processed`;
   return "Preparing rows...";
 }
 
 function getSaveProgressMessage(progress: AttendanceImportProgress | null) {
   return progress?.message || "Preparing attendance import...";
+}
+
+function getAttendanceFileSignature(file: File) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function createResumableImportId() {
+  return `attendance-import:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function readResumableAttendanceImportSnapshot() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem(
+      ATTENDANCE_RESUMABLE_IMPORT_STORAGE_KEY,
+    );
+    if (!value) return null;
+
+    const snapshot = JSON.parse(value) as AttendanceResumableImportSnapshot;
+    if (!snapshot?.id || !snapshot.preview || !Array.isArray(snapshot.rows))
+      return null;
+
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeResumableAttendanceImportSnapshot(
+  snapshot: AttendanceResumableImportSnapshot | null,
+) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (!snapshot) {
+      window.localStorage.removeItem(ATTENDANCE_RESUMABLE_IMPORT_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      ATTENDANCE_RESUMABLE_IMPORT_STORAGE_KEY,
+      JSON.stringify(snapshot),
+    );
+  } catch {
+    // Ignore storage failures so importing can still continue in the current browser session.
+  }
+}
+
+function getValidAttendanceRows(previewResult: AttendancePreviewResult) {
+  return previewResult.rows.filter((row) => row.errors.length === 0);
+}
+
+function normalizeImportOptionValue(value?: string | null) {
+  return cleanImportValue(value);
+}
+
+function areAttendanceImportOptionsEqual(
+  left: AttendanceImportOptionsSnapshot,
+  right: AttendanceImportOptionsSnapshot,
+) {
+  return (
+    normalizeImportOptionValue(left.eventId) ===
+      normalizeImportOptionValue(right.eventId) &&
+    normalizeImportOptionValue(left.eventName) ===
+      normalizeImportOptionValue(right.eventName) &&
+    normalizeImportOptionValue(left.eventStartAt) ===
+      normalizeImportOptionValue(right.eventStartAt) &&
+    normalizeImportOptionValue(left.eventEndAt) ===
+      normalizeImportOptionValue(right.eventEndAt) &&
+    normalizeImportOptionValue(left.eventDescription) ===
+      normalizeImportOptionValue(right.eventDescription)
+  );
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function useAttendanceMobilePanel() {
@@ -1444,8 +1925,12 @@ function AttendanceResponsivePanel(props: {
             className="flex min-h-16 w-full items-center justify-between gap-3 rounded-3xl border bg-card px-4 py-4 text-left shadow-sm"
           >
             <span className="min-w-0">
-              <span className="block wrap-break-word text-base font-black">{props.title}</span>
-              <span className="mt-1 block wrap-break-word text-xs font-bold text-muted-foreground">{summaryText}</span>
+              <span className="block wrap-break-word text-base font-black">
+                {props.title}
+              </span>
+              <span className="mt-1 block wrap-break-word text-xs font-bold text-muted-foreground">
+                {summaryText}
+              </span>
             </span>
             <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-black text-muted-foreground">
               Open
@@ -1460,7 +1945,9 @@ function AttendanceResponsivePanel(props: {
             <DialogTitle>{props.title}</DialogTitle>
             <DialogDescription>{props.description}</DialogDescription>
           </DialogHeader>
-          <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>{props.children}</div>
+          <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>
+            {props.children}
+          </div>
         </DialogContent>
       </Dialog>
     );
@@ -1470,15 +1957,21 @@ function AttendanceResponsivePanel(props: {
     <details className="group rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
       <summary className="flex min-w-0 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <span className="min-w-0">
-          <span className="block wrap-break-word text-xl font-black">{props.title}</span>
-          <span className="mt-1 block wrap-break-word text-sm font-bold text-muted-foreground">{summaryText}</span>
+          <span className="block wrap-break-word text-xl font-black">
+            {props.title}
+          </span>
+          <span className="mt-1 block wrap-break-word text-sm font-bold text-muted-foreground">
+            {summaryText}
+          </span>
         </span>
         <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-black text-muted-foreground">
           <span className="group-open:hidden">Open</span>
           <span className="hidden group-open:inline">Close</span>
         </span>
       </summary>
-      <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>{props.children}</div>
+      <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>
+        {props.children}
+      </div>
     </details>
   );
 }
@@ -1525,7 +2018,9 @@ function FileDropZone(props: {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       className={`flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-6 text-center shadow-sm transition sm:p-8 ${
-        props.isDragging ? "border-primary bg-accent" : "border-border hover:border-primary/70 hover:bg-accent/40"
+        props.isDragging
+          ? "border-primary bg-accent"
+          : "border-border hover:border-primary/70 hover:bg-accent/40"
       }`}
     >
       <Input
@@ -1545,7 +2040,9 @@ function FileDropZone(props: {
       {props.file ? (
         <div className="mt-5 w-full max-w-xl rounded-2xl border bg-background p-4 text-left">
           <p className="truncate text-sm font-black">{props.file.name}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{(props.file.size / 1024).toFixed(1)} KB</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {(props.file.size / 1024).toFixed(1)} KB
+          </p>
         </div>
       ) : null}
     </Label>
@@ -1575,15 +2072,22 @@ function EventFields(props: {
         <Select
           value={props.eventId || UPLOAD_FILE_EVENTS_SELECT_VALUE}
           onValueChange={(value) => {
-            props.onEventIdChange(value === UPLOAD_FILE_EVENTS_SELECT_VALUE ? "" : value);
+            props.onEventIdChange(
+              value === UPLOAD_FILE_EVENTS_SELECT_VALUE ? "" : value,
+            );
           }}
         >
-          <SelectTrigger id="upload-event-id" className="mt-2 min-h-10 w-full max-w-xs">
+          <SelectTrigger
+            id="upload-event-id"
+            className="mt-2 min-h-10 w-full max-w-xs"
+          >
             <SelectValue placeholder="Use event from file or create a new event" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={UPLOAD_FILE_EVENTS_SELECT_VALUE}>
-              {isUsingFileEvents ? "Use event/s detected in the uploaded file" : "Use event from file or create a new event"}
+              {isUsingFileEvents
+                ? "Use event/s detected in the uploaded file"
+                : "Use event from file or create a new event"}
             </SelectItem>
             {props.events.map((item) => (
               <SelectItem key={item.id} value={item.id}>
@@ -1602,7 +2106,11 @@ function EventFields(props: {
           onChange={(event) => props.onEventNameChange(event.target.value)}
           disabled={Boolean(props.eventId) || isUsingFileEvents}
           className="mt-2"
-          placeholder={isUsingFileEvents ? "Using detected file event/s" : "Required only when the file has no event"}
+          placeholder={
+            isUsingFileEvents
+              ? "Using detected file event/s"
+              : "Required only when the file has no event"
+          }
         />
       </div>
 
@@ -1635,17 +2143,25 @@ function EventFields(props: {
         <Input
           id="upload-event-description"
           value={props.eventDescription}
-          onChange={(event) => props.onEventDescriptionChange(event.target.value)}
+          onChange={(event) =>
+            props.onEventDescriptionChange(event.target.value)
+          }
           disabled={Boolean(props.eventId)}
           className="mt-2"
-          placeholder={isUsingFileEvents ? "Optional for detected file event/s" : "Optional"}
+          placeholder={
+            isUsingFileEvents
+              ? "Optional for detected file event/s"
+              : "Optional"
+          }
         />
       </div>
 
       {isUsingFileEvents ? (
         <p className="text-sm font-semibold text-muted-foreground lg:col-span-2">
           Detected event/s: {props.fileEventNames.slice(0, 5).join(", ")}
-          {props.fileEventNames.length > 5 ? ` +${props.fileEventNames.length - 5} more` : ""}
+          {props.fileEventNames.length > 5
+            ? ` +${props.fileEventNames.length - 5} more`
+            : ""}
         </p>
       ) : null}
     </div>
@@ -1661,7 +2177,12 @@ function DeleteAttendanceConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={props.isDeleting}
+          className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}
+        >
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -1669,7 +2190,8 @@ function DeleteAttendanceConfirmation(props: {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete attendance record?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete the attendance record for {props.record.name}.
+            This will permanently delete the attendance record for{" "}
+            {props.record.name}.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1738,7 +2260,12 @@ function DeleteEventConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={props.isDeleting}
+          className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}
+        >
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -1746,7 +2273,8 @@ function DeleteEventConfirmation(props: {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete event?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete {props.event.name} and its linked attendance records.
+            This will permanently delete {props.event.name} and its linked
+            attendance records.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1772,7 +2300,12 @@ function DeleteAttendanceImportConfirmation(props: {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={props.isDeleting} className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={props.isDeleting}
+          className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}
+        >
           {props.isDeleting ? "Deleting..." : "Delete"}
         </Button>
       </AlertDialogTrigger>
@@ -1780,8 +2313,8 @@ function DeleteAttendanceImportConfirmation(props: {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete imported file?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will permanently delete {props.attendanceImport.file_name} and all attendance records and fines created
-            from this import.
+            This will permanently delete {props.attendanceImport.file_name} and
+            all attendance records and fines created from this import.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1807,7 +2340,10 @@ function ManualAttendanceDialog(props: {
   isSaving: boolean;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onClear: () => void;
-  onChange: <K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) => void;
+  onChange: <K extends keyof ManualAttendanceFormState>(
+    key: K,
+    value: ManualAttendanceFormState[K],
+  ) => void;
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -1821,9 +2357,12 @@ function ManualAttendanceDialog(props: {
         className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
       >
         <DialogHeader>
-          <DialogTitle>{props.editingRecordId ? "Edit attendance" : "Add attendance"}</DialogTitle>
+          <DialogTitle>
+            {props.editingRecordId ? "Edit attendance" : "Add attendance"}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Add or update an attendance record with student details, event assignment, absences, and remarks.
+            Add or update an attendance record with student details, event
+            assignment, absences, and remarks.
           </DialogDescription>
         </DialogHeader>
 
@@ -1832,7 +2371,12 @@ function ManualAttendanceDialog(props: {
             <Label htmlFor="manual-event-id">Event</Label>
             <Select
               value={props.form.eventId || NO_EVENT_SELECT_VALUE}
-              onValueChange={(value) => props.onChange("eventId", value === NO_EVENT_SELECT_VALUE ? "" : value)}
+              onValueChange={(value) =>
+                props.onChange(
+                  "eventId",
+                  value === NO_EVENT_SELECT_VALUE ? "" : value,
+                )
+              }
             >
               <SelectTrigger id="manual-event-id" className="mt-2 min-h-10">
                 <SelectValue placeholder="No event" />
@@ -1854,7 +2398,9 @@ function ManualAttendanceDialog(props: {
               id="manual-scanned-at"
               type="text"
               value={props.form.scannedAt}
-              onChange={(event) => props.onChange("scannedAt", event.target.value)}
+              onChange={(event) =>
+                props.onChange("scannedAt", event.target.value)
+              }
               className="mt-2"
               placeholder="Optional date and time"
             />
@@ -1865,7 +2411,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-student-id"
               value={props.form.studentId}
-              onChange={(event) => props.onChange("studentId", event.target.value)}
+              onChange={(event) =>
+                props.onChange("studentId", event.target.value)
+              }
               className="mt-2"
               required
             />
@@ -1887,7 +2435,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-year-level"
               value={props.form.yearLevel}
-              onChange={(event) => props.onChange("yearLevel", event.target.value)}
+              onChange={(event) =>
+                props.onChange("yearLevel", event.target.value)
+              }
               className="mt-2"
             />
           </div>
@@ -1897,7 +2447,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-college"
               value={props.form.college}
-              onChange={(event) => props.onChange("college", event.target.value)}
+              onChange={(event) =>
+                props.onChange("college", event.target.value)
+              }
               className="mt-2"
             />
           </div>
@@ -1907,7 +2459,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-program"
               value={props.form.program}
-              onChange={(event) => props.onChange("program", event.target.value)}
+              onChange={(event) =>
+                props.onChange("program", event.target.value)
+              }
               className="mt-2"
             />
           </div>
@@ -1917,7 +2471,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-institution"
               value={props.form.institution}
-              onChange={(event) => props.onChange("institution", event.target.value)}
+              onChange={(event) =>
+                props.onChange("institution", event.target.value)
+              }
               className="mt-2"
             />
           </div>
@@ -1929,7 +2485,9 @@ function ManualAttendanceDialog(props: {
               type="number"
               min="0"
               value={props.form.noOfAbsences}
-              onChange={(event) => props.onChange("noOfAbsences", event.target.value)}
+              onChange={(event) =>
+                props.onChange("noOfAbsences", event.target.value)
+              }
               className="mt-2"
               required
             />
@@ -1940,14 +2498,24 @@ function ManualAttendanceDialog(props: {
             <Textarea
               id="manual-remarks"
               value={props.form.remarks}
-              onChange={(event) => props.onChange("remarks", event.target.value)}
+              onChange={(event) =>
+                props.onChange("remarks", event.target.value)
+              }
               className="mt-2"
             />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
-            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl">
-              {props.isSaving ? "Saving..." : props.editingRecordId ? "Update Attendance" : "Save Attendance"}
+            <Button
+              type="submit"
+              disabled={props.isSaving}
+              className="min-h-12 rounded-2xl"
+            >
+              {props.isSaving
+                ? "Saving..."
+                : props.editingRecordId
+                  ? "Update Attendance"
+                  : "Save Attendance"}
             </Button>
             <Button
               type="button"
@@ -1973,12 +2541,19 @@ function AttendanceEventDialog(props: {
   isSaving: boolean;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onClear: () => void;
-  onChange: <K extends keyof AttendanceEventFormState>(key: K, value: AttendanceEventFormState[K]) => void;
+  onChange: <K extends keyof AttendanceEventFormState>(
+    key: K,
+    value: AttendanceEventFormState[K],
+  ) => void;
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" className="min-h-11 rounded-xl px-5 py-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11 rounded-xl px-5 py-2"
+        >
           Add Event
         </Button>
       </DialogTrigger>
@@ -1987,9 +2562,12 @@ function AttendanceEventDialog(props: {
         className="max-h-[95svh] overflow-y-auto sm:max-w-2xl"
       >
         <DialogHeader>
-          <DialogTitle>{props.editingEventId ? "Edit event" : "Add event"}</DialogTitle>
+          <DialogTitle>
+            {props.editingEventId ? "Edit event" : "Add event"}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Add or update an attendance event with schedule and description details.
+            Add or update an attendance event with schedule and description
+            details.
           </DialogDescription>
         </DialogHeader>
 
@@ -2012,7 +2590,9 @@ function AttendanceEventDialog(props: {
                 id="event-start-at"
                 type="datetime-local"
                 value={props.form.eventStartAt}
-                onChange={(event) => props.onChange("eventStartAt", event.target.value)}
+                onChange={(event) =>
+                  props.onChange("eventStartAt", event.target.value)
+                }
                 className="mt-2"
               />
             </div>
@@ -2023,7 +2603,9 @@ function AttendanceEventDialog(props: {
                 id="event-end-at"
                 type="datetime-local"
                 value={props.form.eventEndAt}
-                onChange={(event) => props.onChange("eventEndAt", event.target.value)}
+                onChange={(event) =>
+                  props.onChange("eventEndAt", event.target.value)
+                }
                 className="mt-2"
               />
             </div>
@@ -2034,14 +2616,24 @@ function AttendanceEventDialog(props: {
             <Textarea
               id="event-description"
               value={props.form.description}
-              onChange={(event) => props.onChange("description", event.target.value)}
+              onChange={(event) =>
+                props.onChange("description", event.target.value)
+              }
               className="mt-2"
             />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl">
-              {props.isSaving ? "Saving..." : props.editingEventId ? "Update Event" : "Save Event"}
+            <Button
+              type="submit"
+              disabled={props.isSaving}
+              className="min-h-12 rounded-2xl"
+            >
+              {props.isSaving
+                ? "Saving..."
+                : props.editingEventId
+                  ? "Update Event"
+                  : "Save Event"}
             </Button>
             <Button
               type="button"
@@ -2059,7 +2651,6 @@ function AttendanceEventDialog(props: {
   );
 }
 
-
 function AttendanceEventGroupTriggerContent(props: {
   group: AttendanceEventRecordGroup;
   selectedGroupRecordCount: number;
@@ -2067,9 +2658,12 @@ function AttendanceEventGroupTriggerContent(props: {
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <span className="min-w-0">
-        <span className="block wrap-break-word font-black">{props.group.eventName}</span>
+        <span className="block wrap-break-word font-black">
+          {props.group.eventName}
+        </span>
         <span className="mt-1 block wrap-break-word text-sm text-muted-foreground">
-          {getCollegeLabel(props.group.college)} • {formatEventGroupSchedule(props.group)}
+          {getAttendanceGroupCollegeLabel(props.group)} •{" "}
+          {formatEventGroupSchedule(props.group)}
         </span>
         {props.group.eventDescription ? (
           <span className="mt-1 block wrap-break-word text-xs font-semibold text-muted-foreground">
@@ -2099,8 +2693,14 @@ function AttendanceEventAttendeesDialog(props: {
   selectedRecordIdsSet: Set<string>;
   deletingRecordId: string;
   isDeletingBulk: boolean;
-  onToggleRecordSelected: (id: string, checked: boolean | "indeterminate") => void;
-  onToggleAttendeeRecordsSelected: (records: AttendanceRecord[], checked: boolean | "indeterminate") => void;
+  onToggleRecordSelected: (
+    id: string,
+    checked: boolean | "indeterminate",
+  ) => void;
+  onToggleAttendeeRecordsSelected: (
+    records: AttendanceRecord[],
+    checked: boolean | "indeterminate",
+  ) => void;
   onEditRecord: (record: AttendanceRecord) => void;
   onDeleteRecord: (id: string) => void;
 }) {
@@ -2122,27 +2722,44 @@ function AttendanceEventAttendeesDialog(props: {
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
           <DialogDescription className="sr-only">
-            View attendees, selected records, absence totals, and record actions for this attendance event.
+            View attendees, selected records, absence totals, and record actions
+            for this attendance event.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-2">
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
-              <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(props.group.college)}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                College
+              </p>
+              <p className="mt-1 wrap-break-word font-semibold">
+                {getCollegeLabel(props.group.college)}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Schedule</p>
-              <p className="mt-1 wrap-break-word font-semibold">{formatEventGroupSchedule(props.group)}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Schedule
+              </p>
+              <p className="mt-1 wrap-break-word font-semibold">
+                {formatEventGroupSchedule(props.group)}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendees</p>
-              <p className="mt-1 wrap-break-word font-semibold">{props.group.attendees.length}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Attendees
+              </p>
+              <p className="mt-1 wrap-break-word font-semibold">
+                {props.group.attendees.length}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Event Absences</p>
-              <p className="mt-1 wrap-break-word font-semibold">{props.group.totalAbsences}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Event Absences
+              </p>
+              <p className="mt-1 wrap-break-word font-semibold">
+                {props.group.totalAbsences}
+              </p>
             </div>
           </div>
 
@@ -2152,7 +2769,9 @@ function AttendanceEventAttendeesDialog(props: {
             deletingRecordId={props.deletingRecordId}
             isDeletingBulk={props.isDeletingBulk}
             onToggleRecordSelected={props.onToggleRecordSelected}
-            onToggleAttendeeRecordsSelected={props.onToggleAttendeeRecordsSelected}
+            onToggleAttendeeRecordsSelected={
+              props.onToggleAttendeeRecordsSelected
+            }
             onEditRecord={props.onEditRecord}
             onDeleteRecord={props.onDeleteRecord}
           />
@@ -2167,8 +2786,14 @@ function AttendanceEventAttendeesList(props: {
   selectedRecordIdsSet: Set<string>;
   deletingRecordId: string;
   isDeletingBulk: boolean;
-  onToggleRecordSelected: (id: string, checked: boolean | "indeterminate") => void;
-  onToggleAttendeeRecordsSelected: (records: AttendanceRecord[], checked: boolean | "indeterminate") => void;
+  onToggleRecordSelected: (
+    id: string,
+    checked: boolean | "indeterminate",
+  ) => void;
+  onToggleAttendeeRecordsSelected: (
+    records: AttendanceRecord[],
+    checked: boolean | "indeterminate",
+  ) => void;
   onEditRecord: (record: AttendanceRecord) => void;
   onDeleteRecord: (id: string) => void;
 }) {
@@ -2176,94 +2801,159 @@ function AttendanceEventAttendeesList(props: {
     <div className="space-y-4">
       <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm md:grid-cols-3">
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Event</p>
-          <p className="mt-1 wrap-break-word font-semibold">{props.group.eventName}</p>
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+            Event
+          </p>
+          <p className="mt-1 wrap-break-word font-semibold">
+            {props.group.eventName}
+          </p>
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
-          <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(props.group.college)}</p>
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+            College
+          </p>
+          <p className="mt-1 wrap-break-word font-semibold">
+            {getCollegeLabel(props.group.college)}
+          </p>
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Schedule</p>
-          <p className="mt-1 wrap-break-word font-semibold">{formatEventGroupSchedule(props.group)}</p>
+          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+            Schedule
+          </p>
+          <p className="mt-1 wrap-break-word font-semibold">
+            {formatEventGroupSchedule(props.group)}
+          </p>
         </div>
       </div>
 
       {props.group.attendees.map((attendee) => {
         const selectedAttendeeRecordCount = attendee.records.filter((record) =>
-          props.selectedRecordIdsSet.has(record.id)
+          props.selectedRecordIdsSet.has(record.id),
         ).length;
         const allAttendeeRecordsSelected =
-          attendee.records.length > 0 && selectedAttendeeRecordCount === attendee.records.length;
-        const attendeeRecordChecked =
-          allAttendeeRecordsSelected ? true : selectedAttendeeRecordCount > 0 ? "indeterminate" : false;
+          attendee.records.length > 0 &&
+          selectedAttendeeRecordCount === attendee.records.length;
+        const attendeeRecordChecked = allAttendeeRecordsSelected
+          ? true
+          : selectedAttendeeRecordCount > 0
+            ? "indeterminate"
+            : false;
 
         return (
-          <article key={attendee.key} className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word">
+          <article
+            key={attendee.key}
+            className="min-w-0 rounded-2xl border bg-card p-4 wrap-break-word"
+          >
             <div className="flex min-w-0 flex-col gap-4">
               <div className="flex min-w-0 items-start gap-3">
                 <Checkbox
                   checked={attendeeRecordChecked}
-                  onCheckedChange={(checked) => props.onToggleAttendeeRecordsSelected(attendee.records, checked)}
+                  onCheckedChange={(checked) =>
+                    props.onToggleAttendeeRecordsSelected(
+                      attendee.records,
+                      checked,
+                    )
+                  }
                   aria-label={`Select attendance records for ${attendee.name}`}
                   className="mt-1 shrink-0"
                 />
                 <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                   <div className="min-w-0 sm:col-span-2">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendee</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Attendee
+                    </p>
                     <p className="mt-1 wrap-break-word font-black">
                       {attendee.studentId} - {attendee.name}
                     </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Absences</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{attendee.totalAbsences}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Absences
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {attendee.totalAbsences}
+                    </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Latest Scan</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{formatDateTime(attendee.latestScannedAt)}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Latest Scan
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {formatDateTime(attendee.latestScannedAt)}
+                    </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Year Level</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{attendee.yearLevel || "—"}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Year Level
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {attendee.yearLevel || "—"}
+                    </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{getCollegeLabel(attendee.college)}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      College
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {getCollegeLabel(attendee.college)}
+                    </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Program</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{attendee.program || "—"}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Program
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {attendee.program || "—"}
+                    </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Institution</p>
-                    <p className="mt-1 wrap-break-word font-semibold">{attendee.institution || "—"}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Institution
+                    </p>
+                    <p className="mt-1 wrap-break-word font-semibold">
+                      {attendee.institution || "—"}
+                    </p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-3 border-t pt-4">
                 {attendee.records.map((record) => (
-                  <div key={record.id} className="rounded-2xl border bg-background p-4">
+                  <div
+                    key={record.id}
+                    className="rounded-2xl border bg-background p-4"
+                  >
                     <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <Checkbox
                           checked={props.selectedRecordIdsSet.has(record.id)}
-                          onCheckedChange={(checked) => props.onToggleRecordSelected(record.id, checked)}
+                          onCheckedChange={(checked) =>
+                            props.onToggleRecordSelected(record.id, checked)
+                          }
                           aria-label={`Select attendance record for ${attendee.name}`}
                           className="mt-1 shrink-0"
                         />
                         <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                           <div className="min-w-0">
-                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Scanned At</p>
-                            <p className="mt-1 wrap-break-word font-semibold">{formatDateTime(record.scanned_at)}</p>
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                              Scanned At
+                            </p>
+                            <p className="mt-1 wrap-break-word font-semibold">
+                              {formatDateTime(record.scanned_at)}
+                            </p>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Absences</p>
-                            <p className="mt-1 wrap-break-word font-semibold">{record.no_of_absences}</p>
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                              Absences
+                            </p>
+                            <p className="mt-1 wrap-break-word font-semibold">
+                              {record.no_of_absences}
+                            </p>
                           </div>
                           <div className="min-w-0 sm:col-span-2 lg:col-span-1">
-                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Remarks</p>
+                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                              Remarks
+                            </p>
                             <p className="mt-1 wrap-break-word font-semibold text-muted-foreground">
                               {record.remarks || "—"}
                             </p>
@@ -2282,7 +2972,10 @@ function AttendanceEventAttendeesList(props: {
                         </Button>
                         <DeleteAttendanceConfirmation
                           record={record}
-                          isDeleting={props.deletingRecordId === record.id || props.isDeletingBulk}
+                          isDeleting={
+                            props.deletingRecordId === record.id ||
+                            props.isDeletingBulk
+                          }
                           onConfirm={props.onDeleteRecord}
                           className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                         />
@@ -2299,8 +2992,6 @@ function AttendanceEventAttendeesList(props: {
   );
 }
 
-
-
 function AttendanceStudentEventsDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -2308,7 +2999,9 @@ function AttendanceStudentEventsDialog(props: {
   events: AttendanceEvent[];
 }) {
   const attendedEvents = useMemo(() => {
-    return props.student ? getAttendanceStudentEventSummaries(props.student.records, props.events) : [];
+    return props.student
+      ? getAttendanceStudentEventSummaries(props.student.records, props.events)
+      : [];
   }, [props.events, props.student]);
 
   return (
@@ -2319,10 +3012,14 @@ function AttendanceStudentEventsDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>
-            Events attended{props.student ? ` by ${props.student.name || props.student.studentId}` : ""}
+            Events attended
+            {props.student
+              ? ` by ${props.student.name || props.student.studentId}`
+              : ""}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Review the events attended by the selected student and their attendance records.
+            Review the events attended by the selected student and their
+            attendance records.
           </DialogDescription>
         </DialogHeader>
 
@@ -2330,28 +3027,46 @@ function AttendanceStudentEventsDialog(props: {
           <div className="space-y-4">
             <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-3">
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Student ID</p>
-                <p className="mt-1 wrap-break-word font-semibold">{props.student.studentId || "—"}</p>
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                  Student ID
+                </p>
+                <p className="mt-1 wrap-break-word font-semibold">
+                  {props.student.studentId || "—"}
+                </p>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Name</p>
-                <p className="mt-1 wrap-break-word font-semibold">{props.student.name || "—"}</p>
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                  Name
+                </p>
+                <p className="mt-1 wrap-break-word font-semibold">
+                  {props.student.name || "—"}
+                </p>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Events</p>
-                <p className="mt-1 wrap-break-word font-semibold">{attendedEvents.length}</p>
+                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                  Events
+                </p>
+                <p className="mt-1 wrap-break-word font-semibold">
+                  {attendedEvents.length}
+                </p>
               </div>
             </div>
 
             {attendedEvents.length ? (
               <div className="space-y-3">
                 {attendedEvents.map((eventSummary) => (
-                  <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+                  <article
+                    key={eventSummary.key}
+                    className="rounded-2xl border bg-background p-4"
+                  >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
+                        <p className="wrap-break-word font-black">
+                          {eventSummary.eventName}
+                        </p>
                         <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
-                          {eventSummary.schedule} • {eventSummary.records.length} record/s •{" "}
+                          {eventSummary.schedule} •{" "}
+                          {eventSummary.records.length} record/s •{" "}
                           {eventSummary.totalAbsences} absence/s
                         </p>
                       </div>
@@ -2362,9 +3077,18 @@ function AttendanceStudentEventsDialog(props: {
 
                     <div className="mt-3 space-y-2">
                       {eventSummary.records.map((record) => (
-                        <div key={record.id} className="rounded-xl border bg-card px-3 py-2 text-sm">
-                          <p className="font-semibold">{formatDateTime(record.scanned_at ?? record.created_at)}</p>
-                          <p className="mt-1 text-muted-foreground">{record.remarks || "No remarks"}</p>
+                        <div
+                          key={record.id}
+                          className="rounded-xl border bg-card px-3 py-2 text-sm"
+                        >
+                          <p className="font-semibold">
+                            {formatDateTime(
+                              record.scanned_at ?? record.created_at,
+                            )}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {record.remarks || "No remarks"}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -2406,40 +3130,59 @@ function AttendanceRecordSearchDialog(props: {
         className="flex max-h-[95svh] flex-col overflow-hidden sm:max-w-6xl"
       >
         <DialogHeader className="shrink-0">
-          <DialogTitle>Search records{props.query ? ` for “${props.query}”` : ""}</DialogTitle>
+          <DialogTitle>
+            Search records{props.query ? ` for “${props.query}”` : ""}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            View matching attendance records, grouped student summaries, and attendance record actions.
+            View matching attendance records, grouped student summaries, and
+            attendance record actions.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5">
           <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Matched records</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Matched records
+              </p>
               <p className="mt-1 text-2xl font-black">{props.records.length}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Matched students</p>
-              <p className="mt-1 text-2xl font-black">{props.studentSummaries.length}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Matched students
+              </p>
+              <p className="mt-1 text-2xl font-black">
+                {props.studentSummaries.length}
+              </p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Total absences</p>
-              <p className="mt-1 text-2xl font-black">{getAttendanceRecordTotalAbsences(props.records)}</p>
+              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                Total absences
+              </p>
+              <p className="mt-1 text-2xl font-black">
+                {getAttendanceRecordTotalAbsences(props.records)}
+              </p>
             </div>
           </div>
 
           {props.studentSummaries.length ? (
             <div className="grid gap-3 lg:grid-cols-2">
               {props.studentSummaries.map((summary) => (
-                <article key={summary.key} className="rounded-2xl border bg-background p-4">
+                <article
+                  key={summary.key}
+                  className="rounded-2xl border bg-background p-4"
+                >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="wrap-break-word font-black">
-                        {summary.studentId || "No Student ID"} - {summary.name || "No name"}
+                        {summary.studentId || "No Student ID"} -{" "}
+                        {summary.name || "No name"}
                       </p>
                       <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
-                        {summary.program || "No program"} • {getCollegeLabel(summary.college)} •{" "}
-                        {summary.records.length} record/s • {summary.totalAbsences} absence/s
+                        {summary.program || "No program"} •{" "}
+                        {getCollegeLabel(summary.college)} •{" "}
+                        {summary.records.length} record/s •{" "}
+                        {summary.totalAbsences} absence/s
                       </p>
                     </div>
                     <Button
@@ -2473,12 +3216,20 @@ function AttendanceRecordSearchDialog(props: {
                 <tbody>
                   {props.records.map((record) => (
                     <tr key={record.id} className="border-b last:border-b-0">
-                      <td className="px-3 py-3 font-semibold">{formatDateTime(record.scanned_at ?? record.created_at)}</td>
+                      <td className="px-3 py-3 font-semibold">
+                        {formatDateTime(record.scanned_at ?? record.created_at)}
+                      </td>
                       <td className="px-3 py-3">{record.student_id || "—"}</td>
                       <td className="px-3 py-3">{record.name || "—"}</td>
-                      <td className="px-3 py-3">{getManualRecordSource(record)}</td>
-                      <td className="px-3 py-3">{record.no_of_absences ?? 0}</td>
-                      <td className="px-3 py-3 text-muted-foreground">{record.remarks || "—"}</td>
+                      <td className="px-3 py-3">
+                        {getManualRecordSource(record)}
+                      </td>
+                      <td className="px-3 py-3">
+                        {record.no_of_absences ?? 0}
+                      </td>
+                      <td className="px-3 py-3 text-muted-foreground">
+                        {record.remarks || "—"}
+                      </td>
                       <td className="px-3 py-3">
                         <div className="flex gap-2">
                           <Button
@@ -2491,7 +3242,10 @@ function AttendanceRecordSearchDialog(props: {
                           </Button>
                           <DeleteAttendanceConfirmation
                             record={record}
-                            isDeleting={props.deletingRecordId === record.id || props.isDeletingBulk}
+                            isDeleting={
+                              props.deletingRecordId === record.id ||
+                              props.isDeletingBulk
+                            }
                             onConfirm={props.onDeleteRecord}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                           />
@@ -2513,21 +3267,28 @@ function AttendanceRecordSearchDialog(props: {
   );
 }
 
-
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
-  const [saveProgress, setSaveProgress] = useState<AttendanceImportProgress | null>(null);
-  const [displaySaveProgressPercent, setDisplaySaveProgressPercent] = useState(0);
+  const [saveProgress, setSaveProgress] =
+    useState<AttendanceImportProgress | null>(null);
+  const [displaySaveProgressPercent, setDisplaySaveProgressPercent] =
+    useState(0);
+  const [resumableImportSnapshot, setResumableImportSnapshot] =
+    useState<AttendanceResumableImportSnapshot | null>(null);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
   const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
-  const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(emptyManualAttendanceForm);
-  const [eventForm, setEventForm] = useState<AttendanceEventFormState>(emptyAttendanceEventForm);
+  const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(
+    emptyManualAttendanceForm,
+  );
+  const [eventForm, setEventForm] = useState<AttendanceEventFormState>(
+    emptyAttendanceEventForm,
+  );
   const [uploadEventId, setUploadEventId] = useState("");
   const [uploadEventName, setUploadEventName] = useState("");
   const [uploadEventStartAt, setUploadEventStartAt] = useState("");
@@ -2551,21 +3312,43 @@ export default function AttendancePage() {
   const [recordSearch, setRecordSearch] = useState("");
   const [recordSearchQuery, setRecordSearchQuery] = useState("");
   const [recordSearchDialogOpen, setRecordSearchDialogOpen] = useState(false);
-  const [studentEventsDialogState, setStudentEventsDialogState] = useState<AttendanceStudentEventsDialogState>(null);
+  const [studentEventsDialogState, setStudentEventsDialogState] =
+    useState<AttendanceStudentEventsDialogState>(null);
   const [studentEventsDialogOpen, setStudentEventsDialogOpen] = useState(false);
   const [error, setError] = useState("");
 
-  const invalidRows = useMemo(() => preview?.rows.filter((row) => row.errors.length > 0) ?? [], [preview]);
-  const previewEventNames = useMemo(() => getAttendancePreviewEventNames(preview), [preview]);
-  const mergedRecords = useMemo<AttendanceRecord[]>(() => mergeAttendanceRecordsByStudentId(records), [records]);
-  const eventFilterOptions = useMemo<Array<{ value: string; label: string }>>(() => {
-    const eventById = new Map<string, string>(events.map((event) => [event.id, event.name]));
+  const invalidRows = useMemo(
+    () => preview?.rows.filter((row) => row.errors.length > 0) ?? [],
+    [preview],
+  );
+  const previewEventNames = useMemo(
+    () => getAttendancePreviewEventNames(preview),
+    [preview],
+  );
+  const displayEvents = useMemo(
+    () => getDeduplicatedAttendanceEvents(events),
+    [events],
+  );
+  const mergedRecords = useMemo<AttendanceRecord[]>(
+    () => mergeAttendanceRecordsByStudentId(records),
+    [records],
+  );
+  const eventFilterOptions = useMemo<
+    Array<{ value: string; label: string }>
+  >(() => {
+    const eventById = new Map<string, string>(
+      events.map((event) => [event.id, event.name]),
+    );
     const options = new Map<string, string>();
 
-    events.forEach((event) => options.set(event.id, event.name));
+    events.forEach((event) =>
+      options.set(getAttendanceEventFilterValue(event), event.name),
+    );
     mergedRecords.forEach((record) => {
       const value = getRecordEventFilterValue(record);
-      const label = record.event_id ? eventById.get(record.event_id) ?? getManualRecordSource(record) : "No event";
+      const label = record.event_id
+        ? (eventById.get(record.event_id) ?? getManualRecordSource(record))
+        : "No event";
       options.set(value, label);
     });
 
@@ -2576,58 +3359,93 @@ export default function AttendancePage() {
   const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     if (eventFilter === ALL_EVENTS_SELECT_VALUE) return mergedRecords;
 
-    return mergedRecords.filter((record) => getRecordEventFilterValue(record) === eventFilter);
+    return mergedRecords.filter(
+      (record) => getRecordEventFilterValue(record) === eventFilter,
+    );
   }, [eventFilter, mergedRecords]);
   const collegeFilterOptions = useMemo<string[]>(() => {
-    return Array.from<string>(new Set(eventFilteredRecords.map((record) => getCollegeFilterValue(record.college)))).sort((left, right) => {
-      return getCollegeLabel(left === NO_COLLEGE_SELECT_VALUE ? "" : left).localeCompare(
-        getCollegeLabel(right === NO_COLLEGE_SELECT_VALUE ? "" : right)
+    return Array.from<string>(
+      new Set(
+        eventFilteredRecords.map((record) =>
+          getCollegeFilterValue(record.college),
+        ),
+      ),
+    ).sort((left, right) => {
+      return getCollegeLabel(
+        left === NO_COLLEGE_SELECT_VALUE ? "" : left,
+      ).localeCompare(
+        getCollegeLabel(right === NO_COLLEGE_SELECT_VALUE ? "" : right),
       );
     });
   }, [eventFilteredRecords]);
   const filteredRecords = useMemo<AttendanceRecord[]>(() => {
-    if (collegeFilter === ALL_COLLEGES_SELECT_VALUE) return eventFilteredRecords;
+    if (collegeFilter === ALL_COLLEGES_SELECT_VALUE)
+      return eventFilteredRecords;
 
-    return eventFilteredRecords.filter((record) => getCollegeFilterValue(record.college) === collegeFilter);
+    return eventFilteredRecords.filter(
+      (record) => getCollegeFilterValue(record.college) === collegeFilter,
+    );
   }, [collegeFilter, eventFilteredRecords]);
-  const attendanceEventGroups = useMemo(() => getAttendanceEventGroups(filteredRecords, events), [events, filteredRecords]);
+  const attendanceEventGroups = useMemo(
+    () => getAttendanceEventGroups(filteredRecords, events),
+    [events, filteredRecords],
+  );
   const recordSearchResults = useMemo<AttendanceRecord[]>(() => {
     const query = recordSearchQuery.trim().toLowerCase();
     if (!query) return [];
 
-    return mergedRecords.filter((record) => getAttendanceRecordSearchText(record).includes(query));
+    return mergedRecords.filter((record) =>
+      getAttendanceRecordSearchText(record).includes(query),
+    );
   }, [mergedRecords, recordSearchQuery]);
   const recordSearchStudentSummaries = useMemo(() => {
     return getAttendanceStudentRecordSummaries(recordSearchResults);
   }, [recordSearchResults]);
-  const selectedRecordIdsSet = useMemo(() => new Set(selectedRecordIds), [selectedRecordIds]);
+  const selectedRecordIdsSet = useMemo(
+    () => new Set(selectedRecordIds),
+    [selectedRecordIds],
+  );
   const selectedRecordCount = selectedRecordIds.length;
   const filteredRecordCount = filteredRecords.length;
-  const visibleSelectedRecordCount = filteredRecords.filter((record) => selectedRecordIdsSet.has(record.id)).length;
-  const allVisibleRecordsSelected = filteredRecordCount > 0 && visibleSelectedRecordCount === filteredRecordCount;
-  const recordHeaderChecked =
-    allVisibleRecordsSelected ? true : visibleSelectedRecordCount > 0 ? "indeterminate" : false;
-  const uploadEventReady = Boolean(file);
-  const targetSaveProgressPercent = getSaveProgressPercent(saveProgress, isSaving);
+  const visibleSelectedRecordCount = filteredRecords.filter((record) =>
+    selectedRecordIdsSet.has(record.id),
+  ).length;
+  const allVisibleRecordsSelected =
+    filteredRecordCount > 0 &&
+    visibleSelectedRecordCount === filteredRecordCount;
+  const recordHeaderChecked = allVisibleRecordsSelected
+    ? true
+    : visibleSelectedRecordCount > 0
+      ? "indeterminate"
+      : false;
+  const uploadEventReady = Boolean(file || resumableImportSnapshot);
+  const targetSaveProgressPercent = getSaveProgressPercent(
+    saveProgress,
+    isSaving,
+  );
   const saveProgressPercent = isSaving
     ? Math.max(displaySaveProgressPercent, targetSaveProgressPercent)
     : targetSaveProgressPercent;
   const saveProgressMessage = getSaveProgressMessage(saveProgress);
   const saveProgressRowText = getSaveProgressRowText(saveProgress);
-  const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(null);
+  const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(
+    null,
+  );
   const scrollRestoreFrameRef = useRef<number | null>(null);
+  const saveAbortControllerRef = useRef<AbortController | null>(null);
 
   function captureScrollPosition() {
     if (typeof window === "undefined") return;
 
     scrollRestorePositionRef.current = {
       left: window.scrollX,
-      top: window.scrollY
+      top: window.scrollY,
     };
   }
 
   function restoreCapturedScrollPosition() {
-    if (typeof window === "undefined" || !scrollRestorePositionRef.current) return;
+    if (typeof window === "undefined" || !scrollRestorePositionRef.current)
+      return;
 
     const position = scrollRestorePositionRef.current;
 
@@ -2639,29 +3457,38 @@ export default function AttendancePage() {
       window.scrollTo({
         left: position.left,
         top: position.top,
-        behavior: "auto"
+        behavior: "auto",
       });
 
       scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
         window.scrollTo({
           left: position.left,
           top: position.top,
-          behavior: "auto"
+          behavior: "auto",
         });
         scrollRestoreFrameRef.current = null;
       });
     });
   }
 
-  function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
+  function updateManualForm<K extends keyof ManualAttendanceFormState>(
+    key: K,
+    value: ManualAttendanceFormState[K],
+  ) {
     setManualForm((current) => ({ ...current, [key]: value }));
   }
 
-  function updateEventForm<K extends keyof AttendanceEventFormState>(key: K, value: AttendanceEventFormState[K]) {
+  function updateEventForm<K extends keyof AttendanceEventFormState>(
+    key: K,
+    value: AttendanceEventFormState[K],
+  ) {
     setEventForm((current) => ({ ...current, [key]: value }));
   }
 
-  function handleToggleRecordSelected(id: string, checked: boolean | "indeterminate") {
+  function handleToggleRecordSelected(
+    id: string,
+    checked: boolean | "indeterminate",
+  ) {
     setSelectedRecordIds((current) => {
       if (checked === true) {
         return current.includes(id) ? current : [...current, id];
@@ -2684,7 +3511,10 @@ export default function AttendancePage() {
     });
   }
 
-  function handleToggleGroupedRecordsSelected(groupRecords: AttendanceRecord[], checked: boolean | "indeterminate") {
+  function handleToggleGroupedRecordsSelected(
+    groupRecords: AttendanceRecord[],
+    checked: boolean | "indeterminate",
+  ) {
     const groupRecordIds = groupRecords.map((record) => record.id);
     const groupRecordIdsSet = new Set(groupRecordIds);
 
@@ -2702,7 +3532,9 @@ export default function AttendancePage() {
 
     const query = recordSearch.trim();
     if (!query) {
-      toast.error("Please enter a Student ID, name, event, college, or program to search.");
+      toast.error(
+        "Please enter a Student ID, name, event, college, or program to search.",
+      );
       return;
     }
 
@@ -2714,17 +3546,56 @@ export default function AttendancePage() {
     setStudentEventsDialogState({
       studentId: summary.studentId,
       name: summary.name,
-      records: summary.records
+      records: summary.records,
     });
     setStudentEventsDialogOpen(true);
   }
 
+  function clearResumableImportSnapshot() {
+    writeResumableAttendanceImportSnapshot(null);
+    setResumableImportSnapshot(null);
+  }
+
+  function saveResumableImportSnapshot(
+    snapshot: AttendanceResumableImportSnapshot | null,
+  ) {
+    writeResumableAttendanceImportSnapshot(snapshot);
+    setResumableImportSnapshot(snapshot);
+  }
+
   function handleUploadFileChange(selectedFile: File | null) {
+    const selectedFileSignature = selectedFile
+      ? getAttendanceFileSignature(selectedFile)
+      : "";
+    const canReuseResumableSnapshot = Boolean(
+      selectedFileSignature &&
+      resumableImportSnapshot?.fileSignature === selectedFileSignature,
+    );
+
     setFile(selectedFile);
-    setPreview(null);
+    setPreview(
+      canReuseResumableSnapshot
+        ? (resumableImportSnapshot?.preview ?? null)
+        : null,
+    );
     setSaved(null);
     setSaveProgress(null);
     setError("");
+
+    if (!canReuseResumableSnapshot && selectedFileSignature) {
+      clearResumableImportSnapshot();
+    }
+
+    if (selectedFile && canReuseResumableSnapshot && resumableImportSnapshot) {
+      setUploadEventId(resumableImportSnapshot.options.eventId);
+      setUploadEventName(resumableImportSnapshot.options.eventName);
+      setUploadEventStartAt(resumableImportSnapshot.options.eventStartAt);
+      setUploadEventEndAt(resumableImportSnapshot.options.eventEndAt);
+      setUploadEventDescription(
+        resumableImportSnapshot.options.eventDescription,
+      );
+      return;
+    }
 
     if (selectedFile) {
       setUploadEventId("");
@@ -2765,7 +3636,7 @@ export default function AttendancePage() {
       const [rows, eventRows, importRows] = await Promise.all([
         listAllAttendanceRecords(),
         listAttendanceEvents({ limit: 500, offset: 0 }),
-        listAttendanceImports({ limit: 500, offset: 0 })
+        listAttendanceImports({ limit: 500, offset: 0 }),
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
 
@@ -2774,7 +3645,10 @@ export default function AttendancePage() {
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Unable to load attendance records.";
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load attendance records.";
       setError(message);
       toast.error(message);
     } finally {
@@ -2815,12 +3689,17 @@ export default function AttendancePage() {
       toast.success(
         upload.normalizedRowsCount
           ? `Attendance preview generated from ${upload.normalizedRowsCount} extracted student row/s across the workbook.${
-              detectedEventNames.length ? ` Detected ${detectedEventNames.length} event/s.` : ""
+              detectedEventNames.length
+                ? ` Detected ${detectedEventNames.length} event/s.`
+                : ""
             }`
-          : "Attendance file preview generated."
+          : "Attendance file preview generated.",
       );
     } catch (previewError) {
-      const message = previewError instanceof Error ? previewError.message : "Unable to preview attendance file.";
+      const message =
+        previewError instanceof Error
+          ? previewError.message
+          : "Unable to preview attendance file.";
       setPreview(null);
       setError(message);
       toast.error(message);
@@ -2829,84 +3708,300 @@ export default function AttendancePage() {
     }
   }
 
-  async function handleSave() {
+  function buildAttendanceImportOptionsSnapshot(
+    shouldUseDetectedFileEvents: boolean,
+  ): AttendanceImportOptionsSnapshot {
+    const eventName = uploadEventName.trim();
+
+    return {
+      eventId: uploadEventId || "",
+      eventName: uploadEventId || shouldUseDetectedFileEvents ? "" : eventName,
+      eventStartAt: uploadEventId ? "" : uploadEventStartAt || "",
+      eventEndAt: uploadEventId ? "" : uploadEventEndAt || "",
+      eventDescription:
+        uploadEventId || shouldUseDetectedFileEvents
+          ? ""
+          : uploadEventDescription.trim(),
+    };
+  }
+
+  async function prepareResumableAttendanceImportSnapshot() {
     if (!file) {
+      if (resumableImportSnapshot) return resumableImportSnapshot;
+
+      throw new Error("Please choose or drop a file first.");
+    }
+
+    const upload = await getAttendanceUploadFile(file);
+    const result =
+      preview && preview.fileName === upload.file.name
+        ? preview
+        : await previewAttendanceFile(upload.file);
+    if (!result) {
+      throw new Error("Unable to preview attendance file.");
+    }
+
+    const uploadEventNames = upload.normalizedEventNames.length
+      ? upload.normalizedEventNames
+      : getAttendancePreviewEventNames(result);
+    const fileHasDetectedEvents = uploadEventNames.length > 0;
+    const eventName = uploadEventName.trim();
+
+    if (!uploadEventId && !eventName && !fileHasDetectedEvents) {
+      throw new Error(
+        "Please select an existing event, enter a new event name, or upload a file that includes event names.",
+      );
+    }
+
+    const shouldUseDetectedFileEvents = !uploadEventId && fileHasDetectedEvents;
+    const options = buildAttendanceImportOptionsSnapshot(
+      shouldUseDetectedFileEvents,
+    );
+    const fileSignature = getAttendanceFileSignature(file);
+    const canReuseCurrentSnapshot = Boolean(
+      resumableImportSnapshot?.fileSignature === fileSignature &&
+      areAttendanceImportOptionsEqual(resumableImportSnapshot.options, options),
+    );
+
+    if (canReuseCurrentSnapshot && resumableImportSnapshot) {
+      setPreview(resumableImportSnapshot.preview);
+      return resumableImportSnapshot;
+    }
+
+    const rows = getValidAttendanceRows(result);
+
+    if (!rows.length) {
+      throw new Error("No valid attendance rows are available to save.");
+    }
+
+    const snapshot: AttendanceResumableImportSnapshot = {
+      id: createResumableImportId(),
+      fileName: result.fileName,
+      fileType: result.fileType,
+      fileSignature,
+      preview: result,
+      rows,
+      processedRows: 0,
+      savedRecordsCount: 0,
+      createdFinesCount: 0,
+      importId: "",
+      options,
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveResumableImportSnapshot(snapshot);
+    setPreview(result);
+
+    return snapshot;
+  }
+
+  function getResumableProgress(
+    snapshot: AttendanceResumableImportSnapshot,
+    processedRows: number,
+    savedRecordsCount: number,
+    createdFinesCount: number,
+    message = "Saving attendance records...",
+  ): AttendanceImportProgress {
+    const totalRows = snapshot.rows.length;
+    const percent = totalRows
+      ? Math.min(99, Math.round((processedRows / totalRows) * 100))
+      : 100;
+
+    return {
+      stage: percent >= 100 ? "completed" : "saving",
+      percent,
+      message,
+      processedRows,
+      totalRows,
+      savedRecords: savedRecordsCount,
+      createdFines: createdFinesCount,
+    };
+  }
+
+  async function saveResumableAttendanceImport(
+    snapshot: AttendanceResumableImportSnapshot,
+    signal: AbortSignal,
+  ) {
+    let workingSnapshot = snapshot;
+    let processedRows = Math.min(snapshot.processedRows, snapshot.rows.length);
+    let savedRecordsCount = snapshot.savedRecordsCount;
+    let createdFinesCount = snapshot.createdFinesCount;
+    const savedRecords: SavedAttendanceImportResult["savedRecords"] = [];
+    const createdFines: SavedAttendanceImportResult["createdFines"] = [];
+    let lastResult: SavedAttendanceImportResult | null = null;
+
+    setSaveProgress(
+      getResumableProgress(
+        workingSnapshot,
+        processedRows,
+        savedRecordsCount,
+        createdFinesCount,
+        processedRows
+          ? "Resuming attendance import..."
+          : "Starting attendance import...",
+      ),
+    );
+
+    while (processedRows < workingSnapshot.rows.length) {
+      if (signal.aborted) {
+        throw new DOMException(
+          "Attendance import was cancelled.",
+          "AbortError",
+        );
+      }
+
+      const processedRowsBeforeChunk = processedRows;
+      const chunk = workingSnapshot.rows.slice(
+        processedRows,
+        processedRows + ATTENDANCE_RESUMABLE_IMPORT_CHUNK_SIZE,
+      );
+
+      const result = await saveAttendanceRows({
+        ...workingSnapshot.options,
+        resumeImportId: workingSnapshot.importId || undefined,
+        fileName: workingSnapshot.fileName,
+        fileType: workingSnapshot.fileType,
+        rows: chunk,
+        signal,
+        onProgress: (progress) => {
+          const chunkProcessedRows = Math.min(
+            chunk.length,
+            progress.processedRows || 0,
+          );
+          const nextProcessedRows = Math.min(
+            workingSnapshot.rows.length,
+            processedRowsBeforeChunk + chunkProcessedRows,
+          );
+
+          setSaveProgress({
+            ...progress,
+            percent: workingSnapshot.rows.length
+              ? Math.min(
+                  99,
+                  Math.round(
+                    (nextProcessedRows / workingSnapshot.rows.length) * 100,
+                  ),
+                )
+              : progress.percent,
+            processedRows: nextProcessedRows,
+            totalRows: workingSnapshot.rows.length,
+            savedRecords: savedRecordsCount + progress.savedRecords,
+            createdFines: createdFinesCount + progress.createdFines,
+          });
+        },
+      });
+
+      lastResult = result ?? null;
+      savedRecords.push(...(result?.savedRecords ?? []));
+      createdFines.push(...(result?.createdFines ?? []));
+      processedRows += chunk.length;
+      savedRecordsCount += result?.savedRecords.length ?? 0;
+      createdFinesCount += result?.createdFines.length ?? 0;
+      workingSnapshot = {
+        ...workingSnapshot,
+        importId: result?.importId ?? workingSnapshot.importId,
+        processedRows,
+        savedRecordsCount,
+        createdFinesCount,
+        updatedAt: new Date().toISOString(),
+      };
+      saveResumableImportSnapshot(workingSnapshot);
+      setSaveProgress(
+        getResumableProgress(
+          workingSnapshot,
+          processedRows,
+          savedRecordsCount,
+          createdFinesCount,
+          "Attendance import progress saved.",
+        ),
+      );
+    }
+
+    const completedResult: SavedAttendanceImportResult = {
+      ...workingSnapshot.preview,
+      importId: workingSnapshot.importId || lastResult?.importId || "",
+      event: lastResult?.event ?? null,
+      savedRecords,
+      createdFines,
+    };
+
+    setSaveProgress({
+      stage: "completed",
+      percent: 100,
+      message: "Attendance import completed.",
+      processedRows: workingSnapshot.rows.length,
+      totalRows: workingSnapshot.rows.length,
+      savedRecords: savedRecordsCount,
+      createdFines: createdFinesCount,
+    });
+    clearResumableImportSnapshot();
+
+    return { result: completedResult, savedRecordsCount, createdFinesCount };
+  }
+
+  function handleCancelSave() {
+    saveAbortControllerRef.current?.abort();
+    setIsSaving(false);
+    setSaveProgress((current) =>
+      current
+        ? {
+            ...current,
+            stage: "cancelled",
+            message:
+              "Attendance import cancelled. Press Resume Import to continue where it left off.",
+          }
+        : current,
+    );
+    toast.info("Attendance import cancelled. You can resume it anytime.");
+  }
+
+  async function handleSave() {
+    if (!file && !resumableImportSnapshot) {
       setError("Please choose or drop a file first.");
       toast.error("Please choose or drop a file first.");
       return;
     }
 
-    const eventName = uploadEventName.trim();
-
+    const abortController = new AbortController();
+    saveAbortControllerRef.current = abortController;
     setIsSaving(true);
     setError("");
     setSaved(null);
-    setSaveProgress({
-      stage: "preparing",
-      percent: 1,
-      message: "Preparing attendance import...",
-      processedRows: 0,
-      totalRows: 0,
-      savedRecords: 0,
-      createdFines: 0
-    });
 
     try {
-      const upload = await getAttendanceUploadFile(file);
-      const uploadEventNames = upload.normalizedEventNames.length ? upload.normalizedEventNames : previewEventNames;
-      const fileHasDetectedEvents = uploadEventNames.length > 0;
-      const canLetApiDetectFileEvents = !upload.normalizedRowsCount && isExcelBasedAttendanceFile(upload.file);
+      const snapshot = await prepareResumableAttendanceImportSnapshot();
+      const { result, savedRecordsCount, createdFinesCount } =
+        await saveResumableAttendanceImport(snapshot, abortController.signal);
 
-      setSaveProgress({
-        stage: "preparing",
-        percent: 3,
-        message: "Checking event details...",
-        processedRows: 0,
-        totalRows: upload.normalizedRowsCount,
-        savedRecords: 0,
-        createdFines: 0
-      });
-
-      if (!uploadEventId && !eventName && !fileHasDetectedEvents && !canLetApiDetectFileEvents) {
-        const message = "Please select an existing event, enter a new event name, or upload a file that includes event names.";
-        setError(message);
-        setSaveProgress(null);
-        toast.error(message);
+      setSaved(result ?? null);
+      setPreview(result ?? null);
+      await loadRecords({ preserveScroll: true });
+      toast.success(
+        `Attendance imported successfully. Saved ${savedRecordsCount} record/s and created ${createdFinesCount} fine record/s.`,
+      );
+    } catch (saveError) {
+      if (isAbortError(saveError)) {
+        setSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                stage: "cancelled",
+                message:
+                  "Attendance import cancelled. Press Resume Import to continue where it left off.",
+              }
+            : current,
+        );
         return;
       }
 
-      const shouldUseDetectedFileEvents = !uploadEventId && fileHasDetectedEvents;
-      const result = await saveAttendanceFile(upload.file, {
-        eventId: uploadEventId || undefined,
-        eventName: uploadEventId || shouldUseDetectedFileEvents ? undefined : eventName || undefined,
-        eventStartAt: uploadEventId ? undefined : uploadEventStartAt || undefined,
-        eventEndAt: uploadEventId ? undefined : uploadEventEndAt || undefined,
-        eventDescription:
-          uploadEventId || shouldUseDetectedFileEvents ? undefined : uploadEventDescription.trim() || undefined,
-        onProgress: setSaveProgress
-      });
-      setSaved(result ?? null);
-      setPreview(result ?? null);
-      setSaveProgress({
-        stage: "completed",
-        percent: 100,
-        message: "Attendance import completed.",
-        processedRows: result?.savedRecords.length ?? 0,
-        totalRows: result?.savedRecords.length ?? 0,
-        savedRecords: result?.savedRecords.length ?? 0,
-        createdFines: result?.createdFines.length ?? 0
-      });
-      await loadRecords({ preserveScroll: true });
-      toast.success(
-        `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.${
-          shouldUseDetectedFileEvents ? " Used event/s from the uploaded file." : ""
-        }`
-      );
-    } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : "Unable to save attendance file.";
+      const message =
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to save attendance file.";
       setError(message);
       toast.error(message);
     } finally {
+      saveAbortControllerRef.current = null;
       setIsSaving(false);
     }
   }
@@ -2938,7 +4033,8 @@ export default function AttendancePage() {
 
     const payload: ManualAttendanceInput = {
       eventId: manualForm.eventId || undefined,
-      scannedAt: normalizeAttendanceDateTimeValue(manualForm.scannedAt) || undefined,
+      scannedAt:
+        normalizeAttendanceDateTimeValue(manualForm.scannedAt) || undefined,
       studentId,
       name,
       yearLevel: manualForm.yearLevel.trim(),
@@ -2946,7 +4042,7 @@ export default function AttendancePage() {
       program: manualForm.program.trim(),
       institution: manualForm.institution.trim(),
       noOfAbsences,
-      remarks: manualForm.remarks.trim()
+      remarks: manualForm.remarks.trim(),
     };
 
     setIsSavingManual(true);
@@ -2960,10 +4056,15 @@ export default function AttendancePage() {
       if (result?.record) {
         setRecords((current) => {
           if (editingRecordId) {
-            return current.map((record) => (record.id === result.record.id ? result.record : record));
+            return current.map((record) =>
+              record.id === result.record.id ? result.record : record,
+            );
           }
 
-          return [result.record, ...current.filter((record) => record.id !== result.record.id)];
+          return [
+            result.record,
+            ...current.filter((record) => record.id !== result.record.id),
+          ];
         });
       }
 
@@ -2971,9 +4072,16 @@ export default function AttendancePage() {
       handleCancelEdit();
       setManualDialogOpen(false);
       restoreCapturedScrollPosition();
-      toast.success(editingRecordId ? "Attendance record updated successfully." : "Attendance record saved successfully.");
+      toast.success(
+        editingRecordId
+          ? "Attendance record updated successfully."
+          : "Attendance record saved successfully.",
+      );
     } catch (manualError) {
-      const message = manualError instanceof Error ? manualError.message : "Unable to save attendance record.";
+      const message =
+        manualError instanceof Error
+          ? manualError.message
+          : "Unable to save attendance record.";
       setError(message);
       toast.error(message);
     } finally {
@@ -2995,7 +4103,7 @@ export default function AttendancePage() {
       name,
       eventStartAt: eventForm.eventStartAt || undefined,
       eventEndAt: eventForm.eventEndAt || undefined,
-      description: eventForm.description.trim()
+      description: eventForm.description.trim(),
     };
 
     setIsSavingEvent(true);
@@ -3015,7 +4123,10 @@ export default function AttendancePage() {
       setEventDialogOpen(false);
       restoreCapturedScrollPosition();
     } catch (eventError) {
-      const message = eventError instanceof Error ? eventError.message : "Unable to save event.";
+      const message =
+        eventError instanceof Error
+          ? eventError.message
+          : "Unable to save event.";
       setError(message);
       toast.error(message);
     } finally {
@@ -3035,7 +4146,7 @@ export default function AttendancePage() {
       program: record.program ?? "",
       institution: record.institution ?? "",
       noOfAbsences: String(record.no_of_absences ?? 0),
-      remarks: record.remarks ?? ""
+      remarks: record.remarks ?? "",
     });
     setManualDialogOpen(true);
     setError("");
@@ -3053,7 +4164,7 @@ export default function AttendancePage() {
       name: record.name,
       eventStartAt: toDateTimeLocalValue(record.event_start_at),
       eventEndAt: toDateTimeLocalValue(record.event_end_at),
-      description: record.description ?? ""
+      description: record.description ?? "",
     });
     setEventDialogOpen(true);
     setError("");
@@ -3079,7 +4190,10 @@ export default function AttendancePage() {
 
       toast.success("Attendance record deleted successfully.");
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance record.";
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete attendance record.";
       setError(message);
       toast.error(message);
     } finally {
@@ -3105,7 +4219,10 @@ export default function AttendancePage() {
 
       toast.success("Event deleted successfully.");
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete event.";
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete event.";
       setError(message);
       toast.error(message);
     } finally {
@@ -3127,7 +4244,10 @@ export default function AttendancePage() {
 
       toast.success("Attendance import deleted successfully.");
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance import.";
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete attendance import.";
       setError(message);
       toast.error(message);
     } finally {
@@ -3148,9 +4268,14 @@ export default function AttendancePage() {
       const result = await deleteAllAttendanceImports();
       await loadRecords({ preserveScroll: true });
       setSaved(null);
-      toast.success(`${result?.deletedCount ?? imports.length} attendance import/s deleted successfully.`);
+      toast.success(
+        `${result?.deletedCount ?? imports.length} attendance import/s deleted successfully.`,
+      );
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance imports.";
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete attendance imports.";
       setError(message);
       toast.error(message);
       await loadRecords({ preserveScroll: true });
@@ -3178,9 +4303,14 @@ export default function AttendancePage() {
         handleCancelEdit();
       }
 
-      toast.success(`${idsToDelete.length} attendance record/s deleted successfully.`);
+      toast.success(
+        `${idsToDelete.length} attendance record/s deleted successfully.`,
+      );
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance records.";
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete attendance records.";
       setError(message);
       toast.error(message);
       await loadRecords({ preserveScroll: true });
@@ -3191,20 +4321,55 @@ export default function AttendancePage() {
 
   useEffect(() => {
     return () => {
-      if (typeof window !== "undefined" && scrollRestoreFrameRef.current !== null) {
+      if (
+        typeof window !== "undefined" &&
+        scrollRestoreFrameRef.current !== null
+      ) {
         window.cancelAnimationFrame(scrollRestoreFrameRef.current);
       }
+
+      saveAbortControllerRef.current?.abort();
     };
   }, []);
 
   useEffect(() => {
-    if (eventFilter !== ALL_EVENTS_SELECT_VALUE && !eventFilterOptions.some((option) => option.value === eventFilter)) {
+    const snapshot = readResumableAttendanceImportSnapshot();
+    if (!snapshot) return;
+
+    setResumableImportSnapshot(snapshot);
+    setPreview(snapshot.preview);
+    setUploadEventId(snapshot.options.eventId);
+    setUploadEventName(snapshot.options.eventName);
+    setUploadEventStartAt(snapshot.options.eventStartAt);
+    setUploadEventEndAt(snapshot.options.eventEndAt);
+    setUploadEventDescription(snapshot.options.eventDescription);
+    setSaveProgress({
+      stage: "cancelled",
+      percent: snapshot.rows.length
+        ? Math.round((snapshot.processedRows / snapshot.rows.length) * 100)
+        : 0,
+      message: "Attendance import can be resumed where it left off.",
+      processedRows: snapshot.processedRows,
+      totalRows: snapshot.rows.length,
+      savedRecords: snapshot.savedRecordsCount,
+      createdFines: snapshot.createdFinesCount,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (
+      eventFilter !== ALL_EVENTS_SELECT_VALUE &&
+      !eventFilterOptions.some((option) => option.value === eventFilter)
+    ) {
       setEventFilter(ALL_EVENTS_SELECT_VALUE);
     }
   }, [eventFilter, eventFilterOptions]);
 
   useEffect(() => {
-    if (collegeFilter !== ALL_COLLEGES_SELECT_VALUE && !collegeFilterOptions.includes(collegeFilter)) {
+    if (
+      collegeFilter !== ALL_COLLEGES_SELECT_VALUE &&
+      !collegeFilterOptions.includes(collegeFilter)
+    ) {
       setCollegeFilter(ALL_COLLEGES_SELECT_VALUE);
     }
   }, [collegeFilter, collegeFilterOptions]);
@@ -3218,13 +4383,17 @@ export default function AttendancePage() {
       return Math.max(currentPercent, targetPercent);
     });
 
-    if (!isSaving || targetPercent >= 100 || typeof window === "undefined") return;
+    if (!isSaving || targetPercent >= 100 || typeof window === "undefined")
+      return;
 
     const intervalId = window.setInterval(() => {
       setDisplaySaveProgressPercent((currentPercent) => {
         const latestPercent = getSaveProgressPercent(saveProgress, isSaving);
         const nextBasePercent = Math.max(currentPercent, latestPercent);
-        const ceilingPercent = saveProgress?.stage === "syncing" ? 98 : Math.min(95, latestPercent + 3);
+        const ceilingPercent =
+          saveProgress?.stage === "syncing"
+            ? 98
+            : Math.min(95, latestPercent + 3);
 
         if (nextBasePercent >= ceilingPercent) return nextBasePercent;
         return Math.min(ceilingPercent, nextBasePercent + 1);
@@ -3243,8 +4412,12 @@ export default function AttendancePage() {
       <div className="mx-auto  min-w-0">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Attendance</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Upload and manage attendance</h1>
+            <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+              Attendance
+            </p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+              Upload and manage attendance
+            </h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <AttendanceEventDialog
@@ -3324,13 +4497,14 @@ export default function AttendancePage() {
                 <div className="flex flex-col gap-1">
                   <h2 className="text-xl font-black">Upload event</h2>
                   <p className="text-sm font-semibold text-muted-foreground">
-                    Use the event/s detected in the file, select an existing event, or enter a new event name only when
-                    the file has no event column.
+                    Use the event/s detected in the file, select an existing
+                    event, or enter a new event name only when the file has no
+                    event column.
                   </p>
                 </div>
                 <div className="mt-5">
                   <EventFields
-                    events={events}
+                    events={displayEvents}
                     fileEventNames={previewEventNames}
                     eventId={uploadEventId}
                     eventName={uploadEventName}
@@ -3347,7 +4521,35 @@ export default function AttendancePage() {
               </section>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            {resumableImportSnapshot ? (
+              <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                      Resumable import
+                    </p>
+                    <p className="mt-1 wrap-break-word text-sm font-semibold">
+                      {resumableImportSnapshot.fileName}
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-muted-foreground">
+                      {resumableImportSnapshot.processedRows}/
+                      {resumableImportSnapshot.rows.length} row/s saved
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={clearResumableImportSnapshot}
+                    disabled={isSaving}
+                    className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                  >
+                    Discard
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-3">
               <Button
                 type="button"
                 variant="outline"
@@ -3360,28 +4562,53 @@ export default function AttendancePage() {
               <Button
                 type="button"
                 onClick={handleSave}
-                disabled={!file || !uploadEventReady || isPreviewing || isSaving}
+                disabled={!uploadEventReady || isPreviewing || isSaving}
                 className="min-h-12 rounded-2xl px-5 py-3"
               >
-                {isSaving ? `Saving ${saveProgressPercent}%` : "Save Import"}
+                {isSaving
+                  ? `Saving ${saveProgressPercent}%`
+                  : resumableImportSnapshot
+                    ? "Resume Import"
+                    : "Save Import"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelSave}
+                disabled={!isSaving}
+                className="min-h-12 rounded-2xl px-5 py-3"
+              >
+                Cancel Import
               </Button>
             </div>
 
             {isSaving || saveProgress ? (
-              <section className="min-w-0 rounded-3xl border bg-card p-4 shadow-sm sm:p-6" aria-live="polite">
+              <section
+                className="min-w-0 rounded-3xl border bg-card p-4 shadow-sm sm:p-6"
+                aria-live="polite"
+              >
                 <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">Saving progress</p>
-                    <p className="mt-1 wrap-break-word text-sm font-semibold">{saveProgressMessage}</p>
+                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                      Saving progress
+                    </p>
+                    <p className="mt-1 wrap-break-word text-sm font-semibold">
+                      {saveProgressMessage}
+                    </p>
                   </div>
                   <span className="w-fit shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
                     {saveProgressPercent}%
                   </span>
                 </div>
-                <Progress value={saveProgressPercent} className="mt-4 h-3 w-full min-w-0" />
+                <Progress
+                  value={saveProgressPercent}
+                  className="mt-4 h-3 w-full min-w-0"
+                />
                 <div className="mt-3 grid min-w-0 gap-1 text-xs font-bold text-muted-foreground sm:grid-cols-2 sm:items-center">
                   <span className="wrap-break-word">{saveProgressRowText}</span>
-                  <span className="wrap-break-word sm:text-right">{saveProgress?.savedRecords ?? 0} record/s saved</span>
+                  <span className="wrap-break-word sm:text-right">
+                    {saveProgress?.savedRecords ?? 0} record/s saved
+                  </span>
                 </div>
               </section>
             ) : null}
@@ -3394,28 +4621,42 @@ export default function AttendancePage() {
 
             {saved ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-                Attendance imported successfully. Created {saved.createdFines.length} fine record/s.
+                Attendance imported successfully. Created{" "}
+                {saveProgress?.createdFines ?? saved.createdFines.length} fine
+                record/s.
               </div>
             ) : null}
 
             <AttendanceResponsivePanel
               title="Events"
-              summary={`${events.length} event/s`}
+              summary={`${displayEvents.length} event/s`}
               description="View, edit, and delete attendance events."
             >
-              <p className="mb-4 text-sm font-bold text-muted-foreground">{events.length} event/s</p>
+              <p className="mb-4 text-sm font-bold text-muted-foreground">
+                {displayEvents.length} event/s
+              </p>
 
-              {events.length ? (
+              {displayEvents.length ? (
                 <div className="space-y-3">
-                  {events.map((event) => (
-                    <article key={event.id} className="min-w-0 rounded-2xl border bg-background p-4 wrap-break-word">
+                  {displayEvents.map((event) => (
+                    <article
+                      key={event.id}
+                      className="min-w-0 rounded-2xl border bg-background p-4 wrap-break-word"
+                    >
                       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <p className="wrap-break-word font-black">{event.name}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {formatEventSchedule(event)} • {event.attendees_count} attendee/s
+                          <p className="wrap-break-word font-black">
+                            {event.name}
                           </p>
-                          {event.description ? <p className="mt-2 text-sm text-muted-foreground">{event.description}</p> : null}
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {formatEventSchedule(event)} •{" "}
+                            {event.attendees_count} attendee/s
+                          </p>
+                          {event.description ? (
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              {event.description}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -3451,7 +4692,8 @@ export default function AttendancePage() {
             >
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm font-semibold text-muted-foreground">
-                  Delete imported files and the attendance records created from them.
+                  Delete imported files and the attendance records created from
+                  them.
                 </p>
                 <DeleteAttendanceRecordsConfirmation
                   label="Delete All Imports"
@@ -3467,12 +4709,18 @@ export default function AttendancePage() {
               {imports.length ? (
                 <div className="space-y-3">
                   {imports.map((attendanceImport) => (
-                    <article key={attendanceImport.id} className="min-w-0 rounded-2xl border bg-background p-4 wrap-break-word">
+                    <article
+                      key={attendanceImport.id}
+                      className="min-w-0 rounded-2xl border bg-background p-4 wrap-break-word"
+                    >
                       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <p className="break-all font-black">{attendanceImport.file_name}</p>
+                          <p className="break-all font-black">
+                            {attendanceImport.file_name}
+                          </p>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            {attendanceImport.rows_valid} valid row/s • {attendanceImport.rows_invalid} invalid row/s •{" "}
+                            {attendanceImport.rows_valid} valid row/s •{" "}
+                            {attendanceImport.rows_invalid} invalid row/s •{" "}
                             {formatDate(attendanceImport.created_at)}
                           </p>
                           {attendanceImport.event_name ? (
@@ -3483,7 +4731,10 @@ export default function AttendancePage() {
                         </div>
                         <DeleteAttendanceImportConfirmation
                           attendanceImport={attendanceImport}
-                          isDeleting={deletingImportId === attendanceImport.id || isDeletingImports}
+                          isDeleting={
+                            deletingImportId === attendanceImport.id ||
+                            isDeletingImports
+                          }
                           onConfirm={handleDeleteImport}
                           className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                         />
@@ -3501,22 +4752,32 @@ export default function AttendancePage() {
 
           <AttendanceResponsivePanel
             title="Preview result"
-            summary={preview ? `${preview.rowsValid} valid / ${preview.rowsInvalid} invalid` : "No preview yet"}
+            summary={
+              preview
+                ? `${preview.rowsValid} valid / ${preview.rowsInvalid} invalid`
+                : "No preview yet"
+            }
             description="View the parsed attendance file preview, row counts, and validation status."
           >
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
               {preview ? (
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-xl bg-muted px-3 py-2">
-                    <p className="text-xs font-bold text-muted-foreground">Total</p>
+                    <p className="text-xs font-bold text-muted-foreground">
+                      Total
+                    </p>
                     <p className="font-black">{preview.rowsTotal}</p>
                   </div>
                   <div className="rounded-xl bg-muted px-3 py-2">
-                    <p className="text-xs font-bold text-muted-foreground">Valid</p>
+                    <p className="text-xs font-bold text-muted-foreground">
+                      Valid
+                    </p>
                     <p className="font-black">{preview.rowsValid}</p>
                   </div>
                   <div className="rounded-xl bg-muted px-3 py-2">
-                    <p className="text-xs font-bold text-muted-foreground">Invalid</p>
+                    <p className="text-xs font-bold text-muted-foreground">
+                      Invalid
+                    </p>
                     <p className="font-black">{preview.rowsInvalid}</p>
                   </div>
                 </div>
@@ -3542,16 +4803,33 @@ export default function AttendancePage() {
                   </thead>
                   <tbody>
                     {preview.rows.slice(0, 30).map((row) => (
-                      <tr key={`${row.rowNumber}-${row.studentId}`} className="border-b last:border-b-0">
-                        <td className="px-3 py-3 font-semibold">{row.rowNumber}</td>
-                        <td className="px-3 py-3">{row.eventName || uploadEventName || "—"}</td>
-                        <td className="px-3 py-3">{formatDateTime(row.eventStartAt || uploadEventStartAt)}</td>
-                        <td className="px-3 py-3">{formatDateTime(row.eventEndAt || uploadEventEndAt)}</td>
-                        <td className="px-3 py-3">{formatDateTime(row.scannedAt)}</td>
+                      <tr
+                        key={`${row.rowNumber}-${row.studentId}`}
+                        className="border-b last:border-b-0"
+                      >
+                        <td className="px-3 py-3 font-semibold">
+                          {row.rowNumber}
+                        </td>
+                        <td className="px-3 py-3">
+                          {row.eventName || uploadEventName || "—"}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatDateTime(
+                            row.eventStartAt || uploadEventStartAt,
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatDateTime(row.eventEndAt || uploadEventEndAt)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatDateTime(row.scannedAt)}
+                        </td>
                         <td className="px-3 py-3">{row.studentId || "—"}</td>
                         <td className="px-3 py-3">{row.name || "—"}</td>
                         <td className="px-3 py-3">{row.noOfAbsences ?? 0}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
+                        <td className="px-3 py-3 text-muted-foreground">
+                          {row.remarks || "—"}
+                        </td>
                         <td className="px-3 py-3">
                           {row.errors.length ? (
                             <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
@@ -3568,7 +4846,9 @@ export default function AttendancePage() {
                   </tbody>
                 </table>
                 {preview.rows.length > 30 ? (
-                  <p className="mt-3 text-xs font-semibold text-muted-foreground">Showing first 30 rows only.</p>
+                  <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                    Showing first 30 rows only.
+                  </p>
                 ) : null}
               </div>
             ) : (
@@ -3580,7 +4860,9 @@ export default function AttendancePage() {
             {invalidRows.length ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 <p className="font-black">Rows that need review</p>
-                <p className="mt-1">{invalidRows.length} invalid row/s will not be saved.</p>
+                <p className="mt-1">
+                  {invalidRows.length} invalid row/s will not be saved.
+                </p>
               </div>
             ) : null}
           </AttendanceResponsivePanel>
@@ -3592,165 +4874,212 @@ export default function AttendancePage() {
             summary={`${filteredRecordCount} shown from ${mergedRecords.length} loaded record/s`}
             description="Search, filter, select, edit, and delete recent attendance records."
           >
-          <div className="mb-4 grid gap-3 lg:grid-cols-3 lg:items-start">
-            <form onSubmit={handleSearchRecords} className="flex min-w-0 flex-col gap-2">
-              <Label htmlFor="attendance-record-search" className="sr-only">
-                Search attendance records
-              </Label>
-              <Input
-                id="attendance-record-search"
-                value={recordSearch}
-                onChange={(event) => setRecordSearch(event.target.value)}
-                placeholder="Search Student ID or name"
-                className="min-h-10 rounded-2xl"
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+            <div className="mb-4 grid gap-3 lg:grid-cols-3 lg:items-start">
+              <form
+                onSubmit={handleSearchRecords}
+                className="flex min-w-0 flex-col gap-2"
               >
-                Search Records
-              </Button>
-            </form>
-
-            <div className="grid min-w-0 gap-2">
-              <div className="w-full">
-                <Label htmlFor="attendance-event-filter" className="sr-only">
-                  Event filter
+                <Label htmlFor="attendance-record-search" className="sr-only">
+                  Search attendance records
                 </Label>
-                <Select value={eventFilter} onValueChange={setEventFilter}>
-                  <SelectTrigger id="attendance-event-filter" className="min-h-10 w-full rounded-2xl">
-                    <SelectValue placeholder="Switch event" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_EVENTS_SELECT_VALUE}>All events</SelectItem>
-                    {eventFilterOptions.map((eventOption) => (
-                      <SelectItem key={eventOption.value} value={eventOption.value}>
-                        {eventOption.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="w-full">
-                <Label htmlFor="attendance-college-filter" className="sr-only">
-                  College filter
-                </Label>
-                <Select value={collegeFilter} onValueChange={setCollegeFilter}>
-                  <SelectTrigger id="attendance-college-filter" className="min-h-10 w-full rounded-2xl">
-                    <SelectValue placeholder="Filter by college" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_COLLEGES_SELECT_VALUE}>All colleges</SelectItem>
-                    {collegeFilterOptions.map((college) => (
-                      <SelectItem key={college} value={college}>
-                        {college === NO_COLLEGE_SELECT_VALUE ? "No college" : college}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-2">
-              {selectedRecordCount ? (
-                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                  {selectedRecordCount} selected
-                </p>
-              ) : null}
-              <DeleteAttendanceRecordsConfirmation
-                label="Delete Selected"
-                title="Delete selected attendance records?"
-                description={`This will permanently delete ${selectedRecordCount} selected attendance record/s.`}
-                isDeleting={isDeletingBulk}
-                disabled={!selectedRecordCount}
-                onConfirm={() => handleDeleteRecords(selectedRecordIds)}
-                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-              />
-              <DeleteAttendanceRecordsConfirmation
-                label="Delete All"
-                title="Delete all attendance records?"
-                description={`This will permanently delete all ${records.length} loaded attendance record/s.`}
-                isDeleting={isDeletingBulk}
-                disabled={!records.length}
-                onConfirm={() => handleDeleteRecords(records.map((record) => record.id))}
-                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-              />
-            </div>
-          </div>
-
-          {records.length ? (
-            <div className="space-y-4">
-              <div className="flex min-w-0 items-center gap-3 rounded-2xl border bg-background px-4 py-3">
-                <Checkbox
-                  checked={recordHeaderChecked}
-                  onCheckedChange={handleToggleAllRecords}
-                  aria-label="Select filtered attendance records"
-                  className="shrink-0"
+                <Input
+                  id="attendance-record-search"
+                  value={recordSearch}
+                  onChange={(event) => setRecordSearch(event.target.value)}
+                  placeholder="Search Student ID or name"
+                  className="min-h-10 rounded-2xl"
                 />
-                <div className="min-w-0">
-                  <p className="wrap-break-word text-sm font-black">Select filtered attendance records</p>
-                  <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
-                    {filteredRecordCount} shown from {mergedRecords.length} loaded record/s
-                  </p>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+                >
+                  Search Records
+                </Button>
+              </form>
+
+              <div className="grid min-w-0 gap-2">
+                <div className="w-full">
+                  <Label htmlFor="attendance-event-filter" className="sr-only">
+                    Event filter
+                  </Label>
+                  <Select value={eventFilter} onValueChange={setEventFilter}>
+                    <SelectTrigger
+                      id="attendance-event-filter"
+                      className="min-h-10 w-full rounded-2xl"
+                    >
+                      <SelectValue placeholder="Switch event" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_EVENTS_SELECT_VALUE}>
+                        All events
+                      </SelectItem>
+                      {eventFilterOptions.map((eventOption) => (
+                        <SelectItem
+                          key={eventOption.value}
+                          value={eventOption.value}
+                        >
+                          {eventOption.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="w-full">
+                  <Label
+                    htmlFor="attendance-college-filter"
+                    className="sr-only"
+                  >
+                    College filter
+                  </Label>
+                  <Select
+                    value={collegeFilter}
+                    onValueChange={setCollegeFilter}
+                  >
+                    <SelectTrigger
+                      id="attendance-college-filter"
+                      className="min-h-10 w-full rounded-2xl"
+                    >
+                      <SelectValue placeholder="Filter by college" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_COLLEGES_SELECT_VALUE}>
+                        All colleges
+                      </SelectItem>
+                      {collegeFilterOptions.map((college) => (
+                        <SelectItem key={college} value={college}>
+                          {college === NO_COLLEGE_SELECT_VALUE
+                            ? "No college"
+                            : college}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
-              {attendanceEventGroups.length ? (
-                <div className="space-y-3">
-                  {attendanceEventGroups.map((group) => {
-                    const selectedGroupRecordCount = group.records.filter((record) =>
-                      selectedRecordIdsSet.has(record.id)
-                    ).length;
-                    const allGroupRecordsSelected =
-                      group.records.length > 0 && selectedGroupRecordCount === group.records.length;
-                    const eventRecordChecked =
-                      allGroupRecordsSelected ? true : selectedGroupRecordCount > 0 ? "indeterminate" : false;
+              <div className="flex min-w-0 flex-col gap-2">
+                {selectedRecordCount ? (
+                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                    {selectedRecordCount} selected
+                  </p>
+                ) : null}
+                <DeleteAttendanceRecordsConfirmation
+                  label="Delete Selected"
+                  title="Delete selected attendance records?"
+                  description={`This will permanently delete ${selectedRecordCount} selected attendance record/s.`}
+                  isDeleting={isDeletingBulk}
+                  disabled={!selectedRecordCount}
+                  onConfirm={() => handleDeleteRecords(selectedRecordIds)}
+                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+                />
+                <DeleteAttendanceRecordsConfirmation
+                  label="Delete All"
+                  title="Delete all attendance records?"
+                  description={`This will permanently delete all ${records.length} loaded attendance record/s.`}
+                  isDeleting={isDeletingBulk}
+                  disabled={!records.length}
+                  onConfirm={() =>
+                    handleDeleteRecords(records.map((record) => record.id))
+                  }
+                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+                />
+              </div>
+            </div>
 
-                    return (
-                      <article key={group.key} className="rounded-2xl border bg-background px-4 py-4">
-                        <div className="flex min-w-0 w-full flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="flex min-w-0 flex-1 items-start gap-3">
-                            <Checkbox
-                              checked={eventRecordChecked}
-                              onCheckedChange={(checked) => handleToggleGroupedRecordsSelected(group.records, checked)}
-                              aria-label={`Select attendance records for ${group.eventName}`}
-                              className="mt-1 shrink-0"
-                            />
-                            <AttendanceEventGroupTriggerContent
-                              group={group}
-                              selectedGroupRecordCount={selectedGroupRecordCount}
-                            />
-                          </div>
-                          <div className="flex shrink-0 justify-start lg:justify-end">
-                            <AttendanceEventAttendeesDialog
-                              group={group}
-                              selectedRecordIdsSet={selectedRecordIdsSet}
-                              deletingRecordId={deletingRecordId}
-                              isDeletingBulk={isDeletingBulk}
-                              onToggleRecordSelected={handleToggleRecordSelected}
-                              onToggleAttendeeRecordsSelected={handleToggleGroupedRecordsSelected}
-                              onEditRecord={handleEditRecord}
-                              onDeleteRecord={handleDeleteRecord}
-                            />
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
+            {records.length ? (
+              <div className="space-y-4">
+                <div className="flex min-w-0 items-center gap-3 rounded-2xl border bg-background px-4 py-3">
+                  <Checkbox
+                    checked={recordHeaderChecked}
+                    onCheckedChange={handleToggleAllRecords}
+                    aria-label="Select filtered attendance records"
+                    className="shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="wrap-break-word text-sm font-black">
+                      Select filtered attendance records
+                    </p>
+                    <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
+                      {filteredRecordCount} shown from {mergedRecords.length}{" "}
+                      loaded record/s
+                    </p>
+                  </div>
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No attendance records matched this college filter.
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-              No attendance records loaded yet.
-            </div>
-          )}
+
+                {attendanceEventGroups.length ? (
+                  <div className="space-y-3">
+                    {attendanceEventGroups.map((group) => {
+                      const selectedGroupRecordCount = group.records.filter(
+                        (record) => selectedRecordIdsSet.has(record.id),
+                      ).length;
+                      const allGroupRecordsSelected =
+                        group.records.length > 0 &&
+                        selectedGroupRecordCount === group.records.length;
+                      const eventRecordChecked = allGroupRecordsSelected
+                        ? true
+                        : selectedGroupRecordCount > 0
+                          ? "indeterminate"
+                          : false;
+
+                      return (
+                        <article
+                          key={group.key}
+                          className="rounded-2xl border bg-background px-4 py-4"
+                        >
+                          <div className="flex min-w-0 w-full flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="flex min-w-0 flex-1 items-start gap-3">
+                              <Checkbox
+                                checked={eventRecordChecked}
+                                onCheckedChange={(checked) =>
+                                  handleToggleGroupedRecordsSelected(
+                                    group.records,
+                                    checked,
+                                  )
+                                }
+                                aria-label={`Select attendance records for ${group.eventName}`}
+                                className="mt-1 shrink-0"
+                              />
+                              <AttendanceEventGroupTriggerContent
+                                group={group}
+                                selectedGroupRecordCount={
+                                  selectedGroupRecordCount
+                                }
+                              />
+                            </div>
+                            <div className="flex shrink-0 justify-start lg:justify-end">
+                              <AttendanceEventAttendeesDialog
+                                group={group}
+                                selectedRecordIdsSet={selectedRecordIdsSet}
+                                deletingRecordId={deletingRecordId}
+                                isDeletingBulk={isDeletingBulk}
+                                onToggleRecordSelected={
+                                  handleToggleRecordSelected
+                                }
+                                onToggleAttendeeRecordsSelected={
+                                  handleToggleGroupedRecordsSelected
+                                }
+                                onEditRecord={handleEditRecord}
+                                onDeleteRecord={handleDeleteRecord}
+                              />
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                    No attendance records matched this college filter.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                No attendance records loaded yet.
+              </div>
+            )}
           </AttendanceResponsivePanel>
         </div>
       </div>

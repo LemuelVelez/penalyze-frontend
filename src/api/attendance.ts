@@ -1,5 +1,12 @@
 export type ImportStatus = "previewed" | "saved" | "failed";
-export type AttendanceImportProgressStage = "preparing" | "parsing" | "validating" | "saving" | "syncing" | "completed";
+export type AttendanceImportProgressStage =
+  | "preparing"
+  | "parsing"
+  | "validating"
+  | "saving"
+  | "syncing"
+  | "completed"
+  | "cancelled";
 
 export type AttendanceEvent = {
   id: string;
@@ -98,7 +105,9 @@ export type AttendanceImportProgress = {
   createdFines: number;
 };
 
-export type AttendanceImportProgressCallback = (progress: AttendanceImportProgress) => void;
+export type AttendanceImportProgressCallback = (
+  progress: AttendanceImportProgress,
+) => void;
 
 export type SavedAttendanceImportResult = AttendancePreviewResult & {
   importId: string;
@@ -139,7 +148,23 @@ export type AttendanceImportSaveOptions = {
   eventStartAt?: string;
   eventEndAt?: string;
   eventDescription?: string;
+  resumeImportId?: string;
   onProgress?: AttendanceImportProgressCallback;
+  signal?: AbortSignal;
+};
+
+export type AttendanceRowsSaveInput = {
+  eventId?: string;
+  eventName?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
+  eventDescription?: string;
+  resumeImportId?: string;
+  fileName?: string;
+  fileType?: string;
+  rows: ParsedAttendanceRow[];
+  onProgress?: AttendanceImportProgressCallback;
+  signal?: AbortSignal;
 };
 
 const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.csv,.txt,.docx,.doc";
@@ -157,10 +182,16 @@ function getApiBaseUrl() {
 }
 
 function getAuthToken() {
-  return localStorage.getItem("penalyze.auth.token") || sessionStorage.getItem("penalyze.auth.token") || "";
+  return (
+    localStorage.getItem("penalyze.auth.token") ||
+    sessionStorage.getItem("penalyze.auth.token") ||
+    ""
+  );
 }
 
-function buildSearchParams(params: Record<string, string | number | undefined>) {
+function buildSearchParams(
+  params: Record<string, string | number | undefined>,
+) {
   const search = new URLSearchParams();
 
   Object.entries(params).forEach(([key, value]) => {
@@ -175,7 +206,11 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   const token = getAuthToken();
 
-  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+  if (
+    !headers.has("Content-Type") &&
+    options.body &&
+    !(options.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -186,14 +221,18 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
-    credentials: "include"
+    credentials: "include",
   });
 
   const contentType = response.headers.get("content-type") ?? "";
-  const payload = contentType.includes("application/json") ? await response.json() : null;
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
   }
 
   return payload as ApiEnvelope<T>;
@@ -208,7 +247,11 @@ function getApiRequestHeaders(options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   const token = getAuthToken();
 
-  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+  if (
+    !headers.has("Content-Type") &&
+    options.body &&
+    !(options.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -229,7 +272,7 @@ function parseAttendanceProgressStreamLine<T>(line: string) {
 
 async function readAttendanceProgressStream<T>(
   response: Response,
-  onProgress?: AttendanceImportProgressCallback
+  onProgress?: AttendanceImportProgressCallback,
 ): Promise<ApiEnvelope<T>> {
   if (!response.body) {
     const payload = (await response.json()) as ApiEnvelope<T>;
@@ -271,18 +314,25 @@ async function readAttendanceProgressStream<T>(
     if (done) break;
   }
 
-  const remainingMessage = buffer.trim() ? parseAttendanceProgressStreamLine<T>(buffer.trim()) : null;
+  const remainingMessage = buffer.trim()
+    ? parseAttendanceProgressStreamLine<T>(buffer.trim())
+    : null;
 
   if (remainingMessage?.type === "progress") {
     onProgress?.(remainingMessage.progress);
   }
 
   if (remainingMessage?.type === "success") {
-    successPayload = { message: remainingMessage.message, data: remainingMessage.data };
+    successPayload = {
+      message: remainingMessage.message,
+      data: remainingMessage.data,
+    };
   }
 
   if (remainingMessage?.type === "error") {
-    throw new Error(remainingMessage.message || "Unable to save attendance import.");
+    throw new Error(
+      remainingMessage.message || "Unable to save attendance import.",
+    );
   }
 
   if (!successPayload) {
@@ -295,29 +345,39 @@ async function readAttendanceProgressStream<T>(
 async function apiProgressRequest<T>(
   path: string,
   options: RequestInit = {},
-  onProgress?: AttendanceImportProgressCallback
+  onProgress?: AttendanceImportProgressCallback,
 ) {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers: getApiRequestHeaders(options),
-    credentials: "include"
+    credentials: "include",
   });
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
-    const payload = contentType.includes("application/json") ? await response.json() : null;
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
   }
 
   return readAttendanceProgressStream<T>(response, onProgress);
 }
 
-function appendSaveOptions(body: FormData, options: AttendanceImportSaveOptions = {}) {
+function appendSaveOptions(
+  body: FormData,
+  options: AttendanceImportSaveOptions = {},
+) {
   if (options.eventId) body.set("eventId", options.eventId);
   if (options.eventName) body.set("eventName", options.eventName);
   if (options.eventStartAt) body.set("eventStartAt", options.eventStartAt);
   if (options.eventEndAt) body.set("eventEndAt", options.eventEndAt);
-  if (options.eventDescription) body.set("eventDescription", options.eventDescription);
+  if (options.eventDescription)
+    body.set("eventDescription", options.eventDescription);
+  if (options.resumeImportId)
+    body.set("resumeImportId", options.resumeImportId);
 }
 
 export function getAcceptedAttendanceFileTypes() {
@@ -325,41 +385,56 @@ export function getAcceptedAttendanceFileTypes() {
 }
 
 export function normalizeStudentId(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
-export async function listAttendanceEvents(options: Pick<ListOptions, "limit" | "offset"> = {}) {
+export async function listAttendanceEvents(
+  options: Pick<ListOptions, "limit" | "offset"> = {},
+) {
   const query = buildSearchParams({
     limit: options.limit ?? 100,
-    offset: options.offset ?? 0
+    offset: options.offset ?? 0,
   });
 
-  const response = await apiRequest<AttendanceEvent[]>(`/api/attendance/events${query}`);
+  const response = await apiRequest<AttendanceEvent[]>(
+    `/api/attendance/events${query}`,
+  );
   return response.data ?? [];
 }
 
 export async function saveAttendanceEvent(input: AttendanceEventInput) {
   const response = await apiRequest<AttendanceEvent>("/api/attendance/events", {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return response.data;
 }
 
-export async function updateAttendanceEvent(id: string, input: AttendanceEventInput) {
-  const response = await apiRequest<AttendanceEvent>(`/api/attendance/events/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify(input)
-  });
+export async function updateAttendanceEvent(
+  id: string,
+  input: AttendanceEventInput,
+) {
+  const response = await apiRequest<AttendanceEvent>(
+    `/api/attendance/events/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
 
   return response.data;
 }
 
 export async function deleteAttendanceEvent(id: string) {
-  const response = await apiRequest<AttendanceEvent>(`/api/attendance/events/${encodeURIComponent(id)}`, {
-    method: "DELETE"
-  });
+  const response = await apiRequest<AttendanceEvent>(
+    `/api/attendance/events/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }
@@ -370,20 +445,32 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
     offset: options.offset ?? 0,
     studentId: options.studentId,
     eventId: options.eventId,
-    college: options.college
+    college: options.college,
   });
 
-  const response = await apiRequest<AttendanceRecord[]>(`/api/attendance${query}`);
+  const response = await apiRequest<AttendanceRecord[]>(
+    `/api/attendance${query}`,
+  );
   const rows = response.data ?? [];
 
   if (!options.studentId && !options.college) return rows;
 
-  const targetStudentId = options.studentId ? normalizeStudentId(options.studentId) : "";
-  const targetCollege = options.college ? String(options.college).trim().toLowerCase() : "";
+  const targetStudentId = options.studentId
+    ? normalizeStudentId(options.studentId)
+    : "";
+  const targetCollege = options.college
+    ? String(options.college).trim().toLowerCase()
+    : "";
 
   return rows.filter((row) => {
-    const matchesStudent = !targetStudentId || normalizeStudentId(row.student_id) === targetStudentId;
-    const matchesCollege = !targetCollege || String(row.college ?? "").trim().toLowerCase() === targetCollege;
+    const matchesStudent =
+      !targetStudentId ||
+      normalizeStudentId(row.student_id) === targetStudentId;
+    const matchesCollege =
+      !targetCollege ||
+      String(row.college ?? "")
+        .trim()
+        .toLowerCase() === targetCollege;
 
     return matchesStudent && matchesCollege;
   });
@@ -394,7 +481,9 @@ type ListAllAttendanceRecordsOptions = Omit<ListOptions, "limit" | "offset"> & {
   maxPages?: number;
 };
 
-export async function listAllAttendanceRecords(options: ListAllAttendanceRecordsOptions = {}) {
+export async function listAllAttendanceRecords(
+  options: ListAllAttendanceRecordsOptions = {},
+) {
   const pageSize = options.pageSize ?? 500;
   const maxPages = options.maxPages ?? 100;
   const records: AttendanceRecord[] = [];
@@ -403,7 +492,7 @@ export async function listAllAttendanceRecords(options: ListAllAttendanceRecords
     const pageRows = await listAttendanceRecords({
       ...options,
       limit: pageSize,
-      offset: page * pageSize
+      offset: page * pageSize,
     });
 
     records.push(...pageRows);
@@ -416,17 +505,21 @@ export async function listAllAttendanceRecords(options: ListAllAttendanceRecords
 
 export async function getStudentAttendanceRecords(studentId: string) {
   return listAllAttendanceRecords({
-    studentId
+    studentId,
   });
 }
 
-export async function listAttendanceImports(options: Pick<ListOptions, "limit" | "offset"> = {}) {
+export async function listAttendanceImports(
+  options: Pick<ListOptions, "limit" | "offset"> = {},
+) {
   const query = buildSearchParams({
     limit: options.limit ?? 50,
-    offset: options.offset ?? 0
+    offset: options.offset ?? 0,
   });
 
-  const response = await apiRequest<AttendanceImportRecord[]>(`/api/attendance/imports${query}`);
+  const response = await apiRequest<AttendanceImportRecord[]>(
+    `/api/attendance/imports${query}`,
+  );
   return response.data ?? [];
 }
 
@@ -440,17 +533,23 @@ export async function getAttendanceImport(importId: string) {
 }
 
 export async function deleteAttendanceImport(importId: string) {
-  const response = await apiRequest<AttendanceImportRecord>(`/api/attendance/imports/${encodeURIComponent(importId)}`, {
-    method: "DELETE"
-  });
+  const response = await apiRequest<AttendanceImportRecord>(
+    `/api/attendance/imports/${encodeURIComponent(importId)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }
 
 export async function deleteAllAttendanceImports() {
-  const response = await apiRequest<DeletedAttendanceImportsResult>("/api/attendance/imports", {
-    method: "DELETE"
-  });
+  const response = await apiRequest<DeletedAttendanceImportsResult>(
+    "/api/attendance/imports",
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }
@@ -459,16 +558,22 @@ export async function previewAttendanceFile(file: File) {
   const body = new FormData();
   body.set("file", file);
 
-  const response = await apiRequest<AttendancePreviewResult>("/api/attendance/import/preview", {
-    method: "POST",
-    body
-  });
+  const response = await apiRequest<AttendancePreviewResult>(
+    "/api/attendance/import/preview",
+    {
+      method: "POST",
+      body,
+    },
+  );
 
   return response.data;
 }
 
-export async function saveAttendanceFile(file: File, options: AttendanceImportSaveOptions = {}) {
-  const { onProgress, ...saveOptions } = options;
+export async function saveAttendanceFile(
+  file: File,
+  options: AttendanceImportSaveOptions = {},
+) {
+  const { onProgress, signal, ...saveOptions } = options;
   const body = new FormData();
   body.set("file", file);
   appendSaveOptions(body, saveOptions);
@@ -478,58 +583,82 @@ export async function saveAttendanceFile(file: File, options: AttendanceImportSa
         "/api/attendance/import/save/progress",
         {
           method: "POST",
-          body
+          body,
+          signal,
         },
-        onProgress
+        onProgress,
       )
-    : await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
-        method: "POST",
-        body
-      });
+    : await apiRequest<SavedAttendanceImportResult>(
+        "/api/attendance/import/save",
+        {
+          method: "POST",
+          body,
+          signal,
+        },
+      );
 
   return response.data;
 }
 
-export async function saveAttendanceRows(input: {
-  eventId?: string;
-  eventName?: string;
-  eventStartAt?: string;
-  eventEndAt?: string;
-  eventDescription?: string;
-  fileName?: string;
-  fileType?: string;
-  rows: ParsedAttendanceRow[];
-}) {
-  const response = await apiRequest<SavedAttendanceImportResult>("/api/attendance/import/save", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+export async function saveAttendanceRows(input: AttendanceRowsSaveInput) {
+  const { onProgress, signal, ...payload } = input;
+
+  const response = onProgress
+    ? await apiProgressRequest<SavedAttendanceImportResult>(
+        "/api/attendance/import/save/progress",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          signal,
+        },
+        onProgress,
+      )
+    : await apiRequest<SavedAttendanceImportResult>(
+        "/api/attendance/import/save",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          signal,
+        },
+      );
 
   return response.data;
 }
 
 export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
-  const response = await apiRequest<ManualAttendanceSaveResult>("/api/attendance/manual", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+  const response = await apiRequest<ManualAttendanceSaveResult>(
+    "/api/attendance/manual",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 
   return response.data;
 }
 
-export async function updateAttendanceRecord(id: string, input: ManualAttendanceInput) {
-  const response = await apiRequest<ManualAttendanceSaveResult>(`/api/attendance/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify(input)
-  });
+export async function updateAttendanceRecord(
+  id: string,
+  input: ManualAttendanceInput,
+) {
+  const response = await apiRequest<ManualAttendanceSaveResult>(
+    `/api/attendance/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
 
   return response.data;
 }
 
 export async function deleteAttendanceRecord(id: string) {
-  const response = await apiRequest<AttendanceRecord>(`/api/attendance/${encodeURIComponent(id)}`, {
-    method: "DELETE"
-  });
+  const response = await apiRequest<AttendanceRecord>(
+    `/api/attendance/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }
