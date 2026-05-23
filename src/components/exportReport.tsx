@@ -233,7 +233,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
                 <td>${escapeHtml(row.studentId || "—")}</td>
                 <td>${escapeHtml(row.name || "—")}</td>
                 <td>${escapeHtml(row.college)}</td>
-                <td>${escapeHtml(getAbsenceText(row))}</td>
+                <td class="absences-cell">${escapeHtml(getAbsenceText(row))}</td>
                 <td>${escapeHtml(getFineText(row))}</td>
                 <td>${escapeHtml(formatDate(row.latestDate))}</td>
               </tr>
@@ -288,6 +288,10 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
       color: #1e3a8a;
       font-weight: 700;
     }
+    .absences-cell {
+      text-align: center;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -300,7 +304,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
         <th>Student ID</th>
         <th>Name</th>
         <th>College</th>
-        <th>Absences</th>
+        <th class="absences-cell">Absences</th>
         <th>Fine / Penalty</th>
         <th>Latest Date</th>
       </tr>
@@ -408,7 +412,7 @@ export default function ExportReport(props: ExportReportProps) {
                 <th className="px-3 py-3">Student ID</th>
                 <th className="px-3 py-3">Name</th>
                 <th className="px-3 py-3">College</th>
-                <th className="px-3 py-3">Absences</th>
+                <th className="px-3 py-3 text-center">Absences</th>
                 <th className="px-3 py-3">Fine / Penalty</th>
                 <th className="px-3 py-3">Latest</th>
               </tr>
@@ -427,7 +431,7 @@ export default function ExportReport(props: ExportReportProps) {
                         <td className="max-w-40 break-all px-3 py-3">{row.studentId || "—"}</td>
                         <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">{row.name || "—"}</td>
                         <td className="max-w-56 wrap-break-word px-3 py-3">{row.college}</td>
-                        <td className="px-3 py-3">{getAbsenceText(row)}</td>
+                        <td className="px-3 py-3 text-center">{getAbsenceText(row)}</td>
                         <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">{getFineText(row)}</td>
                         <td className="px-3 py-3">{formatDate(row.latestDate)}</td>
                       </tr>
