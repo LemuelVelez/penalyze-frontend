@@ -262,11 +262,34 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
   });
 }
 
+type ListAllAttendanceRecordsOptions = Omit<ListOptions, "limit" | "offset"> & {
+  pageSize?: number;
+  maxPages?: number;
+};
+
+export async function listAllAttendanceRecords(options: ListAllAttendanceRecordsOptions = {}) {
+  const pageSize = options.pageSize ?? 500;
+  const maxPages = options.maxPages ?? 100;
+  const records: AttendanceRecord[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const pageRows = await listAttendanceRecords({
+      ...options,
+      limit: pageSize,
+      offset: page * pageSize
+    });
+
+    records.push(...pageRows);
+
+    if (pageRows.length < pageSize) break;
+  }
+
+  return records;
+}
+
 export async function getStudentAttendanceRecords(studentId: string) {
-  return listAttendanceRecords({
-    studentId,
-    limit: 1000,
-    offset: 0
+  return listAllAttendanceRecords({
+    studentId
   });
 }
 

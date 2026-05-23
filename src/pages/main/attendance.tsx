@@ -10,7 +10,7 @@ import {
   getAcceptedAttendanceFileTypes,
   listAttendanceEvents,
   listAttendanceImports,
-  listAttendanceRecords,
+  listAllAttendanceRecords,
   previewAttendanceFile,
   saveAttendanceEvent,
   saveAttendanceFile,
@@ -2186,9 +2186,9 @@ export default function AttendancePage() {
 
     try {
       const [rows, eventRows, importRows] = await Promise.all([
-        listAttendanceRecords({ limit: 100, offset: 0 }),
-        listAttendanceEvents({ limit: 100, offset: 0 }),
-        listAttendanceImports({ limit: 100, offset: 0 })
+        listAllAttendanceRecords(),
+        listAttendanceEvents({ limit: 500, offset: 0 }),
+        listAttendanceImports({ limit: 500, offset: 0 })
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
 
