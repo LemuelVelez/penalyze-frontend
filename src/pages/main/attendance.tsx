@@ -3394,8 +3394,8 @@ export default function AttendancePage() {
 Use the event switch and college filter to view merged attendees by student ID.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <form onSubmit={handleSearchRecords} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex w-full flex-col gap-2 lg:w-72">
+              <form onSubmit={handleSearchRecords} className="flex flex-col gap-2">
                 <Label htmlFor="attendance-record-search" className="sr-only">
                   Search attendance records
                 </Label>
@@ -3404,13 +3404,17 @@ Use the event switch and college filter to view merged attendees by student ID.
                   value={recordSearch}
                   onChange={(event) => setRecordSearch(event.target.value)}
                   placeholder="Search Student ID or name"
-                  className="min-h-10 rounded-2xl sm:w-64"
+                  className="min-h-10 rounded-2xl"
                 />
-                <Button type="submit" variant="outline" className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+                >
                   Search Records
                 </Button>
               </form>
-              <div className="min-w-56">
+              <div className="w-full">
                 <Label htmlFor="attendance-event-filter" className="sr-only">
                   Event filter
                 </Label>
@@ -3428,7 +3432,7 @@ Use the event switch and college filter to view merged attendees by student ID.
                   </SelectContent>
                 </Select>
               </div>
-              <div className="min-w-48">
+              <div className="w-full">
                 <Label htmlFor="attendance-college-filter" className="sr-only">
                   College filter
                 </Label>
@@ -3458,7 +3462,7 @@ Use the event switch and college filter to view merged attendees by student ID.
                 isDeleting={isDeletingBulk}
                 disabled={!selectedRecordCount}
                 onConfirm={() => handleDeleteRecords(selectedRecordIds)}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
               />
               <DeleteAttendanceRecordsConfirmation
                 label="Delete All"
@@ -3467,7 +3471,7 @@ Use the event switch and college filter to view merged attendees by student ID.
                 isDeleting={isDeletingBulk}
                 disabled={!records.length}
                 onConfirm={() => handleDeleteRecords(records.map((record) => record.id))}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
               />
             </div>
           </div>
