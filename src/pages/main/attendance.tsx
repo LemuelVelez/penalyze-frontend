@@ -1558,7 +1558,10 @@ function ManualAttendanceDialog(props: {
           Add Attendance
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
         <DialogHeader>
           <DialogTitle>{props.editingRecordId ? "Edit attendance" : "Add attendance"}</DialogTitle>
         </DialogHeader>
@@ -1718,7 +1721,10 @@ function AttendanceEventDialog(props: {
           Add Event
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>{props.editingEventId ? "Edit event" : "Add event"}</DialogTitle>
         </DialogHeader>
@@ -1845,7 +1851,10 @@ function AttendanceEventAttendeesDialog(props: {
           Attendees
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-5xl"
+      >
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
         </DialogHeader>
@@ -2102,6 +2111,44 @@ export default function AttendancePage() {
   const recordHeaderChecked =
     allVisibleRecordsSelected ? true : visibleSelectedRecordCount > 0 ? "indeterminate" : false;
   const uploadEventReady = Boolean(file);
+  const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(null);
+  const scrollRestoreFrameRef = useRef<number | null>(null);
+
+  function captureScrollPosition() {
+    if (typeof window === "undefined") return;
+
+    scrollRestorePositionRef.current = {
+      left: window.scrollX,
+      top: window.scrollY
+    };
+  }
+
+  function restoreCapturedScrollPosition() {
+    if (typeof window === "undefined" || !scrollRestorePositionRef.current) return;
+
+    const position = scrollRestorePositionRef.current;
+
+    if (scrollRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollRestoreFrameRef.current);
+    }
+
+    scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+      window.scrollTo({
+        left: position.left,
+        top: position.top,
+        behavior: "auto"
+      });
+
+      scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
+        window.scrollTo({
+          left: position.left,
+          top: position.top,
+          behavior: "auto"
+        });
+        scrollRestoreFrameRef.current = null;
+      });
+    });
+  }
 
   function updateManualForm<K extends keyof ManualAttendanceFormState>(key: K, value: ManualAttendanceFormState[K]) {
     setManualForm((current) => ({ ...current, [key]: value }));
@@ -2180,7 +2227,11 @@ export default function AttendancePage() {
     }
   }
 
-  async function loadRecords() {
+  async function loadRecords(options: { preserveScroll?: boolean } = {}) {
+    if (options.preserveScroll) {
+      captureScrollPosition();
+    }
+
     setIsLoadingRecords(true);
     setError("");
 
@@ -2202,6 +2253,10 @@ export default function AttendancePage() {
       toast.error(message);
     } finally {
       setIsLoadingRecords(false);
+
+      if (options.preserveScroll) {
+        restoreCapturedScrollPosition();
+      }
     }
   }
 
@@ -2283,7 +2338,7 @@ export default function AttendancePage() {
       });
       setSaved(result ?? null);
       setPreview(result ?? null);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
       toast.success(
         `Attendance imported successfully. Created ${result?.createdFines.length ?? 0} fine record/s.${
           shouldUseDetectedFileEvents ? " Used event/s from the uploaded file." : ""
@@ -2352,13 +2407,12 @@ export default function AttendancePage() {
 
           return [result.record, ...current.filter((record) => record.id !== result.record.id)];
         });
-      } else {
-        await loadRecords();
       }
 
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
       handleCancelEdit();
       setManualDialogOpen(false);
+      restoreCapturedScrollPosition();
       toast.success(editingRecordId ? "Attendance record updated successfully." : "Attendance record saved successfully.");
     } catch (manualError) {
       const message = manualError instanceof Error ? manualError.message : "Unable to save attendance record.";
@@ -2398,9 +2452,10 @@ export default function AttendancePage() {
         toast.success("Event saved successfully.");
       }
 
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
       handleCancelEventEdit();
       setEventDialogOpen(false);
+      restoreCapturedScrollPosition();
     } catch (eventError) {
       const message = eventError instanceof Error ? eventError.message : "Unable to save event.";
       setError(message);
@@ -2458,7 +2513,7 @@ export default function AttendancePage() {
 
     try {
       await deleteAttendanceRecord(id);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
 
       if (editingRecordId === id) {
         handleCancelEdit();
@@ -2480,7 +2535,7 @@ export default function AttendancePage() {
 
     try {
       await deleteAttendanceEvent(id);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
 
       if (editingEventId === id) {
         handleCancelEventEdit();
@@ -2506,7 +2561,7 @@ export default function AttendancePage() {
 
     try {
       await deleteAttendanceImport(id);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
 
       if (saved?.importId === id) {
         setSaved(null);
@@ -2533,14 +2588,14 @@ export default function AttendancePage() {
 
     try {
       const result = await deleteAllAttendanceImports();
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
       setSaved(null);
       toast.success(`${result?.deletedCount ?? imports.length} attendance import/s deleted successfully.`);
     } catch (deleteError) {
       const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance imports.";
       setError(message);
       toast.error(message);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
     } finally {
       setIsDeletingImports(false);
     }
@@ -2559,7 +2614,7 @@ export default function AttendancePage() {
 
     try {
       await Promise.all(idsToDelete.map((id) => deleteAttendanceRecord(id)));
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
 
       if (editingRecordId && idsToDelete.includes(editingRecordId)) {
         handleCancelEdit();
@@ -2570,11 +2625,19 @@ export default function AttendancePage() {
       const message = deleteError instanceof Error ? deleteError.message : "Unable to delete attendance records.";
       setError(message);
       toast.error(message);
-      await loadRecords();
+      await loadRecords({ preserveScroll: true });
     } finally {
       setIsDeletingBulk(false);
     }
   }
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && scrollRestoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollRestoreFrameRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (eventFilter !== ALL_EVENTS_SELECT_VALUE && !eventFilterOptions.some((option) => option.value === eventFilter)) {
@@ -2631,7 +2694,7 @@ export default function AttendancePage() {
             <Button
               type="button"
               variant="outline"
-              onClick={loadRecords}
+              onClick={() => void loadRecords({ preserveScroll: true })}
               disabled={isLoadingRecords}
               className="min-h-11 rounded-xl px-5 py-2"
             >
