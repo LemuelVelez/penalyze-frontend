@@ -1390,6 +1390,24 @@ function getAttendeeKey(record: AttendanceRecord) {
   return studentId || `unknown-attendee:${record.id}`;
 }
 
+function getMatchingAttendanceAttendeeEventRecords(
+  records: AttendanceRecord[],
+  editingRecordId: string,
+) {
+  const editingRecord = records.find((record) => record.id === editingRecordId);
+  if (!editingRecord) return [];
+
+  const editingEventKey = getRecordEventGroupKey(editingRecord);
+  const editingAttendeeKey = getAttendeeKey(editingRecord);
+
+  return records.filter((record) => {
+    return (
+      getRecordEventGroupKey(record) === editingEventKey &&
+      getAttendeeKey(record) === editingAttendeeKey
+    );
+  });
+}
+
 function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
   const attendees = new Map<string, AttendanceEventAttendeeSummary>();
 
@@ -4095,21 +4113,45 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const result = editingRecordId
-        ? await updateAttendanceRecord(editingRecordId, payload)
-        : await saveManualAttendanceRecord(payload);
+      const matchingEditRecords = editingRecordId
+        ? getMatchingAttendanceAttendeeEventRecords(records, editingRecordId)
+        : [];
+      const editRecordIds = editingRecordId
+        ? Array.from(
+            new Set([
+              editingRecordId,
+              ...matchingEditRecords.map((record) => record.id),
+            ]),
+          )
+        : [];
+      const results = editingRecordId
+        ? await Promise.all(
+            editRecordIds.map((recordId) =>
+              updateAttendanceRecord(recordId, payload),
+            ),
+          )
+        : [await saveManualAttendanceRecord(payload)];
+      const savedRecords = results
+        .map((result) => result?.record)
+        .filter((record): record is AttendanceRecord => Boolean(record));
 
-      if (result?.record) {
+      if (savedRecords.length) {
         setRecords((current) => {
           if (editingRecordId) {
+            const savedRecordById = new Map(
+              savedRecords.map((record) => [record.id, record]),
+            );
+
             return current.map((record) =>
-              record.id === result.record.id ? result.record : record,
+              savedRecordById.get(record.id) ?? record,
             );
           }
 
+          const [savedRecord] = savedRecords;
+
           return [
-            result.record,
-            ...current.filter((record) => record.id !== result.record.id),
+            savedRecord,
+            ...current.filter((record) => record.id !== savedRecord.id),
           ];
         });
       }
@@ -4120,7 +4162,10 @@ export default function AttendancePage() {
       restoreCapturedScrollPosition();
       toast.success(
         editingRecordId
-          ? "Attendance record updated successfully."
+          ? `Attendance attendee updated across ${Math.max(
+              editRecordIds.length,
+              savedRecords.length,
+            )} record/s.`
           : "Attendance record saved successfully.",
       );
     } catch (manualError) {
