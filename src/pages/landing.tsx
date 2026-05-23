@@ -230,10 +230,45 @@ function getStudentDisplayName(attendance: AttendanceRecord[], fines: FineRecord
   return attendance.find((record) => record.name)?.name || fines.find((fine) => fine.name)?.name || fallbackId;
 }
 
+function normalizeDisplayValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getAttendanceDisplayKey(record: AttendanceRecord) {
+  return [
+    normalizeDisplayValue(record.student_id),
+    normalizeDisplayValue(record.event_id || getRecordEventName(record)),
+    normalizeDisplayValue(record.import_id),
+    normalizeDisplayValue(formatDate(record.scanned_at ?? record.created_at)),
+    Number(record.no_of_absences || 0),
+    normalizeDisplayValue(record.remarks)
+  ].join("::");
+}
+
+function getUniqueDisplayAttendance(attendance: AttendanceRecord[]) {
+  const uniqueAttendance = new Map<string, AttendanceRecord>();
+
+  attendance.forEach((record) => {
+    const key = getAttendanceDisplayKey(record);
+    const savedRecord = uniqueAttendance.get(key);
+
+    if (!savedRecord || getRecordTimestamp(record) > getRecordTimestamp(savedRecord)) {
+      uniqueAttendance.set(key, record);
+    }
+  });
+
+  return Array.from(uniqueAttendance.values()).sort((leftRecord, rightRecord) => {
+    return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+  });
+}
+
 function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
   const summaries = new Map<string, StudentAttendedEventSummary>();
 
-  attendance
+  getUniqueDisplayAttendance(attendance)
     .filter((record) => !isZeroAttendanceRecord(record) && (record.event_id || record.event_name || record.import_id))
     .forEach((record) => {
       const eventName = getRecordEventName(record);
@@ -289,10 +324,7 @@ function isFallbackFine(fine: FineRecord) {
 }
 
 function normalizeFineDisplayValue(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  return normalizeDisplayValue(value);
 }
 
 function getFineDisplayKey(fine: FineRecord) {
@@ -562,14 +594,18 @@ export default function LandingPage() {
     setIsCheckingSession(false);
   }, [navigate]);
 
+  const displayedAttendance = useMemo(() => {
+    return lookup ? getUniqueDisplayAttendance(lookup.attendance) : [];
+  }, [lookup]);
+
   const displayedFines = useMemo(() => {
     if (!lookup) return [];
     return getUniqueDisplayFines(lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines);
   }, [lookup]);
 
   const totalAbsences = useMemo(() => {
-    return lookup ? getTotalAbsences(lookup.attendance, displayedFines) : 0;
-  }, [lookup, displayedFines]);
+    return getTotalAbsences(displayedAttendance, displayedFines);
+  }, [displayedAttendance, displayedFines]);
 
   const unpaidFines = useMemo(() => {
     return displayedFines.filter((fine) => fine.status === "unpaid").length;
@@ -577,11 +613,11 @@ export default function LandingPage() {
 
   const fallbackFineActive = Boolean(lookup?.fallbackFine);
   const attendedEvents = useMemo(() => {
-    return lookup ? getStudentAttendedEventSummaries(lookup.attendance) : [];
-  }, [lookup]);
+    return getStudentAttendedEventSummaries(displayedAttendance);
+  }, [displayedAttendance]);
   const studentDisplayName = useMemo(() => {
-    return lookup ? getStudentDisplayName(lookup.attendance, displayedFines, searchedId) : searchedId;
-  }, [lookup, displayedFines, searchedId]);
+    return lookup ? getStudentDisplayName(displayedAttendance, displayedFines, searchedId) : searchedId;
+  }, [lookup, displayedAttendance, displayedFines, searchedId]);
   const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
   const resultClassification = useMemo(
     () => getResultClassification({ lookup, displayedFines, totalAbsences, attendedEvents }),
@@ -874,13 +910,13 @@ export default function LandingPage() {
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <h3 className="text-xl font-black">Attendance</h3>
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                      {lookup.attendance.length} record/s
+                      {displayedAttendance.length} record/s
                     </span>
                   </div>
 
-                  {lookup.attendance.length ? (
+                  {displayedAttendance.length ? (
                     <div className="space-y-3 lg:hidden">
-                      {lookup.attendance.map((row) => (
+                      {displayedAttendance.map((row) => (
                         <article key={row.id} className="rounded-2xl border bg-background p-4">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div>
@@ -894,7 +930,7 @@ export default function LandingPage() {
                     </div>
                   ) : null}
 
-                  {lookup.attendance.length ? (
+                  {displayedAttendance.length ? (
                     <div className="hidden overflow-x-auto lg:block">
                       <table className="w-full min-w-max text-left text-sm">
                         <thead className="border-b text-xs uppercase text-muted-foreground">
@@ -905,7 +941,7 @@ export default function LandingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {lookup.attendance.map((row) => (
+                          {displayedAttendance.map((row) => (
                             <tr key={row.id} className="border-b last:border-b-0">
                               <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
                               <td className="px-3 py-3">{row.name}</td>
