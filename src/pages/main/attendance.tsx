@@ -2313,13 +2313,13 @@ function AttendanceRecordSearchDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
+        className="flex max-h-[95svh] flex-col overflow-hidden sm:max-w-6xl"
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <DialogTitle>Search records{props.query ? ` for “${props.query}”` : ""}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-5">
           <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-3">
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Matched records</p>
@@ -2364,9 +2364,9 @@ function AttendanceRecordSearchDialog(props: {
           ) : null}
 
           {props.records.length ? (
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border">
               <table className="w-full min-w-max text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
+                <thead className="sticky top-0 z-10 border-b bg-background text-xs uppercase text-muted-foreground">
                   <tr>
                     <th className="px-3 py-3">Date</th>
                     <th className="px-3 py-3">Student ID</th>
