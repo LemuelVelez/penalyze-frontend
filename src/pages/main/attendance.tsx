@@ -1638,8 +1638,23 @@ function getDeduplicatedAttendanceEvents(events: AttendanceEvent[]) {
 }
 
 function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
-  return records.reduce(
-    (total, record) => total + Number(record.no_of_absences ?? 0),
+  const absencesByStudentScope = new Map<string, number>();
+
+  records.forEach((record) => {
+    const key = [
+      getRecordStudentProfileKey(record),
+      normalizeImportHeader(record.college),
+    ].join(":");
+    const currentAbsences = absencesByStudentScope.get(key) ?? 0;
+
+    absencesByStudentScope.set(
+      key,
+      Math.max(currentAbsences, Number(record.no_of_absences ?? 0)),
+    );
+  });
+
+  return Array.from(absencesByStudentScope.values()).reduce(
+    (total, noOfAbsences) => total + noOfAbsences,
     0,
   );
 }
@@ -1689,7 +1704,10 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
       : 0;
 
     currentSummary.records.push(record);
-    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+    currentSummary.totalAbsences = Math.max(
+      currentSummary.totalAbsences,
+      Number(record.no_of_absences ?? 0),
+    );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
       currentSummary.latestScannedAt =
@@ -1787,7 +1805,10 @@ function getAttendanceStudentEventSummaries(
       : 0;
 
     currentSummary.records.push(record);
-    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+    currentSummary.totalAbsences = Math.max(
+      currentSummary.totalAbsences,
+      Number(record.no_of_absences ?? 0),
+    );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
       currentSummary.latestScannedAt =
