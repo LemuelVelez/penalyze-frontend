@@ -2018,6 +2018,46 @@ function getSaveProgressMessage(progress: AttendanceImportProgress | null) {
   return progress?.message || "Preparing attendance import...";
 }
 
+function getManualUpdateProgressMessage(
+  progress: AttendanceImportProgress | null,
+) {
+  return progress?.message || "Preparing attendance update...";
+}
+
+function getManualUpdateProgressRowText(
+  progress: AttendanceImportProgress | null,
+) {
+  if (!progress) return "Preparing record updates...";
+  if (progress.totalRows > 0)
+    return `${progress.processedRows}/${progress.totalRows} record/s processed`;
+  return "Preparing record updates...";
+}
+
+function getManualUpdateProgress(
+  processedRecords: number,
+  totalRecords: number,
+  message = "Updating attendance records...",
+): AttendanceImportProgress {
+  const safeTotalRecords = Math.max(0, totalRecords);
+  const safeProcessedRecords = Math.max(
+    0,
+    Math.min(processedRecords, safeTotalRecords),
+  );
+  const percent = safeTotalRecords
+    ? Math.round((safeProcessedRecords / safeTotalRecords) * 100)
+    : 100;
+
+  return {
+    stage: percent >= 100 ? "completed" : "saving",
+    percent: Math.max(0, Math.min(100, percent)),
+    message,
+    processedRows: safeProcessedRecords,
+    totalRows: safeTotalRecords,
+    savedRecords: safeProcessedRecords,
+    createdFines: 0,
+  };
+}
+
 function getAttendanceFileSignature(file: File) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
@@ -2602,6 +2642,10 @@ function ManualAttendanceDialog(props: {
   form: ManualAttendanceFormState;
   editingRecordId: string;
   isSaving: boolean;
+  updateProgress: AttendanceImportProgress | null;
+  updateProgressPercent: number;
+  updateProgressMessage: string;
+  updateProgressRowText: string;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onClear: () => void;
   onChange: <K extends keyof ManualAttendanceFormState>(
@@ -2609,6 +2653,10 @@ function ManualAttendanceDialog(props: {
     value: ManualAttendanceFormState[K],
   ) => void;
 }) {
+  const shouldShowUpdateProgress =
+    Boolean(props.editingRecordId) &&
+    (props.isSaving || Boolean(props.updateProgress));
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogTrigger asChild>
@@ -2769,6 +2817,39 @@ function ManualAttendanceDialog(props: {
             />
           </div>
 
+          {shouldShowUpdateProgress ? (
+            <section
+              className="min-w-0 rounded-3xl border bg-card p-4 shadow-sm lg:col-span-2"
+              aria-live="polite"
+            >
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                    Update attendance progress
+                  </p>
+                  <p className="mt-1 wrap-break-word text-sm font-semibold">
+                    {props.updateProgressMessage}
+                  </p>
+                </div>
+                <span className="w-fit shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
+                  {props.updateProgressPercent}%
+                </span>
+              </div>
+              <Progress
+                value={props.updateProgressPercent}
+                className="mt-4 h-3 w-full min-w-0"
+              />
+              <div className="mt-3 grid min-w-0 gap-1 text-xs font-bold text-muted-foreground sm:grid-cols-2 sm:items-center">
+                <span className="wrap-break-word">
+                  {props.updateProgressRowText}
+                </span>
+                <span className="wrap-break-word sm:text-right">
+                  {props.updateProgress?.processedRows ?? 0} record/s updated
+                </span>
+              </div>
+            </section>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
             <Button
               type="submit"
@@ -2776,7 +2857,9 @@ function ManualAttendanceDialog(props: {
               className="min-h-12 rounded-2xl"
             >
               {props.isSaving
-                ? "Saving..."
+                ? props.editingRecordId
+                  ? `Updating ${props.updateProgressPercent}%`
+                  : "Saving..."
                 : props.editingRecordId
                   ? "Update Attendance"
                   : "Save Attendance"}
@@ -3531,6 +3614,12 @@ export default function AttendancePage() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingManual, setIsSavingManual] = useState(false);
+  const [manualSaveProgress, setManualSaveProgress] =
+    useState<AttendanceImportProgress | null>(null);
+  const [
+    displayManualSaveProgressPercent,
+    setDisplayManualSaveProgressPercent,
+  ] = useState(0);
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
@@ -3666,6 +3755,21 @@ export default function AttendancePage() {
     : targetSaveProgressPercent;
   const saveProgressMessage = getSaveProgressMessage(saveProgress);
   const saveProgressRowText = getSaveProgressRowText(saveProgress);
+  const isUpdatingManualRecord = Boolean(editingRecordId) && isSavingManual;
+  const targetManualSaveProgressPercent = getSaveProgressPercent(
+    manualSaveProgress,
+    isUpdatingManualRecord,
+  );
+  const manualSaveProgressPercent = isUpdatingManualRecord
+    ? Math.max(
+        displayManualSaveProgressPercent,
+        targetManualSaveProgressPercent,
+      )
+    : targetManualSaveProgressPercent;
+  const manualSaveProgressMessage =
+    getManualUpdateProgressMessage(manualSaveProgress);
+  const manualSaveProgressRowText =
+    getManualUpdateProgressRowText(manualSaveProgress);
   const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(
     null,
   );
@@ -4259,6 +4363,51 @@ export default function AttendancePage() {
     }
   }
 
+  async function updateAttendanceRecordsWithProgress(
+    recordIds: string[],
+    payload: ManualAttendanceInput,
+  ) {
+    const updatedRecords: AttendanceRecord[] = [];
+
+    setManualSaveProgress(
+      getManualUpdateProgress(
+        0,
+        recordIds.length,
+        "Starting attendance update...",
+      ),
+    );
+
+    for (const [index, recordId] of recordIds.entries()) {
+      setManualSaveProgress(
+        getManualUpdateProgress(
+          index,
+          recordIds.length,
+          `Updating attendance record ${index + 1} of ${recordIds.length}...`,
+        ),
+      );
+
+      const result = await updateAttendanceRecords([recordId], payload);
+      updatedRecords.push(...(result?.records ?? []));
+      setManualSaveProgress(
+        getManualUpdateProgress(
+          index + 1,
+          recordIds.length,
+          "Attendance update progress saved.",
+        ),
+      );
+    }
+
+    setManualSaveProgress(
+      getManualUpdateProgress(
+        recordIds.length,
+        recordIds.length,
+        "Attendance update completed.",
+      ),
+    );
+
+    return updatedRecords;
+  }
+
   async function handleManualSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -4299,6 +4448,7 @@ export default function AttendancePage() {
     };
 
     setIsSavingManual(true);
+    setManualSaveProgress(null);
     setError("");
 
     try {
@@ -4318,8 +4468,10 @@ export default function AttendancePage() {
       let savedRecords: AttendanceRecord[] = [];
 
       if (editingRecordId) {
-        const result = await updateAttendanceRecords(editRecordIds, payload);
-        savedRecords = result?.records ?? [];
+        savedRecords = await updateAttendanceRecordsWithProgress(
+          editRecordIds,
+          payload,
+        );
       } else {
         const result = await saveManualAttendanceRecord(payload);
         if (result?.record) savedRecords = [result.record];
@@ -4363,6 +4515,17 @@ export default function AttendancePage() {
         manualError instanceof Error
           ? manualError.message
           : "Unable to save attendance record.";
+      if (editingRecordId) {
+        setManualSaveProgress((currentProgress) =>
+          currentProgress
+            ? {
+                ...currentProgress,
+                stage: "cancelled",
+                message: "Attendance update failed.",
+              }
+            : currentProgress,
+        );
+      }
       setError(message);
       toast.error(message);
     } finally {
@@ -4437,6 +4600,8 @@ export default function AttendancePage() {
       remarks: record.remarks ?? "",
     });
     setManualDialogOpen(true);
+    setManualSaveProgress(null);
+    setDisplayManualSaveProgressPercent(0);
     setError("");
   }
 
@@ -4444,6 +4609,8 @@ export default function AttendancePage() {
     setEditingRecordId("");
     setEditingRecordScope("event-attendee");
     setManualForm(emptyManualAttendanceForm);
+    setManualSaveProgress(null);
+    setDisplayManualSaveProgressPercent(0);
     setError("");
   }
 
@@ -4693,6 +4860,42 @@ export default function AttendancePage() {
   }, [isSaving, saveProgress]);
 
   useEffect(() => {
+    const targetPercent = getSaveProgressPercent(
+      manualSaveProgress,
+      isUpdatingManualRecord,
+    );
+
+    setDisplayManualSaveProgressPercent((currentPercent) => {
+      if (!isUpdatingManualRecord && !manualSaveProgress) return 0;
+      if (targetPercent >= 100) return 100;
+      return Math.max(currentPercent, targetPercent);
+    });
+
+    if (
+      !isUpdatingManualRecord ||
+      targetPercent >= 100 ||
+      typeof window === "undefined"
+    )
+      return;
+
+    const intervalId = window.setInterval(() => {
+      setDisplayManualSaveProgressPercent((currentPercent) => {
+        const latestPercent = getSaveProgressPercent(
+          manualSaveProgress,
+          isUpdatingManualRecord,
+        );
+        const nextBasePercent = Math.max(currentPercent, latestPercent);
+        const ceilingPercent = Math.min(95, latestPercent + 3);
+
+        if (nextBasePercent >= ceilingPercent) return nextBasePercent;
+        return Math.min(ceilingPercent, nextBasePercent + 1);
+      });
+    }, 700);
+
+    return () => window.clearInterval(intervalId);
+  }, [isUpdatingManualRecord, manualSaveProgress]);
+
+  useEffect(() => {
     void loadRecords();
   }, []);
 
@@ -4732,6 +4935,10 @@ export default function AttendancePage() {
               form={manualForm}
               editingRecordId={editingRecordId}
               isSaving={isSavingManual}
+              updateProgress={manualSaveProgress}
+              updateProgressPercent={manualSaveProgressPercent}
+              updateProgressMessage={manualSaveProgressMessage}
+              updateProgressRowText={manualSaveProgressRowText}
               onSubmit={handleManualSubmit}
               onClear={handleCancelEdit}
               onChange={updateManualForm}
