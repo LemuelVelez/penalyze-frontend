@@ -2834,13 +2834,13 @@ function AttendanceEventAttendeesDialog(props: {
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
           <DialogDescription className="sr-only">
-            View attendees, selected records, totals, and record actions
-            for this attendance event.
+            View attendees, selected records, and record actions for this
+            attendance event.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm sm:grid-cols-2">
+          <div className="grid gap-3 rounded-2xl border bg-muted/40 p-4 text-sm md:grid-cols-3">
             <div>
               <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                 College
@@ -2863,14 +2863,6 @@ function AttendanceEventAttendeesDialog(props: {
               </p>
               <p className="mt-1 wrap-break-word font-semibold">
                 {props.group.attendees.length}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                Total
-              </p>
-              <p className="mt-1 wrap-break-word font-semibold">
-                {props.group.totalAbsences}
               </p>
             </div>
           </div>
@@ -2980,14 +2972,6 @@ function AttendanceEventAttendeesList(props: {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                      Total
-                    </p>
-                    <p className="mt-1 wrap-break-word font-semibold">
-                      {attendee.totalAbsences}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                       Latest Scan
                     </p>
                     <p className="mt-1 wrap-break-word font-semibold">
@@ -3045,7 +3029,7 @@ function AttendanceEventAttendeesList(props: {
                           aria-label={`Select attendance record for ${attendee.name}`}
                           className="mt-1 shrink-0"
                         />
-                        <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-2">
                           <div className="min-w-0">
                             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                               Scanned At
@@ -3055,14 +3039,6 @@ function AttendanceEventAttendeesList(props: {
                             </p>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                              Total
-                            </p>
-                            <p className="mt-1 wrap-break-word font-semibold">
-                              {record.no_of_absences}
-                            </p>
-                          </div>
-                          <div className="min-w-0 sm:col-span-2 lg:col-span-1">
                             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                               Remarks
                             </p>
