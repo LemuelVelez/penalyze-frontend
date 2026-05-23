@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { SyntheticEvent } from "react";
 
 import { getStudentAttendanceRecords } from "../api/attendance";
 import type { AttendanceRecord } from "../api/attendance";
@@ -407,7 +407,7 @@ function ZeroAttendanceRegistrationDialog(props: {
   error: string;
   isSaving: boolean;
   onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -571,7 +571,7 @@ export default function LandingPage() {
     setZeroAttendanceForm((current) => ({ ...current, [field]: value }));
   }
 
-  async function handleZeroAttendanceSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleZeroAttendanceSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const payload: ZeroAttendanceFinePayload = {
@@ -619,7 +619,7 @@ export default function LandingPage() {
     }
   }
 
-  async function handleSearch(event: FormEvent<HTMLFormElement>) {
+  async function handleSearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const cleanStudentId = studentId.trim();
