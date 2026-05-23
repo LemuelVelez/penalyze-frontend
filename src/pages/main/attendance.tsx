@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
+import type { ChangeEvent, DragEvent, ReactNode, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
@@ -44,6 +44,7 @@ import { Checkbox } from "../../components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger
@@ -1405,6 +1406,83 @@ function getSaveProgressMessage(progress: AttendanceImportProgress | null) {
   return progress?.message || "Preparing attendance import...";
 }
 
+function useAttendanceMobilePanel() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const updateIsMobile = () => setIsMobile(mediaQuery.matches);
+
+    updateIsMobile();
+    mediaQuery.addEventListener("change", updateIsMobile);
+
+    return () => mediaQuery.removeEventListener("change", updateIsMobile);
+  }, []);
+
+  return isMobile;
+}
+
+function AttendanceResponsivePanel(props: {
+  title: string;
+  summary?: string;
+  description: string;
+  children: ReactNode;
+  contentClassName?: string;
+}) {
+  const isMobile = useAttendanceMobilePanel();
+  const summaryText = props.summary ? props.summary : "Open section";
+
+  if (isMobile) {
+    return (
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex min-h-16 w-full items-center justify-between gap-3 rounded-3xl border bg-card px-4 py-4 text-left shadow-sm"
+          >
+            <span className="min-w-0">
+              <span className="block wrap-break-word text-base font-black">{props.title}</span>
+              <span className="mt-1 block wrap-break-word text-xs font-bold text-muted-foreground">{summaryText}</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-black text-muted-foreground">
+              Open
+            </span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
+        >
+          <DialogHeader>
+            <DialogTitle>{props.title}</DialogTitle>
+            <DialogDescription>{props.description}</DialogDescription>
+          </DialogHeader>
+          <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>{props.children}</div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <details className="group rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+      <summary className="flex min-w-0 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+        <span className="min-w-0">
+          <span className="block wrap-break-word text-xl font-black">{props.title}</span>
+          <span className="mt-1 block wrap-break-word text-sm font-bold text-muted-foreground">{summaryText}</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-black text-muted-foreground">
+          <span className="group-open:hidden">Open</span>
+          <span className="hidden group-open:inline">Close</span>
+        </span>
+      </summary>
+      <div className={`mt-4 min-w-0 ${props.contentClassName ?? ""}`}>{props.children}</div>
+    </details>
+  );
+}
+
 function FileDropZone(props: {
   file: File | null;
   isDragging: boolean;
@@ -1744,6 +1822,9 @@ function ManualAttendanceDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>{props.editingRecordId ? "Edit attendance" : "Add attendance"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Add or update an attendance record with student details, event assignment, absences, and remarks.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
@@ -1907,6 +1988,9 @@ function AttendanceEventDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>{props.editingEventId ? "Edit event" : "Add event"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Add or update an attendance event with schedule and description details.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="grid gap-4">
@@ -2037,6 +2121,9 @@ function AttendanceEventAttendeesDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>{props.group.eventName} attendees</DialogTitle>
+          <DialogDescription className="sr-only">
+            View attendees, selected records, absence totals, and record actions for this attendance event.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -2234,6 +2321,9 @@ function AttendanceStudentEventsDialog(props: {
           <DialogTitle>
             Events attended{props.student ? ` by ${props.student.name || props.student.studentId}` : ""}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Review the events attended by the selected student and their attendance records.
+          </DialogDescription>
         </DialogHeader>
 
         {props.student ? (
@@ -2317,6 +2407,9 @@ function AttendanceRecordSearchDialog(props: {
       >
         <DialogHeader className="shrink-0">
           <DialogTitle>Search records{props.query ? ` for “${props.query}”` : ""}</DialogTitle>
+          <DialogDescription className="sr-only">
+            View matching attendance records, grouped student summaries, and attendance record actions.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -2426,6 +2519,7 @@ export default function AttendancePage() {
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
   const [saved, setSaved] = useState<SavedAttendanceImportResult | null>(null);
   const [saveProgress, setSaveProgress] = useState<AttendanceImportProgress | null>(null);
+  const [displaySaveProgressPercent, setDisplaySaveProgressPercent] = useState(0);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
@@ -2514,7 +2608,10 @@ export default function AttendancePage() {
   const recordHeaderChecked =
     allVisibleRecordsSelected ? true : visibleSelectedRecordCount > 0 ? "indeterminate" : false;
   const uploadEventReady = Boolean(file);
-  const saveProgressPercent = getSaveProgressPercent(saveProgress, isSaving);
+  const targetSaveProgressPercent = getSaveProgressPercent(saveProgress, isSaving);
+  const saveProgressPercent = isSaving
+    ? Math.max(displaySaveProgressPercent, targetSaveProgressPercent)
+    : targetSaveProgressPercent;
   const saveProgressMessage = getSaveProgressMessage(saveProgress);
   const saveProgressRowText = getSaveProgressRowText(saveProgress);
   const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(null);
@@ -3113,6 +3210,31 @@ export default function AttendancePage() {
   }, [collegeFilter, collegeFilterOptions]);
 
   useEffect(() => {
+    const targetPercent = getSaveProgressPercent(saveProgress, isSaving);
+
+    setDisplaySaveProgressPercent((currentPercent) => {
+      if (!isSaving && !saveProgress) return 0;
+      if (targetPercent >= 100) return 100;
+      return Math.max(currentPercent, targetPercent);
+    });
+
+    if (!isSaving || targetPercent >= 100 || typeof window === "undefined") return;
+
+    const intervalId = window.setInterval(() => {
+      setDisplaySaveProgressPercent((currentPercent) => {
+        const latestPercent = getSaveProgressPercent(saveProgress, isSaving);
+        const nextBasePercent = Math.max(currentPercent, latestPercent);
+        const ceilingPercent = saveProgress?.stage === "syncing" ? 98 : Math.min(95, latestPercent + 3);
+
+        if (nextBasePercent >= ceilingPercent) return nextBasePercent;
+        return Math.min(ceilingPercent, nextBasePercent + 1);
+      });
+    }, 700);
+
+    return () => window.clearInterval(intervalId);
+  }, [isSaving, saveProgress]);
+
+  useEffect(() => {
     void loadRecords();
   }, []);
 
@@ -3246,20 +3368,20 @@ export default function AttendancePage() {
             </div>
 
             {isSaving || saveProgress ? (
-              <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-                <div className="flex items-center justify-between gap-3">
+              <section className="min-w-0 rounded-3xl border bg-card p-4 shadow-sm sm:p-6" aria-live="polite">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">Saving progress</p>
                     <p className="mt-1 wrap-break-word text-sm font-semibold">{saveProgressMessage}</p>
                   </div>
-                  <span className="shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
+                  <span className="w-fit shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
                     {saveProgressPercent}%
                   </span>
                 </div>
-                <Progress value={saveProgressPercent} className="mt-4 h-3" />
-                <div className="mt-3 flex flex-col gap-1 text-xs font-bold text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                  <span>{saveProgressRowText}</span>
-                  <span>{saveProgress?.savedRecords ?? 0} record/s saved</span>
+                <Progress value={saveProgressPercent} className="mt-4 h-3 w-full min-w-0" />
+                <div className="mt-3 grid min-w-0 gap-1 text-xs font-bold text-muted-foreground sm:grid-cols-2 sm:items-center">
+                  <span className="wrap-break-word">{saveProgressRowText}</span>
+                  <span className="wrap-break-word sm:text-right">{saveProgress?.savedRecords ?? 0} record/s saved</span>
                 </div>
               </section>
             ) : null}
@@ -3276,7 +3398,11 @@ export default function AttendancePage() {
               </div>
             ) : null}
 
-            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+            <AttendanceResponsivePanel
+              title="Events"
+              summary={`${events.length} event/s`}
+              description="View, edit, and delete attendance events."
+            >
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-xl font-black">Events</h2>
                 <p className="text-sm font-bold text-muted-foreground">{events.length} event/s</p>
@@ -3319,9 +3445,13 @@ export default function AttendancePage() {
                   No events yet.
                 </div>
               )}
-            </section>
+            </AttendanceResponsivePanel>
 
-            <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+            <AttendanceResponsivePanel
+              title="Imported files"
+              summary={`${imports.length} imported file/s`}
+              description="View imported files and delete imports with their linked attendance records and fines."
+            >
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-xl font-black">Imported files</h2>
@@ -3372,10 +3502,14 @@ export default function AttendancePage() {
                   No imported files yet.
                 </div>
               )}
-            </section>
+            </AttendanceResponsivePanel>
           </section>
 
-          <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+          <AttendanceResponsivePanel
+            title="Preview result"
+            summary={preview ? `${preview.rowsValid} valid / ${preview.rowsInvalid} invalid` : "No preview yet"}
+            description="View the parsed attendance file preview, row counts, and validation status."
+          >
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <h2 className="text-xl font-black">Preview result</h2>
               {preview ? (
@@ -3456,10 +3590,15 @@ export default function AttendancePage() {
                 <p className="mt-1">{invalidRows.length} invalid row/s will not be saved.</p>
               </div>
             ) : null}
-          </section>
+          </AttendanceResponsivePanel>
         </div>
 
-        <section className="mt-6 rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+        <div className="mt-6">
+          <AttendanceResponsivePanel
+            title="Recent attendance records"
+            summary={`${filteredRecordCount} shown from ${mergedRecords.length} loaded record/s`}
+            description="Search, filter, select, edit, and delete recent attendance records."
+          >
           <div className="mb-4 grid gap-3 lg:grid-cols-4 lg:items-start">
             <div className="min-w-0">
               <h2 className="wrap-break-word text-xl font-black">Recent attendance records</h2>
@@ -3623,7 +3762,8 @@ export default function AttendancePage() {
               No attendance records loaded yet.
             </div>
           )}
-        </section>
+          </AttendanceResponsivePanel>
+        </div>
       </div>
     </main>
   );
