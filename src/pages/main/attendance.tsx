@@ -3387,33 +3387,32 @@ export default function AttendancePage() {
         </div>
 
         <section className="mt-6 rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-xl font-black">Recent attendance records</h2>
-              <p className="mt-1 text-sm font-semibold text-muted-foreground">
-Use the event switch and college filter to view merged attendees by student ID.
-              </p>
+          <div className="mb-4 grid gap-3 lg:grid-cols-4 lg:items-start">
+            <div className="min-w-0">
+              <h2 className="wrap-break-word text-xl font-black">Recent attendance records</h2>
             </div>
-            <div className="flex w-full flex-col gap-2 lg:w-72">
-              <form onSubmit={handleSearchRecords} className="flex flex-col gap-2">
-                <Label htmlFor="attendance-record-search" className="sr-only">
-                  Search attendance records
-                </Label>
-                <Input
-                  id="attendance-record-search"
-                  value={recordSearch}
-                  onChange={(event) => setRecordSearch(event.target.value)}
-                  placeholder="Search Student ID or name"
-                  className="min-h-10 rounded-2xl"
-                />
-                <Button
-                  type="submit"
-                  variant="outline"
-                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-                >
-                  Search Records
-                </Button>
-              </form>
+
+            <form onSubmit={handleSearchRecords} className="flex min-w-0 flex-col gap-2">
+              <Label htmlFor="attendance-record-search" className="sr-only">
+                Search attendance records
+              </Label>
+              <Input
+                id="attendance-record-search"
+                value={recordSearch}
+                onChange={(event) => setRecordSearch(event.target.value)}
+                placeholder="Search Student ID or name"
+                className="min-h-10 rounded-2xl"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                Search Records
+              </Button>
+            </form>
+
+            <div className="grid min-w-0 gap-2">
               <div className="w-full">
                 <Label htmlFor="attendance-event-filter" className="sr-only">
                   Event filter
@@ -3432,6 +3431,7 @@ Use the event switch and college filter to view merged attendees by student ID.
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="w-full">
                 <Label htmlFor="attendance-college-filter" className="sr-only">
                   College filter
@@ -3450,6 +3450,9 @@ Use the event switch and college filter to view merged attendees by student ID.
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-2">
               {selectedRecordCount ? (
                 <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                   {selectedRecordCount} selected
