@@ -3403,10 +3403,7 @@ export default function AttendancePage() {
               summary={`${events.length} event/s`}
               description="View, edit, and delete attendance events."
             >
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-xl font-black">Events</h2>
-                <p className="text-sm font-bold text-muted-foreground">{events.length} event/s</p>
-              </div>
+              <p className="mb-4 text-sm font-bold text-muted-foreground">{events.length} event/s</p>
 
               {events.length ? (
                 <div className="space-y-3">
@@ -3453,12 +3450,9 @@ export default function AttendancePage() {
               description="View imported files and delete imports with their linked attendance records and fines."
             >
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-black">Imported files</h2>
-                  <p className="mt-1 text-sm font-semibold text-muted-foreground">
-                    Delete imported files and the attendance records created from them.
-                  </p>
-                </div>
+                <p className="text-sm font-semibold text-muted-foreground">
+                  Delete imported files and the attendance records created from them.
+                </p>
                 <DeleteAttendanceRecordsConfirmation
                   label="Delete All Imports"
                   title="Delete all imported files?"
@@ -3510,8 +3504,7 @@ export default function AttendancePage() {
             summary={preview ? `${preview.rowsValid} valid / ${preview.rowsInvalid} invalid` : "No preview yet"}
             description="View the parsed attendance file preview, row counts, and validation status."
           >
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <h2 className="text-xl font-black">Preview result</h2>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
               {preview ? (
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-xl bg-muted px-3 py-2">
@@ -3599,11 +3592,7 @@ export default function AttendancePage() {
             summary={`${filteredRecordCount} shown from ${mergedRecords.length} loaded record/s`}
             description="Search, filter, select, edit, and delete recent attendance records."
           >
-          <div className="mb-4 grid gap-3 lg:grid-cols-4 lg:items-start">
-            <div className="min-w-0">
-              <h2 className="wrap-break-word text-xl font-black">Recent attendance records</h2>
-            </div>
-
+          <div className="mb-4 grid gap-3 lg:grid-cols-3 lg:items-start">
             <form onSubmit={handleSearchRecords} className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="attendance-record-search" className="sr-only">
                 Search attendance records
