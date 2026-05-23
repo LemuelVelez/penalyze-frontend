@@ -1242,6 +1242,63 @@ function compareAttendanceLabels(left: string, right: string) {
   });
 }
 
+function getAttendanceEventSequenceNumber(value?: string | null) {
+  const match = cleanImportValue(value).match(/^(\d+)(?:\s*[.)\-:]\s*|\s+)/);
+  if (!match?.[1]) return Number.POSITIVE_INFINITY;
+
+  const sequenceNumber = Number.parseInt(match[1], 10);
+
+  return Number.isFinite(sequenceNumber)
+    ? sequenceNumber
+    : Number.POSITIVE_INFINITY;
+}
+
+function compareAttendanceEventLabels(left: string, right: string) {
+  const leftSequenceNumber = getAttendanceEventSequenceNumber(left);
+  const rightSequenceNumber = getAttendanceEventSequenceNumber(right);
+  const hasLeftSequenceNumber = Number.isFinite(leftSequenceNumber);
+  const hasRightSequenceNumber = Number.isFinite(rightSequenceNumber);
+
+  if (hasLeftSequenceNumber && hasRightSequenceNumber) {
+    const sequenceCompare = leftSequenceNumber - rightSequenceNumber;
+    if (sequenceCompare !== 0) return sequenceCompare;
+  }
+
+  if (hasLeftSequenceNumber !== hasRightSequenceNumber) {
+    return hasLeftSequenceNumber ? -1 : 1;
+  }
+
+  return compareAttendanceLabels(left, right);
+}
+
+function compareAttendanceRecordsByEventSequence(
+  leftRecord: AttendanceRecord,
+  rightRecord: AttendanceRecord,
+) {
+  const eventCompare = compareAttendanceEventLabels(
+    getManualRecordSource(leftRecord),
+    getManualRecordSource(rightRecord),
+  );
+
+  if (eventCompare !== 0) return eventCompare;
+
+  const studentIdCompare = compareAttendanceLabels(
+    leftRecord.student_id ?? "",
+    rightRecord.student_id ?? "",
+  );
+
+  if (studentIdCompare !== 0) return studentIdCompare;
+
+  const nameCompare = compareAttendanceLabels(
+    leftRecord.name ?? "",
+    rightRecord.name ?? "",
+  );
+
+  if (nameCompare !== 0) return nameCompare;
+
+  return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+}
+
 function getAttendanceEventIdentityKey(
   eventName?: string | null,
   eventId?: string | null,
@@ -1894,6 +1951,13 @@ function getAttendanceStudentEventSummaries(
       }),
     }))
     .sort((leftSummary, rightSummary) => {
+      const eventCompare = compareAttendanceEventLabels(
+        leftSummary.eventName,
+        rightSummary.eventName,
+      );
+
+      if (eventCompare !== 0) return eventCompare;
+
       const leftTime = leftSummary.latestScannedAt
         ? new Date(leftSummary.latestScannedAt).getTime()
         : 0;
@@ -3554,7 +3618,7 @@ export default function AttendancePage() {
       mergedRecords.filter((record) =>
         getAttendanceRecordSearchText(record).includes(query),
       ),
-    );
+    ).sort(compareAttendanceRecordsByEventSequence);
   }, [mergedRecords, recordSearchQuery]);
   const recordSearchStudentSummaries = useMemo(() => {
     return getAttendanceStudentRecordSummaries(recordSearchResults);
