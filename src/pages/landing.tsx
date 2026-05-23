@@ -3,8 +3,8 @@ import type { FormEvent } from "react";
 
 import { getStudentAttendanceRecords } from "../api/attendance";
 import type { AttendanceRecord } from "../api/attendance";
-import { getStudentFines, matchPenalty } from "../api/fines";
-import type { FineRecord, PenaltyRecord } from "../api/fines";
+import { getStudentFines, matchPenalty, registerZeroAttendanceFine } from "../api/fines";
+import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../api/fines";
 import { LogoMark, navigateTo } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -21,6 +21,15 @@ type StudentAttendedEventSummary = {
   latestScannedAt: string | null;
   records: AttendanceRecord[];
   totalAbsences: number;
+};
+
+type ZeroAttendanceFormState = {
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
 };
 
 const AUTH_STORAGE_KEYS = [
@@ -58,6 +67,20 @@ const LANDING_RESOURCE_LINKS = [
     cta: "Visit SurveyStat"
   }
 ] as const;
+
+const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
+
+const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
+  studentId: "",
+  name: "",
+  yearLevel: "",
+  college: "",
+  program: "",
+  institution: ""
+};
+
+const textInputClassName =
+  "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -165,8 +188,11 @@ function formatAbsenceCount(value: number, forceTenPlus = false) {
   return String(numericValue);
 }
 
-function getTotalAbsences(attendance: AttendanceRecord[]) {
-  return attendance.reduce((total, row) => total + Number(row.no_of_absences || 0), 0);
+function getTotalAbsences(attendance: AttendanceRecord[], fines: FineRecord[] = []) {
+  const attendanceAbsences = attendance.map((row) => Number(row.no_of_absences || 0));
+  const fineAbsences = fines.map((fine) => Number(fine.no_of_absences || 0));
+
+  return Math.max(0, ...attendanceAbsences, ...fineAbsences);
 }
 
 function getRecordTimestamp(record: AttendanceRecord) {
@@ -188,39 +214,55 @@ function normalizeEventKey(value: string) {
     .trim();
 }
 
-function getStudentDisplayName(attendance: AttendanceRecord[], fallbackId: string) {
-  return attendance.find((record) => record.name)?.name || fallbackId;
+function isZeroAttendanceRecord(record: AttendanceRecord) {
+  return !record.event_id && String(record.remarks ?? "").toLowerCase().includes("zero attendance");
+}
+
+function isZeroAttendanceFine(fine: FineRecord) {
+  return (
+    !fine.attendance_event_id &&
+    String(fine.attendance_remarks ?? "").toLowerCase().includes("zero attendance")
+  );
+}
+
+function getStudentDisplayName(attendance: AttendanceRecord[], fines: FineRecord[], fallbackId: string) {
+  return attendance.find((record) => record.name)?.name || fines.find((fine) => fine.name)?.name || fallbackId;
 }
 
 function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
   const summaries = new Map<string, StudentAttendedEventSummary>();
 
-  attendance.forEach((record) => {
-    const eventName = getRecordEventName(record);
-    const key = record.event_id || normalizeEventKey(eventName) || `attendance-event-${record.id}`;
-    const currentSummary = summaries.get(key);
-    const recordTime = getRecordTimestamp(record);
+  attendance
+    .filter((record) => !isZeroAttendanceRecord(record) && (record.event_id || record.event_name || record.import_id))
+    .forEach((record) => {
+      const eventName = getRecordEventName(record);
+      const key = record.event_id || normalizeEventKey(eventName) || `attendance-event-${record.id}`;
+      const currentSummary = summaries.get(key);
+      const recordTime = getRecordTimestamp(record);
 
-    if (!currentSummary) {
-      summaries.set(key, {
-        key,
-        eventName,
-        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
-        records: [record],
-        totalAbsences: Number(record.no_of_absences ?? 0)
-      });
-      return;
-    }
+      if (!currentSummary) {
+        summaries.set(key, {
+          key,
+          eventName,
+          latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+          records: [record],
+          totalAbsences: Number(record.no_of_absences ?? 0)
+        });
+        return;
+      }
 
-    const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+      const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
 
-    currentSummary.records.push(record);
-    currentSummary.totalAbsences += Number(record.no_of_absences ?? 0);
+      currentSummary.records.push(record);
+      currentSummary.totalAbsences = Math.max(
+        currentSummary.totalAbsences,
+        Number(record.no_of_absences ?? 0)
+      );
 
-    if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-      currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
-    }
-  });
+      if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+        currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+      }
+    });
 
   return Array.from(summaries.values())
     .map((summary) => ({
@@ -271,11 +313,40 @@ function buildFallbackFine(
     no_of_absences: noOfAbsences,
     prescribed_penalty: penalty?.prescribed_penalty ?? "No prescribed penalty configured.",
     status: "unpaid",
+    attendance_event_id: latestAttendance?.event_id ?? null,
+    attendance_remarks: latestAttendance?.remarks ?? null,
     created_at: String(latestAttendance?.created_at ?? now),
     updated_at: String(latestAttendance?.updated_at ?? latestAttendance?.created_at ?? now)
   };
 }
 
+function getResultClassification(props: {
+  lookup: LookupState | null;
+  displayedFines: FineRecord[];
+  totalAbsences: number;
+  attendedEvents: StudentAttendedEventSummary[];
+}) {
+  if (!props.lookup) return "Search result";
+
+  const hasZeroAttendanceRecord =
+    props.lookup.attendance.some(isZeroAttendanceRecord) || props.displayedFines.some(isZeroAttendanceFine);
+
+  if (hasZeroAttendanceRecord) return "Zero attendance";
+  if (props.attendedEvents.length > 0 && props.totalAbsences === 0 && props.displayedFines.length === 0) {
+    return "Perfect attendance";
+  }
+
+  if (props.totalAbsences > 0 || props.displayedFines.length > 0) return "With absences";
+
+  return "No attendance record";
+}
+
+function getClassificationStyle(classification: string) {
+  if (classification === "Perfect attendance") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (classification === "Zero attendance") return "border-red-200 bg-red-50 text-red-700";
+  if (classification === "With absences") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
 
 function StudentAttendedEventsDialog(props: {
   open: boolean;
@@ -329,6 +400,113 @@ function StudentAttendedEventsDialog(props: {
   );
 }
 
+function ZeroAttendanceRegistrationDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  form: ZeroAttendanceFormState;
+  error: string;
+  isSaving: boolean;
+  onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Student ID not found</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="space-y-5">
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
+            This Student ID has no saved attendance or fine record. Fill out the attendee details to register the
+            student as zero attendance and create the related fine record.
+          </div>
+
+          {props.error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {props.error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-sm font-bold">
+              <span>Student ID</span>
+              <input
+                value={props.form.studentId}
+                onChange={(event) => props.onFieldChange("studentId", event.target.value)}
+                placeholder="Student ID"
+                className={textInputClassName}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-bold">
+              <span>Name</span>
+              <input
+                value={props.form.name}
+                onChange={(event) => props.onFieldChange("name", event.target.value)}
+                placeholder="Full name"
+                className={textInputClassName}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-bold">
+              <span>Year Level</span>
+              <input
+                value={props.form.yearLevel}
+                onChange={(event) => props.onFieldChange("yearLevel", event.target.value)}
+                placeholder="Year level"
+                className={textInputClassName}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-bold">
+              <span>College</span>
+              <input
+                value={props.form.college}
+                onChange={(event) => props.onFieldChange("college", event.target.value)}
+                placeholder="College"
+                className={textInputClassName}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-bold">
+              <span>Program</span>
+              <input
+                value={props.form.program}
+                onChange={(event) => props.onFieldChange("program", event.target.value)}
+                placeholder="Program"
+                className={textInputClassName}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-bold">
+              <span>Institution</span>
+              <input
+                value={props.form.institution}
+                onChange={(event) => props.onFieldChange("institution", event.target.value)}
+                placeholder="Institution"
+                className={textInputClassName}
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={() => props.onOpenChange(false)}
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black">
+              {props.isSaving ? "Saving..." : "Save Zero Attendance"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function LandingPage() {
   const [studentId, setStudentId] = useState("");
@@ -338,6 +516,10 @@ export default function LandingPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [eventsDialogOpen, setEventsDialogOpen] = useState(false);
+  const [zeroAttendanceDialogOpen, setZeroAttendanceDialogOpen] = useState(false);
+  const [zeroAttendanceForm, setZeroAttendanceForm] = useState<ZeroAttendanceFormState>(emptyZeroAttendanceForm);
+  const [isSavingZeroAttendance, setIsSavingZeroAttendance] = useState(false);
+  const [zeroAttendanceError, setZeroAttendanceError] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -349,14 +531,14 @@ export default function LandingPage() {
     setIsCheckingSession(false);
   }, []);
 
-  const totalAbsences = useMemo(() => {
-    return lookup ? getTotalAbsences(lookup.attendance) : 0;
-  }, [lookup]);
-
   const displayedFines = useMemo(() => {
     if (!lookup) return [];
     return lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines;
   }, [lookup]);
+
+  const totalAbsences = useMemo(() => {
+    return lookup ? getTotalAbsences(lookup.attendance, displayedFines) : 0;
+  }, [lookup, displayedFines]);
 
   const unpaidFines = useMemo(() => {
     return displayedFines.filter((fine) => fine.status === "unpaid").length;
@@ -367,9 +549,75 @@ export default function LandingPage() {
     return lookup ? getStudentAttendedEventSummaries(lookup.attendance) : [];
   }, [lookup]);
   const studentDisplayName = useMemo(() => {
-    return lookup ? getStudentDisplayName(lookup.attendance, searchedId) : searchedId;
-  }, [lookup, searchedId]);
+    return lookup ? getStudentDisplayName(lookup.attendance, displayedFines, searchedId) : searchedId;
+  }, [lookup, displayedFines, searchedId]);
   const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
+  const resultClassification = useMemo(
+    () => getResultClassification({ lookup, displayedFines, totalAbsences, attendedEvents }),
+    [lookup, displayedFines, totalAbsences, attendedEvents]
+  );
+  const resultClassificationClassName = getClassificationStyle(resultClassification);
+
+  function openZeroAttendanceRegistration(cleanStudentId: string) {
+    setLookup(null);
+    setResultDialogOpen(false);
+    setEventsDialogOpen(false);
+    setZeroAttendanceError("");
+    setZeroAttendanceForm({ ...emptyZeroAttendanceForm, studentId: cleanStudentId });
+    setZeroAttendanceDialogOpen(true);
+  }
+
+  function handleZeroAttendanceFieldChange(field: keyof ZeroAttendanceFormState, value: string) {
+    setZeroAttendanceForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleZeroAttendanceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const payload: ZeroAttendanceFinePayload = {
+      studentId: zeroAttendanceForm.studentId.trim(),
+      name: zeroAttendanceForm.name.trim(),
+      yearLevel: zeroAttendanceForm.yearLevel.trim(),
+      college: zeroAttendanceForm.college.trim(),
+      program: zeroAttendanceForm.program.trim(),
+      institution: zeroAttendanceForm.institution.trim()
+    };
+
+    if (!payload.studentId) {
+      setZeroAttendanceError("Student ID is required.");
+      return;
+    }
+
+    if (!payload.name) {
+      setZeroAttendanceError("Name is required.");
+      return;
+    }
+
+    setIsSavingZeroAttendance(true);
+    setZeroAttendanceError("");
+
+    try {
+      const result = await registerZeroAttendanceFine(payload);
+      const attendanceRecord = {
+        ...result.attendanceRecord,
+        remarks: result.attendanceRecord.remarks || ZERO_ATTENDANCE_REMARK
+      };
+
+      setStudentId(result.attendanceRecord.student_id);
+      setSearchedId(result.attendanceRecord.student_id);
+      setLookup({
+        attendance: [attendanceRecord],
+        fines: result.fine ? [result.fine] : [],
+        fallbackFine: null
+      });
+      setZeroAttendanceDialogOpen(false);
+      setResultDialogOpen(true);
+    } catch (saveError) {
+      setZeroAttendanceError(saveError instanceof Error ? saveError.message : "Unable to save zero attendance record.");
+    } finally {
+      setIsSavingZeroAttendance(false);
+    }
+  }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -380,11 +628,13 @@ export default function LandingPage() {
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
+      setZeroAttendanceDialogOpen(false);
       return;
     }
 
     setIsSearching(true);
     setError("");
+    setZeroAttendanceError("");
     setSearchedId(cleanStudentId);
 
     try {
@@ -392,6 +642,11 @@ export default function LandingPage() {
         getStudentAttendanceRecords(cleanStudentId),
         getStudentFines(cleanStudentId)
       ]);
+
+      if (!attendance.length && !fines.length) {
+        openZeroAttendanceRegistration(cleanStudentId);
+        return;
+      }
 
       const fallbackAbsenceCount = getFallbackAbsenceCount(attendance);
       const shouldBuildFallbackFine = fines.length === 0 && fallbackAbsenceCount > 0;
@@ -406,10 +661,12 @@ export default function LandingPage() {
 
       setLookup({ attendance, fines, fallbackFine });
       setResultDialogOpen(true);
+      setZeroAttendanceDialogOpen(false);
     } catch (searchError) {
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
+      setZeroAttendanceDialogOpen(false);
       setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
     } finally {
       setIsSearching(false);
@@ -427,7 +684,7 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <section className="border-b bg-linear-to-b from-muted/80 to-background">
-        <div className="mx-auto min-h-screen  px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto min-h-screen px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
@@ -445,8 +702,8 @@ export default function LandingPage() {
               Search your Student ID and view your attendance record instantly.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">
-              Students can check recorded absences and penalty status without logging in. Enter your Student ID to
-              see attendance entries and related fines.
+              Students can check perfect attendance, zero attendance, recorded absences, and penalty status without
+              logging in. Enter your Student ID to see attendance entries and related fines.
             </p>
 
             <form
@@ -461,7 +718,7 @@ export default function LandingPage() {
                 value={studentId}
                 onChange={(event) => setStudentId(event.target.value)}
                 placeholder="Enter Student ID"
-                className="min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 sm:flex-1"
+                className={`${textInputClassName} sm:flex-1`}
               />
               <Button type="submit" disabled={isSearching} className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:w-auto">
                 {isSearching ? "Searching..." : "Search Records"}
@@ -480,8 +737,8 @@ export default function LandingPage() {
                 <p className="mt-2 text-3xl font-black">Student ID</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">View status</p>
-                <p className="mt-2 text-3xl font-black">Fines</p>
+                <p className="text-sm font-semibold text-muted-foreground">Segregated status</p>
+                <p className="mt-2 text-3xl font-black">Perfect / Zero</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
                 <p className="text-sm font-semibold text-muted-foreground">Monitor records</p>
@@ -533,7 +790,11 @@ export default function LandingPage() {
                   <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result</p>
                   <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:w-auto">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:w-auto">
+                  <div className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}>
+                    <p className="text-xs font-bold uppercase">Classification</p>
+                    <p className="text-2xl font-black">{resultClassification}</p>
+                  </div>
                   <div className="rounded-2xl border bg-card px-5 py-4">
                     <p className="text-xs font-bold uppercase text-muted-foreground">Total absences</p>
                     <p className="text-2xl font-black">{totalAbsencesLabel}</p>
@@ -550,14 +811,26 @@ export default function LandingPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={!lookup.attendance.length}
+                    disabled={!attendedEvents.length}
                     onClick={() => setEventsDialogOpen(true)}
                     className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
                   >
-                    Events
+                    View Attended Events
                   </Button>
                 </div>
               </div>
+
+              {resultClassification === "Perfect attendance" ? (
+                <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
+                  Perfect attendance record found. Use the attended events button to view the events this student attended.
+                </div>
+              ) : null}
+
+              {resultClassification === "Zero attendance" ? (
+                <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
+                  Zero attendance record found. This student has been recorded with no attended events and the related fine is shown below.
+                </div>
+              ) : null}
 
               {fallbackFineActive ? (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
@@ -635,7 +908,14 @@ export default function LandingPage() {
                         <article key={fine.id} className="rounded-2xl border bg-background p-4">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                              <p className="text-sm font-black">{fine.prescribed_penalty}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-black">{fine.prescribed_penalty}</p>
+                                {isZeroAttendanceFine(fine) ? (
+                                  <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
+                                    Zero attendance
+                                  </span>
+                                ) : null}
+                              </div>
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {formatAbsenceCount(fine.no_of_absences, isFallbackFine(fine) && fine.no_of_absences >= 10)} absence/s •{" "}
                                 {formatDate(fine.created_at)}
@@ -659,6 +939,16 @@ export default function LandingPage() {
         </DialogContent>
       </Dialog>
 
+      <ZeroAttendanceRegistrationDialog
+        open={zeroAttendanceDialogOpen}
+        onOpenChange={setZeroAttendanceDialogOpen}
+        form={zeroAttendanceForm}
+        error={zeroAttendanceError}
+        isSaving={isSavingZeroAttendance}
+        onFieldChange={handleZeroAttendanceFieldChange}
+        onSubmit={handleZeroAttendanceSubmit}
+      />
+
       <StudentAttendedEventsDialog
         open={eventsDialogOpen}
         onOpenChange={setEventsDialogOpen}
@@ -666,7 +956,6 @@ export default function LandingPage() {
         studentName={studentDisplayName}
         events={attendedEvents}
       />
-
     </main>
   );
 }

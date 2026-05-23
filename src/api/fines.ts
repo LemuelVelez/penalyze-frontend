@@ -1,3 +1,5 @@
+import type { AttendanceRecord } from "./attendance";
+
 export type FineStatus = "unpaid" | "paid" | "waived";
 
 export type FineRecord = {
@@ -9,6 +11,8 @@ export type FineRecord = {
   no_of_absences: number;
   prescribed_penalty: string;
   status: FineStatus;
+  attendance_event_id?: string | null;
+  attendance_remarks?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -21,6 +25,22 @@ export type PenaltyRecord = {
   prescribed_penalty: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ZeroAttendanceFinePayload = {
+  studentId: string;
+  name: string;
+  yearLevel?: string;
+  college?: string;
+  program?: string;
+  institution?: string;
+};
+
+export type ZeroAttendanceFineResult = {
+  attendanceRecord: AttendanceRecord;
+  fine: FineRecord | null;
+  totalEvents: number;
+  penalty: PenaltyRecord | null;
 };
 
 type ApiEnvelope<T> = {
@@ -113,6 +133,19 @@ export async function getStudentFines(studentId: string) {
 export async function getFineSummary() {
   const response = await apiRequest<FineSummary>("/api/fines/summary");
   return response.data ?? { unpaid: 0, paid: 0, waived: 0 };
+}
+
+export async function registerZeroAttendanceFine(payload: ZeroAttendanceFinePayload) {
+  const response = await apiRequest<ZeroAttendanceFineResult>("/api/fines/zero-attendance", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.data) {
+    throw new Error("Unable to register zero attendance record.");
+  }
+
+  return response.data;
 }
 
 export async function updateFineStatus(id: string, status: FineStatus) {

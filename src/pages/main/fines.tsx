@@ -76,6 +76,13 @@ function getFineStatusLabel(status: FineStatus) {
   return fineStatusOptions.find((item) => item.value === status)?.label ?? status.toUpperCase();
 }
 
+function isZeroAttendanceFine(fine: FineRecord) {
+  return (
+    !fine.attendance_event_id &&
+    String(fine.attendance_remarks ?? "").toLowerCase().includes("zero attendance")
+  );
+}
+
 function DeletePenaltyConfirmation(props: {
   penalty: PenaltyRecord;
   isDeleting: boolean;
@@ -174,6 +181,7 @@ export default function FinesPage() {
 
   const totalFines = fines.length;
   const unpaidFines = useMemo(() => fines.filter((fine) => fine.status === "unpaid").length, [fines]);
+  const zeroAttendanceFines = useMemo(() => fines.filter(isZeroAttendanceFine).length, [fines]);
   const selectedPenaltyIdsSet = useMemo(() => new Set(selectedPenaltyIds), [selectedPenaltyIds]);
   const selectedPenaltyCount = selectedPenaltyIds.length;
   const allPenaltiesSelected = penalties.length > 0 && selectedPenaltyCount === penalties.length;
@@ -444,7 +452,7 @@ export default function FinesPage() {
           </p>
         </div>
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Displayed fines</p>
             <p className="mt-2 text-3xl font-black">{isLoadingFines ? "—" : totalFines}</p>
@@ -456,6 +464,10 @@ export default function FinesPage() {
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Penalty rules</p>
             <p className="mt-2 text-3xl font-black">{isLoadingPenalties ? "—" : penalties.length}</p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Zero attendance</p>
+            <p className="mt-2 text-3xl font-black">{isLoadingFines ? "—" : zeroAttendanceFines}</p>
           </div>
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current filter</p>
@@ -539,9 +551,16 @@ export default function FinesPage() {
                       <p className="font-black">{fine.name}</p>
                       <p className="text-sm text-muted-foreground">{fine.student_id}</p>
                     </div>
-                    <span className={`w-fit rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(fine.status)}`}>
-                      {fine.status}
-                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {isZeroAttendanceFine(fine) ? (
+                        <span className="w-fit rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
+                          Zero attendance
+                        </span>
+                      ) : null}
+                      <span className={`w-fit rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(fine.status)}`}>
+                        {fine.status}
+                      </span>
+                    </div>
                   </div>
                   <p className="mt-3 text-sm text-muted-foreground">{fine.prescribed_penalty}</p>
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -583,6 +602,7 @@ export default function FinesPage() {
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Absences</th>
                   <th className="px-3 py-3">Penalty</th>
+                  <th className="px-3 py-3">Category</th>
                   <th className="px-3 py-3">Status</th>
                   <th className="px-3 py-3">Action</th>
                 </tr>
@@ -596,6 +616,17 @@ export default function FinesPage() {
                       <td className="px-3 py-3">{fine.name}</td>
                       <td className="px-3 py-3">{fine.no_of_absences}</td>
                       <td className="max-w-sm px-3 py-3 text-muted-foreground">{fine.prescribed_penalty}</td>
+                      <td className="px-3 py-3">
+                        {isZeroAttendanceFine(fine) ? (
+                          <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
+                            Zero attendance
+                          </span>
+                        ) : (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase text-emerald-700">
+                            Attendance record
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-3">
                         <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(fine.status)}`}>
                           {fine.status}
@@ -623,7 +654,7 @@ export default function FinesPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
                       {isLoadingFines ? "Loading fine records..." : "No fine records found."}
                     </td>
                   </tr>
