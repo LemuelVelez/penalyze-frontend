@@ -168,17 +168,66 @@ export type AttendanceRowsSaveInput = {
 };
 
 const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.csv,.txt,.docx,.doc";
+const LOCAL_API_BASE_URL = "http://localhost:3000";
+
+function normalizeBaseUrl(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
+function getEnvUrl(...keys: string[]) {
+  const env = (import.meta as any).env ?? {};
+
+  for (const key of keys) {
+    const value = normalizeBaseUrl(env[key]);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getRuntimeOrigin() {
+  if (typeof window === "undefined") return "";
+  return normalizeBaseUrl(window.location.origin);
+}
+
+function isLocalUrl(value: string) {
+  if (!value) return false;
+
+  try {
+    const { hostname } = new URL(value);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return value.includes("localhost") || value.includes("127.0.0.1");
+  }
+}
+
+function getFrontendBaseUrl() {
+  return (
+    getEnvUrl("VITE_Frontend_URL", "VITE_FRONTEND_URL", "VITE_APP_URL") ||
+    getRuntimeOrigin()
+  );
+}
 
 function getApiBaseUrl() {
-  const env = (import.meta as any).env ?? {};
-  const value =
-    env.VITE_API_URL ||
-    env.VITE_BACKEND_URL ||
-    env.Backend_URL ||
-    env.BACKEND_URL ||
-    "http://localhost:3000";
+  const backendUrl = getEnvUrl(
+    "VITE_Backend_URL",
+    "VITE_BACKEND_URL",
+    "VITE_API_URL",
+    "Backend_URL",
+    "BACKEND_URL",
+  );
 
-  return String(value).replace(/\/+$/, "");
+  if (backendUrl) return backendUrl;
+
+  const frontendUrl = getFrontendBaseUrl();
+
+  if (frontendUrl && !isLocalUrl(frontendUrl)) {
+    return frontendUrl;
+  }
+
+  return LOCAL_API_BASE_URL;
 }
 
 function getAuthToken() {
