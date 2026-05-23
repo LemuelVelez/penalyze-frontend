@@ -1266,12 +1266,15 @@ function getRecordEventGroupKey(record: AttendanceRecord) {
   if (!record.event_id && !cleanImportValue(record.event_name))
     return NO_EVENT_FILTER_SELECT_VALUE;
 
-  return (
+  const eventKey =
     getAttendanceEventIdentityKey(
       getManualRecordSource(record),
       record.event_id,
-    ) || `manual-event:${record.id}`
-  );
+    ) || `manual-event:${record.id}`;
+  const collegeKey =
+    normalizeImportHeader(record.college) || NO_COLLEGE_SELECT_VALUE;
+
+  return `${eventKey}:college:${collegeKey}`;
 }
 
 function getRecordStudentProfileKey(record: AttendanceRecord) {
@@ -1754,9 +1757,12 @@ function getAttendanceStudentEventSummaries(
       ? (eventById.get(record.event_id) ?? null)
       : null;
     const eventName = event?.name ?? getManualRecordSource(record);
-    const key =
+    const eventKey =
       getAttendanceEventIdentityKey(eventName, record.event_id) ||
       `student-event:${record.id}`;
+    const collegeKey =
+      normalizeImportHeader(record.college) || NO_COLLEGE_SELECT_VALUE;
+    const key = `${eventKey}:college:${collegeKey}`;
     const currentSummary = summaries.get(key);
     const recordTime = getRecordTimestamp(record);
     const schedule =
