@@ -129,6 +129,13 @@ export type ManualAttendanceSaveResult = {
   fine: SavedAttendanceImportResult["createdFines"][number] | null;
 };
 
+export type ManualAttendanceBulkSaveResult = {
+  event: AttendanceEvent | null;
+  records: AttendanceRecord[];
+  updatedRecordIds: string[];
+  fines: SavedAttendanceImportResult["createdFines"];
+};
+
 type ApiEnvelope<T> = {
   message?: string;
   data?: T;
@@ -695,6 +702,25 @@ export async function updateAttendanceRecord(
     {
       method: "PATCH",
       body: JSON.stringify(input),
+    },
+  );
+
+  return response.data;
+}
+
+export async function updateAttendanceRecords(
+  recordIds: string[],
+  input: ManualAttendanceInput,
+) {
+  const uniqueRecordIds = Array.from(new Set(recordIds.filter(Boolean)));
+  const response = await apiRequest<ManualAttendanceBulkSaveResult>(
+    "/api/attendance/bulk",
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...input,
+        recordIds: uniqueRecordIds,
+      }),
     },
   );
 

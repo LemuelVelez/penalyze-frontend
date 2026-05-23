@@ -16,7 +16,7 @@ import {
   saveAttendanceRows,
   saveManualAttendanceRecord,
   updateAttendanceEvent,
-  updateAttendanceRecord,
+  updateAttendanceRecords,
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
@@ -4191,16 +4191,15 @@ export default function AttendancePage() {
             ]),
           )
         : [];
-      const results = editingRecordId
-        ? await Promise.all(
-            editRecordIds.map((recordId) =>
-              updateAttendanceRecord(recordId, payload),
-            ),
-          )
-        : [await saveManualAttendanceRecord(payload)];
-      const savedRecords = results
-        .map((result) => result?.record)
-        .filter((record): record is AttendanceRecord => Boolean(record));
+      let savedRecords: AttendanceRecord[] = [];
+
+      if (editingRecordId) {
+        const result = await updateAttendanceRecords(editRecordIds, payload);
+        savedRecords = result?.records ?? [];
+      } else {
+        const result = await saveManualAttendanceRecord(payload);
+        if (result?.record) savedRecords = [result.record];
+      }
 
       if (savedRecords.length) {
         setRecords((current) => {
@@ -4223,16 +4222,16 @@ export default function AttendancePage() {
         });
       }
 
-      await loadRecords({ preserveScroll: true });
+      if (!editingRecordId) {
+        await loadRecords({ preserveScroll: true });
+      }
+
       handleCancelEdit();
       setManualDialogOpen(false);
       restoreCapturedScrollPosition();
       toast.success(
         editingRecordId
-          ? `Attendance attendee updated across ${Math.max(
-              editRecordIds.length,
-              savedRecords.length,
-            )} record/s.`
+          ? `Attendance attendee updated across ${editRecordIds.length} record/s.`
           : "Attendance record saved successfully.",
       );
     } catch (manualError) {
