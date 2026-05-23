@@ -2017,7 +2017,7 @@ function FileDropZone(props: {
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      className={`flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-6 text-center shadow-sm transition sm:p-8 ${
+      className={`flex min-h-64 w-full min-w-0 max-w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-card p-6 text-center shadow-sm transition sm:p-8 ${
         props.isDragging
           ? "border-primary bg-accent"
           : "border-border hover:border-primary/70 hover:bg-accent/40"
@@ -2032,14 +2032,18 @@ function FileDropZone(props: {
         className="sr-only"
       />
 
-      <div className="rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
+      <div className="max-w-full wrap-break-word rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
         Excel all sheets, CSV, TXT, DOCX, DOC
       </div>
-      <h2 className="mt-4 text-2xl font-black">Upload attendance file</h2>
+      <h2 className="mt-4 max-w-full wrap-break-word text-2xl font-black">
+        Upload attendance file
+      </h2>
 
       {props.file ? (
-        <div className="mt-5 w-full max-w-xl rounded-2xl border bg-background p-4 text-left">
-          <p className="truncate text-sm font-black">{props.file.name}</p>
+        <div className="mt-5 w-full max-w-xl min-w-0 overflow-hidden rounded-2xl border bg-background p-4 text-left">
+          <p className="max-w-full break-all text-sm font-black leading-relaxed">
+            {props.file.name}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {(props.file.size / 1024).toFixed(1)} KB
           </p>
@@ -4632,10 +4636,6 @@ export default function AttendancePage() {
               summary={`${displayEvents.length} event/s`}
               description="View, edit, and delete attendance events."
             >
-              <p className="mb-4 text-sm font-bold text-muted-foreground">
-                {displayEvents.length} event/s
-              </p>
-
               {displayEvents.length ? (
                 <div className="space-y-3">
                   {displayEvents.map((event) => (
