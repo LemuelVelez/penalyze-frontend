@@ -1954,7 +1954,7 @@ function AttendanceResponsivePanel(props: {
   }
 
   return (
-    <details className="group rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+    <details className="group self-start rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
       <summary className="flex min-w-0 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <span className="min-w-0">
           <span className="block wrap-break-word text-xl font-black">
@@ -4487,7 +4487,7 @@ export default function AttendancePage() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className="grid items-start gap-6 xl:grid-cols-2">
           <section className="space-y-4">
             <FileDropZone
               file={file}
