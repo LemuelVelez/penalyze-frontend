@@ -1954,7 +1954,7 @@ function AttendanceResponsivePanel(props: {
   }
 
   return (
-    <details className="group self-start rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+    <details className="group min-w-0 max-w-full self-start overflow-hidden rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
       <summary className="flex min-w-0 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
         <span className="min-w-0">
           <span className="block wrap-break-word text-xl font-black">
@@ -2017,7 +2017,7 @@ function FileDropZone(props: {
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      className={`flex min-h-64 w-full min-w-0 max-w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-card p-6 text-center shadow-sm transition sm:p-8 ${
+      className={`box-border flex min-h-64 w-full min-w-0 max-w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-card p-4 text-center shadow-sm transition sm:p-8 ${
         props.isDragging
           ? "border-primary bg-accent"
           : "border-border hover:border-primary/70 hover:bg-accent/40"
@@ -2032,19 +2032,19 @@ function FileDropZone(props: {
         className="sr-only"
       />
 
-      <div className="max-w-full wrap-break-word rounded-full border bg-background px-4 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground">
+      <div className="max-w-full min-w-0 wrap-break-word rounded-full border bg-background px-3 py-2 text-xs font-black uppercase tracking-wide text-muted-foreground sm:px-4">
         Excel all sheets, CSV, TXT, DOCX, DOC
       </div>
-      <h2 className="mt-4 max-w-full wrap-break-word text-2xl font-black">
+      <h2 className="mt-4 max-w-full min-w-0 wrap-break-word text-xl font-black sm:text-2xl">
         Upload attendance file
       </h2>
 
       {props.file ? (
-        <div className="mt-5 w-full max-w-xl min-w-0 overflow-hidden rounded-2xl border bg-background p-4 text-left">
-          <p className="max-w-full break-all text-sm font-black leading-relaxed">
+        <div className="mt-5 box-border w-full max-w-full min-w-0 overflow-hidden rounded-2xl border bg-background p-4 text-left sm:max-w-xl">
+          <p className="w-full max-w-full min-w-0 break-all text-sm font-black leading-relaxed">
             {props.file.name}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 w-full max-w-full min-w-0 wrap-break-word text-xs text-muted-foreground">
             {(props.file.size / 1024).toFixed(1)} KB
           </p>
         </div>
@@ -4412,8 +4412,8 @@ export default function AttendancePage() {
   }, []);
 
   return (
-    <main className="min-h-screen min-w-0 wrap-break-word bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto  min-w-0">
+    <main className="min-h-screen min-w-0 max-w-full overflow-x-hidden wrap-break-word bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-full min-w-0">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -4487,8 +4487,8 @@ export default function AttendancePage() {
           </div>
         </div>
 
-        <div className="grid items-start gap-6 xl:grid-cols-2">
-          <section className="space-y-4">
+        <div className="grid min-w-0 max-w-full items-start gap-6 xl:grid-cols-2">
+          <section className="min-w-0 max-w-full space-y-4">
             <FileDropZone
               file={file}
               isDragging={isDragging}
@@ -4497,7 +4497,7 @@ export default function AttendancePage() {
             />
 
             {file ? (
-              <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+              <section className="min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
                 <div className="flex flex-col gap-1">
                   <h2 className="text-xl font-black">Upload event</h2>
                   <p className="text-sm font-semibold text-muted-foreground">
