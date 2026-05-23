@@ -678,7 +678,6 @@ function getNormalizedAttendanceRowsFromTabularRows(
   const metadataEventName =
     getLabeledValue(metadataText, ATTENDANCE_HEADER_ALIASES.eventName) ||
     cleanImportValue(fallbackEventName);
-  const normalizedRows: NormalizedAttendanceImportRow[] = [];
   const latestRecordByImportKey = new Map<
     string,
     NormalizedAttendanceImportRow
@@ -767,11 +766,10 @@ function getNormalizedAttendanceRowsFromTabularRows(
         `Imported from ${fileName} row ${headerRowIndex + index + 2}`,
     };
 
-    normalizedRows.push(normalizedRow);
     latestRecordByImportKey.set(importKey, normalizedRow);
   });
 
-  return normalizedRows;
+  return Array.from(latestRecordByImportKey.values());
 }
 
 function getNormalizedAttendanceRowsFromText(text: string, fileName: string) {
@@ -1692,6 +1690,41 @@ function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
     (total, noOfAbsences) => total + noOfAbsences,
     0,
   );
+}
+
+function getAttendanceSearchRecordDeduplicationKey(record: AttendanceRecord) {
+  return [
+    getRecordEventGroupKey(record),
+    getAttendeeKey(record),
+    normalizeImportHeader(record.student_id),
+    normalizeImportHeader(record.name),
+    normalizeImportHeader(record.year_level),
+    normalizeImportHeader(record.college),
+    normalizeImportHeader(record.program),
+    normalizeImportHeader(record.institution),
+    Number(record.no_of_absences ?? 0),
+    normalizeImportHeader(record.remarks),
+  ].join(":");
+}
+
+function getDeduplicatedAttendanceSearchRecords(records: AttendanceRecord[]) {
+  const deduplicatedRecords = new Map<string, AttendanceRecord>();
+
+  records.forEach((record) => {
+    const key = getAttendanceSearchRecordDeduplicationKey(record);
+    const currentRecord = deduplicatedRecords.get(key);
+
+    if (!currentRecord) {
+      deduplicatedRecords.set(key, record);
+      return;
+    }
+
+    if (getRecordTimestamp(record) >= getRecordTimestamp(currentRecord)) {
+      deduplicatedRecords.set(key, record);
+    }
+  });
+
+  return Array.from(deduplicatedRecords.values());
 }
 
 function getAttendanceRecordSearchText(record: AttendanceRecord) {
@@ -3332,7 +3365,6 @@ function AttendanceRecordSearchDialog(props: {
                     <th className="px-3 py-3">Student ID</th>
                     <th className="px-3 py-3">Name</th>
                     <th className="px-3 py-3">Event</th>
-                    <th className="px-3 py-3">Total</th>
                     <th className="px-3 py-3">Remarks</th>
                     <th className="px-3 py-3">Actions</th>
                   </tr>
@@ -3347,9 +3379,6 @@ function AttendanceRecordSearchDialog(props: {
                       <td className="px-3 py-3">{record.name || "—"}</td>
                       <td className="px-3 py-3">
                         {getManualRecordSource(record)}
-                      </td>
-                      <td className="px-3 py-3">
-                        {record.no_of_absences ?? 0}
                       </td>
                       <td className="px-3 py-3 text-muted-foreground">
                         {record.remarks || "—"}
@@ -3521,8 +3550,10 @@ export default function AttendancePage() {
     const query = recordSearchQuery.trim().toLowerCase();
     if (!query) return [];
 
-    return mergedRecords.filter((record) =>
-      getAttendanceRecordSearchText(record).includes(query),
+    return getDeduplicatedAttendanceSearchRecords(
+      mergedRecords.filter((record) =>
+        getAttendanceRecordSearchText(record).includes(query),
+      ),
     );
   }, [mergedRecords, recordSearchQuery]);
   const recordSearchStudentSummaries = useMemo(() => {
