@@ -1237,6 +1237,13 @@ function getCollegeFilterValue(value?: string | null) {
   return cleanImportValue(value) || NO_COLLEGE_SELECT_VALUE;
 }
 
+function compareAttendanceLabels(left: string, right: string) {
+  return cleanImportValue(left).localeCompare(cleanImportValue(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function getAttendanceEventIdentityKey(
   eventName?: string | null,
   eventId?: string | null,
@@ -1564,31 +1571,23 @@ function getAttendanceEventGroups(
       };
     })
     .sort((leftGroup, rightGroup) => {
-      const eventNameCompare = cleanImportValue(
+      const eventNameCompare = compareAttendanceLabels(
         leftGroup.eventName,
-      ).localeCompare(cleanImportValue(rightGroup.eventName), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
+        rightGroup.eventName,
+      );
 
       if (eventNameCompare !== 0) return eventNameCompare;
 
-      const collegeCompare = getAttendanceGroupCollegeLabel(
-        leftGroup,
-      ).localeCompare(getAttendanceGroupCollegeLabel(rightGroup), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
+      const collegeCompare = compareAttendanceLabels(
+        getAttendanceGroupCollegeLabel(leftGroup),
+        getAttendanceGroupCollegeLabel(rightGroup),
+      );
 
       if (collegeCompare !== 0) return collegeCompare;
 
-      return formatEventGroupSchedule(leftGroup).localeCompare(
+      return compareAttendanceLabels(
+        formatEventGroupSchedule(leftGroup),
         formatEventGroupSchedule(rightGroup),
-        undefined,
-        {
-          numeric: true,
-          sensitivity: "base",
-        },
       );
     });
 }
@@ -1633,7 +1632,7 @@ function getDeduplicatedAttendanceEvents(events: AttendanceEvent[]) {
   });
 
   return Array.from(eventMap.values()).sort((left, right) =>
-    left.name.localeCompare(right.name),
+    compareAttendanceLabels(left.name, right.name),
   );
 }
 
@@ -3470,7 +3469,9 @@ export default function AttendancePage() {
 
     return Array.from(options.entries())
       .map(([value, label]) => ({ value, label }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+      .sort((left, right) =>
+        compareAttendanceLabels(left.label, right.label),
+      );
   }, [events, mergedRecords]);
   const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     if (eventFilter === ALL_EVENTS_SELECT_VALUE) return mergedRecords;
@@ -3487,9 +3488,8 @@ export default function AttendancePage() {
         ),
       ),
     ).sort((left, right) => {
-      return getCollegeLabel(
-        left === NO_COLLEGE_SELECT_VALUE ? "" : left,
-      ).localeCompare(
+      return compareAttendanceLabels(
+        getCollegeLabel(left === NO_COLLEGE_SELECT_VALUE ? "" : left),
         getCollegeLabel(right === NO_COLLEGE_SELECT_VALUE ? "" : right),
       );
     });
@@ -4263,22 +4263,25 @@ export default function AttendancePage() {
       description: eventForm.description.trim(),
     };
 
+    const successMessage = editingEventId
+      ? "Event updated successfully."
+      : "Event saved successfully.";
+
     setIsSavingEvent(true);
     setError("");
 
     try {
       if (editingEventId) {
         await updateAttendanceEvent(editingEventId, payload);
-        toast.success("Event updated successfully.");
       } else {
         await saveAttendanceEvent(payload);
-        toast.success("Event saved successfully.");
       }
 
       await loadRecords({ preserveScroll: true });
       handleCancelEventEdit();
       setEventDialogOpen(false);
       restoreCapturedScrollPosition();
+      toast.success(successMessage);
     } catch (eventError) {
       const message =
         eventError instanceof Error
