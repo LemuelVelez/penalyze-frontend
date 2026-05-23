@@ -1984,8 +1984,25 @@ function FileDropZone(props: {
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (!props.file && inputRef.current) {
+      inputRef.current.value = "";
+    }
+  }, [props.file]);
+
   function selectFile(fileList: FileList | null) {
     props.onFileChange(fileList?.[0] ?? null);
+  }
+
+  function clearSelectedFile(event: SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+
+    props.onFileChange(null);
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -2040,13 +2057,23 @@ function FileDropZone(props: {
       </h2>
 
       {props.file ? (
-        <div className="mt-5 box-border w-full max-w-full min-w-0 overflow-hidden rounded-2xl border bg-background p-4 text-left sm:max-w-xl">
-          <p className="w-full max-w-full min-w-0 break-all text-sm font-black leading-relaxed">
-            {props.file.name}
-          </p>
-          <p className="mt-1 w-full max-w-full min-w-0 wrap-break-word text-xs text-muted-foreground">
-            {(props.file.size / 1024).toFixed(1)} KB
-          </p>
+        <div className="mt-5 box-border flex w-full max-w-full min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border bg-background p-4 text-left sm:max-w-xl sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="w-full max-w-full min-w-0 break-all text-sm font-black leading-relaxed">
+              {props.file.name}
+            </p>
+            <p className="mt-1 w-full max-w-full min-w-0 wrap-break-word text-xs text-muted-foreground">
+              {(props.file.size / 1024).toFixed(1)} KB
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={clearSelectedFile}
+            className="shrink-0 rounded-xl"
+          >
+            Clear
+          </Button>
         </div>
       ) : null}
     </Label>
@@ -3560,6 +3587,24 @@ export default function AttendancePage() {
     setResumableImportSnapshot(null);
   }
 
+  function clearUploadedAttendanceFile(options: {
+    completedResult?: SavedAttendanceImportResult | null;
+  } = {}) {
+    setFile(null);
+    setPreview(options.completedResult ?? null);
+    setSaved(options.completedResult ?? null);
+    setSaveProgress(null);
+    setDisplaySaveProgressPercent(0);
+    setIsDragging(false);
+    setError("");
+    setUploadEventId("");
+    setUploadEventName("");
+    setUploadEventStartAt("");
+    setUploadEventEndAt("");
+    setUploadEventDescription("");
+    clearResumableImportSnapshot();
+  }
+
   function saveResumableImportSnapshot(
     snapshot: AttendanceResumableImportSnapshot | null,
   ) {
@@ -3575,6 +3620,11 @@ export default function AttendancePage() {
       selectedFileSignature &&
       resumableImportSnapshot?.fileSignature === selectedFileSignature,
     );
+
+    if (!selectedFile) {
+      clearUploadedAttendanceFile();
+      return;
+    }
 
     setFile(selectedFile);
     setPreview(
@@ -3598,15 +3648,6 @@ export default function AttendancePage() {
       setUploadEventDescription(
         resumableImportSnapshot.options.eventDescription,
       );
-      return;
-    }
-
-    if (selectedFile) {
-      setUploadEventId("");
-      setUploadEventName("");
-      setUploadEventStartAt("");
-      setUploadEventEndAt("");
-      setUploadEventDescription("");
       return;
     }
 
@@ -3980,6 +4021,7 @@ export default function AttendancePage() {
       setSaved(result ?? null);
       setPreview(result ?? null);
       await loadRecords({ preserveScroll: true });
+      clearUploadedAttendanceFile({ completedResult: result ?? null });
       toast.success(
         `Attendance imported successfully. Saved ${savedRecordsCount} record/s and created ${createdFinesCount} fine record/s.`,
       );
