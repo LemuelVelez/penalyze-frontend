@@ -287,6 +287,35 @@ function isFallbackFine(fine: FineRecord) {
   return fine.id.startsWith("fallback-fine-");
 }
 
+function normalizeFineDisplayValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getFineDisplayKey(fine: FineRecord) {
+  return [
+    normalizeFineDisplayValue(fine.student_id),
+    Number(fine.no_of_absences || 0),
+    normalizeFineDisplayValue(fine.prescribed_penalty)
+  ].join("::");
+}
+
+function getUniqueDisplayFines(fines: FineRecord[]) {
+  const uniqueFines = new Map<string, FineRecord>();
+
+  fines.forEach((fine) => {
+    const key = getFineDisplayKey(fine);
+
+    if (!uniqueFines.has(key)) {
+      uniqueFines.set(key, fine);
+    }
+  });
+
+  return Array.from(uniqueFines.values());
+}
+
 async function resolveFallbackPenalty(noOfAbsences: number) {
   try {
     return await matchPenalty(noOfAbsences);
@@ -533,7 +562,7 @@ export default function LandingPage() {
 
   const displayedFines = useMemo(() => {
     if (!lookup) return [];
-    return lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines;
+    return getUniqueDisplayFines(lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines);
   }, [lookup]);
 
   const totalAbsences = useMemo(() => {

@@ -83,6 +83,35 @@ function isZeroAttendanceFine(fine: FineRecord) {
   );
 }
 
+function normalizeFineDisplayValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getFineDisplayKey(fine: FineRecord) {
+  return [
+    normalizeFineDisplayValue(fine.student_id),
+    Number(fine.no_of_absences || 0),
+    normalizeFineDisplayValue(fine.prescribed_penalty)
+  ].join("::");
+}
+
+function getUniqueDisplayFines(fines: FineRecord[]) {
+  const uniqueFines = new Map<string, FineRecord>();
+
+  fines.forEach((fine) => {
+    const key = getFineDisplayKey(fine);
+
+    if (!uniqueFines.has(key)) {
+      uniqueFines.set(key, fine);
+    }
+  });
+
+  return Array.from(uniqueFines.values());
+}
+
 function DeletePenaltyConfirmation(props: {
   penalty: PenaltyRecord;
   isDeleting: boolean;
@@ -213,7 +242,7 @@ export default function FinesPage() {
         offset: 0
       });
 
-      setFines(rows);
+      setFines(getUniqueDisplayFines(rows));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load fines.";
       setError(message);
@@ -262,7 +291,7 @@ export default function FinesPage() {
         limit: 100,
         offset: 0
       });
-      setFines(rows);
+      setFines(getUniqueDisplayFines(rows));
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load fines.";
       setError(message);
@@ -279,7 +308,7 @@ export default function FinesPage() {
     try {
       const updated = await updateFineStatus(id, nextStatus);
       if (updated) {
-        setFines((current) => current.map((fine) => (fine.id === id ? updated : fine)));
+        setFines((current) => getUniqueDisplayFines(current.map((fine) => (fine.id === id ? updated : fine))));
         toast.success("Fine status updated successfully.");
       }
     } catch (updateError) {
