@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { getStudentAttendanceRecords, listAttendanceEvents } from "../api/attendance";
+import { getStudentAttendanceRecords, listAttendanceEvents, listAttendanceRecords } from "../api/attendance";
 import type { AttendanceEvent, AttendanceRecord } from "../api/attendance";
 import { getStudentFines, matchPenalty, registerZeroAttendanceFine } from "../api/fines";
 import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../api/fines";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 
 type LookupState = {
   attendance: AttendanceRecord[];
+  allAttendanceRecords: AttendanceRecord[];
   attendanceEvents: AttendanceEvent[];
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
@@ -81,6 +82,7 @@ const LANDING_RESOURCE_LINKS = [
 
 const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
 const ALL_YEARS_VALUE = "__all_years__";
+const NO_COLLEGE_SCOPE_KEY = "__no_college__";
 
 const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   studentId: "",
@@ -245,15 +247,34 @@ function getFineRecordYear(fine: FineRecord, eventById?: Map<string, AttendanceE
   return getAttendanceEventYear(linkedEvent) || getDateYear(fine.created_at ?? null);
 }
 
+function getAttendanceRecordScopedYear(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+  const eventId = String(record.event_id ?? "").trim();
+  const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
+
+  return getAttendanceEventYear(linkedEvent) || getAttendanceRecordYear(record);
+}
+
 function getLookupYearOptions(
   attendance: AttendanceRecord[],
   fines: FineRecord[],
-  eventById?: Map<string, AttendanceEvent>
+  eventById?: Map<string, AttendanceEvent>,
+  allAttendanceRecords: AttendanceRecord[] = []
 ) {
+  const studentCollegeKeys = getStudentCollegeScopeKeys(attendance);
+  const collegeLinkedEventYears = allAttendanceRecords
+    .filter((record) => {
+      if (isZeroAttendanceRecord(record)) return false;
+      if (!getRecordEventIdentityKey(record, eventById)) return false;
+
+      return studentCollegeKeys.has(getRecordCollegeScopeKey(record));
+    })
+    .map((record) => getAttendanceRecordScopedYear(record, eventById));
+
   return Array.from(
     new Set([
-      ...attendance.map(getAttendanceRecordYear),
-      ...fines.map((fine) => getFineRecordYear(fine, eventById))
+      ...attendance.map((record) => getAttendanceRecordScopedYear(record, eventById)),
+      ...fines.map((fine) => getFineRecordYear(fine, eventById)),
+      ...collegeLinkedEventYears
     ].filter(Boolean))
   ).sort((left, right) => Number(right) - Number(left));
 }
@@ -383,6 +404,65 @@ function normalizeDisplayValue(value: unknown) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
+}
+
+function getCollegeScopeKey(value: unknown) {
+  return normalizeDisplayValue(value) || NO_COLLEGE_SCOPE_KEY;
+}
+
+function getRecordCollegeScopeKey(record: AttendanceRecord) {
+  return getCollegeScopeKey(record.college);
+}
+
+function getStudentCollegeScopeKeys(attendance: AttendanceRecord[]) {
+  const collegeKeys = new Set<string>();
+
+  attendance
+    .filter((record) => !isZeroAttendanceRecord(record))
+    .forEach((record) => {
+      const collegeKey = getRecordCollegeScopeKey(record);
+      if (collegeKey !== NO_COLLEGE_SCOPE_KEY) collegeKeys.add(collegeKey);
+    });
+
+  if (!collegeKeys.size) {
+    attendance.forEach((record) => {
+      const collegeKey = getRecordCollegeScopeKey(record);
+      if (collegeKey) collegeKeys.add(collegeKey);
+    });
+  }
+
+  return collegeKeys;
+}
+
+function getRecordEventIdentityKey(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+  const eventId = String(record.event_id ?? "").trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = getRecordEventName(record, eventById);
+  const eventKey = normalizeEventKey(eventName);
+
+  if (eventKey && eventName !== "File import" && eventName !== "Manual attendance") {
+    return `event:${eventKey}`;
+  }
+
+  const importId = String(record.import_id ?? "").trim();
+  if (importId) return `import:${normalizeEventKey(importId) || importId}`;
+
+  return "";
+}
+
+function getRecordCollegeEventIdentityKey(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+  const eventKey = getRecordEventIdentityKey(record, eventById);
+  if (!eventKey) return "";
+
+  return `${eventKey}::college:${getRecordCollegeScopeKey(record)}`;
+}
+
+function hasCollegeScopedAttendanceEventScope(
+  attendance: AttendanceRecord[],
+  allAttendanceRecords: AttendanceRecord[]
+) {
+  return allAttendanceRecords.length > 0 && getStudentCollegeScopeKeys(attendance).size > 0;
 }
 
 function getAttendanceDisplayKey(record: AttendanceRecord) {
@@ -676,11 +756,96 @@ function addAbsentEventSummary(
   }
 }
 
+function getCollegeScopedMissingAbsentEventSummaries(props: {
+  attendance: AttendanceRecord[];
+  studentAttendanceForScope: AttendanceRecord[];
+  allAttendanceRecords: AttendanceRecord[];
+  attendanceEvents: AttendanceEvent[];
+  selectedYear: string;
+}) {
+  if (!props.allAttendanceRecords.length) return null;
+
+  const eventById = getAttendanceEventById(props.attendanceEvents);
+  const studentCollegeKeys = getStudentCollegeScopeKeys(props.studentAttendanceForScope);
+
+  if (!studentCollegeKeys.size) return null;
+
+  const attendedCollegeEventKeys = new Set<string>();
+  const attendedEventIdentityKeys = new Set<string>();
+
+  getUniqueDisplayAttendance(props.attendance)
+    .filter(
+      (record) =>
+        !isZeroAttendanceRecord(record) &&
+        !isExplicitAbsentAttendanceRecord(record) &&
+        getRecordEventIdentityKey(record, eventById)
+    )
+    .forEach((record) => {
+      const eventKey = getRecordEventIdentityKey(record, eventById);
+      const collegeEventKey = getRecordCollegeEventIdentityKey(record, eventById);
+
+      if (eventKey) attendedEventIdentityKeys.add(eventKey);
+      if (collegeEventKey) attendedCollegeEventKeys.add(collegeEventKey);
+    });
+
+  const summaries = new Map<string, StudentAbsentEventSummary>();
+
+  props.allAttendanceRecords.forEach((record) => {
+    if (isZeroAttendanceRecord(record)) return;
+    if (!matchesSelectedYear(getAttendanceRecordScopedYear(record, eventById), props.selectedYear)) return;
+
+    const eventKey = getRecordEventIdentityKey(record, eventById);
+    if (!eventKey) return;
+
+    const collegeKey = getRecordCollegeScopeKey(record);
+    if (!studentCollegeKeys.has(collegeKey)) return;
+
+    const collegeEventKey = getRecordCollegeEventIdentityKey(record, eventById);
+    if (!collegeEventKey) return;
+    if (attendedCollegeEventKeys.has(collegeEventKey) || attendedEventIdentityKeys.has(eventKey)) return;
+
+    const linkedEvent = record.event_id ? (eventById.get(String(record.event_id)) ?? null) : null;
+    const eventName = getRecordEventName(record, eventById);
+
+    addAbsentEventSummary(summaries, {
+      key: `missing-${collegeEventKey}`,
+      eventName,
+      latestScannedAt: getAttendanceEventDateValue(linkedEvent) ?? record.scanned_at ?? record.created_at ?? null,
+      records: [record],
+      remarks: ["Missing from this student's attended events for the linked college."],
+      totalAbsences: 1
+    });
+  });
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      remarks: Array.from(new Set(summary.remarks)),
+      records: [...summary.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
+      })
+    }))
+    .sort(compareStudentAbsentEventSummaries);
+}
+
 function getStudentAbsentEventSummaries(
   attendance: AttendanceRecord[],
   fines: FineRecord[] = [],
-  attendanceEvents: AttendanceEvent[] = []
+  attendanceEvents: AttendanceEvent[] = [],
+  allAttendanceRecords: AttendanceRecord[] = [],
+  studentAttendanceForScope: AttendanceRecord[] = attendance,
+  selectedYear = ALL_YEARS_VALUE
 ) {
+  const collegeScopedMissingEvents = getCollegeScopedMissingAbsentEventSummaries({
+    attendance,
+    studentAttendanceForScope,
+    allAttendanceRecords,
+    attendanceEvents,
+    selectedYear
+  });
+
+  if (collegeScopedMissingEvents !== null) return collegeScopedMissingEvents;
+
   const summaries = new Map<string, StudentAbsentEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
   const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter((record) => !isZeroAttendanceRecord(record));
@@ -779,6 +944,7 @@ function getStudentAbsentEventSummaries(
     }))
     .sort(compareStudentAbsentEventSummaries);
 }
+
 function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
   if (attendance.some(isZeroAttendanceRecord)) return getTotalAbsences(attendance);
 
@@ -795,8 +961,13 @@ function getVerifiedTotalAbsences(props: {
   attendance: AttendanceRecord[];
   fines: FineRecord[];
   absentEvents: StudentAbsentEventSummary[];
+  hasCollegeScopedEventScope: boolean;
 }) {
   const recordedAbsenceCount = getTotalAbsences(props.attendance, props.fines);
+
+  if (props.hasCollegeScopedEventScope) {
+    return props.absentEvents.length;
+  }
 
   if (hasZeroAttendanceResult(props.attendance, props.fines)) {
     return recordedAbsenceCount;
@@ -816,6 +987,31 @@ function shouldDisplayFine(fine: FineRecord, absentEvents: StudentAbsentEventSum
   if (isFallbackFine(fine)) return absentEvents.length > 0;
 
   return getFineAbsenceCount(fine) > 0;
+}
+
+function isFineLinkedToStudentCollegeEvent(props: {
+  fine: FineRecord;
+  studentAttendance: AttendanceRecord[];
+  allAttendanceRecords: AttendanceRecord[];
+  eventById: Map<string, AttendanceEvent>;
+  selectedYear: string;
+}) {
+  if (isZeroAttendanceFine(props.fine) || isFallbackFine(props.fine)) return true;
+
+  const fineEventId = getFineAttendanceEventId(props.fine);
+  if (!fineEventId) return true;
+  if (!props.allAttendanceRecords.length) return true;
+
+  const studentCollegeKeys = getStudentCollegeScopeKeys(props.studentAttendance);
+  if (!studentCollegeKeys.size) return true;
+
+  return props.allAttendanceRecords.some((record) => {
+    if (isZeroAttendanceRecord(record)) return false;
+    if (String(record.event_id ?? "").trim() !== fineEventId) return false;
+    if (!studentCollegeKeys.has(getRecordCollegeScopeKey(record))) return false;
+
+    return matchesSelectedYear(getAttendanceRecordScopedYear(record, props.eventById), props.selectedYear);
+  });
 }
 
 function isFallbackFine(fine: FineRecord) {
@@ -1110,7 +1306,7 @@ export default function LandingPage() {
     return lookup ? getAttendanceEventById(lookup.attendanceEvents) : new Map<string, AttendanceEvent>();
   }, [lookup]);
   const yearOptions = useMemo(() => {
-    return lookup ? getLookupYearOptions(lookup.attendance, lookupFines, attendanceEventById) : [];
+    return lookup ? getLookupYearOptions(lookup.attendance, lookupFines, attendanceEventById, lookup.allAttendanceRecords) : [];
   }, [lookup, lookupFines, attendanceEventById]);
   const selectedYearLabel = resultYearFilter === ALL_YEARS_VALUE ? "All years" : resultYearFilter;
 
@@ -1141,21 +1337,41 @@ export default function LandingPage() {
     return getStudentAttendedEventSummaries(displayedAttendance, lookup?.attendanceEvents ?? []);
   }, [displayedAttendance, lookup]);
   const absentEvents = useMemo(() => {
-    return getStudentAbsentEventSummaries(displayedAttendance, allDisplayedFines, lookup?.attendanceEvents ?? []);
-  }, [displayedAttendance, allDisplayedFines, lookup]);
+    return getStudentAbsentEventSummaries(
+      displayedAttendance,
+      allDisplayedFines,
+      lookup?.attendanceEvents ?? [],
+      lookup?.allAttendanceRecords ?? [],
+      lookup?.attendance ?? displayedAttendance,
+      resultYearFilter
+    );
+  }, [displayedAttendance, allDisplayedFines, lookup, resultYearFilter]);
   const hasZeroAttendanceForDisplay = useMemo(() => {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
   const displayedFines = useMemo(() => {
-    return allDisplayedFines.filter((fine) => shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay));
-  }, [allDisplayedFines, absentEvents, hasZeroAttendanceForDisplay]);
+    return allDisplayedFines.filter(
+      (fine) =>
+        isFineLinkedToStudentCollegeEvent({
+          fine,
+          studentAttendance: lookup?.attendance ?? displayedAttendance,
+          allAttendanceRecords: lookup?.allAttendanceRecords ?? [],
+          eventById: attendanceEventById,
+          selectedYear: resultYearFilter
+        }) && shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay)
+    );
+  }, [allDisplayedFines, absentEvents, hasZeroAttendanceForDisplay, lookup, displayedAttendance, attendanceEventById, resultYearFilter]);
   const totalAbsences = useMemo(() => {
     return getVerifiedTotalAbsences({
       attendance: displayedAttendance,
       fines: displayedFines,
-      absentEvents
+      absentEvents,
+      hasCollegeScopedEventScope: hasCollegeScopedAttendanceEventScope(
+        lookup?.attendance ?? displayedAttendance,
+        lookup?.allAttendanceRecords ?? []
+      )
     });
-  }, [displayedAttendance, displayedFines, absentEvents]);
+  }, [displayedAttendance, displayedFines, absentEvents, lookup]);
 
   const unpaidFines = useMemo(() => {
     return displayedFines.filter((fine) => fine.status === "unpaid").length;
@@ -1220,8 +1436,14 @@ export default function LandingPage() {
       setStudentId(result.attendanceRecord.student_id);
       setSearchedId(result.attendanceRecord.student_id);
       setResultYearFilter(ALL_YEARS_VALUE);
+      const allAttendanceRecords = await listAttendanceRecords({ limit: 5000, offset: 0 }).catch(() => [] as AttendanceRecord[]);
+      const allAttendanceRecordsWithSavedRecord = allAttendanceRecords.some((record) => record.id === attendanceRecord.id)
+        ? allAttendanceRecords
+        : [attendanceRecord, ...allAttendanceRecords];
+
       setLookup({
         attendance: [attendanceRecord],
+        allAttendanceRecords: allAttendanceRecordsWithSavedRecord,
         attendanceEvents: [],
         fines: result.fine ? [result.fine] : [],
         fallbackFine: null
@@ -1254,10 +1476,11 @@ export default function LandingPage() {
     setSearchedId(cleanStudentId);
 
     try {
-      const [attendance, fines, attendanceEvents] = await Promise.all([
+      const [attendance, fines, attendanceEvents, allAttendanceRecords] = await Promise.all([
         getStudentAttendanceRecords(cleanStudentId),
         getStudentFines(cleanStudentId),
-        listAttendanceEvents({ limit: 500, offset: 0 }).catch(() => [] as AttendanceEvent[])
+        listAttendanceEvents({ limit: 500, offset: 0 }).catch(() => [] as AttendanceEvent[]),
+        listAttendanceRecords({ limit: 5000, offset: 0 }).catch(() => [] as AttendanceRecord[])
       ]);
 
       if (!attendance.length && !fines.length) {
@@ -1265,7 +1488,16 @@ export default function LandingPage() {
         return;
       }
 
-      const fallbackAbsenceCount = getFallbackAbsenceCount(attendance);
+      const collegeScopedMissingEvents = getCollegeScopedMissingAbsentEventSummaries({
+        attendance,
+        studentAttendanceForScope: attendance,
+        allAttendanceRecords,
+        attendanceEvents,
+        selectedYear: ALL_YEARS_VALUE
+      });
+      const fallbackAbsenceCount = collegeScopedMissingEvents !== null
+        ? collegeScopedMissingEvents.length
+        : getFallbackAbsenceCount(attendance);
       const shouldBuildFallbackFine = fines.length === 0 && fallbackAbsenceCount > 0;
       const fallbackFine = shouldBuildFallbackFine
         ? buildFallbackFine(
@@ -1277,7 +1509,7 @@ export default function LandingPage() {
         : null;
 
       setResultYearFilter(ALL_YEARS_VALUE);
-      setLookup({ attendance, attendanceEvents, fines, fallbackFine });
+      setLookup({ attendance, allAttendanceRecords, attendanceEvents, fines, fallbackFine });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
     } catch (searchError) {

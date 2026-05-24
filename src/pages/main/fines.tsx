@@ -88,6 +88,29 @@ function matchesSelectedYear(recordYear: string, selectedYear: string) {
   return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
 }
 
+function normalizeDisplayValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getCollegeScopeKey(value: unknown) {
+  return normalizeDisplayValue(value) || "__no_college__";
+}
+
+function getRecordCollegeScopeKey(record: AttendanceRecord) {
+  return getCollegeScopeKey(record.college);
+}
+
+function getFineAttendanceRecordId(fine: FineRecord) {
+  return String(fine.attendance_record_id ?? "").trim();
+}
+
+function getFineAttendanceEventId(fine: FineRecord) {
+  return String(fine.attendance_event_id ?? "").trim();
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
@@ -119,17 +142,18 @@ function isZeroAttendanceFine(fine: FineRecord) {
 }
 
 function normalizeFineDisplayValue(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  return normalizeDisplayValue(value);
 }
 
 function getFineDisplayKey(fine: FineRecord) {
   return [
     normalizeFineDisplayValue(fine.student_id),
+    normalizeFineDisplayValue(fine.attendance_event_id),
+    normalizeFineDisplayValue(fine.attendance_record_id),
     Number(fine.no_of_absences || 0),
-    normalizeFineDisplayValue(fine.prescribed_penalty)
+    normalizeFineDisplayValue(fine.prescribed_penalty),
+    normalizeFineDisplayValue(fine.created_at),
+    normalizeFineDisplayValue(fine.status)
   ].join("::");
 }
 
@@ -145,6 +169,63 @@ function getUniqueDisplayFines(fines: FineRecord[]) {
   });
 
   return Array.from(uniqueFines.values());
+}
+
+function getStudentCollegeScopeKeys(studentId: string, attendanceRecords: AttendanceRecord[]) {
+  const cleanStudentId = normalizeDisplayValue(studentId);
+  const collegeKeys = new Set<string>();
+
+  if (!cleanStudentId) return collegeKeys;
+
+  attendanceRecords.forEach((record) => {
+    if (normalizeDisplayValue(record.student_id) !== cleanStudentId) return;
+
+    const collegeKey = getRecordCollegeScopeKey(record);
+    if (collegeKey !== "__no_college__") collegeKeys.add(collegeKey);
+  });
+
+  if (!collegeKeys.size) {
+    attendanceRecords.forEach((record) => {
+      if (normalizeDisplayValue(record.student_id) !== cleanStudentId) return;
+      collegeKeys.add(getRecordCollegeScopeKey(record));
+    });
+  }
+
+  return collegeKeys;
+}
+
+function isFineLinkedToAttendeeCollege(props: {
+  fine: FineRecord;
+  attendanceRecords: AttendanceRecord[];
+  selectedYear: string;
+}) {
+  if (isZeroAttendanceFine(props.fine)) return true;
+  if (!props.attendanceRecords.length) return true;
+
+  const fineEventId = getFineAttendanceEventId(props.fine);
+  const fineAttendanceRecordId = getFineAttendanceRecordId(props.fine);
+
+  if (!fineEventId && !fineAttendanceRecordId) return true;
+
+  const linkedAttendanceRecord = fineAttendanceRecordId
+    ? props.attendanceRecords.find((record) => String(record.id ?? "") === fineAttendanceRecordId)
+    : null;
+
+  if (linkedAttendanceRecord) {
+    return matchesSelectedYear(getAttendanceRecordYear(linkedAttendanceRecord), props.selectedYear);
+  }
+
+  if (!fineEventId) return true;
+
+  const studentCollegeKeys = getStudentCollegeScopeKeys(props.fine.student_id, props.attendanceRecords);
+  if (!studentCollegeKeys.size) return true;
+
+  return props.attendanceRecords.some((record) => {
+    if (String(record.event_id ?? "").trim() !== fineEventId) return false;
+    if (!studentCollegeKeys.has(getRecordCollegeScopeKey(record))) return false;
+
+    return matchesSelectedYear(getAttendanceRecordYear(record), props.selectedYear);
+  });
 }
 
 function DeletePenaltyConfirmation(props: {
@@ -248,8 +329,17 @@ export default function FinesPage() {
 
   const yearOptions = useMemo(() => getYearOptions(attendanceRecords, fines), [attendanceRecords, fines]);
   const yearFilteredFines = useMemo(() => {
-    return fines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), yearFilter));
-  }, [fines, yearFilter]);
+    return fines.filter((fine) => {
+      const matchesYear = matchesSelectedYear(getFineRecordYear(fine), yearFilter);
+      const matchesCollegeScope = isFineLinkedToAttendeeCollege({
+        fine,
+        attendanceRecords,
+        selectedYear: yearFilter
+      });
+
+      return matchesYear && matchesCollegeScope;
+    });
+  }, [fines, attendanceRecords, yearFilter]);
   const reportYearLabel = yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
   const totalFines = yearFilteredFines.length;
   const unpaidFines = useMemo(
