@@ -1379,6 +1379,7 @@ function formatEventSchedule(event: AttendanceEvent) {
 }
 
 function getManualRecordSource(record: AttendanceRecord) {
+  if (isEventlessAttendanceRecord(record)) return "No event";
   if (record.event_name) return record.event_name;
   return record.import_id ? "File import" : "Manual";
 }
@@ -1508,8 +1509,7 @@ function getAttendanceEventFilterValue(event: AttendanceEvent) {
 }
 
 function getRecordEventFilterValue(record: AttendanceRecord) {
-  if (!record.event_id && !cleanImportValue(record.event_name))
-    return NO_EVENT_FILTER_SELECT_VALUE;
+  if (isEventlessAttendanceRecord(record)) return NO_EVENT_FILTER_SELECT_VALUE;
 
   return getAttendanceEventIdentityKey(
     getManualRecordSource(record),
@@ -1518,8 +1518,7 @@ function getRecordEventFilterValue(record: AttendanceRecord) {
 }
 
 function getRecordEventGroupKey(record: AttendanceRecord) {
-  if (!record.event_id && !cleanImportValue(record.event_name))
-    return NO_EVENT_FILTER_SELECT_VALUE;
+  if (isEventlessAttendanceRecord(record)) return NO_EVENT_FILTER_SELECT_VALUE;
 
   const eventKey =
     getAttendanceEventIdentityKey(
@@ -1555,10 +1554,46 @@ function getStoredAttendanceAbsenceCount(record: AttendanceRecord) {
 }
 
 function isZeroAttendanceRecord(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+  const statusValues = [
+    recordData.status,
+    recordData.attendance_status,
+    recordData.classification,
+    recordData.result,
+    recordData.source,
+    recordData.registration_source,
+    record.remarks,
+  ]
+    .map(normalizeAttendanceStatusValue)
+    .filter(Boolean);
+
+  const hasZeroAttendanceMarker = statusValues.some((value) => {
+    return (
+      /(^|\s)(zero attendance|no attendance|absent to all|all events absent)(\s|$)/.test(
+        value,
+      ) ||
+      (value.includes("landing page") &&
+        (value.includes("zero") || value.includes("absent")))
+    );
+  });
+
+  if (hasZeroAttendanceMarker) return true;
+
   return (
     !record.event_id &&
-    normalizeAttendanceStatusValue(record.remarks).includes("zero attendance")
+    !cleanImportValue(record.event_name) &&
+    getStoredAttendanceAbsenceCount(record) === 0
   );
+}
+
+function isEventlessAttendanceRecord(record: AttendanceRecord) {
+  if (isZeroAttendanceRecord(record)) return true;
+  if (record.event_id) return false;
+
+  const eventName = cleanImportValue(record.event_name);
+  if (!eventName) return true;
+
+  return normalizeImportHeader(eventName) === normalizeImportHeader(record.name);
 }
 
 function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
@@ -1585,7 +1620,7 @@ function hasAttendanceEventIdentity(record: AttendanceRecord) {
 }
 
 function getEffectiveAttendanceRecordAbsenceCount(record: AttendanceRecord) {
-  if (isZeroAttendanceRecord(record))
+  if (isEventlessAttendanceRecord(record))
     return getStoredAttendanceAbsenceCount(record);
 
   if (isExplicitAbsentAttendanceRecord(record)) {
@@ -1605,41 +1640,59 @@ function getCollegeScopedAttendanceAbsenceCount(
       .filter((collegeKey) => collegeKey !== NO_COLLEGE_SELECT_VALUE),
   );
 
-  if (!studentCollegeKeys.size || !allRecords.length) return null;
+  if (!studentRecords.length || !allRecords.length) return null;
 
-  const collegeEventKeys = new Set<string>();
-  const attendedEventKeys = new Set<string>();
+  const matchesStudentCollegeScope = (
+    record: AttendanceRecord,
+    useCollegeScope: boolean,
+  ) => {
+    return (
+      !useCollegeScope ||
+      studentCollegeKeys.has(getAttendanceCollegeScopeKey(record.college))
+    );
+  };
 
-  allRecords.forEach((record) => {
-    const collegeKey = getAttendanceCollegeScopeKey(record.college);
+  const collectEventKeys = (
+    sourceRecords: AttendanceRecord[],
+    useCollegeScope: boolean,
+    options: { excludeAbsentRecords?: boolean } = {},
+  ) => {
+    const eventKeys = new Set<string>();
 
-    if (
-      !studentCollegeKeys.has(collegeKey) ||
-      isZeroAttendanceRecord(record) ||
-      !hasAttendanceEventIdentity(record)
-    ) {
-      return;
-    }
+    sourceRecords.forEach((record) => {
+      if (
+        !matchesStudentCollegeScope(record, useCollegeScope) ||
+        isEventlessAttendanceRecord(record) ||
+        (options.excludeAbsentRecords && isExplicitAbsentAttendanceRecord(record)) ||
+        !hasAttendanceEventIdentity(record)
+      ) {
+        return;
+      }
 
-    collegeEventKeys.add(getRecordEventGroupKey(record));
-  });
+      eventKeys.add(getRecordEventGroupKey(record));
+    });
+
+    return eventKeys;
+  };
+
+  const shouldUseCollegeScope = studentCollegeKeys.size > 0;
+  let collegeEventKeys = collectEventKeys(allRecords, shouldUseCollegeScope);
+
+  if (!collegeEventKeys.size && shouldUseCollegeScope) {
+    collegeEventKeys = collectEventKeys(allRecords, false);
+  }
 
   if (!collegeEventKeys.size) return null;
 
-  studentRecords.forEach((record) => {
-    const collegeKey = getAttendanceCollegeScopeKey(record.college);
-
-    if (
-      !studentCollegeKeys.has(collegeKey) ||
-      isZeroAttendanceRecord(record) ||
-      isExplicitAbsentAttendanceRecord(record) ||
-      !hasAttendanceEventIdentity(record)
-    ) {
-      return;
-    }
-
-    attendedEventKeys.add(getRecordEventGroupKey(record));
+  let attendedEventKeys = collectEventKeys(studentRecords, shouldUseCollegeScope, {
+    excludeAbsentRecords: true,
   });
+
+  if (!attendedEventKeys.size && shouldUseCollegeScope) {
+    attendedEventKeys = collectEventKeys(studentRecords, false, {
+      excludeAbsentRecords: true,
+    });
+  }
 
   return Array.from(collegeEventKeys).filter(
     (eventKey) => !attendedEventKeys.has(eventKey),
@@ -1949,7 +2002,19 @@ function getAttendanceEventGroups(
         },
       );
 
-      const attendees = getAttendanceAttendeeSummaries(sortedRecords);
+      const attendees = getAttendanceAttendeeSummaries(sortedRecords).map(
+        (attendee) => {
+          if (group.key !== NO_EVENT_FILTER_SELECT_VALUE) return attendee;
+
+          return {
+            ...attendee,
+            totalAbsences: getAttendanceRecordTotalAbsences(
+              attendee.records,
+              records,
+            ),
+          };
+        },
+      );
 
       return {
         ...group,
@@ -2079,7 +2144,7 @@ function getManualZeroAttendanceCalculatedAbsenceCount(
   record: AttendanceRecord,
   allRecords: AttendanceRecord[],
 ) {
-  if (!isZeroAttendanceRecord(record)) return null;
+  if (!isEventlessAttendanceRecord(record)) return null;
 
   return getCollegeScopedAttendanceAbsenceCount([record], allRecords);
 }
@@ -2089,7 +2154,9 @@ function buildManualAttendanceInputFromRecord(
   noOfAbsences: number,
 ): ManualAttendanceInput {
   return {
-    eventId: record.event_id || undefined,
+    eventId: isEventlessAttendanceRecord(record)
+      ? undefined
+      : record.event_id || undefined,
     scannedAt: normalizeAttendanceDateTimeValue(record.scanned_at) || undefined,
     studentId: cleanImportValue(record.student_id),
     name: cleanImportValue(record.name),
@@ -2304,6 +2371,10 @@ function getAttendanceStudentEventSummaries(
   const summaries = new Map<string, AttendanceStudentEventSummary>();
 
   records.forEach((record) => {
+    if (isEventlessAttendanceRecord(record) || isExplicitAbsentAttendanceRecord(record)) {
+      return;
+    }
+
     const event = record.event_id
       ? (eventById.get(record.event_id) ?? null)
       : null;
@@ -5175,6 +5246,7 @@ export default function AttendancePage() {
       getManualZeroAttendanceCalculatedAbsenceCount(draftRecord, records);
 
     if (calculatedZeroAttendanceAbsences !== null) {
+      payload.eventId = undefined;
       payload.noOfAbsences = calculatedZeroAttendanceAbsences;
     }
 
