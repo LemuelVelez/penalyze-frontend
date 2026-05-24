@@ -4,7 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 import { deleteUser, getStoredUser, listUsers, register, updateUser } from "../../api/auth";
-import type { AuthUser, RegisterInput } from "../../api/auth";
+import type { AuthUser, RegisterInput, UserRole } from "../../api/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,7 +24,7 @@ type UserFormState = {
   name: string;
   email: string;
   password: string;
-  role: "admin";
+  role: UserRole;
 };
 
 const emptyUserForm: UserFormState = {
@@ -33,6 +33,11 @@ const emptyUserForm: UserFormState = {
   password: "",
   role: "admin"
 };
+
+const userRoleOptions: { value: UserRole; label: string }[] = [
+  { value: "admin", label: "Admin" },
+  { value: "officer", label: "Officer" }
+];
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -47,6 +52,10 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatRole(role: UserRole) {
+  return role === "officer" ? "Officer" : "Admin";
+}
+
 export default function UsersPage() {
   const [form, setForm] = useState<UserFormState>(emptyUserForm);
   const [users, setUsers] = useState<AuthUser[]>([]);
@@ -59,6 +68,13 @@ export default function UsersPage() {
 
   const currentUser = useMemo(() => getStoredUser(), []);
   const isEditing = Boolean(editingUserId);
+  const roleCounts = useMemo(
+    () => ({
+      admin: users.filter((user) => user.role === "admin").length,
+      officer: users.filter((user) => user.role === "officer").length
+    }),
+    [users]
+  );
 
   function updateForm<K extends keyof RegisterInput>(key: K, value: RegisterInput[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -93,7 +109,7 @@ export default function UsersPage() {
       name: user.name,
       email: user.email,
       password: "",
-      role: "admin"
+      role: user.role
     });
     setShowPassword(false);
     setError("");
@@ -138,6 +154,7 @@ export default function UsersPage() {
         const updated = await updateUser(editingUserId, {
           name,
           email,
+          role: form.role,
           ...(password ? { password } : {})
         });
 
@@ -152,7 +169,7 @@ export default function UsersPage() {
             name,
             email,
             password,
-            role: "admin"
+            role: form.role
           },
           false
         );
@@ -204,7 +221,7 @@ export default function UsersPage() {
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">User management</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Users</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Display existing admin accounts and manage user records with create, read, update, and delete actions.
+            Display admin and officer accounts and manage user records with create, read, update, and delete actions.
           </p>
         </div>
 
@@ -214,7 +231,7 @@ export default function UsersPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {isEditing
                 ? "Update the selected user. Leave password blank to keep the current password."
-                : "Create an admin account that can access Penalyze."}
+                : "Create an admin or officer account that can access Penalyze."}
             </p>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
@@ -241,6 +258,25 @@ export default function UsersPage() {
                   placeholder="user@example.com"
                   required
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="role">Role</Label>
+                <select
+                  id="role"
+                  value={form.role}
+                  onChange={(event) => updateForm("role", event.target.value as UserRole)}
+                  className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {userRoleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                  Officers can access Dashboard, Attendance, and Fines, but not Users.
+                </p>
               </div>
 
               <div>
@@ -300,7 +336,7 @@ export default function UsersPage() {
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-xl font-black">Existing users</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Saved admin accounts loaded from the database.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Saved admin and officer accounts loaded from the database.</p>
               </div>
               <Button type="button" variant="outline" disabled={isLoadingUsers} onClick={loadUsers} className="min-h-10">
                 {isLoadingUsers ? "Loading..." : "Refresh Users"}
@@ -313,12 +349,12 @@ export default function UsersPage() {
                 <p className="mt-2 text-3xl font-black">{isLoadingUsers ? "—" : users.length}</p>
               </div>
               <div className="rounded-2xl border bg-background p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Role</p>
-                <p className="mt-2 text-lg font-black uppercase">Admin</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Admins</p>
+                <p className="mt-2 text-3xl font-black">{isLoadingUsers ? "—" : roleCounts.admin}</p>
               </div>
               <div className="rounded-2xl border bg-background p-4 sm:col-span-2 xl:col-span-1">
-                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Selected action</p>
-                <p className="mt-2 text-lg font-black">{isEditing ? "Editing" : "Creating"}</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Officers</p>
+                <p className="mt-2 text-3xl font-black">{isLoadingUsers ? "—" : roleCounts.officer}</p>
               </div>
             </div>
 
@@ -338,7 +374,7 @@ export default function UsersPage() {
                           </p>
                         </div>
                         <span className="w-fit rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
-                          {isCurrentUser ? "Current" : user.role}
+                          {isCurrentUser ? `Current / ${formatRole(user.role)}` : formatRole(user.role)}
                         </span>
                       </div>
                       <div className="mt-4 grid gap-2 md:grid-cols-2">
@@ -408,7 +444,7 @@ export default function UsersPage() {
                           <td className="px-3 py-3">{user.email}</td>
                           <td className="px-3 py-3">
                             <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">
-                              {isCurrentUser ? "Current" : user.role}
+                              {isCurrentUser ? `Current / ${formatRole(user.role)}` : formatRole(user.role)}
                             </span>
                           </td>
                           <td className="px-3 py-3 font-semibold">{formatDate(user.createdAt)}</td>

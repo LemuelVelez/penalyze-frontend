@@ -10,7 +10,8 @@ import {
 } from "react-router-dom";
 import { toast } from "sonner";
 
-import { isAuthenticated, logout } from "./api/auth";
+import { getStoredUser, isAuthenticated, logout } from "./api/auth";
+import type { AuthUser, UserRole } from "./api/auth";
 import AppLayout from "./components/layout";
 import Loading from "./components/loading";
 import { Toaster } from "./components/ui/sonner";
@@ -24,6 +25,8 @@ import NotFoundPage from "./pages/notfound";
 
 type ProtectedPageProps = {
   authenticated: boolean;
+  currentUser: AuthUser | null;
+  allowedRoles?: UserRole[];
   onLogout: () => void;
   children: ReactNode;
 };
@@ -33,6 +36,10 @@ function ProtectedPage(props: ProtectedPageProps) {
 
   if (!props.authenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (props.allowedRoles?.length && (!props.currentUser || !props.allowedRoles.includes(props.currentUser.role))) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return (
@@ -56,15 +63,20 @@ function AppRoutes() {
   const navigate = useNavigate();
   const location = useLocation();
   const [authenticated, setAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    setAuthenticated(isAuthenticated());
+    const hasSession = isAuthenticated();
+    setAuthenticated(hasSession);
+    setCurrentUser(hasSession ? getStoredUser() : null);
     setIsCheckingSession(false);
   }, []);
 
   useEffect(() => {
-    setAuthenticated(isAuthenticated());
+    const hasSession = isAuthenticated();
+    setAuthenticated(hasSession);
+    setCurrentUser(hasSession ? getStoredUser() : null);
   }, [location.pathname]);
 
   const protectedRoutes = useMemo(
@@ -72,7 +84,7 @@ function AppRoutes() {
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/attendance", element: <AttendancePage /> },
       { path: "/fines", element: <FinesPage /> },
-      { path: "/users", element: <UsersPage /> },
+      { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },
     ],
     [],
   );
@@ -80,6 +92,7 @@ function AppRoutes() {
   function handleLogout() {
     logout();
     setAuthenticated(false);
+    setCurrentUser(null);
     navigate("/", { replace: true });
     toast.success("Logged out successfully.");
   }
@@ -97,7 +110,12 @@ function AppRoutes() {
           key={route.path}
           path={route.path}
           element={
-            <ProtectedPage authenticated={authenticated} onLogout={handleLogout}>
+            <ProtectedPage
+              authenticated={authenticated}
+              currentUser={currentUser}
+              allowedRoles={route.allowedRoles}
+              onLogout={handleLogout}
+            >
               {route.element}
             </ProtectedPage>
           }

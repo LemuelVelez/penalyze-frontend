@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { getStoredUser } from "../api/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ type LayoutProps = {
 type NavItem = {
   path: string;
   label: string;
+  adminOnly?: boolean;
 };
 
 export function navigateTo(path: string) {
@@ -81,13 +83,16 @@ function LogoutConfirmation(props: {
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const currentUser = useMemo(() => getStoredUser(), []);
+  const isAdmin = currentUser?.role === "admin";
 
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard" },
     { path: "/attendance", label: "Attendance" },
     { path: "/fines", label: "Fines" },
-    { path: "/users", label: "Users" },
+    { path: "/users", label: "Users", adminOnly: true },
   ];
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
 
   function handleNavigate(path: string) {
     setMobileMenuOpen(false);
@@ -116,7 +121,7 @@ export default function AppLayout(props: LayoutProps) {
           </Button>
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Dashboard navigation">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const active = props.currentPath === item.path;
 
               return (
@@ -167,7 +172,7 @@ export default function AppLayout(props: LayoutProps) {
               </SheetHeader>
 
               <nav className="flex flex-col gap-3" aria-label="Mobile dashboard navigation">
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const active = props.currentPath === item.path;
 
                   return (

@@ -1,4 +1,4 @@
-export type UserRole = "admin";
+export type UserRole = "admin" | "officer";
 
 export type AuthUser = {
   id: string;
@@ -30,6 +30,7 @@ export type UpdateUserInput = {
   name?: string;
   email?: string;
   password?: string;
+  role?: UserRole;
 };
 
 type ApiEnvelope<T> = {
@@ -193,7 +194,7 @@ export async function register(input: RegisterInput, remember = false) {
   try {
     const response = await apiRequest<AuthSession>("/api/auth/register", {
       method: "POST",
-      body: JSON.stringify({ ...input, role: "admin" })
+      body: JSON.stringify({ ...input, role: input.role ?? "admin" })
     });
 
     if (!response.data?.token || !response.data?.user) {
