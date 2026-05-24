@@ -10,7 +10,7 @@ import {
   getAcceptedAttendanceFileTypes,
   listAttendanceEvents,
   listAttendanceImports,
-  listAllAttendanceRecords,
+  listAttendanceRecords,
   previewAttendanceFile,
   saveAttendanceEvent,
   saveAttendanceRows,
@@ -346,6 +346,103 @@ type AttendanceResumableImportSnapshot = {
   options: AttendanceImportOptionsSnapshot;
   updatedAt: string;
 };
+
+type ProgressiveLoadProgress = {
+  percent: number;
+  message: string;
+  detail: string;
+};
+
+type AttendanceRecordsPageProgress = {
+  loadedRows: number;
+  pageCount: number;
+  isComplete: boolean;
+};
+
+const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
+  percent: 0,
+  message: "",
+  detail: "",
+};
+
+const ATTENDANCE_RECORDS_PAGE_SIZE = 5000;
+const ATTENDANCE_RECORDS_MAX_ROWS = 50000;
+
+function useProgressivePercent(isActive: boolean, targetPercent: number) {
+  const [displayPercent, setDisplayPercent] = useState(0);
+
+  useEffect(() => {
+    if (!isActive) {
+      setDisplayPercent(targetPercent >= 100 ? 100 : 0);
+      return;
+    }
+
+    setDisplayPercent((currentPercent) => {
+      const nextTarget = Math.max(
+        1,
+        Math.min(100, Math.round(targetPercent)),
+      );
+
+      if (currentPercent <= 0) return Math.min(nextTarget, 2);
+      return Math.min(currentPercent, nextTarget);
+    });
+  }, [isActive, targetPercent]);
+
+  useEffect(() => {
+    if (!isActive || typeof window === "undefined") return;
+
+    const intervalId = window.setInterval(() => {
+      setDisplayPercent((currentPercent) => {
+        const nextTarget = Math.max(
+          1,
+          Math.min(100, Math.round(targetPercent)),
+        );
+
+        if (currentPercent >= nextTarget) return currentPercent;
+
+        const remainingPercent = nextTarget - currentPercent;
+        const step = Math.max(
+          1,
+          Math.min(5, Math.ceil(remainingPercent / 7)),
+        );
+
+        return Math.min(nextTarget, currentPercent + step);
+      });
+    }, 180);
+
+    return () => window.clearInterval(intervalId);
+  }, [isActive, targetPercent]);
+
+  return Math.max(0, Math.min(100, Math.round(displayPercent)));
+}
+
+async function listAttendanceRecordsWithProgress(
+  onProgress?: (progress: AttendanceRecordsPageProgress) => void,
+) {
+  const rows: AttendanceRecord[] = [];
+
+  for (
+    let offset = 0;
+    offset < ATTENDANCE_RECORDS_MAX_ROWS;
+    offset += ATTENDANCE_RECORDS_PAGE_SIZE
+  ) {
+    const page = await listAttendanceRecords({
+      limit: ATTENDANCE_RECORDS_PAGE_SIZE,
+      offset,
+    });
+    rows.push(...page);
+
+    onProgress?.({
+      loadedRows: rows.length,
+      pageCount: Math.floor(offset / ATTENDANCE_RECORDS_PAGE_SIZE) + 1,
+      isComplete: page.length < ATTENDANCE_RECORDS_PAGE_SIZE,
+    });
+
+    if (page.length < ATTENDANCE_RECORDS_PAGE_SIZE) break;
+  }
+
+  return rows;
+}
 
 const ATTENDANCE_HEADER_ALIASES: Record<AttendanceHeaderKey, string[]> = {
   eventName: ["event", "event name", "eventname", "activity", "activity name"],
@@ -3812,6 +3909,8 @@ export default function AttendancePage() {
   ] = useState(0);
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
+  const [recordLoadProgress, setRecordLoadProgress] =
+    useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
@@ -3970,6 +4069,10 @@ export default function AttendancePage() {
   );
   const scrollRestoreFrameRef = useRef<number | null>(null);
   const saveAbortControllerRef = useRef<AbortController | null>(null);
+  const recordLoadProgressPercent = useProgressivePercent(
+    isLoadingRecords,
+    recordLoadProgress.percent,
+  );
 
   function captureScrollPosition() {
     if (typeof window === "undefined") return;
@@ -4184,21 +4287,133 @@ export default function AttendancePage() {
       captureScrollPosition();
     }
 
+    let completedWeight = 0;
+    let recordWeight = 0;
+
+    const updateProgress = (
+      percent: number,
+      message: string,
+      detail: string,
+    ) => {
+      setRecordLoadProgress({
+        percent: Math.max(1, Math.min(100, Math.round(percent))),
+        message,
+        detail,
+      });
+    };
+
+    const markProgressStepComplete = (
+      weight: number,
+      message: string,
+      detail: string,
+    ) => {
+      completedWeight = Math.min(100, completedWeight + weight);
+      updateProgress(
+        Math.min(96, 2 + completedWeight * 0.94),
+        message,
+        detail,
+      );
+    };
+
+    const updateRecordPageProgress = (
+      progress: AttendanceRecordsPageProgress,
+    ) => {
+      const nextRecordWeight = progress.isComplete
+        ? 70
+        : Math.min(
+            66,
+            Math.max(
+              recordWeight,
+              Math.round(
+                (progress.loadedRows / ATTENDANCE_RECORDS_MAX_ROWS) * 66,
+              ),
+            ),
+          );
+
+      if (nextRecordWeight <= recordWeight) return;
+
+      completedWeight += nextRecordWeight - recordWeight;
+      recordWeight = nextRecordWeight;
+
+      updateProgress(
+        Math.min(92, 2 + completedWeight * 0.94),
+        "Loading attendance records...",
+        `${progress.loadedRows.toLocaleString()} record/s loaded from ${progress.pageCount} page/s.`,
+      );
+    };
+
     setIsLoadingRecords(true);
     setError("");
+    updateProgress(
+      2,
+      "Starting attendance data load...",
+      "Connecting to the server and preparing attendance data.",
+    );
 
     try {
+      await waitForNextPaint();
+
+      const recordsPromise = listAttendanceRecordsWithProgress(
+        updateRecordPageProgress,
+      ).then((rows) => {
+        if (recordWeight < 70) {
+          markProgressStepComplete(
+            70 - recordWeight,
+            "Attendance records loaded...",
+            `${rows.length.toLocaleString()} attendance record/s received.`,
+          );
+          recordWeight = 70;
+        }
+
+        return rows;
+      });
+      const eventsPromise = listAttendanceEvents({
+        limit: 500,
+        offset: 0,
+      }).then((eventRows) => {
+        markProgressStepComplete(
+          15,
+          "Attendance events loaded...",
+          `${eventRows.length.toLocaleString()} event/s received from the server.`,
+        );
+
+        return eventRows;
+      });
+      const importsPromise = listAttendanceImports({
+        limit: 500,
+        offset: 0,
+      }).then((importRows) => {
+        markProgressStepComplete(
+          15,
+          "Import history loaded...",
+          `${importRows.length.toLocaleString()} import history item/s received.`,
+        );
+
+        return importRows;
+      });
+
       const [rows, eventRows, importRows] = await Promise.all([
-        listAllAttendanceRecords(),
-        listAttendanceEvents({ limit: 500, offset: 0 }),
-        listAttendanceImports({ limit: 500, offset: 0 }),
+        recordsPromise,
+        eventsPromise,
+        importsPromise,
       ]);
       const rowIds = new Set(rows.map((record) => record.id));
+
+      updateProgress(
+        98,
+        "Updating attendance table...",
+        "Applying filters and syncing selected records.",
+      );
 
       setRecords(rows);
       setEvents(eventRows);
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
+      updateProgress(
+        100,
+        "Attendance data loaded.",
+        `${rows.length.toLocaleString()} records, ${eventRows.length.toLocaleString()} events, and ${importRows.length.toLocaleString()} import history item/s are ready.`,
+      );
     } catch (loadError) {
       const message =
         loadError instanceof Error
@@ -4207,7 +4422,9 @@ export default function AttendancePage() {
       setError(message);
       toast.error(message);
     } finally {
+      await waitForNextPaint();
       setIsLoadingRecords(false);
+      setRecordLoadProgress(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
 
       if (options.preserveScroll) {
         restoreCapturedScrollPosition();
@@ -5205,11 +5422,22 @@ export default function AttendancePage() {
                 {isLoadingRecords ? "Loading..." : "Refresh"}
               </Button>
               {isLoadingRecords ? (
-                <p className="max-w-sm text-xs font-semibold text-muted-foreground sm:text-right">
-                  Loading attendance records, events, and import history from
-                  the server. This may take a few seconds when there are many
-                  saved records.
-                </p>
+                <div className="w-full max-w-sm space-y-2 rounded-2xl border bg-background p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
+                    <span className="min-w-0 truncate">
+                      {recordLoadProgress.message ||
+                        "Loading attendance records..."}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {recordLoadProgressPercent}%
+                    </span>
+                  </div>
+                  <Progress value={recordLoadProgressPercent} />
+                  <p className="text-xs font-semibold leading-5 text-muted-foreground sm:text-right">
+                    {recordLoadProgress.detail ||
+                      "Loading attendance records, events, and import history from the server. This may take a few seconds when there are many saved records."}
+                  </p>
+                </div>
               ) : null}
             </div>
           </div>

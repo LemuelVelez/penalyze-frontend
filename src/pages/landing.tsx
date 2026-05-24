@@ -9,6 +9,7 @@ import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../ap
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Progress } from "../components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -24,6 +25,72 @@ type LookupState = {
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
 };
+
+type ProgressiveLoadProgress = {
+  percent: number;
+  message: string;
+  detail: string;
+};
+
+type LandingAttendanceRecordsPageProgress = {
+  loadedRows: number;
+  pageCount: number;
+  isComplete: boolean;
+};
+
+const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
+  percent: 0,
+  message: "",
+  detail: "",
+};
+
+function useProgressivePercent(isActive: boolean, targetPercent: number) {
+  const [displayPercent, setDisplayPercent] = useState(0);
+
+  useEffect(() => {
+    if (!isActive) {
+      setDisplayPercent(targetPercent >= 100 ? 100 : 0);
+      return;
+    }
+
+    setDisplayPercent((currentPercent) => {
+      const nextTarget = Math.max(
+        1,
+        Math.min(100, Math.round(targetPercent)),
+      );
+
+      if (currentPercent <= 0) return Math.min(nextTarget, 2);
+      return Math.min(currentPercent, nextTarget);
+    });
+  }, [isActive, targetPercent]);
+
+  useEffect(() => {
+    if (!isActive || typeof window === "undefined") return;
+
+    const intervalId = window.setInterval(() => {
+      setDisplayPercent((currentPercent) => {
+        const nextTarget = Math.max(
+          1,
+          Math.min(100, Math.round(targetPercent)),
+        );
+
+        if (currentPercent >= nextTarget) return currentPercent;
+
+        const remainingPercent = nextTarget - currentPercent;
+        const step = Math.max(
+          1,
+          Math.min(5, Math.ceil(remainingPercent / 7)),
+        );
+
+        return Math.min(nextTarget, currentPercent + step);
+      });
+    }, 180);
+
+    return () => window.clearInterval(intervalId);
+  }, [isActive, targetPercent]);
+
+  return Math.max(0, Math.min(100, Math.round(displayPercent)));
+}
 
 type CollegeLinkedAttendanceScope = {
   hasScope: boolean;
@@ -1478,7 +1545,9 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
-async function listLandingAttendanceRecords() {
+async function listLandingAttendanceRecords(
+  onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
+) {
   const limit = 5000;
   const maxRows = 50000;
   const rows: AttendanceRecord[] = [];
@@ -1486,6 +1555,12 @@ async function listLandingAttendanceRecords() {
   for (let offset = 0; offset < maxRows; offset += limit) {
     const page = await listAttendanceRecords({ limit, offset });
     rows.push(...page);
+
+    onProgress?.({
+      loadedRows: rows.length,
+      pageCount: Math.floor(offset / limit) + 1,
+      isComplete: page.length < limit,
+    });
 
     if (page.length < limit) break;
   }
@@ -1500,6 +1575,8 @@ export default function LandingPage() {
   const [searchedId, setSearchedId] = useState("");
   const [resultYearFilter, setResultYearFilter] = useState(ALL_YEARS_VALUE);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchProgress, setSearchProgress] =
+    useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [eventsDialogOpen, setEventsDialogOpen] = useState(false);
@@ -1508,6 +1585,10 @@ export default function LandingPage() {
   const [isSavingZeroAttendance, setIsSavingZeroAttendance] = useState(false);
   const [zeroAttendanceError, setZeroAttendanceError] = useState("");
   const [error, setError] = useState("");
+  const searchProgressPercent = useProgressivePercent(
+    isSearching,
+    searchProgress.percent,
+  );
 
   useEffect(() => {
     if (hasCurrentSession()) {
@@ -1714,20 +1795,158 @@ export default function LandingPage() {
       return;
     }
 
+    let completedWeight = 0;
+    let attendanceRecordsWeight = 0;
+
+    const updateProgress = (
+      percent: number,
+      message: string,
+      detail: string,
+    ) => {
+      setSearchProgress({
+        percent: Math.max(1, Math.min(100, Math.round(percent))),
+        message,
+        detail,
+      });
+    };
+
+    const markProgressStepComplete = (
+      weight: number,
+      message: string,
+      detail: string,
+    ) => {
+      completedWeight = Math.min(100, completedWeight + weight);
+      updateProgress(
+        Math.min(96, 2 + completedWeight * 0.94),
+        message,
+        detail,
+      );
+    };
+
+    const updateAttendanceRecordsProgress = (
+      progress: LandingAttendanceRecordsPageProgress,
+    ) => {
+      const nextRecordsWeight = progress.isComplete
+        ? 40
+        : Math.min(
+            36,
+            Math.max(
+              attendanceRecordsWeight,
+              Math.round((progress.loadedRows / 50000) * 36),
+            ),
+          );
+
+      if (nextRecordsWeight <= attendanceRecordsWeight) return;
+
+      completedWeight += nextRecordsWeight - attendanceRecordsWeight;
+      attendanceRecordsWeight = nextRecordsWeight;
+
+      updateProgress(
+        Math.min(92, 2 + completedWeight * 0.94),
+        "Loading attendance history...",
+        `${progress.loadedRows.toLocaleString()} attendance record/s checked from ${progress.pageCount} page/s.`,
+      );
+    };
+
     setIsSearching(true);
     setError("");
     setZeroAttendanceError("");
     setSearchedId(cleanStudentId);
+    updateProgress(
+      2,
+      "Searching student records...",
+      "Checking attendance, fines, events, and import history from the server.",
+    );
 
     try {
-      const [attendance, fines, attendanceEvents, attendanceRecords] = await Promise.all([
-        getStudentAttendanceRecords(cleanStudentId),
-        getStudentFines(cleanStudentId),
-        listAttendanceEvents({ limit: 500, offset: 0 }).catch(() => [] as AttendanceEvent[]),
-        listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[])
-      ]);
+      const attendancePromise = getStudentAttendanceRecords(cleanStudentId).then(
+        (attendance) => {
+          markProgressStepComplete(
+            30,
+            "Student attendance loaded...",
+            `${attendance.length.toLocaleString()} attendance record/s matched this Student ID.`,
+          );
+
+          return attendance;
+        },
+      );
+      const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
+        markProgressStepComplete(
+          20,
+          "Student fines loaded...",
+          `${fines.length.toLocaleString()} fine record/s matched this Student ID.`,
+        );
+
+        return fines;
+      });
+      const attendanceEventsPromise = listAttendanceEvents({
+        limit: 500,
+        offset: 0,
+      })
+        .then((attendanceEvents) => {
+          markProgressStepComplete(
+            10,
+            "Attendance events loaded...",
+            `${attendanceEvents.length.toLocaleString()} event/s checked for matching records.`,
+          );
+
+          return attendanceEvents;
+        })
+        .catch(() => {
+          markProgressStepComplete(
+            10,
+            "Attendance events skipped...",
+            "The search will continue using the student attendance records.",
+          );
+
+          return [] as AttendanceEvent[];
+        });
+      const attendanceRecordsPromise = listLandingAttendanceRecords(
+        updateAttendanceRecordsProgress,
+      )
+        .then((attendanceRecords) => {
+          if (attendanceRecordsWeight < 40) {
+            markProgressStepComplete(
+              40 - attendanceRecordsWeight,
+              "Attendance history loaded...",
+              `${attendanceRecords.length.toLocaleString()} total attendance record/s checked for college-linked events.`,
+            );
+            attendanceRecordsWeight = 40;
+          }
+
+          return attendanceRecords;
+        })
+        .catch(() => {
+          markProgressStepComplete(
+            40 - attendanceRecordsWeight,
+            "Attendance history skipped...",
+            "The search will continue without the full attendance history.",
+          );
+          attendanceRecordsWeight = 40;
+
+          return [] as AttendanceRecord[];
+        });
+
+      const [attendance, fines, attendanceEvents, attendanceRecords] =
+        await Promise.all([
+          attendancePromise,
+          finesPromise,
+          attendanceEventsPromise,
+          attendanceRecordsPromise,
+        ]);
+
+      updateProgress(
+        98,
+        "Preparing search result...",
+        "Classifying attendance status and checking related fines.",
+      );
 
       if (!attendance.length && !fines.length) {
+        updateProgress(
+          100,
+          "No saved student record found.",
+          "Opening the zero-attendance registration form.",
+        );
         openZeroAttendanceRegistration(cleanStudentId);
         return;
       }
@@ -1747,6 +1966,11 @@ export default function LandingPage() {
       setLookup({ attendance, attendanceEvents, attendanceRecords, fines, fallbackFine });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
+      updateProgress(
+        100,
+        "Search complete.",
+        "Attendance result is ready to review.",
+      );
     } catch (searchError) {
       setLookup(null);
       setResultDialogOpen(false);
@@ -1755,6 +1979,7 @@ export default function LandingPage() {
       setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
     } finally {
       setIsSearching(false);
+      setSearchProgress(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
     }
   }
 
@@ -1809,6 +2034,24 @@ export default function LandingPage() {
                 {isSearching ? "Searching..." : "Search Records"}
               </Button>
             </form>
+
+            {isSearching ? (
+              <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card p-4 text-left shadow-sm">
+                <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {searchProgress.message || "Searching student records..."}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {searchProgressPercent}%
+                  </span>
+                </div>
+                <Progress value={searchProgressPercent} />
+                <p className="text-xs font-semibold leading-5 text-muted-foreground">
+                  {searchProgress.detail ||
+                    "Checking attendance records, events, and fines from the server."}
+                </p>
+              </div>
+            ) : null}
 
             {error ? (
               <div className="mx-auto mt-4 max-w-3xl rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-semibold text-red-700">
