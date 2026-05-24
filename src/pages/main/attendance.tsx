@@ -5003,15 +5003,24 @@ export default function AttendancePage() {
               student={studentEventsDialogState}
               events={events}
             />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void loadRecords({ preserveScroll: true })}
-              disabled={isLoadingRecords}
-              className="min-h-11 rounded-xl px-5 py-2"
-            >
-              {isLoadingRecords ? "Loading..." : "Refresh"}
-            </Button>
+            <div className="flex min-w-0 flex-col gap-1 sm:items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void loadRecords({ preserveScroll: true })}
+                disabled={isLoadingRecords}
+                className="min-h-11 rounded-xl px-5 py-2"
+              >
+                {isLoadingRecords ? "Loading..." : "Refresh"}
+              </Button>
+              {isLoadingRecords ? (
+                <p className="max-w-sm text-xs font-semibold text-muted-foreground sm:text-right">
+                  Loading attendance records, events, and import history from
+                  the server. This may take a few seconds when there are many
+                  saved records.
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
 
