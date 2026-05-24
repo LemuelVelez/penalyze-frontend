@@ -357,6 +357,14 @@ type ProgressiveLoadProgress = {
   detail: string;
 };
 
+type AttendanceEventDeleteProgress = {
+  processedEvents: number;
+  totalEvents: number;
+  percent: number;
+  message: string;
+  currentEventName: string;
+};
+
 type AttendanceRecordsPageProgress = {
   loadedRows: number;
   pageCount: number;
@@ -3216,6 +3224,7 @@ function DeleteAttendanceRecordsConfirmation(props: {
 function DeleteEventConfirmation(props: {
   event: AttendanceEvent;
   isDeleting: boolean;
+  disabled?: boolean;
   onConfirm: (id: string) => void;
   className?: string;
 }) {
@@ -3225,7 +3234,7 @@ function DeleteEventConfirmation(props: {
         <Button
           type="button"
           variant="outline"
-          disabled={props.isDeleting}
+          disabled={props.disabled || props.isDeleting}
           className={`border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground focus-visible:border-destructive/50 focus-visible:ring-destructive/30 ${props.className ?? ""}`}
         >
           {props.isDeleting ? "Deleting..." : "Delete"}
@@ -3242,6 +3251,7 @@ function DeleteEventConfirmation(props: {
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            disabled={props.disabled || props.isDeleting}
             onClick={() => props.onConfirm(props.event.id)}
             className="bg-destructive text-destructive-foreground hover:opacity-90"
           >
@@ -4446,6 +4456,8 @@ export default function AttendancePage() {
     useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
+  const [eventDeleteProgress, setEventDeleteProgress] =
+    useState<AttendanceEventDeleteProgress | null>(null);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
   const [editingRecordScope, setEditingRecordScope] =
@@ -4633,6 +4645,10 @@ export default function AttendancePage() {
   const recordLoadProgressPercent = useProgressivePercent(
     isLoadingRecords,
     recordLoadProgress.percent,
+  );
+  const eventDeleteProgressPercent = useProgressivePercent(
+    isDeletingEvents,
+    eventDeleteProgress?.percent ?? 0,
   );
 
   function captureScrollPosition() {
@@ -5844,12 +5860,59 @@ export default function AttendancePage() {
       return;
     }
 
+    const eventNameById = new Map(
+      displayEvents.map((event) => [event.id, event.name]),
+    );
+    const totalEvents = idsToDelete.length;
+    let deletedEvents = 0;
+
     setIsDeletingEvents(true);
-    setDeletingEventId(idsToDelete.length === 1 ? idsToDelete[0] : "");
+    setDeletingEventId("");
+    setEventDeleteProgress({
+      processedEvents: 0,
+      totalEvents,
+      percent: 1,
+      message: `Preparing to delete ${totalEvents} event/s...`,
+      currentEventName: "",
+    });
     setError("");
 
     try {
-      await Promise.all(idsToDelete.map((id) => deleteAttendanceEvent(id)));
+      await waitForNextPaint();
+
+      for (const id of idsToDelete) {
+        const eventName = eventNameById.get(id) ?? "Selected event";
+        const startingPercent = Math.max(
+          1,
+          Math.round((deletedEvents / totalEvents) * 100),
+        );
+
+        setDeletingEventId(id);
+        setEventDeleteProgress({
+          processedEvents: deletedEvents,
+          totalEvents,
+          percent: startingPercent,
+          message: `Deleting ${eventName}...`,
+          currentEventName: eventName,
+        });
+        await waitForNextPaint();
+
+        await deleteAttendanceEvent(id);
+        deletedEvents += 1;
+
+        setEventDeleteProgress({
+          processedEvents: deletedEvents,
+          totalEvents,
+          percent: Math.round((deletedEvents / totalEvents) * 100),
+          message:
+            deletedEvents === totalEvents
+              ? "Finalizing event deletion..."
+              : `Deleted ${deletedEvents} of ${totalEvents} event/s.`,
+          currentEventName: eventName,
+        });
+        await waitForNextPaint();
+      }
+
       await loadRecords({ preserveScroll: true });
 
       if (editingEventId && idsToDelete.includes(editingEventId)) {
@@ -5863,19 +5926,34 @@ export default function AttendancePage() {
       setSelectedEventIds((current) =>
         current.filter((eventId) => !idsToDelete.includes(eventId)),
       );
+      setEventDeleteProgress({
+        processedEvents: deletedEvents,
+        totalEvents,
+        percent: 100,
+        message: "Event deletion completed.",
+        currentEventName: "",
+      });
 
-      toast.success(`${idsToDelete.length} event/s deleted successfully.`);
+      toast.success(`${deletedEvents} event/s deleted successfully.`);
     } catch (deleteError) {
       const message =
         deleteError instanceof Error
           ? deleteError.message
           : "Unable to delete event/s.";
+      setEventDeleteProgress({
+        processedEvents: deletedEvents,
+        totalEvents,
+        percent: Math.round((deletedEvents / totalEvents) * 100),
+        message: "Event deletion failed.",
+        currentEventName: "",
+      });
       setError(message);
       toast.error(message);
       await loadRecords({ preserveScroll: true });
     } finally {
       setIsDeletingEvents(false);
       setDeletingEventId("");
+      setEventDeleteProgress(null);
     }
   }
 
@@ -6409,6 +6487,44 @@ export default function AttendancePage() {
                     />
                   </div>
 
+                  {isDeletingEvents || eventDeleteProgress ? (
+                    <section
+                      className="rounded-2xl border bg-background px-4 py-3"
+                      aria-live="polite"
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                            Deleting events
+                          </p>
+                          <p className="mt-1 wrap-break-word text-sm font-semibold">
+                            {eventDeleteProgress?.message ??
+                              "Preparing event deletion..."}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full border bg-card px-3 py-1 text-xs font-black">
+                          {eventDeleteProgressPercent}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={eventDeleteProgressPercent}
+                        className="mt-3 h-3 w-full min-w-0"
+                      />
+                      <div className="mt-2 flex min-w-0 flex-col gap-1 text-xs font-bold text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                        <span className="wrap-break-word">
+                          {eventDeleteProgress
+                            ? `${eventDeleteProgress.processedEvents}/${eventDeleteProgress.totalEvents} event/s deleted`
+                            : "Preparing event/s..."}
+                        </span>
+                        {eventDeleteProgress?.currentEventName ? (
+                          <span className="wrap-break-word sm:text-right">
+                            {eventDeleteProgress.currentEventName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
+
                   {displayEvents.map((event) => (
                     <article
                       key={event.id}
@@ -6451,9 +6567,8 @@ export default function AttendancePage() {
                           </Button>
                           <DeleteEventConfirmation
                             event={event}
-                            isDeleting={
-                              isDeletingEvents || deletingEventId === event.id
-                            }
+                            isDeleting={deletingEventId === event.id}
+                            disabled={isDeletingEvents && deletingEventId !== event.id}
                             onConfirm={handleDeleteEvent}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                           />
