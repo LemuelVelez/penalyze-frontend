@@ -993,7 +993,7 @@ export default function LandingPage() {
               <LogoMark textClassName="text-2xl" />
             </a>
             <Button asChild variant="outline" className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold">
-              <Link to="/login">Admin Login</Link>
+              <Link to="/login">SSG Login</Link>
             </Button>
           </header>
 
@@ -1092,6 +1092,7 @@ export default function LandingPage() {
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result / {selectedYearLabel}</p>
                   <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
+                  <p className="mt-2 text-base font-semibold text-muted-foreground">Name: {studentDisplayName || "—"}</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
                   <label className="sr-only" htmlFor="student-result-year-filter">

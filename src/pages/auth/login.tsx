@@ -137,7 +137,7 @@ export default function LoginPage() {
           <a href="/" className="inline-flex justify-center">
             <LogoMark textClassName="text-3xl" />
           </a>
-          <h1 className="mt-6 text-2xl font-black">Admin Login</h1>
+          <h1 className="mt-6 text-2xl font-black">SSG Login</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             Sign in to manage attendance uploads, fines, penalties, and users.
           </p>
