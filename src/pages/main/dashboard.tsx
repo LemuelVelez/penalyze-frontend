@@ -1,10 +1,68 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { listAttendanceImports, listAttendanceRecords } from "../../api/attendance";
 import type { AttendanceImportRecord, AttendanceRecord } from "../../api/attendance";
-import { getFineSummary } from "../../api/fines";
-import type { FineSummary } from "../../api/fines";
+import { listFines } from "../../api/fines";
+import type { FineRecord } from "../../api/fines";
 import { Button } from "../../components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+
+const ALL_YEARS_VALUE = "__all_years__";
+
+type DashboardFineSummary = {
+  unpaid: number;
+  paid: number;
+  waived: number;
+};
+
+function getDateYear(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return String(date.getFullYear());
+}
+
+function getAttendanceRecordYear(record: AttendanceRecord) {
+  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+}
+
+function getFineRecordYear(fine: FineRecord) {
+  return getDateYear(fine.created_at ?? null);
+}
+
+function getImportYear(record: AttendanceImportRecord) {
+  return getDateYear(record.created_at ?? null);
+}
+
+function getYearOptions(
+  attendanceRecords: AttendanceRecord[],
+  fines: FineRecord[],
+  imports: AttendanceImportRecord[],
+) {
+  return Array.from(
+    new Set([
+      ...attendanceRecords.map(getAttendanceRecordYear),
+      ...fines.map(getFineRecordYear),
+      ...imports.map(getImportYear)
+    ].filter(Boolean))
+  ).sort((left, right) => Number(right) - Number(left));
+}
+
+function matchesSelectedYear(recordYear: string, selectedYear: string) {
+  return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
+}
+
+function getFineSummaryForYear(fines: FineRecord[]): DashboardFineSummary {
+  return fines.reduce<DashboardFineSummary>(
+    (summary, fine) => ({
+      ...summary,
+      [fine.status]: summary[fine.status] + 1
+    }),
+    { unpaid: 0, paid: 0, waived: 0 },
+  );
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -30,24 +88,40 @@ function StatCard(props: { label: string; value: string | number; helper: string
 }
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<FineSummary>({ unpaid: 0, paid: 0, waived: 0 });
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [fines, setFines] = useState<FineRecord[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const yearOptions = useMemo(() => getYearOptions(records, fines, imports), [records, fines, imports]);
+  const filteredRecords = useMemo(() => {
+    return records.filter((record) => matchesSelectedYear(getAttendanceRecordYear(record), yearFilter));
+  }, [records, yearFilter]);
+  const filteredFines = useMemo(() => {
+    return fines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), yearFilter));
+  }, [fines, yearFilter]);
+  const filteredImports = useMemo(() => {
+    return imports.filter((record) => matchesSelectedYear(getImportYear(record), yearFilter));
+  }, [imports, yearFilter]);
+  const summary = useMemo(() => getFineSummaryForYear(filteredFines), [filteredFines]);
+  const recentRecords = filteredRecords.slice(0, 8);
+  const recentImports = filteredImports.slice(0, 5);
+  const yearLabel = yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
 
   async function loadDashboard() {
     setIsLoading(true);
     setError("");
 
     try {
-      const [fineSummary, attendanceRows, importRows] = await Promise.all([
-        getFineSummary(),
-        listAttendanceRecords({ limit: 8, offset: 0 }),
-        listAttendanceImports({ limit: 5, offset: 0 })
+      const [fineRows, attendanceRows, importRows] = await Promise.all([
+        listFines({ limit: 5000, offset: 0 }),
+        listAttendanceRecords({ limit: 5000, offset: 0 }),
+        listAttendanceImports({ limit: 500, offset: 0 })
       ]);
 
-      setSummary(fineSummary);
+      setFines(fineRows);
       setRecords(attendanceRows);
       setImports(importRows);
     } catch (loadError) {
@@ -56,6 +130,12 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (yearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(yearFilter)) {
+      setYearFilter(ALL_YEARS_VALUE);
+    }
+  }, [yearFilter, yearOptions]);
 
   useEffect(() => {
     void loadDashboard();
@@ -69,18 +149,33 @@ export default function DashboardPage() {
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Overview</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Dashboard</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Monitor attendance imports, unpaid fines, paid records, and waived penalties in one responsive view.
+              Monitor attendance imports, unpaid fines, paid records, and waived penalties by selected year in one responsive view.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={loadDashboard}
-            disabled={isLoading}
-            className="min-h-11 rounded-xl px-5 py-2 text-sm font-black"
-          >
-            {isLoading ? "Loading..." : "Refresh"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select value={yearFilter} onValueChange={setYearFilter}>
+              <SelectTrigger className="min-h-11 rounded-xl px-4 text-sm font-black sm:w-40">
+                <SelectValue placeholder="All years" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_YEARS_VALUE}>All years</SelectItem>
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={year}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={loadDashboard}
+              disabled={isLoading}
+              className="min-h-11 rounded-xl px-5 py-2 text-sm font-black"
+            >
+              {isLoading ? "Loading..." : "Refresh"}
+            </Button>
+          </div>
         </div>
 
         {error ? (
@@ -90,20 +185,20 @@ export default function DashboardPage() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Attendance records" value={records.length} helper="Latest entries loaded" />
-          <StatCard label="Unpaid fines" value={summary.unpaid} helper="Needs settlement" />
-          <StatCard label="Paid fines" value={summary.paid} helper="Settled penalties" />
-          <StatCard label="Waived fines" value={summary.waived} helper="Approved waivers" />
+          <StatCard label="Attendance records" value={filteredRecords.length} helper={`${yearLabel} entries loaded`} />
+          <StatCard label="Unpaid fines" value={summary.unpaid} helper={`${yearLabel} needs settlement`} />
+          <StatCard label="Paid fines" value={summary.paid} helper={`${yearLabel} settled penalties`} />
+          <StatCard label="Waived fines" value={summary.waived} helper={`${yearLabel} approved waivers`} />
         </section>
 
         <section className="mt-6 grid gap-6 xl:grid-cols-2">
           <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <h2 className="text-xl font-black">Recent attendance</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest saved attendance records.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest saved attendance records for {yearLabel}.</p>
 
             <div className="mt-4 space-y-3 lg:hidden">
-              {records.length ? (
-                records.map((record) => (
+              {recentRecords.length ? (
+                recentRecords.map((record) => (
                   <article key={record.id} className="min-w-0 rounded-2xl border bg-background p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
@@ -133,8 +228,8 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {records.length ? (
-                    records.map((record) => (
+                  {recentRecords.length ? (
+                    recentRecords.map((record) => (
                       <tr key={record.id} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">{formatDate(record.created_at)}</td>
                         <td className="max-w-40 break-all px-3 py-3">{record.student_id}</td>
@@ -156,11 +251,11 @@ export default function DashboardPage() {
 
           <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <h2 className="text-xl font-black">Recent imports</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest attendance import batches.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest attendance import batches for {yearLabel}.</p>
 
             <div className="mt-4 space-y-3">
-              {imports.length ? (
-                imports.map((item) => (
+              {recentImports.length ? (
+                recentImports.map((item) => (
                   <article key={item.id} className="rounded-2xl border bg-background p-4">
                     <p className="break-all text-sm font-black">{item.file_name}</p>
                     <div className="mt-3 flex flex-col gap-2 text-xs">

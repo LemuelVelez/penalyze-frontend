@@ -135,6 +135,7 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 const NO_EVENT_SELECT_VALUE = "__no_event__";
 const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
+const ALL_YEARS_SELECT_VALUE = "__all_years__";
 const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
 const ALL_EVENTS_SELECT_VALUE = "__all_events__";
 const NO_COLLEGE_SELECT_VALUE = "__no_college__";
@@ -1225,6 +1226,29 @@ function getRecordTimestamp(record: AttendanceRecord) {
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
+}
+
+function getAttendanceRecordYear(record: AttendanceRecord) {
+  const value = record.scanned_at ?? record.created_at;
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return String(date.getFullYear());
+}
+
+function getAttendanceYearOptions(records: AttendanceRecord[]) {
+  return Array.from(new Set(records.map(getAttendanceRecordYear).filter(Boolean))).sort(
+    (left, right) => Number(right) - Number(left),
+  );
+}
+
+function recordMatchesSelectedYear(record: AttendanceRecord, selectedYear: string) {
+  return (
+    selectedYear === ALL_YEARS_SELECT_VALUE ||
+    getAttendanceRecordYear(record) === selectedYear
+  );
 }
 
 function getCollegeLabel(value?: string | null) {
@@ -3597,6 +3621,7 @@ export default function AttendancePage() {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [yearFilter, setYearFilter] = useState(ALL_YEARS_SELECT_VALUE);
   const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
   const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(
@@ -3657,6 +3682,11 @@ export default function AttendancePage() {
     () => mergeAttendanceRecordsByStudentId(records),
     [records],
   );
+  const yearFilterOptions = useMemo(() => getAttendanceYearOptions(mergedRecords), [mergedRecords]);
+  const yearFilteredRecords = useMemo<AttendanceRecord[]>(() => {
+    return mergedRecords.filter((record) => recordMatchesSelectedYear(record, yearFilter));
+  }, [mergedRecords, yearFilter]);
+  const selectedYearLabel = yearFilter === ALL_YEARS_SELECT_VALUE ? "All years" : yearFilter;
   const eventFilterOptions = useMemo<
     Array<{ value: string; label: string }>
   >(() => {
@@ -3668,7 +3698,7 @@ export default function AttendancePage() {
     events.forEach((event) =>
       options.set(getAttendanceEventFilterValue(event), event.name),
     );
-    mergedRecords.forEach((record) => {
+    yearFilteredRecords.forEach((record) => {
       const value = getRecordEventFilterValue(record);
       const label = record.event_id
         ? (eventById.get(record.event_id) ?? getManualRecordSource(record))
@@ -3681,14 +3711,14 @@ export default function AttendancePage() {
       .sort((left, right) =>
         compareAttendanceLabels(left.label, right.label),
       );
-  }, [events, mergedRecords]);
+  }, [events, yearFilteredRecords]);
   const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
-    if (eventFilter === ALL_EVENTS_SELECT_VALUE) return mergedRecords;
+    if (eventFilter === ALL_EVENTS_SELECT_VALUE) return yearFilteredRecords;
 
-    return mergedRecords.filter(
+    return yearFilteredRecords.filter(
       (record) => getRecordEventFilterValue(record) === eventFilter,
     );
-  }, [eventFilter, mergedRecords]);
+  }, [eventFilter, yearFilteredRecords]);
   const collegeFilterOptions = useMemo<string[]>(() => {
     return Array.from<string>(
       new Set(
@@ -3720,11 +3750,11 @@ export default function AttendancePage() {
     if (!query) return [];
 
     return getDeduplicatedAttendanceSearchRecords(
-      mergedRecords.filter((record) =>
+      yearFilteredRecords.filter((record) =>
         getAttendanceRecordSearchText(record).includes(query),
       ),
     ).sort(compareAttendanceRecordsByEventSequence);
-  }, [mergedRecords, recordSearchQuery]);
+  }, [recordSearchQuery, yearFilteredRecords]);
   const recordSearchStudentSummaries = useMemo(() => {
     return getAttendanceStudentRecordSummaries(recordSearchResults);
   }, [recordSearchResults]);
@@ -4813,6 +4843,12 @@ export default function AttendancePage() {
   }, []);
 
   useEffect(() => {
+    if (yearFilter !== ALL_YEARS_SELECT_VALUE && !yearFilterOptions.includes(yearFilter)) {
+      setYearFilter(ALL_YEARS_SELECT_VALUE);
+    }
+  }, [yearFilter, yearFilterOptions]);
+
+  useEffect(() => {
     if (
       eventFilter !== ALL_EVENTS_SELECT_VALUE &&
       !eventFilterOptions.some((option) => option.value === eventFilter)
@@ -5362,9 +5398,9 @@ export default function AttendancePage() {
 
         <div className="mt-6">
           <AttendanceResponsivePanel
-            title="Recent attendance records"
-            summary={`${filteredRecordCount} shown from ${mergedRecords.length} loaded record/s`}
-            description="Search, filter, select, edit, and delete recent attendance records."
+            title="Attendance records by year"
+            summary={`${filteredRecordCount} shown from ${yearFilteredRecords.length} ${selectedYearLabel.toLowerCase()} record/s`}
+            description="Search, filter by year, event, and college, then select, edit, or delete attendance records."
           >
             <div className="mb-4 grid gap-3 lg:grid-cols-3 lg:items-start">
               <form
@@ -5391,6 +5427,30 @@ export default function AttendancePage() {
               </form>
 
               <div className="grid min-w-0 gap-2">
+                <div className="w-full">
+                  <Label htmlFor="attendance-year-filter" className="sr-only">
+                    Year filter
+                  </Label>
+                  <Select value={yearFilter} onValueChange={setYearFilter}>
+                    <SelectTrigger
+                      id="attendance-year-filter"
+                      className="min-h-10 w-full rounded-2xl"
+                    >
+                      <SelectValue placeholder="Filter by year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_YEARS_SELECT_VALUE}>
+                        All years
+                      </SelectItem>
+                      {yearFilterOptions.map((year) => (
+                        <SelectItem key={year} value={year}>
+                          {year}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="w-full">
                   <Label htmlFor="attendance-event-filter" className="sr-only">
                     Event filter

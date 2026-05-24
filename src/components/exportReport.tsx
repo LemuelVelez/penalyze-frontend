@@ -18,6 +18,7 @@ type ExportReportProps = {
   attendanceRecords: AttendanceRecord[];
   fines: FineRecord[];
   isLoading?: boolean;
+  yearLabel?: string;
 };
 
 type FineSummary = {
@@ -217,7 +218,11 @@ function getFineText(row: ReportRow) {
   return row.fines.map((fine) => `${fine.penalty} (${fine.status})`).join("; ");
 }
 
-function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selectedCollegeLabel: string) {
+function buildExcelDocument(
+  rowsByCollege: Record<string, ReportRow[]>,
+  selectedCollegeLabel: string,
+  selectedYearLabel: string,
+) {
   const generatedAt = new Date().toLocaleString();
 
   const bodyRows = Object.entries(rowsByCollege)
@@ -297,6 +302,7 @@ function buildExcelDocument(rowsByCollege: Record<string, ReportRow[]>, selected
 <body>
   <h1>Penalyze Attendees Fines Report</h1>
   <p>Generated: ${escapeHtml(generatedAt)}</p>
+  <p>Year filter: ${escapeHtml(selectedYearLabel)}</p>
   <p>College filter: ${escapeHtml(selectedCollegeLabel)}</p>
   <table>
     <thead>
@@ -330,6 +336,7 @@ export default function ExportReport(props: ExportReportProps) {
   }, [reportRows, selectedCollege]);
   const rowsByCollege = useMemo(() => getRowsByCollege(filteredReportRows), [filteredReportRows]);
   const selectedCollegeLabel = selectedCollege === ALL_COLLEGES_VALUE ? "All colleges" : selectedCollege;
+  const selectedYearLabel = props.yearLabel ?? "All years";
 
   useEffect(() => {
     if (selectedCollege !== ALL_COLLEGES_VALUE && !collegeOptions.includes(selectedCollege)) {
@@ -338,16 +345,17 @@ export default function ExportReport(props: ExportReportProps) {
   }, [collegeOptions, selectedCollege]);
 
   function handleExport() {
-    const workbook = buildExcelDocument(rowsByCollege, selectedCollegeLabel);
+    const workbook = buildExcelDocument(rowsByCollege, selectedCollegeLabel, selectedYearLabel);
     const blob = new Blob(["\ufeff", workbook], {
       type: "application/vnd.ms-excel;charset=utf-8;",
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     const collegeFileName = getSafeFileNamePart(selectedCollegeLabel);
+    const yearFileName = getSafeFileNamePart(selectedYearLabel);
 
     link.href = url;
-    link.download = `penalyze-fines-report-${collegeFileName}-${new Date().toISOString().slice(0, 10)}.xls`;
+    link.download = `penalyze-fines-report-${collegeFileName}-${yearFileName}-${new Date().toISOString().slice(0, 10)}.xls`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -374,11 +382,11 @@ export default function ExportReport(props: ExportReportProps) {
         <DialogHeader className="shrink-0">
           <DialogTitle>Report preview by college</DialogTitle>
           <DialogDescription>
-            Preview attendees with fines, then export all colleges or one specific college.
+            Preview attendees with fines for the selected year, then export all colleges or one specific college.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0 rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College to preview/export</p>
             <Select value={selectedCollege} onValueChange={setSelectedCollege}>
@@ -394,6 +402,10 @@ export default function ExportReport(props: ExportReportProps) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="rounded-2xl border bg-muted/40 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Year</p>
+            <p className="mt-1 wrap-break-word text-2xl font-black">{selectedYearLabel}</p>
           </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendees</p>

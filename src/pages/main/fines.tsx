@@ -56,6 +56,38 @@ const emptyPenaltyForm: PenaltyFormState = {
   prescribedPenalty: ""
 };
 
+const ALL_YEARS_VALUE = "__all_years__";
+
+function getDateYear(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return String(date.getFullYear());
+}
+
+function getAttendanceRecordYear(record: AttendanceRecord) {
+  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+}
+
+function getFineRecordYear(fine: FineRecord) {
+  return getDateYear(fine.created_at ?? null);
+}
+
+function getYearOptions(attendanceRecords: AttendanceRecord[], fines: FineRecord[]) {
+  return Array.from(
+    new Set([
+      ...attendanceRecords.map(getAttendanceRecordYear),
+      ...fines.map(getFineRecordYear)
+    ].filter(Boolean))
+  ).sort((left, right) => Number(right) - Number(left));
+}
+
+function matchesSelectedYear(recordYear: string, selectedYear: string) {
+  return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
@@ -199,6 +231,7 @@ export default function FinesPage() {
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [selectedPenaltyIds, setSelectedPenaltyIds] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
   const [studentId, setStudentId] = useState("");
   const [isLoadingFines, setIsLoadingFines] = useState(true);
   const [isLoadingAttendanceRecords, setIsLoadingAttendanceRecords] = useState(true);
@@ -213,21 +246,36 @@ export default function FinesPage() {
   const [error, setError] = useState("");
   const [penaltyError, setPenaltyError] = useState("");
 
-  const totalFines = fines.length;
-  const unpaidFines = useMemo(() => fines.filter((fine) => fine.status === "unpaid").length, [fines]);
-  const zeroAttendanceFines = useMemo(() => fines.filter(isZeroAttendanceFine).length, [fines]);
+  const yearOptions = useMemo(() => getYearOptions(attendanceRecords, fines), [attendanceRecords, fines]);
+  const yearFilteredFines = useMemo(() => {
+    return fines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), yearFilter));
+  }, [fines, yearFilter]);
+  const reportYearLabel = yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
+  const totalFines = yearFilteredFines.length;
+  const unpaidFines = useMemo(
+    () => yearFilteredFines.filter((fine) => fine.status === "unpaid").length,
+    [yearFilteredFines],
+  );
+  const zeroAttendanceFines = useMemo(
+    () => yearFilteredFines.filter(isZeroAttendanceFine).length,
+    [yearFilteredFines],
+  );
   const selectedPenaltyIdsSet = useMemo(() => new Set(selectedPenaltyIds), [selectedPenaltyIds]);
   const selectedPenaltyCount = selectedPenaltyIds.length;
   const allPenaltiesSelected = penalties.length > 0 && selectedPenaltyCount === penalties.length;
   const penaltyHeaderChecked = allPenaltiesSelected ? true : selectedPenaltyCount > 0 ? "indeterminate" : false;
   const reportAttendanceRecords = useMemo(() => {
     const cleanStudentId = studentId.trim().toLowerCase();
-    if (!cleanStudentId) return attendanceRecords;
 
-    return attendanceRecords.filter((record) =>
-      String(record.student_id ?? "").toLowerCase().includes(cleanStudentId),
-    );
-  }, [attendanceRecords, studentId]);
+    return attendanceRecords.filter((record) => {
+      const matchesStudentId =
+        !cleanStudentId ||
+        String(record.student_id ?? "").toLowerCase().includes(cleanStudentId);
+      const matchesYear = matchesSelectedYear(getAttendanceRecordYear(record), yearFilter);
+
+      return matchesStudentId && matchesYear;
+    });
+  }, [attendanceRecords, studentId, yearFilter]);
 
   function handleTogglePenaltySelected(id: string, checked: boolean | "indeterminate") {
     setSelectedPenaltyIds((current) => {
@@ -251,7 +299,7 @@ export default function FinesPage() {
       const rows = await listFines({
         status: status === "all" ? "" : status,
         studentId: studentId.trim() || undefined,
-        limit: 100,
+        limit: 5000,
         offset: 0
       });
 
@@ -269,7 +317,7 @@ export default function FinesPage() {
     setIsLoadingAttendanceRecords(true);
 
     try {
-      const rows = await listAttendanceRecords({ limit: 1000, offset: 0 });
+      const rows = await listAttendanceRecords({ limit: 5000, offset: 0 });
       setAttendanceRecords(rows);
     } catch (loadError) {
       const message =
@@ -312,13 +360,14 @@ export default function FinesPage() {
 
   async function handleResetFilters() {
     setStatus("all");
+    setYearFilter(ALL_YEARS_VALUE);
     setStudentId("");
     setIsLoadingFines(true);
     setError("");
 
     try {
       const rows = await listFines({
-        limit: 100,
+        limit: 5000,
         offset: 0
       });
       setFines(getUniqueDisplayFines(rows));
@@ -498,6 +547,12 @@ export default function FinesPage() {
   }
 
   useEffect(() => {
+    if (yearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(yearFilter)) {
+      setYearFilter(ALL_YEARS_VALUE);
+    }
+  }, [yearFilter, yearOptions]);
+
+  useEffect(() => {
     void loadPageData();
   }, []);
 
@@ -531,7 +586,9 @@ export default function FinesPage() {
           </div>
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current filter</p>
-            <p className="mt-2 text-lg font-black uppercase">{status === "all" ? "All" : status}</p>
+            <p className="mt-2 text-lg font-black uppercase">
+              {status === "all" ? "All" : status} / {reportYearLabel}
+            </p>
           </div>
         </section>
 
@@ -554,6 +611,20 @@ export default function FinesPage() {
               {statusOptions.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={yearFilter} onValueChange={setYearFilter}>
+            <SelectTrigger className="min-h-12 rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:w-44">
+              <SelectValue placeholder="ALL YEARS" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_YEARS_VALUE}>ALL YEARS</SelectItem>
+              {yearOptions.map((year) => (
+                <SelectItem key={year} value={year}>
+                  {year}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -589,13 +660,14 @@ export default function FinesPage() {
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-xl font-black tracking-tight">Existing Fines</h2>
-              <p className="text-sm text-muted-foreground">Fines are loaded from the saved fine records.</p>
+              <p className="text-sm text-muted-foreground">Fines are loaded from saved fine records and separated by selected year.</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
               <ExportReport
                 attendanceRecords={reportAttendanceRecords}
-                fines={fines}
+                fines={yearFilteredFines}
                 isLoading={isLoadingFines || isLoadingAttendanceRecords}
+                yearLabel={reportYearLabel}
               />
               <Button
                 type="button"
@@ -612,8 +684,8 @@ export default function FinesPage() {
           </div>
 
           <div className="space-y-3 lg:hidden">
-            {fines.length ? (
-              fines.map((fine) => (
+            {yearFilteredFines.length ? (
+              yearFilteredFines.map((fine) => (
                 <article key={fine.id} className="rounded-2xl border bg-background p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -677,8 +749,8 @@ export default function FinesPage() {
                 </tr>
               </thead>
               <tbody>
-                {fines.length ? (
-                  fines.map((fine) => (
+                {yearFilteredFines.length ? (
+                  yearFilteredFines.map((fine) => (
                     <tr key={fine.id} className="border-b last:border-b-0">
                       <td className="px-3 py-3 font-semibold">{formatDate(fine.created_at)}</td>
                       <td className="max-w-40 break-all px-3 py-3">{fine.student_id}</td>

@@ -24,6 +24,14 @@ type StudentAttendedEventSummary = {
   totalAbsences: number;
 };
 
+type StudentAbsentEventSummary = {
+  key: string;
+  eventName: string;
+  latestScannedAt: string | null;
+  records: AttendanceRecord[];
+  totalAbsences: number;
+};
+
 type ZeroAttendanceFormState = {
   studentId: string;
   name: string;
@@ -70,6 +78,7 @@ const LANDING_RESOURCE_LINKS = [
 ] as const;
 
 const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
+const ALL_YEARS_VALUE = "__all_years__";
 
 const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   studentId: "",
@@ -201,6 +210,36 @@ function getRecordTimestamp(record: AttendanceRecord) {
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
+}
+
+function getDateYear(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return String(date.getFullYear());
+}
+
+function getAttendanceRecordYear(record: AttendanceRecord) {
+  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+}
+
+function getFineRecordYear(fine: FineRecord) {
+  return getDateYear(fine.created_at ?? null);
+}
+
+function getLookupYearOptions(attendance: AttendanceRecord[], fines: FineRecord[]) {
+  return Array.from(
+    new Set([
+      ...attendance.map(getAttendanceRecordYear),
+      ...fines.map(getFineRecordYear)
+    ].filter(Boolean))
+  ).sort((left, right) => Number(right) - Number(left));
+}
+
+function matchesSelectedYear(recordYear: string, selectedYear: string) {
+  return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
 }
 
 function getRecordEventName(record: AttendanceRecord) {
@@ -387,6 +426,95 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
       })
     }))
     .sort(compareStudentAttendedEventSummaries);
+}
+
+function getRecordAbsenceCount(record: AttendanceRecord) {
+  const numericValue = Number(record.no_of_absences ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, numericValue);
+}
+
+function getSummaryAbsentEventRemarks(summary: StudentAbsentEventSummary) {
+  const remarks = Array.from(
+    new Set(summary.records.map((record) => String(record.remarks ?? "").trim()).filter(Boolean))
+  );
+
+  return remarks.length ? remarks.join(" • ") : "—";
+}
+
+function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
+  const directSequence = parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
+  if (directSequence !== null) return directSequence;
+
+  for (const record of summary.records) {
+    const recordSequence = getAttendanceEventSequence(record);
+    if (recordSequence !== null) return recordSequence;
+  }
+
+  return null;
+}
+
+function compareStudentAbsentEventSummaries(
+  leftSummary: StudentAbsentEventSummary,
+  rightSummary: StudentAbsentEventSummary
+) {
+  const leftSequence = getAbsentEventSequence(leftSummary);
+  const rightSequence = getAbsentEventSequence(rightSummary);
+
+  if (leftSequence !== null || rightSequence !== null) {
+    if (leftSequence === null) return 1;
+    if (rightSequence === null) return -1;
+    if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+  }
+
+  const timeDifference = getSummaryEarliestTime(leftSummary) - getSummaryEarliestTime(rightSummary);
+  if (timeDifference !== 0) return timeDifference;
+
+  return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
+}
+
+function getStudentAbsentEventSummaries(attendance: AttendanceRecord[]) {
+  const summaries = new Map<string, StudentAbsentEventSummary>();
+
+  getUniqueDisplayAttendance(attendance)
+    .filter((record) => !isZeroAttendanceRecord(record) && getRecordAbsenceCount(record) > 0)
+    .forEach((record) => {
+      const eventName = getRecordEventName(record);
+      const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
+      const currentSummary = summaries.get(key);
+      const recordTime = getRecordTimestamp(record);
+
+      if (!currentSummary) {
+        summaries.set(key, {
+          key,
+          eventName,
+          latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+          records: [record],
+          totalAbsences: getRecordAbsenceCount(record)
+        });
+        return;
+      }
+
+      const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+
+      currentSummary.records.push(record);
+      currentSummary.totalAbsences = Math.max(currentSummary.totalAbsences, getRecordAbsenceCount(record));
+
+      if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
+        currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+      }
+    });
+
+  return Array.from(summaries.values())
+    .map((summary) => ({
+      ...summary,
+      records: [...summary.records].sort((leftRecord, rightRecord) => {
+        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
+      })
+    }))
+    .sort(compareStudentAbsentEventSummaries);
 }
 
 function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
@@ -654,6 +782,7 @@ export default function LandingPage() {
   const [studentId, setStudentId] = useState("");
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [searchedId, setSearchedId] = useState("");
+  const [resultYearFilter, setResultYearFilter] = useState(ALL_YEARS_VALUE);
   const [isSearching, setIsSearching] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
@@ -673,14 +802,36 @@ export default function LandingPage() {
     setIsCheckingSession(false);
   }, [navigate]);
 
-  const displayedAttendance = useMemo(() => {
-    return lookup ? getUniqueDisplayAttendance(lookup.attendance) : [];
+  const lookupFines = useMemo(() => {
+    if (!lookup) return [];
+    return lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines;
   }, [lookup]);
+  const yearOptions = useMemo(() => {
+    return lookup ? getLookupYearOptions(lookup.attendance, lookupFines) : [];
+  }, [lookup, lookupFines]);
+  const selectedYearLabel = resultYearFilter === ALL_YEARS_VALUE ? "All years" : resultYearFilter;
+
+  useEffect(() => {
+    if (resultYearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(resultYearFilter)) {
+      setResultYearFilter(ALL_YEARS_VALUE);
+    }
+  }, [resultYearFilter, yearOptions]);
+
+  const displayedAttendance = useMemo(() => {
+    if (!lookup) return [];
+
+    return getUniqueDisplayAttendance(
+      lookup.attendance.filter((record) =>
+        matchesSelectedYear(getAttendanceRecordYear(record), resultYearFilter),
+      ),
+    );
+  }, [lookup, resultYearFilter]);
 
   const displayedFines = useMemo(() => {
-    if (!lookup) return [];
-    return getUniqueDisplayFines(lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines);
-  }, [lookup]);
+    return getUniqueDisplayFines(
+      lookupFines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), resultYearFilter)),
+    );
+  }, [lookupFines, resultYearFilter]);
 
   const totalAbsences = useMemo(() => {
     return getTotalAbsences(displayedAttendance, displayedFines);
@@ -693,6 +844,9 @@ export default function LandingPage() {
   const fallbackFineActive = Boolean(lookup?.fallbackFine);
   const attendedEvents = useMemo(() => {
     return getStudentAttendedEventSummaries(displayedAttendance);
+  }, [displayedAttendance]);
+  const absentEvents = useMemo(() => {
+    return getStudentAbsentEventSummaries(displayedAttendance);
   }, [displayedAttendance]);
   const studentDisplayName = useMemo(() => {
     return lookup ? getStudentDisplayName(displayedAttendance, displayedFines, searchedId) : searchedId;
@@ -709,6 +863,7 @@ export default function LandingPage() {
     setResultDialogOpen(false);
     setEventsDialogOpen(false);
     setZeroAttendanceError("");
+    setResultYearFilter(ALL_YEARS_VALUE);
     setZeroAttendanceForm({ ...emptyZeroAttendanceForm, studentId: cleanStudentId });
     setZeroAttendanceDialogOpen(true);
   }
@@ -751,6 +906,7 @@ export default function LandingPage() {
 
       setStudentId(result.attendanceRecord.student_id);
       setSearchedId(result.attendanceRecord.student_id);
+      setResultYearFilter(ALL_YEARS_VALUE);
       setLookup({
         attendance: [attendanceRecord],
         fines: result.fine ? [result.fine] : [],
@@ -805,6 +961,7 @@ export default function LandingPage() {
           )
         : null;
 
+      setResultYearFilter(ALL_YEARS_VALUE);
       setLookup({ attendance, fines, fallbackFine });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
@@ -842,14 +999,14 @@ export default function LandingPage() {
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
             <p className="mx-auto mb-4 inline-flex rounded-full border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm">
-              Attendance and fines lookup for students
+              Attendance and fines lookup by year for students
             </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Search your Student ID and view your attendance record instantly.
+              Search your Student ID and view attendance records by year instantly.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">
               Students can check perfect attendance, zero attendance, recorded absences, and penalty status without
-              logging in. Enter your Student ID to see attendance entries and related fines.
+              logging in. Enter your Student ID to see attendance entries and related fines separated by year.
             </p>
 
             <form
@@ -887,7 +1044,7 @@ export default function LandingPage() {
                 <p className="mt-2 text-3xl font-black">Perfect / Zero</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">Monitor records</p>
+                <p className="text-sm font-semibold text-muted-foreground">Yearly records</p>
                 <p className="mt-2 text-3xl font-black">Attendance</p>
               </div>
             </div>
@@ -933,10 +1090,30 @@ export default function LandingPage() {
             <section className="space-y-6">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result</p>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result / {selectedYearLabel}</p>
                   <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:w-auto">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+                  <label className="sr-only" htmlFor="student-result-year-filter">
+                    Year filter
+                  </label>
+                  <select
+                    id="student-result-year-filter"
+                    value={resultYearFilter}
+                    onChange={(event) => setResultYearFilter(event.target.value)}
+                    className="min-h-11 rounded-2xl border bg-background px-4 text-sm font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
+                  >
+                    <option value={ALL_YEARS_VALUE}>All years</option>
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:w-auto">
                   <div className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}>
                     <p className="text-xs font-bold uppercase">Classification</p>
                     <p className="text-2xl font-black">{resultClassification}</p>
@@ -964,7 +1141,6 @@ export default function LandingPage() {
                     View Attended Events
                   </Button>
                 </div>
-              </div>
 
               {resultClassification === "Perfect attendance" ? (
                 <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
@@ -987,44 +1163,54 @@ export default function LandingPage() {
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <h3 className="text-xl font-black">Attendance</h3>
+                    <h3 className="text-xl font-black">Absent Events</h3>
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                      {displayedAttendance.length} record/s
+                      {absentEvents.length} event/s
                     </span>
                   </div>
 
-                  {displayedAttendance.length ? (
+                  {absentEvents.length ? (
                     <div className="space-y-3 lg:hidden">
-                      {displayedAttendance.map((row) => (
-                        <article key={row.id} className="rounded-2xl border bg-background p-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <p className="font-black">{row.name}</p>
-                              <p className="text-sm text-muted-foreground">{formatDate(row.created_at)}</p>
+                      {absentEvents.map((eventSummary, index) => (
+                        <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+                          <div className="flex gap-3">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                {formatDate(eventSummary.latestScannedAt)} • Total:{" "}
+                                {formatAbsenceCount(eventSummary.totalAbsences)}
+                              </p>
                             </div>
                           </div>
-                          <p className="mt-3 text-sm text-muted-foreground">{row.remarks || "No remarks"}</p>
+                          <p className="mt-3 text-sm text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</p>
                         </article>
                       ))}
                     </div>
                   ) : null}
 
-                  {displayedAttendance.length ? (
+                  {absentEvents.length ? (
                     <div className="hidden overflow-x-auto lg:block">
                       <table className="w-full min-w-max text-left text-sm">
                         <thead className="border-b text-xs uppercase text-muted-foreground">
                           <tr>
+                            <th className="px-3 py-3">No.</th>
+                            <th className="px-3 py-3">Absent Event</th>
                             <th className="px-3 py-3">Date</th>
-                            <th className="px-3 py-3">Name</th>
+                            <th className="px-3 py-3">Absences</th>
                             <th className="px-3 py-3">Remarks</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {displayedAttendance.map((row) => (
-                            <tr key={row.id} className="border-b last:border-b-0">
-                              <td className="px-3 py-3 font-semibold">{formatDate(row.created_at)}</td>
-                              <td className="px-3 py-3">{row.name}</td>
-                              <td className="px-3 py-3 text-muted-foreground">{row.remarks || "—"}</td>
+                          {absentEvents.map((eventSummary, index) => (
+                            <tr key={eventSummary.key} className="border-b last:border-b-0">
+                              <td className="px-3 py-3 font-black">{index + 1}</td>
+                              <td className="px-3 py-3 font-semibold">{eventSummary.eventName}</td>
+                              <td className="px-3 py-3">{formatDate(eventSummary.latestScannedAt)}</td>
+                              <td className="px-3 py-3">{formatAbsenceCount(eventSummary.totalAbsences)}</td>
+                              <td className="px-3 py-3 text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1032,7 +1218,7 @@ export default function LandingPage() {
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                      No attendance record found for this Student ID.
+                      No absent events found for this Student ID.
                     </div>
                   )}
                 </div>
