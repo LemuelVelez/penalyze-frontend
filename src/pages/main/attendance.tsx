@@ -2057,29 +2057,21 @@ function getManualUpdateProgressRowText(
   return "Preparing record updates...";
 }
 
-function getManualUpdateProgress(
-  processedRecords: number,
-  totalRecords: number,
-  message = "Updating attendance records...",
-): AttendanceImportProgress {
-  const safeTotalRecords = Math.max(0, totalRecords);
-  const safeProcessedRecords = Math.max(
-    0,
-    Math.min(processedRecords, safeTotalRecords),
-  );
-  const percent = safeTotalRecords
-    ? Math.round((safeProcessedRecords / safeTotalRecords) * 100)
-    : 100;
+function getManualUpdateProgressDetailText(
+  progress: AttendanceImportProgress | null,
+) {
+  if (!progress) return "Waiting for update result...";
+  if (progress.stage === "completed") {
+    return `${progress.savedRecords || progress.processedRows} record/s updated`;
+  }
+  if (progress.savedRecords > 0) {
+    return `${progress.savedRecords} record/s updated`;
+  }
+  if (progress.totalRows > 0) {
+    return `${progress.totalRows} record/s selected`;
+  }
 
-  return {
-    stage: percent >= 100 ? "completed" : "saving",
-    percent: Math.max(0, Math.min(100, percent)),
-    message,
-    processedRows: safeProcessedRecords,
-    totalRows: safeTotalRecords,
-    savedRecords: safeProcessedRecords,
-    createdFines: 0,
-  };
+  return "Waiting for database response";
 }
 
 function getAttendanceFileSignature(file: File) {
@@ -2157,6 +2149,23 @@ function areAttendanceImportOptionsEqual(
 
 function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function waitForNextPaint() {
+  if (typeof window === "undefined") return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function formatDuration(milliseconds: number) {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "0s";
+
+  const seconds = milliseconds / 1000;
+  if (seconds < 1) return `${Math.max(1, Math.round(milliseconds))}ms`;
+
+  return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
 }
 
 function useAttendanceMobilePanel() {
@@ -2868,7 +2877,7 @@ function ManualAttendanceDialog(props: {
                   {props.updateProgressRowText}
                 </span>
                 <span className="wrap-break-word sm:text-right">
-                  {props.updateProgress?.processedRows ?? 0} record/s updated
+                  {getManualUpdateProgressDetailText(props.updateProgress)}
                 </span>
               </div>
             </section>
@@ -4397,43 +4406,60 @@ export default function AttendancePage() {
     recordIds: string[],
     payload: ManualAttendanceInput,
   ) {
-    const updatedRecords: AttendanceRecord[] = [];
+    const uniqueRecordIds = Array.from(new Set(recordIds.filter(Boolean)));
+    const totalRecords = uniqueRecordIds.length;
 
-    setManualSaveProgress(
-      getManualUpdateProgress(
-        0,
-        recordIds.length,
-        "Starting attendance update...",
-      ),
-    );
+    if (!totalRecords) return [];
 
-    for (const [index, recordId] of recordIds.entries()) {
-      setManualSaveProgress(
-        getManualUpdateProgress(
-          index,
-          recordIds.length,
-          `Updating attendance record ${index + 1} of ${recordIds.length}...`,
-        ),
-      );
+    setManualSaveProgress({
+      stage: "preparing",
+      percent: 8,
+      message: `Preparing ${totalRecords} attendance record/s for one bulk update...`,
+      processedRows: 0,
+      totalRows: totalRecords,
+      savedRecords: 0,
+      createdFines: 0,
+    });
+    await waitForNextPaint();
 
-      const result = await updateAttendanceRecords([recordId], payload);
-      updatedRecords.push(...(result?.records ?? []));
-      setManualSaveProgress(
-        getManualUpdateProgress(
-          index + 1,
-          recordIds.length,
-          "Attendance update progress saved.",
-        ),
-      );
-    }
+    const startedAt = performance.now();
 
-    setManualSaveProgress(
-      getManualUpdateProgress(
-        recordIds.length,
-        recordIds.length,
-        "Attendance update completed.",
-      ),
-    );
+    setManualSaveProgress({
+      stage: "saving",
+      percent: 35,
+      message: `Sending one bulk update for ${totalRecords} attendance record/s...`,
+      processedRows: 0,
+      totalRows: totalRecords,
+      savedRecords: 0,
+      createdFines: 0,
+    });
+    await waitForNextPaint();
+
+    const result = await updateAttendanceRecords(uniqueRecordIds, payload);
+    const updatedRecords = result?.records ?? [];
+    const updatedCount = result?.updatedRecordIds?.length || totalRecords;
+    const elapsedTime = formatDuration(performance.now() - startedAt);
+
+    setManualSaveProgress({
+      stage: "syncing",
+      percent: 92,
+      message: `Database updated ${updatedCount} record/s in ${elapsedTime}. Applying refreshed records...`,
+      processedRows: updatedCount,
+      totalRows: totalRecords,
+      savedRecords: updatedRecords.length || updatedCount,
+      createdFines: result?.fines?.length ?? 0,
+    });
+    await waitForNextPaint();
+
+    setManualSaveProgress({
+      stage: "completed",
+      percent: 100,
+      message: `Attendance update completed in ${elapsedTime}.`,
+      processedRows: updatedCount,
+      totalRows: totalRecords,
+      savedRecords: updatedRecords.length || updatedCount,
+      createdFines: result?.fines?.length ?? 0,
+    });
 
     return updatedRecords;
   }
@@ -4921,12 +4947,17 @@ export default function AttendancePage() {
           isUpdatingManualRecord,
         );
         const nextBasePercent = Math.max(currentPercent, latestPercent);
-        const ceilingPercent = Math.min(95, latestPercent + 3);
+        const ceilingPercent =
+          manualSaveProgress?.stage === "saving"
+            ? 90
+            : manualSaveProgress?.stage === "syncing"
+              ? 98
+              : Math.min(95, latestPercent + 10);
 
         if (nextBasePercent >= ceilingPercent) return nextBasePercent;
-        return Math.min(ceilingPercent, nextBasePercent + 1);
+        return Math.min(ceilingPercent, nextBasePercent + 2);
       });
-    }, 700);
+    }, 350);
 
     return () => window.clearInterval(intervalId);
   }, [isUpdatingManualRecord, manualSaveProgress]);
@@ -5647,3 +5678,6 @@ export default function AttendancePage() {
     </main>
   );
 }
+
+
+
