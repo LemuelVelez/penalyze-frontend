@@ -120,7 +120,10 @@ function getQrCodeProgramOptions(college: string) {
   return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
 }
 
-function hasQrCodeSelectOption(options: readonly string[], value?: string | null) {
+function hasQrCodeSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
   const cleanValue = String(value ?? "").trim();
 
   return Boolean(cleanValue) && options.includes(cleanValue);
@@ -378,10 +381,7 @@ function useProgressivePercent(isActive: boolean, targetPercent: number) {
     }
 
     setDisplayPercent((currentPercent) => {
-      const nextTarget = Math.max(
-        1,
-        Math.min(100, Math.round(targetPercent)),
-      );
+      const nextTarget = Math.max(1, Math.min(100, Math.round(targetPercent)));
 
       if (currentPercent <= 0) return Math.min(nextTarget, 2);
       return Math.min(currentPercent, nextTarget);
@@ -401,10 +401,7 @@ function useProgressivePercent(isActive: boolean, targetPercent: number) {
         if (currentPercent >= nextTarget) return currentPercent;
 
         const remainingPercent = nextTarget - currentPercent;
-        const step = Math.max(
-          1,
-          Math.min(5, Math.ceil(remainingPercent / 7)),
-        );
+        const step = Math.max(1, Math.min(5, Math.ceil(remainingPercent / 7)));
 
         return Math.min(nextTarget, currentPercent + step);
       });
@@ -1404,12 +1401,15 @@ function getAttendanceRecordYear(record: AttendanceRecord) {
 }
 
 function getAttendanceYearOptions(records: AttendanceRecord[]) {
-  return Array.from(new Set(records.map(getAttendanceRecordYear).filter(Boolean))).sort(
-    (left, right) => Number(right) - Number(left),
-  );
+  return Array.from(
+    new Set(records.map(getAttendanceRecordYear).filter(Boolean)),
+  ).sort((left, right) => Number(right) - Number(left));
 }
 
-function recordMatchesSelectedYear(record: AttendanceRecord, selectedYear: string) {
+function recordMatchesSelectedYear(
+  record: AttendanceRecord,
+  selectedYear: string,
+) {
   return (
     selectedYear === ALL_YEARS_SELECT_VALUE ||
     getAttendanceRecordYear(record) === selectedYear
@@ -1425,10 +1425,14 @@ function getCollegeFilterValue(value?: string | null) {
 }
 
 function compareAttendanceLabels(left: string, right: string) {
-  return cleanImportValue(left).localeCompare(cleanImportValue(right), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
+  return cleanImportValue(left).localeCompare(
+    cleanImportValue(right),
+    undefined,
+    {
+      numeric: true,
+      sensitivity: "base",
+    },
+  );
 }
 
 function getAttendanceEventSequenceNumber(value?: string | null) {
@@ -1533,6 +1537,113 @@ function getRecordStudentProfileKey(record: AttendanceRecord) {
     cleanImportValue(record.student_id).toUpperCase() ||
     `unknown-student:${record.id}`
   );
+}
+
+function normalizeAttendanceStatusValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getStoredAttendanceAbsenceCount(record: AttendanceRecord) {
+  const numericValue = Number(record.no_of_absences ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, numericValue);
+}
+
+function isZeroAttendanceRecord(record: AttendanceRecord) {
+  return (
+    !record.event_id &&
+    normalizeAttendanceStatusValue(record.remarks).includes("zero attendance")
+  );
+}
+
+function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+  const statusValues = [
+    recordData.status,
+    recordData.attendance_status,
+    recordData.classification,
+    recordData.result,
+    record.remarks,
+  ]
+    .map(normalizeAttendanceStatusValue)
+    .filter(Boolean);
+
+  return statusValues.some((value) =>
+    /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(
+      value,
+    ),
+  );
+}
+
+function hasAttendanceEventIdentity(record: AttendanceRecord) {
+  return getRecordEventGroupKey(record) !== NO_EVENT_FILTER_SELECT_VALUE;
+}
+
+function getEffectiveAttendanceRecordAbsenceCount(record: AttendanceRecord) {
+  if (isZeroAttendanceRecord(record))
+    return getStoredAttendanceAbsenceCount(record);
+
+  if (isExplicitAbsentAttendanceRecord(record)) {
+    return Math.max(1, getStoredAttendanceAbsenceCount(record));
+  }
+
+  return 0;
+}
+
+function getCollegeScopedAttendanceAbsenceCount(
+  studentRecords: AttendanceRecord[],
+  allRecords: AttendanceRecord[],
+) {
+  const studentCollegeKeys = new Set(
+    studentRecords
+      .map((record) => getAttendanceCollegeScopeKey(record.college))
+      .filter((collegeKey) => collegeKey !== NO_COLLEGE_SELECT_VALUE),
+  );
+
+  if (!studentCollegeKeys.size || !allRecords.length) return null;
+
+  const collegeEventKeys = new Set<string>();
+  const attendedEventKeys = new Set<string>();
+
+  allRecords.forEach((record) => {
+    const collegeKey = getAttendanceCollegeScopeKey(record.college);
+
+    if (
+      !studentCollegeKeys.has(collegeKey) ||
+      isZeroAttendanceRecord(record) ||
+      !hasAttendanceEventIdentity(record)
+    ) {
+      return;
+    }
+
+    collegeEventKeys.add(getRecordEventGroupKey(record));
+  });
+
+  if (!collegeEventKeys.size) return null;
+
+  studentRecords.forEach((record) => {
+    const collegeKey = getAttendanceCollegeScopeKey(record.college);
+
+    if (
+      !studentCollegeKeys.has(collegeKey) ||
+      isZeroAttendanceRecord(record) ||
+      isExplicitAbsentAttendanceRecord(record) ||
+      !hasAttendanceEventIdentity(record)
+    ) {
+      return;
+    }
+
+    attendedEventKeys.add(getRecordEventGroupKey(record));
+  });
+
+  return Array.from(collegeEventKeys).filter(
+    (eventKey) => !attendedEventKeys.has(eventKey),
+  ).length;
 }
 
 type AttendanceStudentProfile = {
@@ -1712,7 +1823,7 @@ function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
         studentId: record.student_id,
         name: record.name,
         records: [record],
-        totalAbsences: record.no_of_absences ?? 0,
+        totalAbsences: getEffectiveAttendanceRecordAbsenceCount(record),
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         yearLevel: record.year_level ?? "",
         college: record.college ?? "",
@@ -1729,7 +1840,7 @@ function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
     currentAttendee.records.push(record);
     currentAttendee.totalAbsences = Math.max(
       currentAttendee.totalAbsences,
-      record.no_of_absences ?? 0,
+      getEffectiveAttendanceRecordAbsenceCount(record),
     );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
@@ -1800,7 +1911,7 @@ function getAttendanceEventGroups(
         college: record.college ?? "",
         records: [record],
         attendees: [],
-        totalAbsences: record.no_of_absences ?? 0,
+        totalAbsences: getEffectiveAttendanceRecordAbsenceCount(record),
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
       });
       return;
@@ -1811,7 +1922,7 @@ function getAttendanceEventGroups(
       : 0;
 
     currentGroup.records.push(record);
-    currentGroup.totalAbsences += record.no_of_absences ?? 0;
+    currentGroup.totalAbsences += getEffectiveAttendanceRecordAbsenceCount(record);
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
       currentGroup.latestScannedAt =
@@ -1916,24 +2027,50 @@ function getDeduplicatedAttendanceEvents(events: AttendanceEvent[]) {
   );
 }
 
-function getAttendanceRecordTotalAbsences(records: AttendanceRecord[]) {
-  const absencesByStudentScope = new Map<string, number>();
+function getAttendanceRecordTotalAbsences(
+  records: AttendanceRecord[],
+  allRecords: AttendanceRecord[] = records,
+) {
+  const recordsByStudentScope = new Map<string, AttendanceRecord[]>();
 
   records.forEach((record) => {
     const key = [
       getRecordStudentProfileKey(record),
       normalizeImportHeader(record.college),
     ].join(":");
-    const currentAbsences = absencesByStudentScope.get(key) ?? 0;
+    const studentScopeRecords = recordsByStudentScope.get(key) ?? [];
 
-    absencesByStudentScope.set(
-      key,
-      Math.max(currentAbsences, Number(record.no_of_absences ?? 0)),
-    );
+    studentScopeRecords.push(record);
+    recordsByStudentScope.set(key, studentScopeRecords);
   });
 
-  return Array.from(absencesByStudentScope.values()).reduce(
-    (total, noOfAbsences) => total + noOfAbsences,
+  return Array.from(recordsByStudentScope.values()).reduce(
+    (total, studentScopeRecords) => {
+      const collegeScopedAbsences = getCollegeScopedAttendanceAbsenceCount(
+        studentScopeRecords,
+        allRecords,
+      );
+
+      if (collegeScopedAbsences !== null) return total + collegeScopedAbsences;
+
+      const effectiveAbsenceCounts = studentScopeRecords.map(
+        getEffectiveAttendanceRecordAbsenceCount,
+      );
+      const hasEffectiveAbsence = effectiveAbsenceCounts.some(
+        (absenceCount) => absenceCount > 0,
+      );
+
+      if (hasEffectiveAbsence) {
+        return total + Math.max(0, ...effectiveAbsenceCounts);
+      }
+
+      if (studentScopeRecords.some(hasAttendanceEventIdentity)) return total;
+
+      return (
+        total +
+        Math.max(0, ...studentScopeRecords.map(getStoredAttendanceAbsenceCount))
+      );
+    },
     0,
   );
 }
@@ -2005,7 +2142,10 @@ function getAttendanceRecordSearchText(record: AttendanceRecord) {
     .toLowerCase();
 }
 
-function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
+function getAttendanceStudentRecordSummaries(
+  records: AttendanceRecord[],
+  allRecords: AttendanceRecord[] = records,
+) {
   const summaries = new Map<string, AttendanceStudentRecordSummary>();
 
   records.forEach((record) => {
@@ -2023,7 +2163,7 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
         program: cleanImportValue(record.program),
         institution: cleanImportValue(record.institution),
         records: [record],
-        totalAbsences: Number(record.no_of_absences ?? 0),
+        totalAbsences: getEffectiveAttendanceRecordAbsenceCount(record),
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
       });
       return;
@@ -2036,7 +2176,7 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
     currentSummary.records.push(record);
     currentSummary.totalAbsences = Math.max(
       currentSummary.totalAbsences,
-      Number(record.no_of_absences ?? 0),
+      getEffectiveAttendanceRecordAbsenceCount(record),
     );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
@@ -2077,6 +2217,10 @@ function getAttendanceStudentRecordSummaries(records: AttendanceRecord[]) {
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
       }),
+      totalAbsences: getAttendanceRecordTotalAbsences(
+        summary.records,
+        allRecords,
+      ),
     }))
     .sort((leftSummary, rightSummary) => {
       const leftTime = leftSummary.latestScannedAt
@@ -2125,7 +2269,7 @@ function getAttendanceStudentEventSummaries(
         schedule,
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         records: [record],
-        totalAbsences: Number(record.no_of_absences ?? 0),
+        totalAbsences: getEffectiveAttendanceRecordAbsenceCount(record),
       });
       return;
     }
@@ -2137,7 +2281,7 @@ function getAttendanceStudentEventSummaries(
     currentSummary.records.push(record);
     currentSummary.totalAbsences = Math.max(
       currentSummary.totalAbsences,
-      Number(record.no_of_absences ?? 0),
+      getEffectiveAttendanceRecordAbsenceCount(record),
     );
 
     if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
@@ -2560,10 +2704,7 @@ function EventFields(props: {
             );
           }}
         >
-          <SelectTrigger
-            id="upload-event-id"
-            className={compactFieldClassName}
-          >
+          <SelectTrigger id="upload-event-id" className={compactFieldClassName}>
             <SelectValue placeholder="Use file event" className="truncate" />
           </SelectTrigger>
           <SelectContent className="max-h-72 max-w-72">
@@ -2893,13 +3034,25 @@ function ManualAttendanceDialog(props: {
                 )
               }
             >
-              <SelectTrigger id="manual-event-id" className={manualSelectTriggerClassName}>
+              <SelectTrigger
+                id="manual-event-id"
+                className={manualSelectTriggerClassName}
+              >
                 <SelectValue placeholder="No event" className="truncate" />
               </SelectTrigger>
               <SelectContent className="max-h-72 max-w-80">
-                <SelectItem value={NO_EVENT_SELECT_VALUE} className="max-w-full truncate">No event</SelectItem>
+                <SelectItem
+                  value={NO_EVENT_SELECT_VALUE}
+                  className="max-w-full truncate"
+                >
+                  No event
+                </SelectItem>
                 {props.events.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="max-w-full truncate">
+                  <SelectItem
+                    key={item.id}
+                    value={item.id}
+                    className="max-w-full truncate"
+                  >
                     {item.name}
                   </SelectItem>
                 ))}
@@ -2951,8 +3104,14 @@ function ManualAttendanceDialog(props: {
               value={props.form.yearLevel}
               onValueChange={(value) => props.onChange("yearLevel", value)}
             >
-              <SelectTrigger id="manual-year-level" className={manualSelectTriggerClassName}>
-                <SelectValue placeholder="Select year level" className="truncate" />
+              <SelectTrigger
+                id="manual-year-level"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select year level"
+                  className="truncate"
+                />
               </SelectTrigger>
               <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
@@ -2960,7 +3119,11 @@ function ManualAttendanceDialog(props: {
                   props.form.yearLevel,
                 )}
                 {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
-                  <SelectItem key={yearLevel} value={yearLevel} className="max-w-full truncate">
+                  <SelectItem
+                    key={yearLevel}
+                    value={yearLevel}
+                    className="max-w-full truncate"
+                  >
                     {yearLevel}
                   </SelectItem>
                 ))}
@@ -2969,7 +3132,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-year-level-custom"
               value={props.form.yearLevel}
-              onChange={(event) => props.onChange("yearLevel", event.target.value)}
+              onChange={(event) =>
+                props.onChange("yearLevel", event.target.value)
+              }
               className={manualCustomInputClassName}
               placeholder="Type custom year level if not listed"
             />
@@ -2981,8 +3146,14 @@ function ManualAttendanceDialog(props: {
               value={props.form.college}
               onValueChange={handleCollegeChange}
             >
-              <SelectTrigger id="manual-college" className={manualSelectTriggerClassName}>
-                <SelectValue placeholder="Select college" className="truncate" />
+              <SelectTrigger
+                id="manual-college"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select college"
+                  className="truncate"
+                />
               </SelectTrigger>
               <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
@@ -2990,7 +3161,11 @@ function ManualAttendanceDialog(props: {
                   props.form.college,
                 )}
                 {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                  <SelectItem key={college} value={college} className="max-w-full truncate">
+                  <SelectItem
+                    key={college}
+                    value={college}
+                    className="max-w-full truncate"
+                  >
                     {college}
                   </SelectItem>
                 ))}
@@ -3012,10 +3187,15 @@ function ManualAttendanceDialog(props: {
               onValueChange={(value) => props.onChange("program", value)}
               disabled={!props.form.college}
             >
-              <SelectTrigger id="manual-program" className={manualSelectTriggerClassName}>
+              <SelectTrigger
+                id="manual-program"
+                className={manualSelectTriggerClassName}
+              >
                 <SelectValue
                   placeholder={
-                    props.form.college ? "Select program" : "Select college first"
+                    props.form.college
+                      ? "Select program"
+                      : "Select college first"
                   }
                   className="truncate"
                 />
@@ -3026,7 +3206,11 @@ function ManualAttendanceDialog(props: {
                   props.form.program,
                 )}
                 {programOptions.map((program) => (
-                  <SelectItem key={program} value={program} className="max-w-full truncate">
+                  <SelectItem
+                    key={program}
+                    value={program}
+                    className="max-w-full truncate"
+                  >
                     {program}
                   </SelectItem>
                 ))}
@@ -3035,7 +3219,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-program-custom"
               value={props.form.program}
-              onChange={(event) => props.onChange("program", event.target.value)}
+              onChange={(event) =>
+                props.onChange("program", event.target.value)
+              }
               disabled={!props.form.college}
               className={manualCustomInputClassName}
               placeholder={
@@ -3052,8 +3238,14 @@ function ManualAttendanceDialog(props: {
               value={props.form.institution}
               onValueChange={(value) => props.onChange("institution", value)}
             >
-              <SelectTrigger id="manual-institution" className={manualSelectTriggerClassName}>
-                <SelectValue placeholder="Select institution" className="truncate" />
+              <SelectTrigger
+                id="manual-institution"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select institution"
+                  className="truncate"
+                />
               </SelectTrigger>
               <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
@@ -3061,7 +3253,11 @@ function ManualAttendanceDialog(props: {
                   props.form.institution,
                 )}
                 {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
-                  <SelectItem key={institution} value={institution} className="max-w-full truncate">
+                  <SelectItem
+                    key={institution}
+                    value={institution}
+                    className="max-w-full truncate"
+                  >
                     {institution}
                   </SelectItem>
                 ))}
@@ -3070,7 +3266,9 @@ function ManualAttendanceDialog(props: {
             <Input
               id="manual-institution-custom"
               value={props.form.institution}
-              onChange={(event) => props.onChange("institution", event.target.value)}
+              onChange={(event) =>
+                props.onChange("institution", event.target.value)
+              }
               className={manualCustomInputClassName}
               placeholder="Type custom institution if not listed"
             />
@@ -3672,8 +3870,8 @@ function AttendanceStudentEventsDialog(props: {
                         </p>
                         <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                           {eventSummary.schedule} •{" "}
-                          {eventSummary.records.length} record/s •{" "}
-                          Total: {eventSummary.totalAbsences}
+                          {eventSummary.records.length} record/s • Total:{" "}
+                          {eventSummary.totalAbsences}
                         </p>
                       </div>
                       <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
@@ -3722,6 +3920,7 @@ function AttendanceRecordSearchDialog(props: {
   onOpenChange: (open: boolean) => void;
   query: string;
   records: AttendanceRecord[];
+  allRecords: AttendanceRecord[];
   studentSummaries: AttendanceStudentRecordSummary[];
   deletingRecordId: string;
   isDeletingBulk: boolean;
@@ -3766,7 +3965,10 @@ function AttendanceRecordSearchDialog(props: {
                 Total count
               </p>
               <p className="mt-1 text-2xl font-black">
-                {getAttendanceRecordTotalAbsences(props.records)}
+                {getAttendanceRecordTotalAbsences(
+                  props.records,
+                  props.allRecords,
+                )}
               </p>
             </div>
           </div>
@@ -3787,8 +3989,8 @@ function AttendanceRecordSearchDialog(props: {
                       <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                         {summary.program || "No program"} •{" "}
                         {getCollegeLabel(summary.college)} •{" "}
-                        {summary.records.length} record/s •{" "}
-                        Total: {summary.totalAbsences}
+                        {summary.records.length} record/s • Total:{" "}
+                        {summary.totalAbsences}
                       </p>
                     </div>
                     <Button
@@ -3946,11 +4148,17 @@ export default function AttendancePage() {
     () => mergeAttendanceRecordsByStudentId(records),
     [records],
   );
-  const yearFilterOptions = useMemo(() => getAttendanceYearOptions(mergedRecords), [mergedRecords]);
+  const yearFilterOptions = useMemo(
+    () => getAttendanceYearOptions(mergedRecords),
+    [mergedRecords],
+  );
   const yearFilteredRecords = useMemo<AttendanceRecord[]>(() => {
-    return mergedRecords.filter((record) => recordMatchesSelectedYear(record, yearFilter));
+    return mergedRecords.filter((record) =>
+      recordMatchesSelectedYear(record, yearFilter),
+    );
   }, [mergedRecords, yearFilter]);
-  const selectedYearLabel = yearFilter === ALL_YEARS_SELECT_VALUE ? "All years" : yearFilter;
+  const selectedYearLabel =
+    yearFilter === ALL_YEARS_SELECT_VALUE ? "All years" : yearFilter;
   const eventFilterOptions = useMemo<
     Array<{ value: string; label: string }>
   >(() => {
@@ -3972,9 +4180,7 @@ export default function AttendancePage() {
 
     return Array.from(options.entries())
       .map(([value, label]) => ({ value, label }))
-      .sort((left, right) =>
-        compareAttendanceLabels(left.label, right.label),
-      );
+      .sort((left, right) => compareAttendanceLabels(left.label, right.label));
   }, [events, yearFilteredRecords]);
   const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     if (eventFilter === ALL_EVENTS_SELECT_VALUE) return yearFilteredRecords;
@@ -4020,8 +4226,11 @@ export default function AttendancePage() {
     ).sort(compareAttendanceRecordsByEventSequence);
   }, [recordSearchQuery, yearFilteredRecords]);
   const recordSearchStudentSummaries = useMemo(() => {
-    return getAttendanceStudentRecordSummaries(recordSearchResults);
-  }, [recordSearchResults]);
+    return getAttendanceStudentRecordSummaries(
+      recordSearchResults,
+      yearFilteredRecords,
+    );
+  }, [recordSearchResults, yearFilteredRecords]);
   const selectedRecordIdsSet = useMemo(
     () => new Set(selectedRecordIds),
     [selectedRecordIds],
@@ -4200,9 +4409,11 @@ export default function AttendancePage() {
     setResumableImportSnapshot(null);
   }
 
-  function clearUploadedAttendanceFile(options: {
-    completedResult?: SavedAttendanceImportResult | null;
-  } = {}) {
+  function clearUploadedAttendanceFile(
+    options: {
+      completedResult?: SavedAttendanceImportResult | null;
+    } = {},
+  ) {
     setFile(null);
     setPreview(options.completedResult ?? null);
     setSaved(options.completedResult ?? null);
@@ -4308,11 +4519,7 @@ export default function AttendancePage() {
       detail: string,
     ) => {
       completedWeight = Math.min(100, completedWeight + weight);
-      updateProgress(
-        Math.min(96, 2 + completedWeight * 0.94),
-        message,
-        detail,
-      );
+      updateProgress(Math.min(96, 2 + completedWeight * 0.94), message, detail);
     };
 
     const updateRecordPageProgress = (
@@ -4917,8 +5124,8 @@ export default function AttendancePage() {
               savedRecords.map((record) => [record.id, record]),
             );
 
-            return current.map((record) =>
-              savedRecordById.get(record.id) ?? record,
+            return current.map(
+              (record) => savedRecordById.get(record.id) ?? record,
             );
           }
 
@@ -5246,7 +5453,10 @@ export default function AttendancePage() {
   }, []);
 
   useEffect(() => {
-    if (yearFilter !== ALL_YEARS_SELECT_VALUE && !yearFilterOptions.includes(yearFilter)) {
+    if (
+      yearFilter !== ALL_YEARS_SELECT_VALUE &&
+      !yearFilterOptions.includes(yearFilter)
+    ) {
       setYearFilter(ALL_YEARS_SELECT_VALUE);
     }
   }, [yearFilter, yearFilterOptions]);
@@ -5392,6 +5602,7 @@ export default function AttendancePage() {
               onOpenChange={setRecordSearchDialogOpen}
               query={recordSearchQuery}
               records={recordSearchResults}
+              allRecords={yearFilteredRecords}
               studentSummaries={recordSearchStudentSummaries}
               deletingRecordId={deletingRecordId}
               isDeletingBulk={isDeletingBulk}
@@ -5864,14 +6075,24 @@ export default function AttendancePage() {
                       id="attendance-year-filter"
                       className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Filter by year" className="truncate" />
+                      <SelectValue
+                        placeholder="Filter by year"
+                        className="truncate"
+                      />
                     </SelectTrigger>
                     <SelectContent className="max-h-72 max-w-80">
-                      <SelectItem value={ALL_YEARS_SELECT_VALUE} className="max-w-full truncate">
+                      <SelectItem
+                        value={ALL_YEARS_SELECT_VALUE}
+                        className="max-w-full truncate"
+                      >
                         All years
                       </SelectItem>
                       {yearFilterOptions.map((year) => (
-                        <SelectItem key={year} value={year} className="max-w-full truncate">
+                        <SelectItem
+                          key={year}
+                          value={year}
+                          className="max-w-full truncate"
+                        >
                           {year}
                         </SelectItem>
                       ))}
@@ -5888,10 +6109,16 @@ export default function AttendancePage() {
                       id="attendance-event-filter"
                       className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Switch event" className="truncate" />
+                      <SelectValue
+                        placeholder="Switch event"
+                        className="truncate"
+                      />
                     </SelectTrigger>
                     <SelectContent className="max-h-72 max-w-80">
-                      <SelectItem value={ALL_EVENTS_SELECT_VALUE} className="max-w-full truncate">
+                      <SelectItem
+                        value={ALL_EVENTS_SELECT_VALUE}
+                        className="max-w-full truncate"
+                      >
                         All events
                       </SelectItem>
                       {eventFilterOptions.map((eventOption) => (
@@ -5922,14 +6149,24 @@ export default function AttendancePage() {
                       id="attendance-college-filter"
                       className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Filter by college" className="truncate" />
+                      <SelectValue
+                        placeholder="Filter by college"
+                        className="truncate"
+                      />
                     </SelectTrigger>
                     <SelectContent className="max-h-72 max-w-80">
-                      <SelectItem value={ALL_COLLEGES_SELECT_VALUE} className="max-w-full truncate">
+                      <SelectItem
+                        value={ALL_COLLEGES_SELECT_VALUE}
+                        className="max-w-full truncate"
+                      >
                         All colleges
                       </SelectItem>
                       {collegeFilterOptions.map((college) => (
-                        <SelectItem key={college} value={college} className="max-w-full truncate">
+                        <SelectItem
+                          key={college}
+                          value={college}
+                          className="max-w-full truncate"
+                        >
                           {college === NO_COLLEGE_SELECT_VALUE
                             ? "No college"
                             : college}
