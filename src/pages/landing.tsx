@@ -514,14 +514,31 @@ function compareStudentAttendedEventSummaries(
   return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
 }
 
+function hasZeroAttendanceMarker(...values: unknown[]) {
+  return values.some((value) => String(value ?? "").toLowerCase().includes("zero attendance"));
+}
+
 function isZeroAttendanceRecord(record: AttendanceRecord) {
-  return !record.event_id && String(record.remarks ?? "").toLowerCase().includes("zero attendance");
+  const recordData = record as Record<string, unknown>;
+
+  return hasZeroAttendanceMarker(
+    record.remarks,
+    recordData.attendance_remarks,
+    recordData.classification,
+    recordData.status,
+    recordData.result
+  );
 }
 
 function isZeroAttendanceFine(fine: FineRecord) {
-  return (
-    !fine.attendance_event_id &&
-    String(fine.attendance_remarks ?? "").toLowerCase().includes("zero attendance")
+  const fineData = fine as Record<string, unknown>;
+
+  return hasZeroAttendanceMarker(
+    fine.attendance_remarks,
+    fineData.remarks,
+    fineData.classification,
+    fineData.status,
+    fineData.result
   );
 }
 
@@ -594,6 +611,8 @@ function getStudentCollegeKey(attendance: AttendanceRecord[]) {
 }
 
 function getAttendanceEventSummaryKey(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+  if (isZeroAttendanceRecord(record)) return "";
+
   const eventId = String(record.event_id ?? "").trim();
   if (eventId) return `event-id:${eventId}`;
 
@@ -1115,7 +1134,7 @@ function getVerifiedTotalAbsences(props: {
   const recordedAbsenceCount = getTotalAbsences(props.attendance, props.fines);
 
   if (hasZeroAttendanceResult(props.attendance, props.fines)) {
-    return recordedAbsenceCount;
+    return Math.max(recordedAbsenceCount, getAbsentEventsAbsenceCount(props.absentEvents));
   }
 
   if (props.hasCollegeAttendanceScope) {
@@ -1802,14 +1821,24 @@ export default function LandingPage() {
         throw new Error("Unable to save zero attendance record.");
       }
 
-      const attendanceRecord = {
+      const savedZeroAttendanceRecord = {
         ...result.record,
+        import_id: null,
+        event_id: null,
+        event_name: null,
         remarks: result.record.remarks || ZERO_ATTENDANCE_REMARK
-      };
+      } satisfies AttendanceRecord;
       const fine = normalizeManualAttendanceFineForDisplay(
         result.fine,
-        attendanceRecord,
+        savedZeroAttendanceRecord,
       );
+      const attendanceRecord = {
+        ...savedZeroAttendanceRecord,
+        no_of_absences: Math.max(
+          getRecordAbsenceCount(savedZeroAttendanceRecord),
+          fine ? getFineAbsenceCount(fine) : 0
+        )
+      };
 
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
