@@ -111,6 +111,154 @@ function getFineAttendanceEventId(fine: FineRecord) {
   return String(fine.attendance_event_id ?? "").trim();
 }
 
+function getAttendanceRecordId(record: AttendanceRecord) {
+  return String(record.id ?? "").trim();
+}
+
+function normalizeEventKey(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isZeroAttendanceRecord(record: AttendanceRecord) {
+  return !record.event_id && String(record.remarks ?? "").toLowerCase().includes("zero attendance");
+}
+
+function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+  const statusValues = [
+    recordData.status,
+    recordData.attendance_status,
+    recordData.classification,
+    recordData.result,
+    record.remarks
+  ]
+    .map(normalizeDisplayValue)
+    .filter(Boolean);
+
+  return statusValues.some((value) => /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(value));
+}
+
+function getAttendanceEventScopeKey(record: AttendanceRecord) {
+  const eventId = String(record.event_id ?? "").trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = normalizeEventKey(record.event_name);
+  if (eventName) return `event-name:${eventName}`;
+
+  const importId = normalizeEventKey(record.import_id);
+  if (importId) return `import-event:${importId}`;
+
+  return "";
+}
+
+function isPositiveAttendanceRecord(record: AttendanceRecord) {
+  return !isZeroAttendanceRecord(record) && !isExplicitAbsentAttendanceRecord(record) && Boolean(getAttendanceEventScopeKey(record));
+}
+
+function getYearScopedAttendanceRecords(attendanceRecords: AttendanceRecord[], selectedYear: string) {
+  return attendanceRecords.filter((record) => matchesSelectedYear(getAttendanceRecordYear(record), selectedYear));
+}
+
+function getStudentAttendanceRecords(studentId: string, attendanceRecords: AttendanceRecord[]) {
+  const cleanStudentId = normalizeDisplayValue(studentId);
+
+  if (!cleanStudentId) return [];
+
+  return attendanceRecords.filter((record) => normalizeDisplayValue(record.student_id) === cleanStudentId);
+}
+
+function getStudentAttendedEventKeys(studentRecords: AttendanceRecord[]) {
+  const eventKeys = new Set<string>();
+
+  studentRecords.forEach((record) => {
+    if (!isPositiveAttendanceRecord(record)) return;
+
+    const eventKey = getAttendanceEventScopeKey(record);
+    if (eventKey) eventKeys.add(eventKey);
+  });
+
+  return eventKeys;
+}
+
+function getCollegeLinkedEventKeys(studentId: string, attendanceRecords: AttendanceRecord[]) {
+  const collegeKeys = getStudentCollegeScopeKeys(studentId, attendanceRecords);
+  const eventKeys = new Set<string>();
+
+  if (!collegeKeys.size) return eventKeys;
+
+  attendanceRecords.forEach((record) => {
+    if (isZeroAttendanceRecord(record)) return;
+    if (!collegeKeys.has(getRecordCollegeScopeKey(record))) return;
+
+    const eventKey = getAttendanceEventScopeKey(record);
+    if (eventKey) eventKeys.add(eventKey);
+  });
+
+  return eventKeys;
+}
+
+function hasCompletedCollegeLinkedEvents(studentId: string, attendanceRecords: AttendanceRecord[]) {
+  const collegeEventKeys = getCollegeLinkedEventKeys(studentId, attendanceRecords);
+
+  if (!collegeEventKeys.size) return false;
+
+  const attendedEventKeys = getStudentAttendedEventKeys(getStudentAttendanceRecords(studentId, attendanceRecords));
+
+  return Array.from(collegeEventKeys).every((eventKey) => attendedEventKeys.has(eventKey));
+}
+
+function isFineBackedByVerifiedAbsence(props: {
+  fine: FineRecord;
+  attendanceRecords: AttendanceRecord[];
+  selectedYear: string;
+}) {
+  if (isZeroAttendanceFine(props.fine)) return true;
+  if (!props.attendanceRecords.length) return true;
+
+  const scopedAttendanceRecords = getYearScopedAttendanceRecords(props.attendanceRecords, props.selectedYear);
+  if (!scopedAttendanceRecords.length) return true;
+
+  const studentRecords = getStudentAttendanceRecords(props.fine.student_id, scopedAttendanceRecords);
+  if (!studentRecords.length) return true;
+
+  const explicitAbsentRecords = studentRecords.filter(isExplicitAbsentAttendanceRecord);
+  const attendedEventKeys = getStudentAttendedEventKeys(studentRecords);
+  const fineAttendanceRecordId = getFineAttendanceRecordId(props.fine);
+  const fineAttendanceEventId = getFineAttendanceEventId(props.fine);
+  const linkedAttendanceRecord = fineAttendanceRecordId
+    ? scopedAttendanceRecords.find((record) => getAttendanceRecordId(record) === fineAttendanceRecordId)
+    : null;
+
+  if (linkedAttendanceRecord) {
+    if (isZeroAttendanceRecord(linkedAttendanceRecord) || isExplicitAbsentAttendanceRecord(linkedAttendanceRecord)) {
+      return true;
+    }
+
+    const linkedEventKey = getAttendanceEventScopeKey(linkedAttendanceRecord);
+
+    if (linkedEventKey && attendedEventKeys.has(linkedEventKey)) return false;
+    if (normalizeDisplayValue(linkedAttendanceRecord.student_id) === normalizeDisplayValue(props.fine.student_id)) return false;
+  }
+
+  if (fineAttendanceEventId) {
+    const fineEventKey = `event-id:${fineAttendanceEventId}`;
+
+    if (explicitAbsentRecords.some((record) => getAttendanceEventScopeKey(record) === fineEventKey)) return true;
+    if (attendedEventKeys.has(fineEventKey)) return false;
+
+    return true;
+  }
+
+  if (explicitAbsentRecords.length) return true;
+
+  if (hasCompletedCollegeLinkedEvents(props.fine.student_id, scopedAttendanceRecords)) return false;
+
+  return true;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "—";
 
@@ -336,8 +484,13 @@ export default function FinesPage() {
         attendanceRecords,
         selectedYear: yearFilter
       });
+      const matchesVerifiedAbsence = isFineBackedByVerifiedAbsence({
+        fine,
+        attendanceRecords,
+        selectedYear: yearFilter
+      });
 
-      return matchesYear && matchesCollegeScope;
+      return matchesYear && matchesCollegeScope && matchesVerifiedAbsence;
     });
   }, [fines, attendanceRecords, yearFilter]);
   const reportYearLabel = yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
