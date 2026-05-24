@@ -1962,10 +1962,6 @@ export default function LandingPage() {
                             </span>
                             <div className="min-w-0">
                               <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {formatDate(eventSummary.latestScannedAt)} • Total:{" "}
-                                {formatAbsenceCount(eventSummary.totalAbsences)}
-                              </p>
                             </div>
                           </div>
                           <p className="mt-3 text-sm text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</p>
@@ -1981,8 +1977,6 @@ export default function LandingPage() {
                           <tr>
                             <th className="px-3 py-3">No.</th>
                             <th className="px-3 py-3">Absent Event</th>
-                            <th className="px-3 py-3">Date</th>
-                            <th className="px-3 py-3">Absences</th>
                             <th className="px-3 py-3">Remarks</th>
                           </tr>
                         </thead>
@@ -1991,8 +1985,6 @@ export default function LandingPage() {
                             <tr key={eventSummary.key} className="border-b last:border-b-0">
                               <td className="px-3 py-3 font-black">{index + 1}</td>
                               <td className="px-3 py-3 font-semibold">{eventSummary.eventName}</td>
-                              <td className="px-3 py-3">{formatDate(eventSummary.latestScannedAt)}</td>
-                              <td className="px-3 py-3">{formatAbsenceCount(eventSummary.totalAbsences)}</td>
                               <td className="px-3 py-3 text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</td>
                             </tr>
                           ))}
