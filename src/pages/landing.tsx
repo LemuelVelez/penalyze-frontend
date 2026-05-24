@@ -345,6 +345,10 @@ function isZeroAttendanceFine(fine: FineRecord) {
   );
 }
 
+function hasZeroAttendanceResult(attendance: AttendanceRecord[], fines: FineRecord[]) {
+  return attendance.some(isZeroAttendanceRecord) || fines.some(isZeroAttendanceFine);
+}
+
 function getStudentDisplayName(attendance: AttendanceRecord[], fines: FineRecord[], fallbackId: string) {
   return attendance.find((record) => record.name)?.name || fines.find((fine) => fine.name)?.name || fallbackId;
 }
@@ -401,7 +405,7 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
           eventName,
           latestScannedAt: record.scanned_at ?? record.created_at ?? null,
           records: [record],
-          totalAbsences: Number(record.no_of_absences ?? 0)
+          totalAbsences: 0
         });
         return;
       }
@@ -409,10 +413,6 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
       const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
 
       currentSummary.records.push(record);
-      currentSummary.totalAbsences = Math.max(
-        currentSummary.totalAbsences,
-        Number(record.no_of_absences ?? 0)
-      );
 
       if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
         currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
@@ -585,59 +585,57 @@ function addAbsentEventSummary(
 function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: FineRecord[] = []) {
   const summaries = new Map<string, StudentAbsentEventSummary>();
   const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter((record) => !isZeroAttendanceRecord(record));
+  const explicitAbsentRecords = uniqueAttendance.filter(isExplicitAbsentAttendanceRecord);
   const absenceFines = fines.filter(
     (fine) => !isFallbackFine(fine) && !isZeroAttendanceFine(fine) && getFineAbsenceCount(fine) > 0
   );
-  const linkedAbsenceFines = absenceFines.filter((fine) => getFineAttendanceRecordId(fine) || getFineAttendanceEventId(fine));
+  const usedAbsentRecordIds = new Set<string>();
 
-  if (linkedAbsenceFines.length) {
-    linkedAbsenceFines.forEach((fine) => {
-      const matchingRecords = uniqueAttendance.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
-      const remarks = String(fine.attendance_remarks ?? "").trim();
+  absenceFines.forEach((fine) => {
+    const matchingRecords = explicitAbsentRecords.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
+    const remarks = String(fine.attendance_remarks ?? "").trim();
 
-      if (!matchingRecords.length) {
-        const key = getFineAttendanceEventId(fine) || getFineAttendanceRecordId(fine) || `fine-absent-event-${fine.id}`;
+    matchingRecords.forEach((record) => {
+      usedAbsentRecordIds.add(record.id);
 
-        addAbsentEventSummary(summaries, {
-          key,
-          eventName: getFineAbsentEventName(fine),
-          latestScannedAt: fine.created_at ?? fine.updated_at ?? null,
-          remarks: remarks ? [remarks] : [],
-          totalAbsences: getFineAbsenceCount(fine)
-        });
-        return;
-      }
+      const eventName = getRecordEventName(record);
+      const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
 
-      matchingRecords.forEach((record) => {
-        const eventName = getRecordEventName(record);
-        const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
-
-        addAbsentEventSummary(summaries, {
-          key,
-          eventName,
-          latestScannedAt: record.scanned_at ?? record.created_at ?? fine.created_at ?? fine.updated_at ?? null,
-          records: [record],
-          remarks: remarks ? [remarks] : [],
-          totalAbsences: getFineAbsenceCount(fine) || 1
-        });
+      addAbsentEventSummary(summaries, {
+        key,
+        eventName,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? fine.created_at ?? fine.updated_at ?? null,
+        records: [record],
+        remarks: remarks ? [remarks] : [],
+        totalAbsences: getFineAbsenceCount(fine) || getRecordAbsenceCount(record) || 1
       });
     });
-  } else {
-    uniqueAttendance
-      .filter(isExplicitAbsentAttendanceRecord)
-      .forEach((record) => {
-        const eventName = getRecordEventName(record);
-        const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
 
-        addAbsentEventSummary(summaries, {
-          key,
-          eventName,
-          latestScannedAt: record.scanned_at ?? record.created_at ?? null,
-          records: [record],
-          totalAbsences: getRecordAbsenceCount(record) || 1
-        });
+    if (!matchingRecords.length && !getFineAttendanceRecordId(fine) && !getFineAttendanceEventId(fine)) {
+      addAbsentEventSummary(summaries, {
+        key: `fine-absent-event-${fine.id}`,
+        eventName: getFineAbsentEventName(fine),
+        latestScannedAt: fine.created_at ?? fine.updated_at ?? null,
+        remarks: remarks ? [remarks] : [],
+        totalAbsences: getFineAbsenceCount(fine)
       });
-  }
+    }
+  });
+
+  explicitAbsentRecords
+    .filter((record) => !usedAbsentRecordIds.has(record.id))
+    .forEach((record) => {
+      const eventName = getRecordEventName(record);
+      const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
+
+      addAbsentEventSummary(summaries, {
+        key,
+        eventName,
+        latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+        records: [record],
+        totalAbsences: getRecordAbsenceCount(record) || 1
+      });
+    });
 
   return Array.from(summaries.values())
     .map((summary) => ({
@@ -651,7 +649,47 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
 }
 
 function getFallbackAbsenceCount(attendance: AttendanceRecord[]) {
-  return getTotalAbsences(attendance);
+  if (attendance.some(isZeroAttendanceRecord)) return getTotalAbsences(attendance);
+
+  const explicitAbsenceCounts = getUniqueDisplayAttendance(attendance)
+    .filter(isExplicitAbsentAttendanceRecord)
+    .map(getRecordAbsenceCount);
+
+  if (!explicitAbsenceCounts.length) return 0;
+
+  return Math.max(0, ...explicitAbsenceCounts);
+}
+
+function getVerifiedTotalAbsences(props: {
+  attendance: AttendanceRecord[];
+  fines: FineRecord[];
+  absentEvents: StudentAbsentEventSummary[];
+}) {
+  if (hasZeroAttendanceResult(props.attendance, props.fines)) {
+    return getTotalAbsences(props.attendance, props.fines);
+  }
+
+  if (!props.absentEvents.length) return 0;
+
+  return Math.max(
+    props.absentEvents.length,
+    ...props.absentEvents.map((eventSummary) => eventSummary.totalAbsences)
+  );
+}
+
+function shouldDisplayFine(fine: FineRecord, absentEvents: StudentAbsentEventSummary[], hasZeroAttendance: boolean) {
+  if (hasZeroAttendance || isZeroAttendanceFine(fine)) return true;
+  if (isFallbackFine(fine)) return absentEvents.length > 0;
+  if (getFineAbsenceCount(fine) <= 0) return false;
+
+  const fineRecordId = getFineAttendanceRecordId(fine);
+  const fineEventId = getFineAttendanceEventId(fine);
+
+  if (!fineRecordId && !fineEventId) return absentEvents.length > 0;
+
+  return absentEvents.some((eventSummary) => {
+    return eventSummary.records.some((record) => isFineLinkedToAttendanceRecord(fine, record));
+  });
 }
 
 function isFallbackFine(fine: FineRecord) {
@@ -774,8 +812,7 @@ function StudentAttendedEventsDialog(props: {
                     <div>
                       <p className="font-black">{eventSummary.eventName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s •{" "}
-                        Total: {formatAbsenceCount(eventSummary.totalAbsences)}
+                        Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s
                       </p>
                     </div>
                   </div>
@@ -960,33 +997,40 @@ export default function LandingPage() {
     );
   }, [lookup, resultYearFilter]);
 
-  const displayedFines = useMemo(() => {
+  const allDisplayedFines = useMemo(() => {
     return getUniqueDisplayFines(
       lookupFines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), resultYearFilter)),
     );
   }, [lookupFines, resultYearFilter]);
 
+  const fallbackFineActive = Boolean(lookup?.fallbackFine);
+  const attendedEvents = useMemo(() => {
+    return getStudentAttendedEventSummaries(displayedAttendance);
+  }, [displayedAttendance]);
+  const absentEvents = useMemo(() => {
+    return getStudentAbsentEventSummaries(displayedAttendance, allDisplayedFines);
+  }, [displayedAttendance, allDisplayedFines]);
+  const hasZeroAttendanceForDisplay = useMemo(() => {
+    return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
+  }, [displayedAttendance, allDisplayedFines]);
+  const displayedFines = useMemo(() => {
+    return allDisplayedFines.filter((fine) => shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay));
+  }, [allDisplayedFines, absentEvents, hasZeroAttendanceForDisplay]);
   const totalAbsences = useMemo(() => {
-    return getTotalAbsences(displayedAttendance, displayedFines);
-  }, [displayedAttendance, displayedFines]);
+    return getVerifiedTotalAbsences({
+      attendance: displayedAttendance,
+      fines: displayedFines,
+      absentEvents
+    });
+  }, [displayedAttendance, displayedFines, absentEvents]);
 
   const unpaidFines = useMemo(() => {
     return displayedFines.filter((fine) => fine.status === "unpaid").length;
   }, [displayedFines]);
 
-  const fallbackFineActive = Boolean(lookup?.fallbackFine);
-  const attendedEvents = useMemo(() => {
-    return getStudentAttendedEventSummaries(displayedAttendance);
-  }, [displayedAttendance]);
-  const displayedAbsenceFines = useMemo(() => {
-    return lookupFines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), resultYearFilter));
-  }, [lookupFines, resultYearFilter]);
-  const absentEvents = useMemo(() => {
-    return getStudentAbsentEventSummaries(displayedAttendance, displayedAbsenceFines);
-  }, [displayedAttendance, displayedAbsenceFines]);
   const studentDisplayName = useMemo(() => {
-    return lookup ? getStudentDisplayName(displayedAttendance, displayedFines, searchedId) : searchedId;
-  }, [lookup, displayedAttendance, displayedFines, searchedId]);
+    return lookup ? getStudentDisplayName(displayedAttendance, allDisplayedFines, searchedId) : searchedId;
+  }, [lookup, displayedAttendance, allDisplayedFines, searchedId]);
   const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
   const resultClassification = useMemo(
     () => getResultClassification({ lookup, displayedFines, totalAbsences, attendedEvents }),
