@@ -363,6 +363,17 @@ type AttendanceRecordsPageProgress = {
   isComplete: boolean;
 };
 
+type ManualZeroAttendanceSyncContext = {
+  allEventKeysCount: number;
+  collegeEventKeyCounts: Map<string, number>;
+};
+
+type ManualZeroAttendanceSyncProgress = {
+  processedRecords: number;
+  totalRecords: number;
+  updatedRecords: number;
+};
+
 const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
   percent: 0,
   message: "",
@@ -2264,27 +2275,110 @@ function buildManualAttendanceInputFromRecord(
   };
 }
 
+function createManualZeroAttendanceSyncContext(
+  rows: AttendanceRecord[],
+): ManualZeroAttendanceSyncContext {
+  const allEventKeys = new Set<string>();
+  const collegeEventKeys = new Map<string, Set<string>>();
+
+  rows.forEach((record) => {
+    if (
+      isEventlessAttendanceRecord(record) ||
+      !hasAttendanceEventIdentity(record)
+    ) {
+      return;
+    }
+
+    const eventKey = getRecordEventGroupKey(record);
+    if (eventKey === NO_EVENT_FILTER_SELECT_VALUE) return;
+
+    allEventKeys.add(eventKey);
+
+    const collegeKey = getAttendanceCollegeScopeKey(record.college);
+    if (collegeKey === NO_COLLEGE_SELECT_VALUE) return;
+
+    const collegeEvents = collegeEventKeys.get(collegeKey) ?? new Set<string>();
+    collegeEvents.add(eventKey);
+    collegeEventKeys.set(collegeKey, collegeEvents);
+  });
+
+  return {
+    allEventKeysCount: allEventKeys.size,
+    collegeEventKeyCounts: new Map(
+      Array.from(collegeEventKeys.entries()).map(([collegeKey, eventKeys]) => [
+        collegeKey,
+        eventKeys.size,
+      ]),
+    ),
+  };
+}
+
+function getManualZeroAttendanceCalculatedAbsenceCountFromContext(
+  record: AttendanceRecord,
+  context: ManualZeroAttendanceSyncContext,
+) {
+  if (!isEventlessAttendanceRecord(record)) return null;
+
+  const collegeKey = getAttendanceCollegeScopeKey(record.college);
+
+  if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
+    const collegeEventCount = context.collegeEventKeyCounts.get(collegeKey) ?? 0;
+    if (collegeEventCount > 0) return collegeEventCount;
+  }
+
+  return context.allEventKeysCount > 0 ? context.allEventKeysCount : null;
+}
+
 async function syncManualZeroAttendanceRecords(
   rows: AttendanceRecord[],
+  onProgress?: (progress: ManualZeroAttendanceSyncProgress) => void,
 ) {
-  const updatedRecords: AttendanceRecord[] = [];
-
-  for (const record of rows) {
-    const calculatedAbsenceCount = getManualZeroAttendanceCalculatedAbsenceCount(
+  const syncContext = createManualZeroAttendanceSyncContext(rows);
+  const candidates = rows
+    .map((record) => ({
       record,
-      rows,
-    );
+      calculatedAbsenceCount:
+        getManualZeroAttendanceCalculatedAbsenceCountFromContext(
+          record,
+          syncContext,
+        ),
+    }))
+    .filter((candidate) => {
+      return (
+        candidate.calculatedAbsenceCount !== null &&
+        candidate.calculatedAbsenceCount !==
+          getStoredAttendanceAbsenceCount(candidate.record)
+      );
+    });
+  const updatedRecords: AttendanceRecord[] = [];
+  let processedRecords = 0;
+  let updatedRecordsCount = 0;
 
-    if (calculatedAbsenceCount === null) continue;
-    if (calculatedAbsenceCount === getStoredAttendanceAbsenceCount(record))
-      continue;
+  onProgress?.({
+    processedRecords,
+    totalRecords: candidates.length,
+    updatedRecords: updatedRecordsCount,
+  });
 
+  for (const candidate of candidates) {
     const result = await updateAttendanceRecords(
-      [record.id],
-      buildManualAttendanceInputFromRecord(record, calculatedAbsenceCount),
+      [candidate.record.id],
+      buildManualAttendanceInputFromRecord(
+        candidate.record,
+        candidate.calculatedAbsenceCount ?? 0,
+      ),
     );
+    const resultRecords = result?.records ?? [];
 
-    updatedRecords.push(...(result?.records ?? []));
+    updatedRecords.push(...resultRecords);
+    updatedRecordsCount += resultRecords.length;
+    processedRecords += 1;
+
+    onProgress?.({
+      processedRecords,
+      totalRecords: candidates.length,
+      updatedRecords: updatedRecordsCount,
+    });
   }
 
   if (!updatedRecords.length) return rows;
@@ -4320,6 +4414,7 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_SELECT_VALUE);
   const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
@@ -4350,6 +4445,7 @@ export default function AttendancePage() {
   const [recordLoadProgress, setRecordLoadProgress] =
     useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState("");
   const [editingRecordScope, setEditingRecordScope] =
@@ -4471,6 +4567,22 @@ export default function AttendancePage() {
       yearFilteredRecords,
     );
   }, [recordSearchResults, yearFilteredRecords]);
+  const selectedEventIdsSet = useMemo(
+    () => new Set(selectedEventIds),
+    [selectedEventIds],
+  );
+  const selectedEventCount = selectedEventIds.length;
+  const visibleSelectedEventCount = displayEvents.filter((event) =>
+    selectedEventIdsSet.has(event.id),
+  ).length;
+  const allVisibleEventsSelected =
+    displayEvents.length > 0 &&
+    visibleSelectedEventCount === displayEvents.length;
+  const eventHeaderChecked = allVisibleEventsSelected
+    ? true
+    : visibleSelectedEventCount > 0
+      ? "indeterminate"
+      : false;
   const selectedRecordIdsSet = useMemo(
     () => new Set(selectedRecordIds),
     [selectedRecordIds],
@@ -4600,6 +4712,32 @@ export default function AttendancePage() {
     value: AttendanceEventFormState[K],
   ) {
     setEventForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleToggleEventSelected(
+    id: string,
+    checked: boolean | "indeterminate",
+  ) {
+    setSelectedEventIds((current) => {
+      if (checked === true) {
+        return current.includes(id) ? current : [...current, id];
+      }
+
+      return current.filter((eventId) => eventId !== id);
+    });
+  }
+
+  function handleToggleAllEvents(checked: boolean | "indeterminate") {
+    const visibleEventIds = displayEvents.map((event) => event.id);
+    const visibleEventIdsSet = new Set(visibleEventIds);
+
+    setSelectedEventIds((current) => {
+      if (checked === true) {
+        return Array.from(new Set([...current, ...visibleEventIds]));
+      }
+
+      return current.filter((eventId) => !visibleEventIdsSet.has(eventId));
+    });
   }
 
   function handleToggleRecordSelected(
@@ -4875,7 +5013,25 @@ export default function AttendancePage() {
         "Updating manual zero-attendance records to match their college event totals.",
       );
 
-      const synchronizedRows = await syncManualZeroAttendanceRecords(rows);
+      const synchronizedRows = await syncManualZeroAttendanceRecords(
+        rows,
+        (progress) => {
+          if (!progress.totalRecords) {
+            updateProgress(
+              98,
+              "Zero attendance records checked.",
+              "No manual zero-attendance records needed an absence total update.",
+            );
+            return;
+          }
+
+          updateProgress(
+            96 + (progress.processedRecords / progress.totalRecords) * 2,
+            "Syncing zero attendance records...",
+            `${progress.processedRecords}/${progress.totalRecords} zero-attendance record/s synced. ${progress.updatedRecords} record/s updated.`,
+          );
+        },
+      );
       const rowIds = new Set(synchronizedRows.map((record) => record.id));
 
       updateProgress(
@@ -5680,33 +5836,51 @@ export default function AttendancePage() {
     }
   }
 
-  async function handleDeleteEvent(id: string) {
-    setDeletingEventId(id);
+  async function handleDeleteEvents(ids: string[]) {
+    const idsToDelete = Array.from(new Set(ids)).filter(Boolean);
+
+    if (!idsToDelete.length) {
+      toast.error("Please select event/s to delete.");
+      return;
+    }
+
+    setIsDeletingEvents(true);
+    setDeletingEventId(idsToDelete.length === 1 ? idsToDelete[0] : "");
     setError("");
 
     try {
-      await deleteAttendanceEvent(id);
+      await Promise.all(idsToDelete.map((id) => deleteAttendanceEvent(id)));
       await loadRecords({ preserveScroll: true });
 
-      if (editingEventId === id) {
+      if (editingEventId && idsToDelete.includes(editingEventId)) {
         handleCancelEventEdit();
       }
 
-      if (uploadEventId === id) {
+      if (uploadEventId && idsToDelete.includes(uploadEventId)) {
         setUploadEventId("");
       }
 
-      toast.success("Event deleted successfully.");
+      setSelectedEventIds((current) =>
+        current.filter((eventId) => !idsToDelete.includes(eventId)),
+      );
+
+      toast.success(`${idsToDelete.length} event/s deleted successfully.`);
     } catch (deleteError) {
       const message =
         deleteError instanceof Error
           ? deleteError.message
-          : "Unable to delete event.";
+          : "Unable to delete event/s.";
       setError(message);
       toast.error(message);
+      await loadRecords({ preserveScroll: true });
     } finally {
+      setIsDeletingEvents(false);
       setDeletingEventId("");
     }
+  }
+
+  async function handleDeleteEvent(id: string) {
+    await handleDeleteEvents([id]);
   }
 
   async function handleDeleteImport(id: string) {
@@ -5797,6 +5971,20 @@ export default function AttendancePage() {
       setIsDeletingBulk(false);
     }
   }
+
+  useEffect(() => {
+    const visibleEventIds = new Set(displayEvents.map((event) => event.id));
+
+    setSelectedEventIds((current) => {
+      const nextSelectedEventIds = current.filter((eventId) =>
+        visibleEventIds.has(eventId),
+      );
+
+      return nextSelectedEventIds.length === current.length
+        ? current
+        : nextSelectedEventIds;
+    });
+  }, [displayEvents]);
 
   useEffect(() => {
     return () => {
@@ -6183,43 +6371,89 @@ export default function AttendancePage() {
 
             <AttendanceResponsivePanel
               title="Events"
-              summary={`${displayEvents.length} event/s`}
-              description="View, edit, and delete attendance events."
+              summary={`${displayEvents.length} event/s${
+                selectedEventCount ? ` • ${selectedEventCount} selected` : ""
+              }`}
+              description="View, edit, select, and delete attendance events."
             >
               {displayEvents.length ? (
                 <div className="space-y-3">
+                  <div className="flex min-w-0 flex-col gap-3 rounded-2xl border bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Checkbox
+                        checked={eventHeaderChecked}
+                        onCheckedChange={handleToggleAllEvents}
+                        aria-label="Select attendance events"
+                        className="shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="wrap-break-word text-sm font-black">
+                          Select attendance events
+                        </p>
+                        <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
+                          {displayEvents.length} event/s shown
+                          {selectedEventCount
+                            ? ` • ${selectedEventCount} selected`
+                            : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <DeleteAttendanceRecordsConfirmation
+                      label="Delete Selected"
+                      title="Delete selected events?"
+                      description={`This will permanently delete ${selectedEventCount} selected event/s and their linked attendance records.`}
+                      isDeleting={isDeletingEvents}
+                      disabled={!selectedEventCount}
+                      onConfirm={() => handleDeleteEvents(selectedEventIds)}
+                      className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                    />
+                  </div>
+
                   {displayEvents.map((event) => (
                     <article
                       key={event.id}
                       className="min-w-0 rounded-2xl border bg-background p-4 wrap-break-word"
                     >
                       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="wrap-break-word font-black">
-                            {event.name}
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {formatEventSchedule(event)} •{" "}
-                            {event.attendees_count} attendee/s
-                          </p>
-                          {event.description ? (
-                            <p className="mt-2 text-sm text-muted-foreground">
-                              {event.description}
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                          <Checkbox
+                            checked={selectedEventIdsSet.has(event.id)}
+                            onCheckedChange={(checked) =>
+                              handleToggleEventSelected(event.id, checked)
+                            }
+                            aria-label={`Select ${event.name}`}
+                            className="mt-1 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <p className="wrap-break-word font-black">
+                              {event.name}
                             </p>
-                          ) : null}
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {formatEventSchedule(event)} •{" "}
+                              {event.attendees_count} attendee/s
+                            </p>
+                            {event.description ? (
+                              <p className="mt-2 text-sm text-muted-foreground">
+                                {event.description}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="flex gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             onClick={() => handleEditEvent(event)}
+                            disabled={isDeletingEvents}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                           >
                             Edit
                           </Button>
                           <DeleteEventConfirmation
                             event={event}
-                            isDeleting={deletingEventId === event.id}
+                            isDeleting={
+                              isDeletingEvents || deletingEventId === event.id
+                            }
                             onConfirm={handleDeleteEvent}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                           />
