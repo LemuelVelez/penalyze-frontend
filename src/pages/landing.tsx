@@ -9,6 +9,13 @@ import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../ap
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "../components/ui/select";
 
 type LookupState = {
   attendance: AttendanceRecord[];
@@ -88,6 +95,29 @@ const LANDING_RESOURCE_LINKS = [
 
 const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
 const ALL_YEARS_VALUE = "__all_years__";
+const DEFAULT_STUDENT_INSTITUTION = "Jose Rizal Memorial State University - Tampilisan Campus";
+
+const QR_CODE_YEAR_LEVEL_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"] as const;
+
+const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
+  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
+  "College of Teacher Education": [
+    "BSED Filipino",
+    "BSED English",
+    "BSED Math",
+    "BSED Social Studies",
+    "Bachelor of Physical Education",
+    "BEED"
+  ],
+  "College of Computing Studies": ["BS Information Systems", "BS Computer Science"],
+  "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
+  "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
+  "School of Engineering": ["Agricultural Biosystems Engineering"],
+  "School of Criminal Justice Education": ["BS Criminology"]
+};
+
+const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
+const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
 const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   studentId: "",
@@ -95,11 +125,37 @@ const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   yearLevel: "",
   college: "",
   program: "",
-  institution: ""
+  institution: DEFAULT_STUDENT_INSTITUTION
 };
 
 const textInputClassName =
   "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+
+const selectTriggerClassName =
+  "min-h-12 w-full rounded-2xl border bg-background px-4 text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+
+function getStudentProgramOptions(college: string) {
+  return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
+}
+
+function hasStudentSelectOption(options: readonly string[], value?: string | null) {
+  const cleanValue = String(value ?? "").trim();
+
+  return Boolean(cleanValue) && options.includes(cleanValue);
+}
+
+function renderCurrentStudentSelectOption(options: readonly string[], value?: string | null) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
+
+  return (
+    <SelectItem value={cleanValue}>
+      {cleanValue}
+    </SelectItem>
+  );
+}
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1187,6 +1243,8 @@ function ZeroAttendanceRegistrationDialog(props: {
   onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
+  const programOptions = getStudentProgramOptions(props.form.college);
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
@@ -1228,42 +1286,77 @@ function ZeroAttendanceRegistrationDialog(props: {
                 className={textInputClassName}
               />
             </label>
-            <label className="space-y-2 text-sm font-bold">
+            <div className="space-y-2 text-sm font-bold">
               <span>Year Level</span>
-              <input
-                value={props.form.yearLevel}
-                onChange={(event) => props.onFieldChange("yearLevel", event.target.value)}
-                placeholder="Year level"
-                className={textInputClassName}
-              />
-            </label>
-            <label className="space-y-2 text-sm font-bold">
+              <Select value={props.form.yearLevel} onValueChange={(value) => props.onFieldChange("yearLevel", value)}>
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select year level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {renderCurrentStudentSelectOption(QR_CODE_YEAR_LEVEL_OPTIONS, props.form.yearLevel)}
+                  {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                    <SelectItem key={yearLevel} value={yearLevel}>
+                      {yearLevel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 text-sm font-bold">
               <span>College</span>
-              <input
-                value={props.form.college}
-                onChange={(event) => props.onFieldChange("college", event.target.value)}
-                placeholder="College"
-                className={textInputClassName}
-              />
-            </label>
-            <label className="space-y-2 text-sm font-bold">
+              <Select value={props.form.college} onValueChange={(value) => props.onFieldChange("college", value)}>
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select college" />
+                </SelectTrigger>
+                <SelectContent>
+                  {renderCurrentStudentSelectOption(QR_CODE_COLLEGE_OPTIONS, props.form.college)}
+                  {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                    <SelectItem key={college} value={college}>
+                      {college}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 text-sm font-bold">
               <span>Program</span>
-              <input
+              <Select
                 value={props.form.program}
-                onChange={(event) => props.onFieldChange("program", event.target.value)}
-                placeholder="Program"
-                className={textInputClassName}
-              />
-            </label>
-            <label className="space-y-2 text-sm font-bold">
+                onValueChange={(value) => props.onFieldChange("program", value)}
+                disabled={!props.form.college}
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder={props.form.college ? "Select program" : "Select college first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {renderCurrentStudentSelectOption(programOptions, props.form.program)}
+                  {programOptions.map((program) => (
+                    <SelectItem key={program} value={program}>
+                      {program}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 text-sm font-bold">
               <span>Institution</span>
-              <input
+              <Select
                 value={props.form.institution}
-                onChange={(event) => props.onFieldChange("institution", event.target.value)}
-                placeholder="Institution"
-                className={textInputClassName}
-              />
-            </label>
+                onValueChange={(value) => props.onFieldChange("institution", value)}
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select institution" />
+                </SelectTrigger>
+                <SelectContent>
+                  {renderCurrentStudentSelectOption(QR_CODE_INSTITUTION_OPTIONS, props.form.institution)}
+                  {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
+                    <SelectItem key={institution} value={institution}>
+                      {institution}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -1425,7 +1518,11 @@ export default function LandingPage() {
   }
 
   function handleZeroAttendanceFieldChange(field: keyof ZeroAttendanceFormState, value: string) {
-    setZeroAttendanceForm((current) => ({ ...current, [field]: value }));
+    setZeroAttendanceForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "college" ? { program: "" } : {})
+    }));
   }
 
   async function handleZeroAttendanceSubmit(event: SyntheticEvent<HTMLFormElement>) {

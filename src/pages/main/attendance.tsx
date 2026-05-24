@@ -82,6 +82,63 @@ type AttendanceEventFormState = {
   description: string;
 };
 
+const DEFAULT_STUDENT_INSTITUTION =
+  "Jose Rizal Memorial State University - Tampilisan Campus";
+
+const QR_CODE_YEAR_LEVEL_OPTIONS = [
+  "1st Year",
+  "2nd Year",
+  "3rd Year",
+  "4th Year",
+  "5th Year",
+] as const;
+
+const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
+  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
+  "College of Teacher Education": [
+    "BSED Filipino",
+    "BSED English",
+    "BSED Math",
+    "BSED Social Studies",
+    "Bachelor of Physical Education",
+    "BEED",
+  ],
+  "College of Computing Studies": [
+    "BS Information Systems",
+    "BS Computer Science",
+  ],
+  "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
+  "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
+  "School of Engineering": ["Agricultural Biosystems Engineering"],
+  "School of Criminal Justice Education": ["BS Criminology"],
+};
+
+const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
+const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
+
+function getQrCodeProgramOptions(college: string) {
+  return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
+}
+
+function hasQrCodeSelectOption(options: readonly string[], value?: string | null) {
+  const cleanValue = String(value ?? "").trim();
+
+  return Boolean(cleanValue) && options.includes(cleanValue);
+}
+
+function renderCurrentQrCodeSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!cleanValue || hasQrCodeSelectOption(options, cleanValue)) return null;
+
+  return (
+    <SelectItem value={cleanValue}>{cleanValue}</SelectItem>
+  );
+}
+
 const emptyManualAttendanceForm: ManualAttendanceFormState = {
   eventId: "",
   scannedAt: "",
@@ -90,7 +147,7 @@ const emptyManualAttendanceForm: ManualAttendanceFormState = {
   yearLevel: "",
   college: "",
   program: "",
-  institution: "",
+  institution: DEFAULT_STUDENT_INSTITUTION,
   noOfAbsences: "0",
   remarks: "",
 };
@@ -2686,6 +2743,11 @@ function ManualAttendanceDialog(props: {
     value: ManualAttendanceFormState[K],
   ) => void;
 }) {
+  const programOptions = getQrCodeProgramOptions(props.form.college);
+  const handleCollegeChange = (value: string) => {
+    props.onChange("college", value);
+    props.onChange("program", "");
+  };
   const shouldShowUpdateProgress =
     Boolean(props.editingRecordId) &&
     (props.isSaving || Boolean(props.updateProgress));
@@ -2777,50 +2839,99 @@ function ManualAttendanceDialog(props: {
 
           <div>
             <Label htmlFor="manual-year-level">Year level</Label>
-            <Input
-              id="manual-year-level"
+            <Select
               value={props.form.yearLevel}
-              onChange={(event) =>
-                props.onChange("yearLevel", event.target.value)
-              }
-              className="mt-2"
-            />
+              onValueChange={(value) => props.onChange("yearLevel", value)}
+            >
+              <SelectTrigger id="manual-year-level" className="mt-2 min-h-10">
+                <SelectValue placeholder="Select year level" />
+              </SelectTrigger>
+              <SelectContent>
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_YEAR_LEVEL_OPTIONS,
+                  props.form.yearLevel,
+                )}
+                {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                  <SelectItem key={yearLevel} value={yearLevel}>
+                    {yearLevel}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
             <Label htmlFor="manual-college">College</Label>
-            <Input
-              id="manual-college"
+            <Select
               value={props.form.college}
-              onChange={(event) =>
-                props.onChange("college", event.target.value)
-              }
-              className="mt-2"
-            />
+              onValueChange={handleCollegeChange}
+            >
+              <SelectTrigger id="manual-college" className="mt-2 min-h-10">
+                <SelectValue placeholder="Select college" />
+              </SelectTrigger>
+              <SelectContent>
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_COLLEGE_OPTIONS,
+                  props.form.college,
+                )}
+                {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                  <SelectItem key={college} value={college}>
+                    {college}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
             <Label htmlFor="manual-program">Program</Label>
-            <Input
-              id="manual-program"
+            <Select
               value={props.form.program}
-              onChange={(event) =>
-                props.onChange("program", event.target.value)
-              }
-              className="mt-2"
-            />
+              onValueChange={(value) => props.onChange("program", value)}
+              disabled={!props.form.college}
+            >
+              <SelectTrigger id="manual-program" className="mt-2 min-h-10">
+                <SelectValue
+                  placeholder={
+                    props.form.college ? "Select program" : "Select college first"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {renderCurrentQrCodeSelectOption(
+                  programOptions,
+                  props.form.program,
+                )}
+                {programOptions.map((program) => (
+                  <SelectItem key={program} value={program}>
+                    {program}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
             <Label htmlFor="manual-institution">Institution</Label>
-            <Input
-              id="manual-institution"
+            <Select
               value={props.form.institution}
-              onChange={(event) =>
-                props.onChange("institution", event.target.value)
-              }
-              className="mt-2"
-            />
+              onValueChange={(value) => props.onChange("institution", value)}
+            >
+              <SelectTrigger id="manual-institution" className="mt-2 min-h-10">
+                <SelectValue placeholder="Select institution" />
+              </SelectTrigger>
+              <SelectContent>
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_INSTITUTION_OPTIONS,
+                  props.form.institution,
+                )}
+                {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
+                  <SelectItem key={institution} value={institution}>
+                    {institution}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
@@ -3856,7 +3967,11 @@ export default function AttendancePage() {
     key: K,
     value: ManualAttendanceFormState[K],
   ) {
-    setManualForm((current) => ({ ...current, [key]: value }));
+    setManualForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "college" ? { program: "" } : {}),
+    }));
   }
 
   function updateEventForm<K extends keyof AttendanceEventFormState>(
@@ -4651,7 +4766,7 @@ export default function AttendancePage() {
       yearLevel: record.year_level ?? "",
       college: record.college ?? "",
       program: record.program ?? "",
-      institution: record.institution ?? "",
+      institution: record.institution ?? DEFAULT_STUDENT_INSTITUTION,
       noOfAbsences: String(record.no_of_absences ?? 0),
       remarks: record.remarks ?? "",
     });
@@ -5678,6 +5793,3 @@ export default function AttendancePage() {
     </main>
   );
 }
-
-
-
