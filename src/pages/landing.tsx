@@ -29,6 +29,7 @@ type StudentAbsentEventSummary = {
   eventName: string;
   latestScannedAt: string | null;
   records: AttendanceRecord[];
+  remarks: string[];
   totalAbsences: number;
 };
 
@@ -436,9 +437,63 @@ function getRecordAbsenceCount(record: AttendanceRecord) {
   return Math.max(0, numericValue);
 }
 
+function getFineAbsenceCount(fine: FineRecord) {
+  const numericValue = Number(fine.no_of_absences ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, numericValue);
+}
+
+function getFineAttendanceRecordId(fine: FineRecord) {
+  return String(fine.attendance_record_id ?? "").trim();
+}
+
+function getFineAttendanceEventId(fine: FineRecord) {
+  return String(fine.attendance_event_id ?? "").trim();
+}
+
+function isFineLinkedToAttendanceRecord(fine: FineRecord, record: AttendanceRecord) {
+  const fineAttendanceRecordId = getFineAttendanceRecordId(fine);
+  const fineAttendanceEventId = getFineAttendanceEventId(fine);
+
+  return Boolean(
+    (fineAttendanceRecordId && fineAttendanceRecordId === String(record.id ?? "")) ||
+      (fineAttendanceEventId && fineAttendanceEventId === String(record.event_id ?? ""))
+  );
+}
+
+function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+  const statusValues = [
+    recordData.status,
+    recordData.attendance_status,
+    recordData.classification,
+    recordData.result,
+    record.remarks
+  ]
+    .map(normalizeDisplayValue)
+    .filter(Boolean);
+
+  return statusValues.some((value) => /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(value));
+}
+
+function getFineAbsentEventName(fine: FineRecord) {
+  const remarks = String(fine.attendance_remarks ?? "").trim();
+  if (remarks) return remarks;
+
+  const eventId = getFineAttendanceEventId(fine);
+  if (eventId) return `Event ${eventId}`;
+
+  return "Absence record";
+}
+
 function getSummaryAbsentEventRemarks(summary: StudentAbsentEventSummary) {
   const remarks = Array.from(
-    new Set(summary.records.map((record) => String(record.remarks ?? "").trim()).filter(Boolean))
+    new Set([
+      ...summary.records.map((record) => String(record.remarks ?? "").trim()),
+      ...summary.remarks
+    ].filter(Boolean))
   );
 
   return remarks.length ? remarks.join(" • ") : "—";
@@ -456,6 +511,18 @@ function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
   return null;
 }
 
+function getAbsentSummaryEarliestTime(summary: StudentAbsentEventSummary) {
+  const recordTimes = summary.records
+    .map(getRecordTimestamp)
+    .filter((time) => time > 0);
+
+  if (recordTimes.length) return Math.min(...recordTimes);
+
+  const latestTime = summary.latestScannedAt ? new Date(summary.latestScannedAt).getTime() : 0;
+
+  return Number.isNaN(latestTime) ? 0 : latestTime;
+}
+
 function compareStudentAbsentEventSummaries(
   leftSummary: StudentAbsentEventSummary,
   rightSummary: StudentAbsentEventSummary
@@ -469,47 +536,113 @@ function compareStudentAbsentEventSummaries(
     if (leftSequence !== rightSequence) return leftSequence - rightSequence;
   }
 
-  const timeDifference = getSummaryEarliestTime(leftSummary) - getSummaryEarliestTime(rightSummary);
+  const timeDifference = getAbsentSummaryEarliestTime(leftSummary) - getAbsentSummaryEarliestTime(rightSummary);
   if (timeDifference !== 0) return timeDifference;
 
   return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
 }
 
-function getStudentAbsentEventSummaries(attendance: AttendanceRecord[]) {
+function addAbsentEventSummary(
+  summaries: Map<string, StudentAbsentEventSummary>,
+  props: {
+    key: string;
+    eventName: string;
+    latestScannedAt: string | null;
+    records?: AttendanceRecord[];
+    remarks?: string[];
+    totalAbsences?: number;
+  }
+) {
+  const currentSummary = summaries.get(props.key);
+  const nextRecords = props.records ?? [];
+  const nextRemarks = props.remarks ?? [];
+  const nextTotalAbsences = Math.max(1, Number(props.totalAbsences ?? nextRecords.length ?? 1));
+  const nextTime = props.latestScannedAt ? new Date(props.latestScannedAt).getTime() : 0;
+
+  if (!currentSummary) {
+    summaries.set(props.key, {
+      key: props.key,
+      eventName: props.eventName,
+      latestScannedAt: props.latestScannedAt,
+      records: nextRecords,
+      remarks: nextRemarks,
+      totalAbsences: nextTotalAbsences
+    });
+    return;
+  }
+
+  const currentTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+
+  currentSummary.records.push(...nextRecords);
+  currentSummary.remarks.push(...nextRemarks);
+  currentSummary.totalAbsences = Math.max(currentSummary.totalAbsences, nextTotalAbsences);
+
+  if (nextTime > (Number.isNaN(currentTime) ? 0 : currentTime)) {
+    currentSummary.latestScannedAt = props.latestScannedAt ?? currentSummary.latestScannedAt;
+  }
+}
+
+function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: FineRecord[] = []) {
   const summaries = new Map<string, StudentAbsentEventSummary>();
+  const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter((record) => !isZeroAttendanceRecord(record));
+  const absenceFines = fines.filter(
+    (fine) => !isFallbackFine(fine) && !isZeroAttendanceFine(fine) && getFineAbsenceCount(fine) > 0
+  );
+  const linkedAbsenceFines = absenceFines.filter((fine) => getFineAttendanceRecordId(fine) || getFineAttendanceEventId(fine));
 
-  getUniqueDisplayAttendance(attendance)
-    .filter((record) => !isZeroAttendanceRecord(record) && getRecordAbsenceCount(record) > 0)
-    .forEach((record) => {
-      const eventName = getRecordEventName(record);
-      const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
-      const currentSummary = summaries.get(key);
-      const recordTime = getRecordTimestamp(record);
+  if (linkedAbsenceFines.length) {
+    linkedAbsenceFines.forEach((fine) => {
+      const matchingRecords = uniqueAttendance.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
+      const remarks = String(fine.attendance_remarks ?? "").trim();
 
-      if (!currentSummary) {
-        summaries.set(key, {
+      if (!matchingRecords.length) {
+        const key = getFineAttendanceEventId(fine) || getFineAttendanceRecordId(fine) || `fine-absent-event-${fine.id}`;
+
+        addAbsentEventSummary(summaries, {
           key,
-          eventName,
-          latestScannedAt: record.scanned_at ?? record.created_at ?? null,
-          records: [record],
-          totalAbsences: getRecordAbsenceCount(record)
+          eventName: getFineAbsentEventName(fine),
+          latestScannedAt: fine.created_at ?? fine.updated_at ?? null,
+          remarks: remarks ? [remarks] : [],
+          totalAbsences: getFineAbsenceCount(fine)
         });
         return;
       }
 
-      const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+      matchingRecords.forEach((record) => {
+        const eventName = getRecordEventName(record);
+        const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
 
-      currentSummary.records.push(record);
-      currentSummary.totalAbsences = Math.max(currentSummary.totalAbsences, getRecordAbsenceCount(record));
-
-      if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-        currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
-      }
+        addAbsentEventSummary(summaries, {
+          key,
+          eventName,
+          latestScannedAt: record.scanned_at ?? record.created_at ?? fine.created_at ?? fine.updated_at ?? null,
+          records: [record],
+          remarks: remarks ? [remarks] : [],
+          totalAbsences: getFineAbsenceCount(fine) || 1
+        });
+      });
     });
+  } else {
+    uniqueAttendance
+      .filter(isExplicitAbsentAttendanceRecord)
+      .forEach((record) => {
+        const eventName = getRecordEventName(record);
+        const key = record.event_id || normalizeEventKey(eventName) || `absent-event-${record.id}`;
+
+        addAbsentEventSummary(summaries, {
+          key,
+          eventName,
+          latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+          records: [record],
+          totalAbsences: getRecordAbsenceCount(record) || 1
+        });
+      });
+  }
 
   return Array.from(summaries.values())
     .map((summary) => ({
       ...summary,
+      remarks: Array.from(new Set(summary.remarks)),
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
       })
@@ -845,9 +978,12 @@ export default function LandingPage() {
   const attendedEvents = useMemo(() => {
     return getStudentAttendedEventSummaries(displayedAttendance);
   }, [displayedAttendance]);
+  const displayedAbsenceFines = useMemo(() => {
+    return lookupFines.filter((fine) => matchesSelectedYear(getFineRecordYear(fine), resultYearFilter));
+  }, [lookupFines, resultYearFilter]);
   const absentEvents = useMemo(() => {
-    return getStudentAbsentEventSummaries(displayedAttendance);
-  }, [displayedAttendance]);
+    return getStudentAbsentEventSummaries(displayedAttendance, displayedAbsenceFines);
+  }, [displayedAttendance, displayedAbsenceFines]);
   const studentDisplayName = useMemo(() => {
     return lookup ? getStudentDisplayName(displayedAttendance, displayedFines, searchedId) : searchedId;
   }, [lookup, displayedAttendance, displayedFines, searchedId]);
