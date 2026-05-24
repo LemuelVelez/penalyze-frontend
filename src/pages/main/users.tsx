@@ -19,6 +19,13 @@ import {
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "../../components/ui/select";
 
 type UserFormState = {
   name: string;
@@ -262,18 +269,18 @@ export default function UsersPage() {
 
               <div>
                 <Label htmlFor="role">Role</Label>
-                <select
-                  id="role"
-                  value={form.role}
-                  onChange={(event) => updateForm("role", event.target.value as UserRole)}
-                  className="mt-2 flex min-h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {userRoleOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <Select value={form.role} onValueChange={(value) => updateForm("role", value as UserRole)}>
+                  <SelectTrigger id="role" className="mt-2 min-h-10 w-full font-semibold">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userRoleOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="mt-2 text-xs font-semibold text-muted-foreground">
                   Officers can access Dashboard, Attendance, and Fines, but not Users.
                 </p>
