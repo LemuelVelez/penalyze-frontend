@@ -64,6 +64,7 @@ import { Textarea } from "../../components/ui/textarea";
 
 type ManualAttendanceFormState = {
   eventId: string;
+  eventIds: string[];
   scannedAt: string;
   studentId: string;
   name: string;
@@ -155,6 +156,7 @@ const tableFilterSelectTriggerClassName =
 
 const emptyManualAttendanceForm: ManualAttendanceFormState = {
   eventId: "",
+  eventIds: [],
   scannedAt: "",
   studentId: "",
   name: "",
@@ -204,7 +206,6 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
 );
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
-const NO_EVENT_SELECT_VALUE = "__no_event__";
 const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
 const ALL_YEARS_SELECT_VALUE = "__all_years__";
 const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
@@ -1545,6 +1546,20 @@ function normalizeAttendanceStatusValue(value: unknown) {
     .replace(/\s+/g, " ");
 }
 
+function isManualAttendanceMarker(value?: string | null) {
+  const normalizedValue = normalizeAttendanceStatusValue(value);
+
+  return (
+    normalizedValue === "manual" ||
+    normalizedValue === "manual attendance" ||
+    normalizedValue === "no event" ||
+    normalizedValue === "no event attended" ||
+    normalizedValue === "landing page" ||
+    normalizedValue === "landing page registration" ||
+    normalizedValue === "registered from landing page"
+  );
+}
+
 function getStoredAttendanceAbsenceCount(record: AttendanceRecord) {
   const numericValue = Number(record.no_of_absences ?? 0);
 
@@ -1588,9 +1603,10 @@ function isZeroAttendanceRecord(record: AttendanceRecord) {
 
 function isEventlessAttendanceRecord(record: AttendanceRecord) {
   if (isZeroAttendanceRecord(record)) return true;
-  if (record.event_id) return false;
 
   const eventName = cleanImportValue(record.event_name);
+  if (isManualAttendanceMarker(eventName)) return true;
+  if (record.event_id) return false;
   if (!eventName) return true;
 
   return normalizeImportHeader(eventName) === normalizeImportHeader(record.name);
@@ -1862,6 +1878,57 @@ function getMatchingAttendanceEditRecords(
     : getMatchingAttendanceAttendeeEventRecords(records, editingRecordId);
 }
 
+function getManualAttendanceSelectedEventIds(form: ManualAttendanceFormState) {
+  const selectedEventIds = form.eventIds.length
+    ? form.eventIds
+    : form.eventId
+      ? [form.eventId]
+      : [];
+
+  return Array.from(
+    new Set(selectedEventIds.map((eventId) => cleanImportValue(eventId)).filter(Boolean)),
+  );
+}
+
+function getAttendanceEventById(
+  events: AttendanceEvent[],
+  eventId: string,
+) {
+  return events.find((event) => event.id === eventId) ?? null;
+}
+
+function recordMatchesAttendanceEventId(
+  record: AttendanceRecord,
+  eventId: string,
+  events: AttendanceEvent[],
+) {
+  if (!eventId || isEventlessAttendanceRecord(record)) return false;
+  if (record.event_id === eventId) return true;
+
+  const event = getAttendanceEventById(events, eventId);
+  const eventName = normalizeImportHeader(event?.name);
+
+  return Boolean(eventName) && eventName === normalizeImportHeader(getManualRecordSource(record));
+}
+
+function getMatchingAttendanceEventRecordsForAttendee(
+  records: AttendanceRecord[],
+  editingRecord: AttendanceRecord,
+  eventId: string,
+  events: AttendanceEvent[],
+) {
+  const editingAttendeeKey = getAttendeeKey(editingRecord);
+  const editingCollegeKey = getAttendanceCollegeScopeKey(editingRecord.college);
+
+  return records.filter((record) => {
+    return (
+      getAttendeeKey(record) === editingAttendeeKey &&
+      getAttendanceCollegeScopeKey(record.college) === editingCollegeKey &&
+      recordMatchesAttendanceEventId(record, eventId, events)
+    );
+  });
+}
+
 function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
   const attendees = new Map<string, AttendanceEventAttendeeSummary>();
 
@@ -2063,10 +2130,38 @@ function getAttendanceGroupCollegeLabel(group: AttendanceEventRecordGroup) {
   return `${colleges.length} colleges`;
 }
 
+function normalizeManualAttendanceRecords(
+  records: AttendanceRecord[],
+  events: AttendanceEvent[],
+) {
+  const manualEventIds = new Set(
+    events
+      .filter((event) => isManualAttendanceMarker(event.name))
+      .map((event) => event.id),
+  );
+
+  return records.map((record) => {
+    if (
+      isManualAttendanceMarker(record.event_name) ||
+      (record.event_id && manualEventIds.has(record.event_id))
+    ) {
+      return {
+        ...record,
+        event_id: null,
+        event_name: null,
+      };
+    }
+
+    return record;
+  });
+}
+
 function getDeduplicatedAttendanceEvents(events: AttendanceEvent[]) {
   const eventMap = new Map<string, AttendanceEvent>();
 
   events.forEach((event) => {
+    if (isManualAttendanceMarker(event.name)) return;
+
     const key = getAttendanceEventFilterValue(event);
     const currentEvent = eventMap.get(key);
 
@@ -3127,6 +3222,22 @@ function ManualAttendanceDialog(props: {
     props.onChange("college", value);
     props.onChange("program", "");
   };
+  const selectedManualEventIds = getManualAttendanceSelectedEventIds(props.form);
+  const selectedManualEventIdsSet = new Set(selectedManualEventIds);
+  const handleNoEventChange = (checked: boolean | "indeterminate") => {
+    if (checked === true) props.onChange("eventIds", []);
+  };
+  const handleEventChange = (
+    eventId: string,
+    checked: boolean | "indeterminate",
+  ) => {
+    const nextEventIds =
+      checked === true
+        ? Array.from(new Set([...selectedManualEventIds, eventId]))
+        : selectedManualEventIds.filter((selectedEventId) => selectedEventId !== eventId);
+
+    props.onChange("eventIds", nextEventIds);
+  };
   const shouldShowUpdateProgress =
     Boolean(props.editingRecordId) &&
     (props.isSaving || Boolean(props.updateProgress));
@@ -3153,41 +3264,36 @@ function ManualAttendanceDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
-          <div className="min-w-0">
-            <Label htmlFor="manual-event-id">Event</Label>
-            <Select
-              value={props.form.eventId || NO_EVENT_SELECT_VALUE}
-              onValueChange={(value) =>
-                props.onChange(
-                  "eventId",
-                  value === NO_EVENT_SELECT_VALUE ? "" : value,
-                )
-              }
+          <div className="min-w-0 lg:col-span-2">
+            <Label htmlFor="manual-event-id">Event/s</Label>
+            <div
+              id="manual-event-id"
+              className="mt-2 grid max-h-72 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2"
             >
-              <SelectTrigger
-                id="manual-event-id"
-                className={manualSelectTriggerClassName}
-              >
-                <SelectValue placeholder="No event" className="truncate" />
-              </SelectTrigger>
-              <SelectContent className="max-h-72 max-w-80">
-                <SelectItem
-                  value={NO_EVENT_SELECT_VALUE}
-                  className="max-w-full truncate"
+              <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold">
+                <Checkbox
+                  checked={selectedManualEventIds.length === 0}
+                  onCheckedChange={handleNoEventChange}
+                  className="mt-0.5 shrink-0"
+                />
+                <span className="min-w-0 wrap-break-word">No event</span>
+              </label>
+              {props.events.map((item) => (
+                <label
+                  key={item.id}
+                  className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold"
                 >
-                  No event
-                </SelectItem>
-                {props.events.map((item) => (
-                  <SelectItem
-                    key={item.id}
-                    value={item.id}
-                    className="max-w-full truncate"
-                  >
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  <Checkbox
+                    checked={selectedManualEventIdsSet.has(item.id)}
+                    onCheckedChange={(checked) =>
+                      handleEventChange(item.id, checked)
+                    }
+                    className="mt-0.5 shrink-0"
+                  />
+                  <span className="min-w-0 wrap-break-word">{item.name}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -4274,9 +4380,13 @@ export default function AttendancePage() {
     () => getDeduplicatedAttendanceEvents(events),
     [events],
   );
+  const normalizedRecords = useMemo<AttendanceRecord[]>(
+    () => normalizeManualAttendanceRecords(records, events),
+    [events, records],
+  );
   const mergedRecords = useMemo<AttendanceRecord[]>(
-    () => mergeAttendanceRecordsByStudentId(records),
-    [records],
+    () => mergeAttendanceRecordsByStudentId(normalizedRecords),
+    [normalizedRecords],
   );
   const yearFilterOptions = useMemo(
     () => getAttendanceYearOptions(mergedRecords),
@@ -4293,11 +4403,11 @@ export default function AttendancePage() {
     Array<{ value: string; label: string }>
   >(() => {
     const eventById = new Map<string, string>(
-      events.map((event) => [event.id, event.name]),
+      displayEvents.map((event) => [event.id, event.name]),
     );
     const options = new Map<string, string>();
 
-    events.forEach((event) =>
+    displayEvents.forEach((event) =>
       options.set(getAttendanceEventFilterValue(event), event.name),
     );
     yearFilteredRecords.forEach((record) => {
@@ -4311,7 +4421,7 @@ export default function AttendancePage() {
     return Array.from(options.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((left, right) => compareAttendanceLabels(left.label, right.label));
-  }, [events, yearFilteredRecords]);
+  }, [displayEvents, yearFilteredRecords]);
   const eventFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     if (eventFilter === ALL_EVENTS_SELECT_VALUE) return yearFilteredRecords;
 
@@ -4454,11 +4564,35 @@ export default function AttendancePage() {
     key: K,
     value: ManualAttendanceFormState[K],
   ) {
-    setManualForm((current) => ({
-      ...current,
-      [key]: value,
-      ...(key === "college" ? { program: "" } : {}),
-    }));
+    setManualForm((current) => {
+      if (key === "eventId") {
+        const eventId = cleanImportValue(value as string);
+
+        return {
+          ...current,
+          eventId,
+          eventIds: eventId ? [eventId] : [],
+        };
+      }
+
+      if (key === "eventIds") {
+        const eventIds = Array.from(
+          new Set((value as string[]).map(cleanImportValue).filter(Boolean)),
+        );
+
+        return {
+          ...current,
+          eventId: eventIds[0] ?? "",
+          eventIds,
+        };
+      }
+
+      return {
+        ...current,
+        [key]: value,
+        ...(key === "college" ? { program: "" } : {}),
+      };
+    });
   }
 
   function updateEventForm<K extends keyof AttendanceEventFormState>(
@@ -5192,6 +5326,7 @@ export default function AttendancePage() {
     const studentId = manualForm.studentId.trim();
     const name = manualForm.name.trim();
     const noOfAbsences = Number(manualForm.noOfAbsences);
+    const selectedManualEventIds = getManualAttendanceSelectedEventIds(manualForm);
 
     if (!studentId) {
       setError("Student ID is required.");
@@ -5212,7 +5347,7 @@ export default function AttendancePage() {
     }
 
     const payload: ManualAttendanceInput = {
-      eventId: manualForm.eventId || undefined,
+      eventId: selectedManualEventIds[0] || undefined,
       scannedAt:
         normalizeAttendanceDateTimeValue(manualForm.scannedAt) || undefined,
       studentId,
@@ -5242,8 +5377,9 @@ export default function AttendancePage() {
       created_at: now,
       updated_at: now,
     };
-    const calculatedZeroAttendanceAbsences =
-      getManualZeroAttendanceCalculatedAbsenceCount(draftRecord, records);
+    const calculatedZeroAttendanceAbsences = selectedManualEventIds.length
+      ? null
+      : getManualZeroAttendanceCalculatedAbsenceCount(draftRecord, normalizedRecords);
 
     if (calculatedZeroAttendanceAbsences !== null) {
       payload.eventId = undefined;
@@ -5255,53 +5391,118 @@ export default function AttendancePage() {
     setError("");
 
     try {
-      const matchingEditRecords = getMatchingAttendanceEditRecords(
-        records,
-        editingRecordId,
-        editingRecordScope,
-      );
-      const editRecordIds = editingRecordId
-        ? Array.from(
+      let affectedRecordCount = 0;
+      let savedRecords: AttendanceRecord[] = [];
+
+      if (editingRecordId) {
+        const editingRecord = normalizedRecords.find(
+          (record) => record.id === editingRecordId,
+        );
+
+        if (!selectedManualEventIds.length || !editingRecord) {
+          const matchingEditRecords = getMatchingAttendanceEditRecords(
+            normalizedRecords,
+            editingRecordId,
+            editingRecordScope,
+          );
+          const editRecordIds = Array.from(
             new Set([
               editingRecordId,
               ...matchingEditRecords.map((record) => record.id),
             ]),
-          )
-        : [];
-      let savedRecords: AttendanceRecord[] = [];
+          );
 
-      if (editingRecordId) {
-        savedRecords = await updateAttendanceRecordsWithProgress(
-          editRecordIds,
-          payload,
-        );
+          savedRecords = await updateAttendanceRecordsWithProgress(
+            editRecordIds,
+            {
+              ...payload,
+              eventId: undefined,
+            },
+          );
+          affectedRecordCount = editRecordIds.length;
+        } else {
+          const usedRecordIds = new Set<string>();
+
+          for (const selectedEventId of selectedManualEventIds) {
+            const matchingEventRecords =
+              getMatchingAttendanceEventRecordsForAttendee(
+                normalizedRecords,
+                editingRecord,
+                selectedEventId,
+                events,
+              );
+            const editRecordIds = matchingEventRecords
+              .map((record) => record.id)
+              .filter((recordId) => !usedRecordIds.has(recordId));
+
+            if (!editRecordIds.length && !usedRecordIds.has(editingRecord.id)) {
+              editRecordIds.push(editingRecord.id);
+            }
+
+            if (editRecordIds.length) {
+              editRecordIds.forEach((recordId) => usedRecordIds.add(recordId));
+              const updatedRecords = await updateAttendanceRecordsWithProgress(
+                editRecordIds,
+                {
+                  ...payload,
+                  eventId: selectedEventId,
+                },
+              );
+
+              savedRecords.push(...updatedRecords);
+              affectedRecordCount += editRecordIds.length;
+              continue;
+            }
+
+            const result = await saveManualAttendanceRecord({
+              ...payload,
+              eventId: selectedEventId,
+            });
+
+            if (result?.record) {
+              savedRecords.push(result.record);
+              affectedRecordCount += 1;
+            }
+          }
+        }
+      } else if (selectedManualEventIds.length) {
+        for (const selectedEventId of selectedManualEventIds) {
+          const result = await saveManualAttendanceRecord({
+            ...payload,
+            eventId: selectedEventId,
+          });
+
+          if (result?.record) savedRecords.push(result.record);
+        }
+
+        affectedRecordCount = savedRecords.length;
       } else {
-        const result = await saveManualAttendanceRecord(payload);
+        const result = await saveManualAttendanceRecord({
+          ...payload,
+          eventId: undefined,
+        });
         if (result?.record) savedRecords = [result.record];
+        affectedRecordCount = savedRecords.length;
       }
 
       if (savedRecords.length) {
         setRecords((current) => {
-          if (editingRecordId) {
-            const savedRecordById = new Map(
-              savedRecords.map((record) => [record.id, record]),
-            );
+          const savedRecordById = new Map(
+            savedRecords.map((record) => [record.id, record]),
+          );
+          const currentRecordIds = new Set(current.map((record) => record.id));
+          const newRecords = savedRecords.filter(
+            (record) => !currentRecordIds.has(record.id),
+          );
+          const updatedRecords = current.map(
+            (record) => savedRecordById.get(record.id) ?? record,
+          );
 
-            return current.map(
-              (record) => savedRecordById.get(record.id) ?? record,
-            );
-          }
-
-          const [savedRecord] = savedRecords;
-
-          return [
-            savedRecord,
-            ...current.filter((record) => record.id !== savedRecord.id),
-          ];
+          return [...newRecords, ...updatedRecords];
         });
       }
 
-      if (!editingRecordId) {
+      if (!editingRecordId || selectedManualEventIds.length > 1) {
         await loadRecords({ preserveScroll: true });
       }
 
@@ -5310,8 +5511,12 @@ export default function AttendancePage() {
       restoreCapturedScrollPosition();
       toast.success(
         editingRecordId
-          ? `Attendance attendee updated across ${editRecordIds.length} record/s.`
-          : "Attendance record saved successfully.",
+          ? selectedManualEventIds.length
+            ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s across ${affectedRecordCount} record/s.`
+            : `Attendance attendee updated as no event attended across ${affectedRecordCount} record/s.`
+          : selectedManualEventIds.length > 1
+            ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s.`
+            : "Attendance record saved successfully.",
       );
     } catch (manualError) {
       const message =
@@ -5389,12 +5594,22 @@ export default function AttendancePage() {
     scope: AttendanceRecordEditScope = "event-attendee",
   ) {
     const calculatedZeroAttendanceAbsences =
-      getManualZeroAttendanceCalculatedAbsenceCount(record, records);
+      getManualZeroAttendanceCalculatedAbsenceCount(record, normalizedRecords);
+    const recordEventIds = isEventlessAttendanceRecord(record)
+      ? []
+      : record.event_id
+        ? [record.event_id]
+        : events
+            .filter((event) =>
+              recordMatchesAttendanceEventId(record, event.id, events),
+            )
+            .map((event) => event.id);
 
     setEditingRecordId(record.id);
     setEditingRecordScope(scope);
     setManualForm({
-      eventId: record.event_id ?? "",
+      eventId: recordEventIds[0] ?? "",
+      eventIds: recordEventIds,
       scannedAt: toDateTimeLocalValue(record.scanned_at),
       studentId: record.student_id,
       name: record.name,
