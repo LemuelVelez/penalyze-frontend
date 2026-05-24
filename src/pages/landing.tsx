@@ -592,7 +592,7 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
   const usedAbsentRecordIds = new Set<string>();
 
   absenceFines.forEach((fine) => {
-    const matchingRecords = explicitAbsentRecords.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
+    const matchingRecords = uniqueAttendance.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
     const remarks = String(fine.attendance_remarks ?? "").trim();
 
     matchingRecords.forEach((record) => {
@@ -611,9 +611,13 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
       });
     });
 
-    if (!matchingRecords.length && !getFineAttendanceRecordId(fine) && !getFineAttendanceEventId(fine)) {
+    if (!matchingRecords.length) {
+      const fineRecordId = getFineAttendanceRecordId(fine);
+      const fineEventId = getFineAttendanceEventId(fine);
+      const key = fineRecordId || fineEventId || fine.id;
+
       addAbsentEventSummary(summaries, {
-        key: `fine-absent-event-${fine.id}`,
+        key: `fine-absent-event-${key}`,
         eventName: getFineAbsentEventName(fine),
         latestScannedAt: fine.created_at ?? fine.updated_at ?? null,
         remarks: remarks ? [remarks] : [],
@@ -680,16 +684,8 @@ function getVerifiedTotalAbsences(props: {
 function shouldDisplayFine(fine: FineRecord, absentEvents: StudentAbsentEventSummary[], hasZeroAttendance: boolean) {
   if (hasZeroAttendance || isZeroAttendanceFine(fine)) return true;
   if (isFallbackFine(fine)) return absentEvents.length > 0;
-  if (getFineAbsenceCount(fine) <= 0) return false;
 
-  const fineRecordId = getFineAttendanceRecordId(fine);
-  const fineEventId = getFineAttendanceEventId(fine);
-
-  if (!fineRecordId && !fineEventId) return absentEvents.length > 0;
-
-  return absentEvents.some((eventSummary) => {
-    return eventSummary.records.some((record) => isFineLinkedToAttendanceRecord(fine, record));
-  });
+  return getFineAbsenceCount(fine) > 0;
 }
 
 function isFallbackFine(fine: FineRecord) {
