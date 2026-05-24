@@ -392,7 +392,12 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[]) {
   const summaries = new Map<string, StudentAttendedEventSummary>();
 
   getUniqueDisplayAttendance(attendance)
-    .filter((record) => !isZeroAttendanceRecord(record) && (record.event_id || record.event_name || record.import_id))
+    .filter(
+      (record) =>
+        !isZeroAttendanceRecord(record) &&
+        !isExplicitAbsentAttendanceRecord(record) &&
+        (record.event_id || record.event_name || record.import_id)
+    )
     .forEach((record) => {
       const eventName = getRecordEventName(record);
       const key = record.event_id || normalizeEventKey(eventName) || `attendance-event-${record.id}`;
@@ -479,13 +484,64 @@ function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
 }
 
 function getFineAbsentEventName(fine: FineRecord) {
-  const remarks = String(fine.attendance_remarks ?? "").trim();
-  if (remarks) return remarks;
-
   const eventId = getFineAttendanceEventId(fine);
   if (eventId) return `Event ${eventId}`;
 
   return "Absence record";
+}
+
+
+function getPositiveAttendanceEventSequence(record: AttendanceRecord) {
+  const sequence = getAttendanceEventSequence(record);
+
+  return sequence !== null && sequence > 0 ? sequence : null;
+}
+
+function getAttendanceEventSequenceSet(attendance: AttendanceRecord[]) {
+  const sequenceSet = new Set<number>();
+
+  attendance.forEach((record) => {
+    if (isZeroAttendanceRecord(record)) return;
+
+    const sequence = getPositiveAttendanceEventSequence(record);
+    if (sequence !== null) sequenceSet.add(sequence);
+  });
+
+  return sequenceSet;
+}
+
+function getInferredMissingAttendanceSequences(attendance: AttendanceRecord[], totalAbsences: number) {
+  const sequenceSet = getAttendanceEventSequenceSet(attendance);
+  const sequences = Array.from(sequenceSet).sort((leftSequence, rightSequence) => leftSequence - rightSequence);
+
+  if (!sequences.length || totalAbsences <= 0) return [];
+
+  const latestSequence = Math.max(...sequences);
+  const missingSequences: number[] = [];
+
+  for (let sequence = 1; sequence <= latestSequence; sequence += 1) {
+    if (!sequenceSet.has(sequence)) missingSequences.push(sequence);
+  }
+
+  return missingSequences.length <= totalAbsences
+    ? missingSequences
+    : missingSequences.slice(-totalAbsences);
+}
+
+function getAbsentSummaryAbsenceCount(summary: StudentAbsentEventSummary) {
+  return summary.records.length > 0 ? 1 : Math.max(1, summary.totalAbsences);
+}
+
+function getAbsentSummariesAbsenceCount(summaries: Map<string, StudentAbsentEventSummary>) {
+  return Array.from(summaries.values()).reduce((total, summary) => total + getAbsentSummaryAbsenceCount(summary), 0);
+}
+
+function hasAbsentSummarySequence(summaries: Map<string, StudentAbsentEventSummary>, sequence: number) {
+  return Array.from(summaries.values()).some((summary) => getAbsentEventSequence(summary) === sequence);
+}
+
+function getFineAbsentEventRemarks(fine: FineRecord) {
+  return String(fine.attendance_remarks ?? "").trim();
 }
 
 function getSummaryAbsentEventRemarks(summary: StudentAbsentEventSummary) {
@@ -590,10 +646,11 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
     (fine) => !isFallbackFine(fine) && !isZeroAttendanceFine(fine) && getFineAbsenceCount(fine) > 0
   );
   const usedAbsentRecordIds = new Set<string>();
+  const verifiedAbsenceCount = getTotalAbsences(uniqueAttendance, absenceFines);
 
   absenceFines.forEach((fine) => {
-    const matchingRecords = uniqueAttendance.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
-    const remarks = String(fine.attendance_remarks ?? "").trim();
+    const matchingRecords = explicitAbsentRecords.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
+    const remarks = getFineAbsentEventRemarks(fine);
 
     matchingRecords.forEach((record) => {
       usedAbsentRecordIds.add(record.id);
@@ -607,23 +664,9 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
         latestScannedAt: record.scanned_at ?? record.created_at ?? fine.created_at ?? fine.updated_at ?? null,
         records: [record],
         remarks: remarks ? [remarks] : [],
-        totalAbsences: getFineAbsenceCount(fine) || getRecordAbsenceCount(record) || 1
+        totalAbsences: 1
       });
     });
-
-    if (!matchingRecords.length) {
-      const fineRecordId = getFineAttendanceRecordId(fine);
-      const fineEventId = getFineAttendanceEventId(fine);
-      const key = fineRecordId || fineEventId || fine.id;
-
-      addAbsentEventSummary(summaries, {
-        key: `fine-absent-event-${key}`,
-        eventName: getFineAbsentEventName(fine),
-        latestScannedAt: fine.created_at ?? fine.updated_at ?? null,
-        remarks: remarks ? [remarks] : [],
-        totalAbsences: getFineAbsenceCount(fine)
-      });
-    }
   });
 
   explicitAbsentRecords
@@ -637,9 +680,37 @@ function getStudentAbsentEventSummaries(attendance: AttendanceRecord[], fines: F
         eventName,
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         records: [record],
-        totalAbsences: getRecordAbsenceCount(record) || 1
+        totalAbsences: 1
       });
     });
+
+  getInferredMissingAttendanceSequences(uniqueAttendance, verifiedAbsenceCount).forEach((sequence) => {
+    if (getAbsentSummariesAbsenceCount(summaries) >= verifiedAbsenceCount) return;
+    if (hasAbsentSummarySequence(summaries, sequence)) return;
+
+    addAbsentEventSummary(summaries, {
+      key: `inferred-absent-event-${sequence}`,
+      eventName: `Event ${sequence}`,
+      latestScannedAt: null,
+      remarks: ["No attendance record found for this event sequence."],
+      totalAbsences: 1
+    });
+  });
+
+  const unresolvedAbsenceCount = verifiedAbsenceCount - getAbsentSummariesAbsenceCount(summaries);
+
+  if (unresolvedAbsenceCount > 0) {
+    const representativeFine = absenceFines[0];
+    const remarks = representativeFine ? getFineAbsentEventRemarks(representativeFine) : "";
+
+    addAbsentEventSummary(summaries, {
+      key: `unresolved-absent-event-${representativeFine?.id ?? "attendance-record"}`,
+      eventName: representativeFine ? getFineAbsentEventName(representativeFine) : "Absence record",
+      latestScannedAt: representativeFine?.created_at ?? representativeFine?.updated_at ?? null,
+      remarks: remarks ? [remarks] : [],
+      totalAbsences: unresolvedAbsenceCount
+    });
+  }
 
   return Array.from(summaries.values())
     .map((summary) => ({
