@@ -2075,6 +2075,65 @@ function getAttendanceRecordTotalAbsences(
   );
 }
 
+function getManualZeroAttendanceCalculatedAbsenceCount(
+  record: AttendanceRecord,
+  allRecords: AttendanceRecord[],
+) {
+  if (!isZeroAttendanceRecord(record)) return null;
+
+  return getCollegeScopedAttendanceAbsenceCount([record], allRecords);
+}
+
+function buildManualAttendanceInputFromRecord(
+  record: AttendanceRecord,
+  noOfAbsences: number,
+): ManualAttendanceInput {
+  return {
+    eventId: record.event_id || undefined,
+    scannedAt: normalizeAttendanceDateTimeValue(record.scanned_at) || undefined,
+    studentId: cleanImportValue(record.student_id),
+    name: cleanImportValue(record.name),
+    yearLevel: cleanImportValue(record.year_level),
+    college: cleanImportValue(record.college),
+    program: cleanImportValue(record.program),
+    institution: cleanImportValue(record.institution),
+    noOfAbsences,
+    remarks: cleanImportValue(record.remarks),
+  };
+}
+
+async function syncManualZeroAttendanceRecords(
+  rows: AttendanceRecord[],
+) {
+  const updatedRecords: AttendanceRecord[] = [];
+
+  for (const record of rows) {
+    const calculatedAbsenceCount = getManualZeroAttendanceCalculatedAbsenceCount(
+      record,
+      rows,
+    );
+
+    if (calculatedAbsenceCount === null) continue;
+    if (calculatedAbsenceCount === getStoredAttendanceAbsenceCount(record))
+      continue;
+
+    const result = await updateAttendanceRecords(
+      [record.id],
+      buildManualAttendanceInputFromRecord(record, calculatedAbsenceCount),
+    );
+
+    updatedRecords.push(...(result?.records ?? []));
+  }
+
+  if (!updatedRecords.length) return rows;
+
+  const updatedRecordById = new Map(
+    updatedRecords.map((record) => [record.id, record]),
+  );
+
+  return rows.map((record) => updatedRecordById.get(record.id) ?? record);
+}
+
 function getAttendanceSearchRecordDeduplicationKey(record: AttendanceRecord) {
   return [getRecordEventGroupKey(record), getAttendeeKey(record)].join(":");
 }
@@ -4604,7 +4663,15 @@ export default function AttendancePage() {
         eventsPromise,
         importsPromise,
       ]);
-      const rowIds = new Set(rows.map((record) => record.id));
+
+      updateProgress(
+        96,
+        "Syncing zero attendance records...",
+        "Updating manual zero-attendance records to match their college event totals.",
+      );
+
+      const synchronizedRows = await syncManualZeroAttendanceRecords(rows);
+      const rowIds = new Set(synchronizedRows.map((record) => record.id));
 
       updateProgress(
         98,
@@ -4612,14 +4679,14 @@ export default function AttendancePage() {
         "Applying filters and syncing selected records.",
       );
 
-      setRecords(rows);
+      setRecords(synchronizedRows);
       setEvents(eventRows);
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
       updateProgress(
         100,
         "Attendance data loaded.",
-        `${rows.length.toLocaleString()} records, ${eventRows.length.toLocaleString()} events, and ${importRows.length.toLocaleString()} import history item/s are ready.`,
+        `${synchronizedRows.length.toLocaleString()} records, ${eventRows.length.toLocaleString()} events, and ${importRows.length.toLocaleString()} import history item/s are ready.`,
       );
     } catch (loadError) {
       const message =
@@ -5086,6 +5153,30 @@ export default function AttendancePage() {
       noOfAbsences,
       remarks: manualForm.remarks.trim(),
     };
+    const now = new Date().toISOString();
+    const draftRecord: AttendanceRecord = {
+      id: editingRecordId || "manual-attendance-draft",
+      import_id: null,
+      event_id: payload.eventId ?? null,
+      event_name: null,
+      student_id: payload.studentId,
+      name: payload.name,
+      year_level: payload.yearLevel ?? null,
+      college: payload.college ?? null,
+      program: payload.program ?? null,
+      institution: payload.institution ?? null,
+      no_of_absences: payload.noOfAbsences ?? 0,
+      remarks: payload.remarks ?? null,
+      scanned_at: payload.scannedAt ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+    const calculatedZeroAttendanceAbsences =
+      getManualZeroAttendanceCalculatedAbsenceCount(draftRecord, records);
+
+    if (calculatedZeroAttendanceAbsences !== null) {
+      payload.noOfAbsences = calculatedZeroAttendanceAbsences;
+    }
 
     setIsSavingManual(true);
     setManualSaveProgress(null);
@@ -5225,6 +5316,9 @@ export default function AttendancePage() {
     record: AttendanceRecord,
     scope: AttendanceRecordEditScope = "event-attendee",
   ) {
+    const calculatedZeroAttendanceAbsences =
+      getManualZeroAttendanceCalculatedAbsenceCount(record, records);
+
     setEditingRecordId(record.id);
     setEditingRecordScope(scope);
     setManualForm({
@@ -5236,7 +5330,9 @@ export default function AttendancePage() {
       college: record.college ?? "",
       program: record.program ?? "",
       institution: record.institution ?? DEFAULT_STUDENT_INSTITUTION,
-      noOfAbsences: String(record.no_of_absences ?? 0),
+      noOfAbsences: String(
+        calculatedZeroAttendanceAbsences ?? record.no_of_absences ?? 0,
+      ),
       remarks: record.remarks ?? "",
     });
     setManualDialogOpen(true);

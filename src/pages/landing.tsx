@@ -2,10 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { getStudentAttendanceRecords, listAttendanceEvents, listAttendanceRecords } from "../api/attendance";
-import type { AttendanceEvent, AttendanceRecord } from "../api/attendance";
-import { getStudentFines, matchPenalty, registerZeroAttendanceFine } from "../api/fines";
-import type { FineRecord, PenaltyRecord, ZeroAttendanceFinePayload } from "../api/fines";
+import {
+  getStudentAttendanceRecords,
+  listAttendanceEvents,
+  listAttendanceRecords,
+  saveManualAttendanceRecord
+} from "../api/attendance";
+import type { AttendanceEvent, AttendanceRecord, ManualAttendanceInput } from "../api/attendance";
+import { getStudentFines, matchPenalty } from "../api/fines";
+import type { FineRecord, PenaltyRecord } from "../api/fines";
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -1288,6 +1293,38 @@ function buildFallbackFine(
   };
 }
 
+function normalizeManualAttendanceFineForDisplay(
+  fine: unknown,
+  attendanceRecord: AttendanceRecord
+): FineRecord | null {
+  const fineRecord = fine as Partial<FineRecord> | null | undefined;
+
+  if (!fineRecord?.id) return null;
+
+  const createdAt = String(fineRecord.created_at ?? attendanceRecord.created_at ?? new Date().toISOString());
+  const updatedAt = String(fineRecord.updated_at ?? attendanceRecord.updated_at ?? createdAt);
+  const status =
+    fineRecord.status === "paid" || fineRecord.status === "waived"
+      ? fineRecord.status
+      : "unpaid";
+
+  return {
+    id: String(fineRecord.id),
+    attendance_record_id: fineRecord.attendance_record_id ?? attendanceRecord.id,
+    penalty_id: fineRecord.penalty_id ?? null,
+    student_id: fineRecord.student_id ?? attendanceRecord.student_id,
+    name: fineRecord.name ?? attendanceRecord.name,
+    no_of_absences: Number(fineRecord.no_of_absences ?? attendanceRecord.no_of_absences ?? 0),
+    prescribed_penalty:
+      fineRecord.prescribed_penalty ?? "No prescribed penalty configured.",
+    status,
+    attendance_event_id: fineRecord.attendance_event_id ?? attendanceRecord.event_id ?? null,
+    attendance_remarks: fineRecord.attendance_remarks ?? attendanceRecord.remarks ?? null,
+    created_at: createdAt,
+    updated_at: updatedAt
+  };
+}
+
 function getResultClassification(props: {
   lookup: LookupState | null;
   displayedFines: FineRecord[];
@@ -1734,13 +1771,15 @@ export default function LandingPage() {
   async function handleZeroAttendanceSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const payload: ZeroAttendanceFinePayload = {
+    const payload: ManualAttendanceInput = {
       studentId: zeroAttendanceForm.studentId.trim(),
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
       college: zeroAttendanceForm.college.trim(),
       program: zeroAttendanceForm.program.trim(),
-      institution: zeroAttendanceForm.institution.trim()
+      institution: zeroAttendanceForm.institution.trim(),
+      noOfAbsences: 0,
+      remarks: ZERO_ATTENDANCE_REMARK
     };
 
     if (!payload.studentId) {
@@ -1757,20 +1796,29 @@ export default function LandingPage() {
     setZeroAttendanceError("");
 
     try {
-      const result = await registerZeroAttendanceFine(payload);
-      const attendanceRecord = {
-        ...result.attendanceRecord,
-        remarks: result.attendanceRecord.remarks || ZERO_ATTENDANCE_REMARK
-      };
+      const result = await saveManualAttendanceRecord(payload);
 
-      setStudentId(result.attendanceRecord.student_id);
-      setSearchedId(result.attendanceRecord.student_id);
+      if (!result?.record) {
+        throw new Error("Unable to save zero attendance record.");
+      }
+
+      const attendanceRecord = {
+        ...result.record,
+        remarks: result.record.remarks || ZERO_ATTENDANCE_REMARK
+      };
+      const fine = normalizeManualAttendanceFineForDisplay(
+        result.fine,
+        attendanceRecord,
+      );
+
+      setStudentId(attendanceRecord.student_id);
+      setSearchedId(attendanceRecord.student_id);
       setResultYearFilter(ALL_YEARS_VALUE);
       setLookup({
         attendance: [attendanceRecord],
         attendanceEvents: [],
         attendanceRecords: [attendanceRecord],
-        fines: result.fine ? [result.fine] : [],
+        fines: fine ? [fine] : [],
         fallbackFine: null
       });
       setZeroAttendanceDialogOpen(false);

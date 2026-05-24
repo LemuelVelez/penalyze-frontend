@@ -109,18 +109,26 @@ export type AttendanceImportProgressCallback = (
   progress: AttendanceImportProgress,
 ) => void;
 
+export type AttendanceFineRecord = {
+  id: string;
+  attendance_record_id: string | null;
+  penalty_id: string | null;
+  student_id: string;
+  name: string;
+  no_of_absences: number;
+  prescribed_penalty: string;
+  status: string;
+  attendance_event_id?: string | null;
+  attendance_remarks?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type SavedAttendanceImportResult = AttendancePreviewResult & {
   importId: string;
   event: AttendanceEvent | null;
   savedRecords: AttendanceRecord[];
-  createdFines: Array<{
-    id: string;
-    student_id: string;
-    name: string;
-    no_of_absences: number;
-    prescribed_penalty: string;
-    status: string;
-  }>;
+  createdFines: AttendanceFineRecord[];
 };
 
 export type ManualAttendanceSaveResult = {
@@ -737,3 +745,4 @@ export async function deleteAttendanceRecord(id: string) {
 
   return response.data;
 }
+
