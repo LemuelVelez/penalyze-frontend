@@ -132,7 +132,10 @@ const textInputClassName =
   "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const selectTriggerClassName =
-  "min-h-12 w-full rounded-2xl border bg-background px-4 text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+  "min-h-12 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+
+const customSelectInputClassName =
+  "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 function getStudentProgramOptions(college: string) {
   return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
@@ -150,12 +153,11 @@ function renderCurrentStudentSelectOption(options: readonly string[], value?: st
   if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
 
   return (
-    <SelectItem value={cleanValue}>
+    <SelectItem value={cleanValue} className="max-w-full truncate">
       {cleanValue}
     </SelectItem>
   );
 }
-
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1286,39 +1288,51 @@ function ZeroAttendanceRegistrationDialog(props: {
                 className={textInputClassName}
               />
             </label>
-            <div className="space-y-2 text-sm font-bold">
+            <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Year Level</span>
               <Select value={props.form.yearLevel} onValueChange={(value) => props.onFieldChange("yearLevel", value)}>
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select year level" />
+                  <SelectValue placeholder="Select year level" className="truncate" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 max-w-80">
                   {renderCurrentStudentSelectOption(QR_CODE_YEAR_LEVEL_OPTIONS, props.form.yearLevel)}
                   {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
-                    <SelectItem key={yearLevel} value={yearLevel}>
+                    <SelectItem key={yearLevel} value={yearLevel} className="max-w-full truncate">
                       {yearLevel}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <input
+                value={props.form.yearLevel}
+                onChange={(event) => props.onFieldChange("yearLevel", event.target.value)}
+                placeholder="Type custom year level if not listed"
+                className={customSelectInputClassName}
+              />
             </div>
-            <div className="space-y-2 text-sm font-bold">
+            <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>College</span>
               <Select value={props.form.college} onValueChange={(value) => props.onFieldChange("college", value)}>
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select college" />
+                  <SelectValue placeholder="Select college" className="truncate" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 max-w-80">
                   {renderCurrentStudentSelectOption(QR_CODE_COLLEGE_OPTIONS, props.form.college)}
                   {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                    <SelectItem key={college} value={college}>
+                    <SelectItem key={college} value={college} className="max-w-full truncate">
                       {college}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <input
+                value={props.form.college}
+                onChange={(event) => props.onFieldChange("college", event.target.value)}
+                placeholder="Type custom college if not listed"
+                className={customSelectInputClassName}
+              />
             </div>
-            <div className="space-y-2 text-sm font-bold">
+            <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Program</span>
               <Select
                 value={props.form.program}
@@ -1326,36 +1340,52 @@ function ZeroAttendanceRegistrationDialog(props: {
                 disabled={!props.form.college}
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder={props.form.college ? "Select program" : "Select college first"} />
+                  <SelectValue
+                    placeholder={props.form.college ? "Select program" : "Select college first"}
+                    className="truncate"
+                  />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 max-w-80">
                   {renderCurrentStudentSelectOption(programOptions, props.form.program)}
                   {programOptions.map((program) => (
-                    <SelectItem key={program} value={program}>
+                    <SelectItem key={program} value={program} className="max-w-full truncate">
                       {program}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <input
+                value={props.form.program}
+                onChange={(event) => props.onFieldChange("program", event.target.value)}
+                placeholder={props.form.college ? "Type custom program if not listed" : "Select college before typing program"}
+                disabled={!props.form.college}
+                className={customSelectInputClassName}
+              />
             </div>
-            <div className="space-y-2 text-sm font-bold">
+            <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Institution</span>
               <Select
                 value={props.form.institution}
                 onValueChange={(value) => props.onFieldChange("institution", value)}
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select institution" />
+                  <SelectValue placeholder="Select institution" className="truncate" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 max-w-80">
                   {renderCurrentStudentSelectOption(QR_CODE_INSTITUTION_OPTIONS, props.form.institution)}
                   {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
-                    <SelectItem key={institution} value={institution}>
+                    <SelectItem key={institution} value={institution} className="max-w-full truncate">
                       {institution}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <input
+                value={props.form.institution}
+                onChange={(event) => props.onFieldChange("institution", event.target.value)}
+                placeholder="Type custom institution if not listed"
+                className={customSelectInputClassName}
+              />
             </div>
           </div>
 

@@ -135,9 +135,20 @@ function renderCurrentQrCodeSelectOption(
   if (!cleanValue || hasQrCodeSelectOption(options, cleanValue)) return null;
 
   return (
-    <SelectItem value={cleanValue}>{cleanValue}</SelectItem>
+    <SelectItem value={cleanValue} className="max-w-full truncate">
+      {cleanValue}
+    </SelectItem>
   );
 }
+
+const manualSelectTriggerClassName =
+  "mt-2 min-h-10 w-full min-w-0 max-w-full overflow-hidden text-left";
+
+const manualCustomInputClassName =
+  "mt-2 min-h-10 w-full min-w-0 max-w-full rounded-md text-sm";
+
+const tableFilterSelectTriggerClassName =
+  "min-h-10 w-full min-w-0 max-w-full overflow-hidden rounded-2xl text-left";
 
 const emptyManualAttendanceForm: ManualAttendanceFormState = {
   eventId: "",
@@ -2434,7 +2445,7 @@ function EventFields(props: {
 }) {
   const isUsingFileEvents = !props.eventId && props.fileEventNames.length > 0;
   const compactFieldClassName =
-    "mt-1 h-9 min-h-9 w-full min-w-0 max-w-full overflow-hidden rounded-xl px-3 text-sm";
+    "mt-1 h-9 min-h-9 w-full min-w-0 max-w-full overflow-hidden rounded-xl px-3 text-left text-sm";
   const compactLabelClassName =
     "text-xs font-bold uppercase tracking-wide text-muted-foreground";
 
@@ -2456,7 +2467,7 @@ function EventFields(props: {
             id="upload-event-id"
             className={compactFieldClassName}
           >
-            <SelectValue placeholder="Use file event" />
+            <SelectValue placeholder="Use file event" className="truncate" />
           </SelectTrigger>
           <SelectContent className="max-h-72 max-w-72">
             <SelectItem
@@ -2774,7 +2785,7 @@ function ManualAttendanceDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
-          <div>
+          <div className="min-w-0">
             <Label htmlFor="manual-event-id">Event</Label>
             <Select
               value={props.form.eventId || NO_EVENT_SELECT_VALUE}
@@ -2785,13 +2796,13 @@ function ManualAttendanceDialog(props: {
                 )
               }
             >
-              <SelectTrigger id="manual-event-id" className="mt-2 min-h-10">
-                <SelectValue placeholder="No event" />
+              <SelectTrigger id="manual-event-id" className={manualSelectTriggerClassName}>
+                <SelectValue placeholder="No event" className="truncate" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_EVENT_SELECT_VALUE}>No event</SelectItem>
+              <SelectContent className="max-h-72 max-w-80">
+                <SelectItem value={NO_EVENT_SELECT_VALUE} className="max-w-full truncate">No event</SelectItem>
                 {props.events.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
+                  <SelectItem key={item.id} value={item.id} className="max-w-full truncate">
                     {item.name}
                   </SelectItem>
                 ))}
@@ -2837,101 +2848,135 @@ function ManualAttendanceDialog(props: {
             />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <Label htmlFor="manual-year-level">Year level</Label>
             <Select
               value={props.form.yearLevel}
               onValueChange={(value) => props.onChange("yearLevel", value)}
             >
-              <SelectTrigger id="manual-year-level" className="mt-2 min-h-10">
-                <SelectValue placeholder="Select year level" />
+              <SelectTrigger id="manual-year-level" className={manualSelectTriggerClassName}>
+                <SelectValue placeholder="Select year level" className="truncate" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
                   QR_CODE_YEAR_LEVEL_OPTIONS,
                   props.form.yearLevel,
                 )}
                 {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
-                  <SelectItem key={yearLevel} value={yearLevel}>
+                  <SelectItem key={yearLevel} value={yearLevel} className="max-w-full truncate">
                     {yearLevel}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              id="manual-year-level-custom"
+              value={props.form.yearLevel}
+              onChange={(event) => props.onChange("yearLevel", event.target.value)}
+              className={manualCustomInputClassName}
+              placeholder="Type custom year level if not listed"
+            />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <Label htmlFor="manual-college">College</Label>
             <Select
               value={props.form.college}
               onValueChange={handleCollegeChange}
             >
-              <SelectTrigger id="manual-college" className="mt-2 min-h-10">
-                <SelectValue placeholder="Select college" />
+              <SelectTrigger id="manual-college" className={manualSelectTriggerClassName}>
+                <SelectValue placeholder="Select college" className="truncate" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
                   QR_CODE_COLLEGE_OPTIONS,
                   props.form.college,
                 )}
                 {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                  <SelectItem key={college} value={college}>
+                  <SelectItem key={college} value={college} className="max-w-full truncate">
                     {college}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              id="manual-college-custom"
+              value={props.form.college}
+              onChange={(event) => handleCollegeChange(event.target.value)}
+              className={manualCustomInputClassName}
+              placeholder="Type custom college if not listed"
+            />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <Label htmlFor="manual-program">Program</Label>
             <Select
               value={props.form.program}
               onValueChange={(value) => props.onChange("program", value)}
               disabled={!props.form.college}
             >
-              <SelectTrigger id="manual-program" className="mt-2 min-h-10">
+              <SelectTrigger id="manual-program" className={manualSelectTriggerClassName}>
                 <SelectValue
                   placeholder={
                     props.form.college ? "Select program" : "Select college first"
                   }
+                  className="truncate"
                 />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
                   programOptions,
                   props.form.program,
                 )}
                 {programOptions.map((program) => (
-                  <SelectItem key={program} value={program}>
+                  <SelectItem key={program} value={program} className="max-w-full truncate">
                     {program}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              id="manual-program-custom"
+              value={props.form.program}
+              onChange={(event) => props.onChange("program", event.target.value)}
+              disabled={!props.form.college}
+              className={manualCustomInputClassName}
+              placeholder={
+                props.form.college
+                  ? "Type custom program if not listed"
+                  : "Select college before typing program"
+              }
+            />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <Label htmlFor="manual-institution">Institution</Label>
             <Select
               value={props.form.institution}
               onValueChange={(value) => props.onChange("institution", value)}
             >
-              <SelectTrigger id="manual-institution" className="mt-2 min-h-10">
-                <SelectValue placeholder="Select institution" />
+              <SelectTrigger id="manual-institution" className={manualSelectTriggerClassName}>
+                <SelectValue placeholder="Select institution" className="truncate" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 max-w-80">
                 {renderCurrentQrCodeSelectOption(
                   QR_CODE_INSTITUTION_OPTIONS,
                   props.form.institution,
                 )}
                 {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
-                  <SelectItem key={institution} value={institution}>
+                  <SelectItem key={institution} value={institution} className="max-w-full truncate">
                     {institution}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              id="manual-institution-custom"
+              value={props.form.institution}
+              onChange={(event) => props.onChange("institution", event.target.value)}
+              className={manualCustomInputClassName}
+              placeholder="Type custom institution if not listed"
+            />
           </div>
 
           <div>
@@ -5589,16 +5634,16 @@ export default function AttendancePage() {
                   <Select value={yearFilter} onValueChange={setYearFilter}>
                     <SelectTrigger
                       id="attendance-year-filter"
-                      className="min-h-10 w-full rounded-2xl"
+                      className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Filter by year" />
+                      <SelectValue placeholder="Filter by year" className="truncate" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_YEARS_SELECT_VALUE}>
+                    <SelectContent className="max-h-72 max-w-80">
+                      <SelectItem value={ALL_YEARS_SELECT_VALUE} className="max-w-full truncate">
                         All years
                       </SelectItem>
                       {yearFilterOptions.map((year) => (
-                        <SelectItem key={year} value={year}>
+                        <SelectItem key={year} value={year} className="max-w-full truncate">
                           {year}
                         </SelectItem>
                       ))}
@@ -5613,18 +5658,19 @@ export default function AttendancePage() {
                   <Select value={eventFilter} onValueChange={setEventFilter}>
                     <SelectTrigger
                       id="attendance-event-filter"
-                      className="min-h-10 w-full rounded-2xl"
+                      className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Switch event" />
+                      <SelectValue placeholder="Switch event" className="truncate" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_EVENTS_SELECT_VALUE}>
+                    <SelectContent className="max-h-72 max-w-80">
+                      <SelectItem value={ALL_EVENTS_SELECT_VALUE} className="max-w-full truncate">
                         All events
                       </SelectItem>
                       {eventFilterOptions.map((eventOption) => (
                         <SelectItem
                           key={eventOption.value}
                           value={eventOption.value}
+                          className="max-w-full truncate"
                         >
                           {eventOption.label}
                         </SelectItem>
@@ -5646,16 +5692,16 @@ export default function AttendancePage() {
                   >
                     <SelectTrigger
                       id="attendance-college-filter"
-                      className="min-h-10 w-full rounded-2xl"
+                      className={tableFilterSelectTriggerClassName}
                     >
-                      <SelectValue placeholder="Filter by college" />
+                      <SelectValue placeholder="Filter by college" className="truncate" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_COLLEGES_SELECT_VALUE}>
+                    <SelectContent className="max-h-72 max-w-80">
+                      <SelectItem value={ALL_COLLEGES_SELECT_VALUE} className="max-w-full truncate">
                         All colleges
                       </SelectItem>
                       {collegeFilterOptions.map((college) => (
-                        <SelectItem key={college} value={college}>
+                        <SelectItem key={college} value={college} className="max-w-full truncate">
                           {college === NO_COLLEGE_SELECT_VALUE
                             ? "No college"
                             : college}
