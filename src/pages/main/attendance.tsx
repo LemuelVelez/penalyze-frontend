@@ -84,6 +84,27 @@ type AttendanceEventFormState = {
   description: string;
 };
 
+type AttendanceBulkEventAttendeesFormState = {
+  eventId: string;
+  scannedAt: string;
+  attendees: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  remarks: string;
+};
+
+type AttendanceBulkEventAttendeeRow = {
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  remarks: string;
+};
+
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
 
@@ -174,6 +195,17 @@ const emptyAttendanceEventForm: AttendanceEventFormState = {
   eventStartAt: "",
   eventEndAt: "",
   description: "",
+};
+
+const emptyBulkEventAttendeesForm: AttendanceBulkEventAttendeesFormState = {
+  eventId: "",
+  scannedAt: "",
+  attendees: "",
+  yearLevel: "",
+  college: "",
+  program: "",
+  institution: DEFAULT_STUDENT_INSTITUTION,
+  remarks: "",
 };
 
 const ATTENDANCE_EXCEL_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
@@ -1987,8 +2019,132 @@ function getManualAttendanceSelectedEventIds(form: ManualAttendanceFormState) {
       : [];
 
   return Array.from(
-    new Set(selectedEventIds.map((eventId) => cleanImportValue(eventId)).filter(Boolean)),
+    new Set(
+      selectedEventIds.map((eventId) => cleanImportValue(eventId)).filter(Boolean),
+    ),
   );
+}
+
+function getBulkEventAttendeeRowFallbackValue(
+  row: string[],
+  index: number,
+  fallback: string,
+) {
+  return cleanImportValue(row[index]) || cleanImportValue(fallback);
+}
+
+function getBulkEventAttendeeRowHeaderValue(
+  row: string[],
+  headers: string[],
+  key: AttendanceHeaderKey,
+  fallback: string,
+) {
+  return (
+    getHeaderValue(row, headers, key) ||
+    getLabeledValue(row.join("\n"), ATTENDANCE_HEADER_ALIASES[key]) ||
+    cleanImportValue(fallback)
+  );
+}
+
+function getBulkAttendanceEventAttendeeRows(
+  form: AttendanceBulkEventAttendeesFormState,
+) {
+  const rows = parseDelimitedText(form.attendees)
+    .map((row) => row.map(cleanImportValue))
+    .filter((row) => row.some(Boolean));
+
+  if (!rows.length) return [];
+
+  const headerRowIndex = getBestAttendanceHeaderRowIndex(rows);
+  const headers = rows[headerRowIndex].map(cleanImportValue);
+  const hasHeaderRow =
+    getHeaderIndex(headers, "studentId") >= 0 ||
+    getHeaderIndex(headers, "name") >= 0;
+  const dataRows = hasHeaderRow ? rows.slice(headerRowIndex + 1) : rows;
+  const attendeesByKey = new Map<string, AttendanceBulkEventAttendeeRow>();
+
+  dataRows.forEach((row) => {
+    const studentId = cleanImportValue(
+      hasHeaderRow
+        ? getBulkEventAttendeeRowHeaderValue(row, headers, "studentId", "")
+        : row[0],
+    ).toUpperCase();
+    const name = cleanImportValue(
+      hasHeaderRow
+        ? getBulkEventAttendeeRowHeaderValue(row, headers, "name", "")
+        : row[1],
+    );
+
+    if (!studentId || !name) return;
+
+    const attendee: AttendanceBulkEventAttendeeRow = hasHeaderRow
+      ? {
+          studentId,
+          name,
+          yearLevel: getBulkEventAttendeeRowHeaderValue(
+            row,
+            headers,
+            "yearLevel",
+            form.yearLevel,
+          ),
+          college: getBulkEventAttendeeRowHeaderValue(
+            row,
+            headers,
+            "college",
+            form.college,
+          ),
+          program: getBulkEventAttendeeRowHeaderValue(
+            row,
+            headers,
+            "program",
+            form.program,
+          ),
+          institution: getBulkEventAttendeeRowHeaderValue(
+            row,
+            headers,
+            "institution",
+            form.institution,
+          ),
+          remarks: getBulkEventAttendeeRowHeaderValue(
+            row,
+            headers,
+            "remarks",
+            form.remarks,
+          ),
+        }
+      : {
+          studentId,
+          name,
+          yearLevel: getBulkEventAttendeeRowFallbackValue(row, 2, form.yearLevel),
+          college: getBulkEventAttendeeRowFallbackValue(row, 3, form.college),
+          program: getBulkEventAttendeeRowFallbackValue(row, 4, form.program),
+          institution: getBulkEventAttendeeRowFallbackValue(
+            row,
+            5,
+            form.institution,
+          ),
+          remarks: getBulkEventAttendeeRowFallbackValue(row, 6, form.remarks),
+        };
+
+    const attendeeKey = [
+      attendee.studentId,
+      normalizeImportHeader(attendee.college),
+    ].join(":");
+
+    attendeesByKey.set(attendeeKey, attendee);
+  });
+
+  return Array.from(attendeesByKey.values());
+}
+
+function getBulkAttendanceEventAttendeeKey(
+  studentId?: string | null,
+  college?: string | null,
+) {
+  return [
+    cleanImportValue(studentId).toUpperCase(),
+    getAttendanceCollegeScopeKey(college),
+  ].join(":");
 }
 
 function getAttendanceEventById(
@@ -3268,6 +3424,367 @@ function DeleteEventConfirmation(props: {
   );
 }
 
+
+function BulkEventAttendeesDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  events: AttendanceEvent[];
+  form: AttendanceBulkEventAttendeesFormState;
+  isSaving: boolean;
+  progress: AttendanceImportProgress | null;
+  progressPercent: number;
+  progressMessage: string;
+  progressRowText: string;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onClear: () => void;
+  onChange: <K extends keyof AttendanceBulkEventAttendeesFormState>(
+    key: K,
+    value: AttendanceBulkEventAttendeesFormState[K],
+  ) => void;
+}) {
+  const programOptions = getQrCodeProgramOptions(props.form.college);
+  const selectedEvent = props.events.find(
+    (event) => event.id === props.form.eventId,
+  );
+  const parsedAttendees = useMemo(
+    () => getBulkAttendanceEventAttendeeRows(props.form),
+    [props.form],
+  );
+  const shouldShowProgress = props.isSaving || Boolean(props.progress);
+  const handleCollegeChange = (value: string) => {
+    props.onChange("college", value);
+    props.onChange("program", "");
+  };
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!props.events.length || props.isSaving}
+          className="min-h-11 rounded-xl px-5 py-2"
+        >
+          Add Attendees
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Add multiple attendees to an event</DialogTitle>
+          <DialogDescription className="sr-only">
+            Select one attendance event and add multiple attendee records.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0 lg:col-span-2">
+            <Label htmlFor="bulk-event-id">Event</Label>
+            <Select
+              value={props.form.eventId}
+              onValueChange={(value) => props.onChange("eventId", value)}
+            >
+              <SelectTrigger
+                id="bulk-event-id"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue placeholder="Select event" className="truncate" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {props.events.map((event) => (
+                  <SelectItem
+                    key={event.id}
+                    value={event.id}
+                    className="max-w-full truncate"
+                  >
+                    {event.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label htmlFor="bulk-scanned-at">Scanned at</Label>
+            <Input
+              id="bulk-scanned-at"
+              type="datetime-local"
+              value={props.form.scannedAt}
+              onChange={(event) =>
+                props.onChange("scannedAt", event.target.value)
+              }
+              className="mt-2"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <Label htmlFor="bulk-year-level">Year level</Label>
+            <Select
+              value={props.form.yearLevel}
+              onValueChange={(value) => props.onChange("yearLevel", value)}
+            >
+              <SelectTrigger
+                id="bulk-year-level"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select year level"
+                  className="truncate"
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_YEAR_LEVEL_OPTIONS,
+                  props.form.yearLevel,
+                )}
+                {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                  <SelectItem
+                    key={yearLevel}
+                    value={yearLevel}
+                    className="max-w-full truncate"
+                  >
+                    {yearLevel}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              id="bulk-year-level-custom"
+              value={props.form.yearLevel}
+              onChange={(event) =>
+                props.onChange("yearLevel", event.target.value)
+              }
+              className={manualCustomInputClassName}
+              placeholder="Type custom year level if not listed"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <Label htmlFor="bulk-college">College</Label>
+            <Select
+              value={props.form.college}
+              onValueChange={handleCollegeChange}
+            >
+              <SelectTrigger
+                id="bulk-college"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select college"
+                  className="truncate"
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_COLLEGE_OPTIONS,
+                  props.form.college,
+                )}
+                {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                  <SelectItem
+                    key={college}
+                    value={college}
+                    className="max-w-full truncate"
+                  >
+                    {college}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              id="bulk-college-custom"
+              value={props.form.college}
+              onChange={(event) => handleCollegeChange(event.target.value)}
+              className={manualCustomInputClassName}
+              placeholder="Type custom college if not listed"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <Label htmlFor="bulk-program">Program</Label>
+            <Select
+              value={props.form.program}
+              onValueChange={(value) => props.onChange("program", value)}
+              disabled={!props.form.college}
+            >
+              <SelectTrigger
+                id="bulk-program"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder={
+                    props.form.college
+                      ? "Select program"
+                      : "Select college first"
+                  }
+                  className="truncate"
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {renderCurrentQrCodeSelectOption(
+                  programOptions,
+                  props.form.program,
+                )}
+                {programOptions.map((program) => (
+                  <SelectItem
+                    key={program}
+                    value={program}
+                    className="max-w-full truncate"
+                  >
+                    {program}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              id="bulk-program-custom"
+              value={props.form.program}
+              onChange={(event) =>
+                props.onChange("program", event.target.value)
+              }
+              disabled={!props.form.college}
+              className={manualCustomInputClassName}
+              placeholder={
+                props.form.college
+                  ? "Type custom program if not listed"
+                  : "Select college before typing program"
+              }
+            />
+          </div>
+
+          <div className="min-w-0">
+            <Label htmlFor="bulk-institution">Institution</Label>
+            <Select
+              value={props.form.institution}
+              onValueChange={(value) => props.onChange("institution", value)}
+            >
+              <SelectTrigger
+                id="bulk-institution"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder="Select institution"
+                  className="truncate"
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {renderCurrentQrCodeSelectOption(
+                  QR_CODE_INSTITUTION_OPTIONS,
+                  props.form.institution,
+                )}
+                {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
+                  <SelectItem
+                    key={institution}
+                    value={institution}
+                    className="max-w-full truncate"
+                  >
+                    {institution}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              id="bulk-institution-custom"
+              value={props.form.institution}
+              onChange={(event) =>
+                props.onChange("institution", event.target.value)
+              }
+              className={manualCustomInputClassName}
+              placeholder="Type custom institution if not listed"
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <Label htmlFor="bulk-attendees">Attendees</Label>
+            <Textarea
+              id="bulk-attendees"
+              value={props.form.attendees}
+              onChange={(event) =>
+                props.onChange("attendees", event.target.value)
+              }
+              className="mt-2 min-h-32"
+              placeholder={`Student ID, Name, Year Level, College, Program, Institution, Remarks`}
+              required
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <Label htmlFor="bulk-remarks">Remarks</Label>
+            <Textarea
+              id="bulk-remarks"
+              value={props.form.remarks}
+              onChange={(event) =>
+                props.onChange("remarks", event.target.value)
+              }
+              className="mt-2"
+            />
+          </div>
+
+          <div className="rounded-2xl border bg-muted/40 p-4 text-sm font-semibold text-muted-foreground lg:col-span-2">
+            {selectedEvent?.name ?? "No event selected"} •{" "}
+            {parsedAttendees.length} attendee/s ready
+          </div>
+
+          {shouldShowProgress ? (
+            <section
+              className="min-w-0 rounded-3xl border bg-card p-4 shadow-sm lg:col-span-2"
+              aria-live="polite"
+            >
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                    Add attendees progress
+                  </p>
+                  <p className="mt-1 wrap-break-word text-sm font-semibold">
+                    {props.progressMessage}
+                  </p>
+                </div>
+                <span className="w-fit shrink-0 rounded-full border bg-background px-3 py-1 text-sm font-black">
+                  {props.progressPercent}%
+                </span>
+              </div>
+              <Progress
+                value={props.progressPercent}
+                className="mt-4 h-3 w-full min-w-0"
+              />
+              <div className="mt-3 grid min-w-0 gap-1 text-xs font-bold text-muted-foreground sm:grid-cols-2 sm:items-center">
+                <span className="wrap-break-word">
+                  {props.progressRowText}
+                </span>
+                <span className="wrap-break-word sm:text-right">
+                  {props.progress?.savedRecords ?? 0} attendee/s added
+                </span>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
+            <Button
+              type="submit"
+              disabled={props.isSaving || !props.events.length}
+              className="min-h-12 rounded-2xl"
+            >
+              {props.isSaving
+                ? `Saving ${props.progressPercent}%`
+                : "Save Attendees"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={props.onClear}
+              className="min-h-12 rounded-2xl"
+            >
+              Clear
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DeleteAttendanceImportConfirmation(props: {
   attendanceImport: AttendanceImportRecord;
   isDeleting: boolean;
@@ -4437,6 +4954,10 @@ export default function AttendancePage() {
   const [manualForm, setManualForm] = useState<ManualAttendanceFormState>(
     emptyManualAttendanceForm,
   );
+  const [bulkAttendeesForm, setBulkAttendeesForm] =
+    useState<AttendanceBulkEventAttendeesFormState>(
+      emptyBulkEventAttendeesForm,
+    );
   const [eventForm, setEventForm] = useState<AttendanceEventFormState>(
     emptyAttendanceEventForm,
   );
@@ -4455,6 +4976,9 @@ export default function AttendancePage() {
     displayManualSaveProgressPercent,
     setDisplayManualSaveProgressPercent,
   ] = useState(0);
+  const [isSavingBulkAttendees, setIsSavingBulkAttendees] = useState(false);
+  const [bulkAttendeesSaveProgress, setBulkAttendeesSaveProgress] =
+    useState<AttendanceImportProgress | null>(null);
   const [isSavingEvent, setIsSavingEvent] = useState(false);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [recordLoadProgress, setRecordLoadProgress] =
@@ -4472,6 +4996,7 @@ export default function AttendancePage() {
   const [deletingEventId, setDeletingEventId] = useState("");
   const [deletingImportId, setDeletingImportId] = useState("");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [bulkAttendeesDialogOpen, setBulkAttendeesDialogOpen] = useState(false);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [recordSearch, setRecordSearch] = useState("");
   const [recordSearchQuery, setRecordSearchQuery] = useState("");
@@ -4642,6 +5167,15 @@ export default function AttendancePage() {
     getManualUpdateProgressMessage(manualSaveProgress);
   const manualSaveProgressRowText =
     getManualUpdateProgressRowText(manualSaveProgress);
+  const bulkAttendeesSaveProgressPercent = useProgressivePercent(
+    isSavingBulkAttendees,
+    getSaveProgressPercent(bulkAttendeesSaveProgress, isSavingBulkAttendees),
+  );
+  const bulkAttendeesSaveProgressMessage =
+    bulkAttendeesSaveProgress?.message || "Preparing attendees...";
+  const bulkAttendeesSaveProgressRowText = getManualUpdateProgressRowText(
+    bulkAttendeesSaveProgress,
+  );
   const scrollRestorePositionRef = useRef<{ left: number; top: number } | null>(
     null,
   );
@@ -4726,6 +5260,16 @@ export default function AttendancePage() {
         ...(key === "college" ? { program: "" } : {}),
       };
     });
+  }
+
+  function updateBulkAttendeesForm<
+    K extends keyof AttendanceBulkEventAttendeesFormState,
+  >(key: K, value: AttendanceBulkEventAttendeesFormState[K]) {
+    setBulkAttendeesForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "college" ? { program: "" } : {}),
+    }));
   }
 
   function updateEventForm<K extends keyof AttendanceEventFormState>(
@@ -5539,6 +6083,183 @@ export default function AttendancePage() {
     }
 
     return savedRecords;
+  }
+
+
+  function handleOpenBulkAttendeesDialog(event?: AttendanceEvent) {
+    setBulkAttendeesForm({
+      ...emptyBulkEventAttendeesForm,
+      eventId: event?.id ?? "",
+      scannedAt: "",
+    });
+    setBulkAttendeesSaveProgress(null);
+    setBulkAttendeesDialogOpen(true);
+    setError("");
+  }
+
+  function handleClearBulkAttendeesForm() {
+    setBulkAttendeesForm(emptyBulkEventAttendeesForm);
+    setBulkAttendeesSaveProgress(null);
+    setError("");
+  }
+
+  async function handleBulkAttendeesSubmit(
+    event: SyntheticEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const eventId = cleanImportValue(bulkAttendeesForm.eventId);
+    const selectedEvent = getAttendanceEventById(displayEvents, eventId);
+    const attendeeRows =
+      getBulkAttendanceEventAttendeeRows(bulkAttendeesForm);
+    const scannedAt =
+      normalizeAttendanceDateTimeValue(bulkAttendeesForm.scannedAt) ||
+      undefined;
+
+    if (!selectedEvent) {
+      setError("Please select an event.");
+      toast.error("Please select an event.");
+      return;
+    }
+
+    if (!attendeeRows.length) {
+      setError("Please enter at least one valid attendee.");
+      toast.error("Please enter at least one valid attendee.");
+      return;
+    }
+
+    const existingAttendeeKeys = new Set(
+      normalizedRecords
+        .filter((record) =>
+          recordMatchesAttendanceEventId(record, eventId, displayEvents),
+        )
+        .map((record) =>
+          getBulkAttendanceEventAttendeeKey(record.student_id, record.college),
+        ),
+    );
+    const attendeeRowsToSave = attendeeRows.filter((attendee) => {
+      return !existingAttendeeKeys.has(
+        getBulkAttendanceEventAttendeeKey(attendee.studentId, attendee.college),
+      );
+    });
+    const skippedExistingCount = attendeeRows.length - attendeeRowsToSave.length;
+
+    if (!attendeeRowsToSave.length) {
+      toast.info("Selected attendee/s are already recorded for this event.");
+      return;
+    }
+
+    setIsSavingBulkAttendees(true);
+    setBulkAttendeesSaveProgress({
+      stage: "preparing",
+      percent: 8,
+      message: `Preparing ${attendeeRowsToSave.length} attendee/s...`,
+      processedRows: 0,
+      totalRows: attendeeRowsToSave.length,
+      savedRecords: 0,
+      createdFines: 0,
+    });
+    setError("");
+
+    try {
+      const savedRecords: AttendanceRecord[] = [];
+
+      await waitForNextPaint();
+
+      for (const [index, attendee] of attendeeRowsToSave.entries()) {
+        const currentRow = index + 1;
+
+        setBulkAttendeesSaveProgress({
+          stage: "saving",
+          percent: Math.min(
+            95,
+            12 + Math.round((index / attendeeRowsToSave.length) * 80),
+          ),
+          message: `Adding attendee ${currentRow}/${attendeeRowsToSave.length}...`,
+          processedRows: index,
+          totalRows: attendeeRowsToSave.length,
+          savedRecords: savedRecords.length,
+          createdFines: 0,
+        });
+        await waitForNextPaint();
+
+        const result = await saveManualAttendanceRecord({
+          eventId,
+          scannedAt,
+          studentId: attendee.studentId,
+          name: attendee.name,
+          yearLevel: attendee.yearLevel,
+          college: attendee.college,
+          program: attendee.program,
+          institution: attendee.institution,
+          noOfAbsences: 0,
+          remarks: attendee.remarks,
+        });
+
+        savedRecords.push(...getManualAttendanceSavedRecords(result));
+
+        setBulkAttendeesSaveProgress({
+          stage: "syncing",
+          percent: Math.min(
+            98,
+            20 + Math.round((currentRow / attendeeRowsToSave.length) * 78),
+          ),
+          message: `Added ${currentRow}/${attendeeRowsToSave.length} attendee/s. Applying refreshed records...`,
+          processedRows: currentRow,
+          totalRows: attendeeRowsToSave.length,
+          savedRecords: savedRecords.length,
+          createdFines: 0,
+        });
+        await waitForNextPaint();
+      }
+
+      if (savedRecords.length) {
+        setRecords((current) =>
+          mergeAttendanceSavedRecords(current, savedRecords),
+        );
+      }
+
+      setBulkAttendeesSaveProgress({
+        stage: "completed",
+        percent: 100,
+        message: "Attendees added successfully.",
+        processedRows: attendeeRowsToSave.length,
+        totalRows: attendeeRowsToSave.length,
+        savedRecords: savedRecords.length || attendeeRowsToSave.length,
+        createdFines: 0,
+      });
+      await waitForNextPaint();
+      await loadRecords({ preserveScroll: true });
+
+      setBulkAttendeesDialogOpen(false);
+      handleClearBulkAttendeesForm();
+      restoreCapturedScrollPosition();
+      toast.success(
+        `Added ${attendeeRowsToSave.length} attendee/s to ${selectedEvent.name}${
+          skippedExistingCount
+            ? `; ${skippedExistingCount} already recorded.`
+            : "."
+        }`,
+      );
+    } catch (bulkError) {
+      const message =
+        bulkError instanceof Error
+          ? bulkError.message
+          : "Unable to add attendees.";
+      setBulkAttendeesSaveProgress((currentProgress) =>
+        currentProgress
+          ? {
+              ...currentProgress,
+              stage: "cancelled",
+              message: "Adding attendees failed.",
+            }
+          : currentProgress,
+      );
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsSavingBulkAttendees(false);
+    }
   }
 
   async function handleManualSubmit(event: SyntheticEvent<HTMLFormElement>) {
@@ -6380,6 +7101,25 @@ export default function AttendancePage() {
               onClear={handleCancelEventEdit}
               onChange={updateEventForm}
             />
+            <BulkEventAttendeesDialog
+              open={bulkAttendeesDialogOpen}
+              onOpenChange={(open) => {
+                if (isSavingBulkAttendees) return;
+
+                setBulkAttendeesDialogOpen(open);
+                if (!open) handleClearBulkAttendeesForm();
+              }}
+              events={displayEvents}
+              form={bulkAttendeesForm}
+              isSaving={isSavingBulkAttendees}
+              progress={bulkAttendeesSaveProgress}
+              progressPercent={bulkAttendeesSaveProgressPercent}
+              progressMessage={bulkAttendeesSaveProgressMessage}
+              progressRowText={bulkAttendeesSaveProgressRowText}
+              onSubmit={handleBulkAttendeesSubmit}
+              onClear={handleClearBulkAttendeesForm}
+              onChange={updateBulkAttendeesForm}
+            />
             <ManualAttendanceDialog
               open={manualDialogOpen}
               onOpenChange={(open) => {
@@ -6710,6 +7450,15 @@ export default function AttendancePage() {
                           </div>
                         </div>
                         <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleOpenBulkAttendeesDialog(event)}
+                            disabled={isDeletingEvents}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Add Attendees
+                          </Button>
                           <Button
                             type="button"
                             variant="outline"
