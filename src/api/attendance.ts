@@ -10,6 +10,7 @@ export type AttendanceImportProgressStage =
 
 export type AttendanceEvent = {
   id: string;
+  school_year_id: string | null;
   name: string;
   event_start_at: string | null;
   event_end_at: string | null;
@@ -21,6 +22,7 @@ export type AttendanceEvent = {
 
 export type AttendanceRecord = {
   id: string;
+  school_year_id: string | null;
   import_id: string | null;
   event_id: string | null;
   event_name: string | null;
@@ -39,6 +41,7 @@ export type AttendanceRecord = {
 
 export type AttendanceImportRecord = {
   id: string;
+  school_year_id: string | null;
   event_id: string | null;
   event_name: string | null;
   file_name: string;
@@ -56,6 +59,7 @@ export type DeletedAttendanceImportsResult = {
 };
 
 export type AttendanceImportInput = {
+  schoolYearId?: string;
   eventId?: string;
   eventName?: string;
   eventStartAt?: string;
@@ -74,6 +78,7 @@ export type AttendanceImportInput = {
 export type ManualAttendanceInput = AttendanceImportInput;
 
 export type AttendanceEventInput = {
+  schoolYearId?: string;
   name: string;
   eventStartAt?: string;
   eventEndAt?: string;
@@ -111,6 +116,7 @@ export type AttendanceImportProgressCallback = (
 
 export type AttendanceFineRecord = {
   id: string;
+  school_year_id: string | null;
   attendance_record_id: string | null;
   penalty_id: string | null;
   student_id: string;
@@ -151,6 +157,7 @@ type ApiEnvelope<T> = {
 };
 
 type ListOptions = {
+  schoolYearId?: string;
   studentId?: string;
   eventId?: string;
   college?: string;
@@ -159,6 +166,7 @@ type ListOptions = {
 };
 
 export type AttendanceImportSaveOptions = {
+  schoolYearId?: string;
   eventId?: string;
   eventName?: string;
   eventStartAt?: string;
@@ -170,6 +178,7 @@ export type AttendanceImportSaveOptions = {
 };
 
 export type AttendanceRowsSaveInput = {
+  schoolYearId?: string;
   eventId?: string;
   eventName?: string;
   eventStartAt?: string;
@@ -435,6 +444,7 @@ function appendSaveOptions(
   body: FormData,
   options: AttendanceImportSaveOptions = {},
 ) {
+  if (options.schoolYearId) body.set("schoolYearId", options.schoolYearId);
   if (options.eventId) body.set("eventId", options.eventId);
   if (options.eventName) body.set("eventName", options.eventName);
   if (options.eventStartAt) body.set("eventStartAt", options.eventStartAt);
@@ -456,9 +466,10 @@ export function normalizeStudentId(value: unknown) {
 }
 
 export async function listAttendanceEvents(
-  options: Pick<ListOptions, "limit" | "offset"> = {},
+  options: Pick<ListOptions, "schoolYearId" | "limit" | "offset"> = {},
 ) {
   const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
   });
@@ -506,6 +517,7 @@ export async function deleteAttendanceEvent(id: string) {
 
 export async function listAttendanceRecords(options: ListOptions = {}) {
   const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
     studentId: options.studentId,
@@ -575,9 +587,10 @@ export async function getStudentAttendanceRecords(studentId: string) {
 }
 
 export async function listAttendanceImports(
-  options: Pick<ListOptions, "limit" | "offset"> = {},
+  options: Pick<ListOptions, "schoolYearId" | "limit" | "offset"> = {},
 ) {
   const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
     limit: options.limit ?? 50,
     offset: options.offset ?? 0,
   });

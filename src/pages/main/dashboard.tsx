@@ -5,9 +5,15 @@ import type { AttendanceImportRecord, AttendanceRecord } from "../../api/attenda
 import { listFines } from "../../api/fines";
 import type { FineRecord } from "../../api/fines";
 import { Button } from "../../components/ui/button";
+import {
+  ALL_SCHOOL_YEARS_VALUE,
+  getSchoolYearLabel,
+  listSchoolYears,
+} from "../../api/schoolYears";
+import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
-const ALL_YEARS_VALUE = "__all_years__";
+const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
 type DashboardFineSummary = {
   unpaid: number;
@@ -25,29 +31,31 @@ function getDateYear(value?: string | null) {
 }
 
 function getAttendanceRecordYear(record: AttendanceRecord) {
-  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+  return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
 }
 
 function getFineRecordYear(fine: FineRecord) {
-  return getDateYear(fine.created_at ?? null);
+  return fine.school_year_id || getDateYear(fine.created_at ?? null);
 }
 
 function getImportYear(record: AttendanceImportRecord) {
-  return getDateYear(record.created_at ?? null);
+  return record.school_year_id || getDateYear(record.created_at ?? null);
 }
 
 function getYearOptions(
   attendanceRecords: AttendanceRecord[],
   fines: FineRecord[],
   imports: AttendanceImportRecord[],
+  schoolYears: SchoolYearRecord[],
 ) {
   return Array.from(
     new Set([
+      ...schoolYears.map((schoolYear) => schoolYear.id),
       ...attendanceRecords.map(getAttendanceRecordYear),
       ...fines.map(getFineRecordYear),
       ...imports.map(getImportYear)
     ].filter(Boolean))
-  ).sort((left, right) => Number(right) - Number(left));
+  );
 }
 
 function matchesSelectedYear(recordYear: string, selectedYear: string) {
@@ -91,11 +99,12 @@ export default function DashboardPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [fines, setFines] = useState<FineRecord[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const yearOptions = useMemo(() => getYearOptions(records, fines, imports), [records, fines, imports]);
+  const yearOptions = useMemo(() => getYearOptions(records, fines, imports, schoolYears), [records, fines, imports, schoolYears]);
   const filteredRecords = useMemo(() => {
     return records.filter((record) => matchesSelectedYear(getAttendanceRecordYear(record), yearFilter));
   }, [records, yearFilter]);
@@ -108,22 +117,24 @@ export default function DashboardPage() {
   const summary = useMemo(() => getFineSummaryForYear(filteredFines), [filteredFines]);
   const recentRecords = filteredRecords.slice(0, 8);
   const recentImports = filteredImports.slice(0, 5);
-  const yearLabel = yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
+  const yearLabel = getSchoolYearLabel(schoolYears, yearFilter);
 
   async function loadDashboard() {
     setIsLoading(true);
     setError("");
 
     try {
-      const [fineRows, attendanceRows, importRows] = await Promise.all([
+      const [fineRows, attendanceRows, importRows, schoolYearRows] = await Promise.all([
         listFines({ limit: 5000, offset: 0 }),
         listAttendanceRecords({ limit: 5000, offset: 0 }),
-        listAttendanceImports({ limit: 500, offset: 0 })
+        listAttendanceImports({ limit: 500, offset: 0 }),
+        listSchoolYears()
       ]);
 
       setFines(fineRows);
       setRecords(attendanceRows);
       setImports(importRows);
+      setSchoolYears(schoolYearRows);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load dashboard.");
     } finally {
@@ -155,13 +166,13 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Select value={yearFilter} onValueChange={setYearFilter}>
               <SelectTrigger className="min-h-11 rounded-xl px-4 text-sm font-black sm:w-40">
-                <SelectValue placeholder="All years" />
+                <SelectValue placeholder="All school years" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_YEARS_VALUE}>All years</SelectItem>
+                <SelectItem value={ALL_YEARS_VALUE}>All school years</SelectItem>
                 {yearOptions.map((year) => (
                   <SelectItem key={year} value={year}>
-                    {year}
+                    {getSchoolYearLabel(schoolYears, year)}
                   </SelectItem>
                 ))}
               </SelectContent>

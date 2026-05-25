@@ -11,6 +11,13 @@ import {
 import type { AttendanceEvent, AttendanceRecord, ManualAttendanceInput } from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
+import {
+  ALL_SCHOOL_YEARS_VALUE,
+  getActiveSchoolYearId,
+  getSchoolYearLabel,
+  listSchoolYears
+} from "../api/schoolYears";
+import type { SchoolYearRecord } from "../api/schoolYears";
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -27,6 +34,7 @@ type LookupState = {
   attendance: AttendanceRecord[];
   attendanceEvents: AttendanceEvent[];
   attendanceRecords: AttendanceRecord[];
+  schoolYears: SchoolYearRecord[];
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
 };
@@ -127,6 +135,7 @@ type StudentAbsentEventSummary = {
 
 type ZeroAttendanceFormState = {
   studentId: string;
+  schoolYearId: string;
   name: string;
   yearLevel: string;
   college: string;
@@ -171,7 +180,7 @@ const LANDING_RESOURCE_LINKS = [
 ] as const;
 
 const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
-const ALL_YEARS_VALUE = "__all_years__";
+const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const DEFAULT_STUDENT_INSTITUTION = "Jose Rizal Memorial State University - Tampilisan Campus";
 
 const QR_CODE_YEAR_LEVEL_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"] as const;
@@ -198,6 +207,7 @@ const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
 const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   studentId: "",
+  schoolYearId: "",
   name: "",
   yearLevel: "",
   college: "",
@@ -366,7 +376,7 @@ function getDateYear(value?: string | null) {
 }
 
 function getAttendanceRecordYear(record: AttendanceRecord) {
-  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+  return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
 }
 
 function getAttendanceEventById(attendanceEvents: AttendanceEvent[]) {
@@ -378,7 +388,7 @@ function getAttendanceEventDateValue(event?: AttendanceEvent | null) {
 }
 
 function getAttendanceEventYear(event?: AttendanceEvent | null) {
-  return getDateYear(getAttendanceEventDateValue(event));
+  return event?.school_year_id || getDateYear(getAttendanceEventDateValue(event));
 }
 
 function getFineAttendanceRecordDateValue(
@@ -398,6 +408,7 @@ function getFineRecordYear(
   const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
 
   return (
+    fine.school_year_id ||
     getAttendanceEventYear(linkedEvent) ||
     getDateYear(getFineAttendanceRecordDateValue(fine, attendanceRecordById)) ||
     getDateYear(fine.created_at ?? null)
@@ -407,15 +418,17 @@ function getFineRecordYear(
 function getLookupYearOptions(
   attendance: AttendanceRecord[],
   fines: FineRecord[],
+  schoolYears: SchoolYearRecord[],
   eventById?: Map<string, AttendanceEvent>,
   attendanceRecordById?: Map<string, AttendanceRecord>
 ) {
   return Array.from(
     new Set([
+      ...schoolYears.map((schoolYear) => schoolYear.id),
       ...attendance.map(getAttendanceRecordYear),
       ...fines.map((fine) => getFineRecordYear(fine, eventById, attendanceRecordById))
     ].filter(Boolean))
-  ).sort((left, right) => Number(right) - Number(left));
+  );
 }
 
 function matchesSelectedYear(recordYear: string, selectedYear: string) {
@@ -1364,6 +1377,7 @@ function buildFallbackFine(
 
   return {
     id: `fallback-fine-${studentId}-${noOfAbsences}`,
+    school_year_id: latestAttendance?.school_year_id ?? null,
     attendance_record_id: latestAttendance?.id ?? null,
     penalty_id: penalty?.id ?? null,
     student_id: latestAttendance?.student_id ?? studentId,
@@ -1395,6 +1409,7 @@ function normalizeManualAttendanceFineForDisplay(
 
   return {
     id: String(fineRecord.id),
+    school_year_id: fineRecord.school_year_id ?? attendanceRecord.school_year_id ?? null,
     attendance_record_id: fineRecord.attendance_record_id ?? attendanceRecord.id,
     penalty_id: fineRecord.penalty_id ?? null,
     student_id: fineRecord.student_id ?? attendanceRecord.student_id,
@@ -1498,6 +1513,7 @@ function ZeroAttendanceRegistrationDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: ZeroAttendanceFormState;
+  schoolYears: SchoolYearRecord[];
   error: string;
   isSaving: boolean;
   onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
@@ -1546,6 +1562,25 @@ function ZeroAttendanceRegistrationDialog(props: {
                 className={textInputClassName}
               />
             </label>
+            <div className="min-w-0 space-y-2 text-sm font-bold">
+              <span>School Year</span>
+              <Select
+                value={props.form.schoolYearId}
+                onValueChange={(value) => props.onFieldChange("schoolYearId", value)}
+                disabled={!props.schoolYears.length}
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder={props.schoolYears.length ? "Select school year" : "Current school year"} className="truncate" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  {props.schoolYears.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id} className="max-w-full truncate">
+                      {schoolYear.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Year Level</span>
               <Select value={props.form.yearLevel} onValueChange={(value) => props.onFieldChange("yearLevel", value)}>
@@ -1694,6 +1729,7 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
   const [lookup, setLookup] = useState<LookupState | null>(null);
+  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [searchedId, setSearchedId] = useState("");
   const [resultYearFilter, setResultYearFilter] = useState(ALL_YEARS_VALUE);
   const [isSearching, setIsSearching] = useState(false);
@@ -1712,6 +1748,20 @@ export default function LandingPage() {
     searchProgress.percent,
   );
 
+  async function loadLandingSchoolYears() {
+    try {
+      const rows = await listSchoolYears();
+      setSchoolYears(rows);
+      setZeroAttendanceForm((current) => ({
+        ...current,
+        schoolYearId: current.schoolYearId || getActiveSchoolYearId(rows),
+      }));
+      return rows;
+    } catch {
+      return [] as SchoolYearRecord[];
+    }
+  }
+
   useEffect(() => {
     if (hasCurrentSession()) {
       navigate("/dashboard", { replace: true });
@@ -1720,6 +1770,11 @@ export default function LandingPage() {
 
     setIsCheckingSession(false);
   }, [navigate]);
+
+  useEffect(() => {
+    if (isCheckingSession) return;
+    void loadLandingSchoolYears();
+  }, [isCheckingSession]);
 
   const lookupFines = useMemo(() => {
     if (!lookup) return [];
@@ -1734,9 +1789,11 @@ export default function LandingPage() {
       : new Map<string, AttendanceRecord>();
   }, [lookup]);
   const yearOptions = useMemo(() => {
-    return lookup ? getLookupYearOptions(lookup.attendance, lookupFines, attendanceEventById, attendanceRecordById) : [];
-  }, [lookup, lookupFines, attendanceEventById, attendanceRecordById]);
-  const selectedYearLabel = resultYearFilter === ALL_YEARS_VALUE ? "All years" : resultYearFilter;
+    return lookup
+      ? getLookupYearOptions(lookup.attendance, lookupFines, lookup.schoolYears, attendanceEventById, attendanceRecordById)
+      : schoolYears.map((schoolYear) => schoolYear.id);
+  }, [lookup, lookupFines, schoolYears, attendanceEventById, attendanceRecordById]);
+  const selectedYearLabel = getSchoolYearLabel(lookup?.schoolYears ?? schoolYears, resultYearFilter);
 
   useEffect(() => {
     if (resultYearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(resultYearFilter)) {
@@ -1837,13 +1894,20 @@ export default function LandingPage() {
   );
   const resultClassificationClassName = getClassificationStyle(resultClassification);
 
-  function openZeroAttendanceRegistration(cleanStudentId: string) {
+  function openZeroAttendanceRegistration(
+    cleanStudentId: string,
+    availableSchoolYears: SchoolYearRecord[] = schoolYears,
+  ) {
     setLookup(null);
     setResultDialogOpen(false);
     setEventsDialogOpen(false);
     setZeroAttendanceError("");
     setResultYearFilter(ALL_YEARS_VALUE);
-    setZeroAttendanceForm({ ...emptyZeroAttendanceForm, studentId: cleanStudentId });
+    setZeroAttendanceForm({
+      ...emptyZeroAttendanceForm,
+      studentId: cleanStudentId,
+      schoolYearId: getActiveSchoolYearId(availableSchoolYears),
+    });
     setZeroAttendanceDialogOpen(true);
   }
 
@@ -1860,6 +1924,7 @@ export default function LandingPage() {
 
     const payload: ManualAttendanceInput = {
       studentId: zeroAttendanceForm.studentId.trim(),
+      schoolYearId: zeroAttendanceForm.schoolYearId || getActiveSchoolYearId(schoolYears) || undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
       college: zeroAttendanceForm.college.trim(),
@@ -1910,11 +1975,12 @@ export default function LandingPage() {
 
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
-      setResultYearFilter(ALL_YEARS_VALUE);
+      setResultYearFilter(attendanceRecord.school_year_id || payload.schoolYearId || ALL_YEARS_VALUE);
       setLookup({
         attendance: [attendanceRecord],
         attendanceEvents: [],
         attendanceRecords: [attendanceRecord],
+        schoolYears,
         fines: fine ? [fine] : [],
         fallbackFine: null
       });
@@ -2007,7 +2073,7 @@ export default function LandingPage() {
       const attendancePromise = getStudentAttendanceRecords(cleanStudentId).then(
         (attendance) => {
           markProgressStepComplete(
-            30,
+            25,
             "Student attendance loaded...",
             `${attendance.length.toLocaleString()} attendance record/s matched this Student ID.`,
           );
@@ -2024,6 +2090,25 @@ export default function LandingPage() {
 
         return fines;
       });
+      const schoolYearsPromise = listSchoolYears()
+        .then((schoolYearRows) => {
+          markProgressStepComplete(
+            5,
+            "School years loaded...",
+            `${schoolYearRows.length.toLocaleString()} school year/s checked for record segregation.`,
+          );
+
+          return schoolYearRows;
+        })
+        .catch(() => {
+          markProgressStepComplete(
+            5,
+            "School years skipped...",
+            "The search will continue using saved record dates.",
+          );
+
+          return [] as SchoolYearRecord[];
+        });
       const attendanceEventsPromise = listAttendanceEvents({
         limit: 500,
         offset: 0,
@@ -2072,13 +2157,16 @@ export default function LandingPage() {
           return [] as AttendanceRecord[];
         });
 
-      const [attendance, fines, attendanceEvents, attendanceRecords] =
+      const [attendance, fines, schoolYearRows, attendanceEvents, attendanceRecords] =
         await Promise.all([
           attendancePromise,
           finesPromise,
+          schoolYearsPromise,
           attendanceEventsPromise,
           attendanceRecordsPromise,
         ]);
+
+      setSchoolYears(schoolYearRows);
 
       updateProgress(
         98,
@@ -2092,7 +2180,7 @@ export default function LandingPage() {
           "No saved student record found.",
           "Opening the zero-attendance registration form.",
         );
-        openZeroAttendanceRegistration(cleanStudentId);
+        openZeroAttendanceRegistration(cleanStudentId, schoolYearRows);
         return;
       }
 
@@ -2108,7 +2196,7 @@ export default function LandingPage() {
         : null;
 
       setResultYearFilter(ALL_YEARS_VALUE);
-      setLookup({ attendance, attendanceEvents, attendanceRecords, fines, fallbackFine });
+      setLookup({ attendance, attendanceEvents, attendanceRecords, schoolYears: schoolYearRows, fines, fallbackFine });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
       updateProgress(
@@ -2151,14 +2239,14 @@ export default function LandingPage() {
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
             <p className="mx-auto mb-4 inline-flex rounded-full border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm">
-              Attendance and fines lookup by year for students
+              Attendance and fines lookup by school year for students
             </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Search your Student ID and view attendance records by year instantly.
+              Search your Student ID and view attendance records by school year instantly.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">
               Students can check perfect attendance, zero attendance, recorded absences, and penalty status without
-              logging in. Enter your Student ID to see attendance entries and related fines separated by year.
+              logging in. Enter your Student ID to see attendance entries and related fines separated by school year.
             </p>
 
             <form
@@ -2214,7 +2302,7 @@ export default function LandingPage() {
                 <p className="mt-2 text-3xl font-black">Perfect / Zero</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">Yearly records</p>
+                <p className="text-sm font-semibold text-muted-foreground">School-year records</p>
                 <p className="mt-2 text-3xl font-black">Attendance</p>
               </div>
             </div>
@@ -2274,10 +2362,10 @@ export default function LandingPage() {
                     onChange={(event) => setResultYearFilter(event.target.value)}
                     className="min-h-11 rounded-2xl border bg-background px-4 text-sm font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
                   >
-                    <option value={ALL_YEARS_VALUE}>All years</option>
+                    <option value={ALL_YEARS_VALUE}>All school years</option>
                     {yearOptions.map((year) => (
                       <option key={year} value={year}>
-                        {year}
+                        {getSchoolYearLabel(lookup.schoolYears, year)}
                       </option>
                     ))}
                   </select>
@@ -2435,6 +2523,7 @@ export default function LandingPage() {
         open={zeroAttendanceDialogOpen}
         onOpenChange={setZeroAttendanceDialogOpen}
         form={zeroAttendanceForm}
+        schoolYears={schoolYears}
         error={zeroAttendanceError}
         isSaving={isSavingZeroAttendance}
         onFieldChange={handleZeroAttendanceFieldChange}

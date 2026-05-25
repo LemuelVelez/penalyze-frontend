@@ -18,6 +18,13 @@ import {
   updateAttendanceEvent,
   updateAttendanceRecords,
 } from "../../api/attendance";
+import {
+  ALL_SCHOOL_YEARS_VALUE,
+  getSchoolYearLabel,
+  listSchoolYears,
+  transferSchoolYearRecords,
+} from "../../api/schoolYears";
+import type { SchoolYearRecord } from "../../api/schoolYears";
 import type {
   AttendanceEvent,
   AttendanceEventInput,
@@ -245,7 +252,7 @@ const ATTENDANCE_EXCEL_FILE_TYPES = Array.from(
 
 const ATTENDANCE_TEXT_FILE_TYPES = [".csv", ".txt", "text/csv", "text/plain"];
 const UPLOAD_FILE_EVENTS_SELECT_VALUE = "__upload_file_events__";
-const ALL_YEARS_SELECT_VALUE = "__all_years__";
+const ALL_YEARS_SELECT_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const ALL_COLLEGES_SELECT_VALUE = "__all_colleges__";
 const ALL_EVENTS_SELECT_VALUE = "__all_events__";
 const NO_COLLEGE_SELECT_VALUE = "__no_college__";
@@ -1518,6 +1525,8 @@ function getRecordTimestamp(record: AttendanceRecord) {
 }
 
 function getAttendanceRecordYear(record: AttendanceRecord) {
+  if (record.school_year_id) return record.school_year_id;
+
   const value = record.scanned_at ?? record.created_at;
   if (!value) return "";
 
@@ -1527,10 +1536,16 @@ function getAttendanceRecordYear(record: AttendanceRecord) {
   return String(date.getFullYear());
 }
 
-function getAttendanceYearOptions(records: AttendanceRecord[]) {
+function getAttendanceYearOptions(
+  records: AttendanceRecord[],
+  schoolYears: SchoolYearRecord[],
+) {
   return Array.from(
-    new Set(records.map(getAttendanceRecordYear).filter(Boolean)),
-  ).sort((left, right) => Number(right) - Number(left));
+    new Set([
+      ...schoolYears.map((schoolYear) => schoolYear.id),
+      ...records.map(getAttendanceRecordYear),
+    ].filter(Boolean)),
+  );
 }
 
 function recordMatchesSelectedYear(
@@ -5325,8 +5340,10 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
+  const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_SELECT_VALUE);
   const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
   const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
@@ -5366,6 +5383,7 @@ export default function AttendancePage() {
   const [isAddingSelectedRecordsToEvents, setIsAddingSelectedRecordsToEvents] =
     useState(false);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
+  const [isTransferringSchoolYearRecords, setIsTransferringSchoolYearRecords] = useState(false);
   const [eventDeleteProgress, setEventDeleteProgress] =
     useState<AttendanceEventDeleteProgress | null>(null);
   const [isDeletingImports, setIsDeletingImports] = useState(false);
@@ -5424,16 +5442,15 @@ export default function AttendancePage() {
     [mergedRecords],
   );
   const yearFilterOptions = useMemo(
-    () => getAttendanceYearOptions(mergedRecords),
-    [mergedRecords],
+    () => getAttendanceYearOptions(mergedRecords, schoolYears),
+    [mergedRecords, schoolYears],
   );
   const yearFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     return mergedRecords.filter((record) =>
       recordMatchesSelectedYear(record, yearFilter),
     );
   }, [mergedRecords, yearFilter]);
-  const selectedYearLabel =
-    yearFilter === ALL_YEARS_SELECT_VALUE ? "All years" : yearFilter;
+  const selectedYearLabel = getSchoolYearLabel(schoolYears, yearFilter);
   const eventFilterOptions = useMemo<
     Array<{ value: string; label: string }>
   >(() => {
@@ -5968,11 +5985,21 @@ export default function AttendancePage() {
 
         return importRows;
       });
+      const schoolYearsPromise = listSchoolYears().then((schoolYearRows) => {
+        markProgressStepComplete(
+          5,
+          "School years loaded...",
+          `${schoolYearRows.length.toLocaleString()} school year/s received.`,
+        );
 
-      const [rows, eventRows, importRows] = await Promise.all([
+        return schoolYearRows;
+      });
+
+      const [rows, eventRows, importRows, schoolYearRows] = await Promise.all([
         recordsPromise,
         eventsPromise,
         importsPromise,
+        schoolYearsPromise,
       ]);
 
       const rowIds = new Set(rows.map((record) => record.id));
@@ -5986,6 +6013,8 @@ export default function AttendancePage() {
       setRecords(rows);
       setEvents(eventRows);
       setImports(importRows);
+      setSchoolYears(schoolYearRows);
+      setTransferTargetSchoolYearId((current) => current || schoolYearRows[0]?.id || "");
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
       updateProgress(
         100,
@@ -6695,6 +6724,7 @@ export default function AttendancePage() {
     }
 
     const payload: ManualAttendanceInput = {
+      schoolYearId: yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
       eventId: selectedManualEventIds[0] || undefined,
       scannedAt:
         normalizeAttendanceDateTimeValue(manualForm.scannedAt) || undefined,
@@ -6710,6 +6740,7 @@ export default function AttendancePage() {
     const now = new Date().toISOString();
     const draftRecord: AttendanceRecord = {
       id: editingRecordId || "manual-attendance-draft",
+      school_year_id: payload.schoolYearId ?? null,
       import_id: null,
       event_id: payload.eventId ?? null,
       event_name: null,
@@ -7002,6 +7033,7 @@ export default function AttendancePage() {
     }
 
     const payload: AttendanceEventInput = {
+      schoolYearId: yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
       name,
       eventStartAt: eventForm.eventStartAt || undefined,
       eventEndAt: eventForm.eventEndAt || undefined,
@@ -7105,12 +7137,12 @@ export default function AttendancePage() {
     const selectedRecordIdSet = new Set(
       recordIds.map((recordId) => cleanImportValue(recordId)).filter(Boolean),
     );
-    const targetEventIds = Array.from(
+    const targetEventIds: string[] = Array.from(
       new Set(
         selectedEventIds
           .map((eventId) => cleanImportValue(eventId))
-          .filter((eventId) =>
-            displayEvents.some((event) => event.id === eventId),
+          .filter((eventId): eventId is string =>
+            Boolean(eventId) && displayEvents.some((event) => event.id === eventId),
           ),
       ),
     );
@@ -7188,7 +7220,8 @@ export default function AttendancePage() {
             item.record.scanned_at ?? item.record.created_at,
           ) || undefined;
         const result = await saveManualAttendanceRecord({
-          eventId: item.eventId,
+          schoolYearId: yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
+          eventId: String(item.eventId),
           scannedAt,
           studentId: cleanImportValue(item.record.student_id).toUpperCase(),
           name: cleanImportValue(item.record.name),
@@ -7457,6 +7490,42 @@ export default function AttendancePage() {
       await loadRecords({ preserveScroll: true });
     } finally {
       setIsDeletingBulk(false);
+    }
+  }
+
+  async function handleTransferSelectedSchoolYearRecords() {
+    if (!selectedRecordIds.length && !selectedEventIds.length) {
+      toast.error("Please select attendance record/s or event/s to transfer.");
+      return;
+    }
+
+    if (!transferTargetSchoolYearId) {
+      toast.error("Please select a target school year.");
+      return;
+    }
+
+    setIsTransferringSchoolYearRecords(true);
+    setError("");
+
+    try {
+      await transferSchoolYearRecords({
+        targetSchoolYearId: transferTargetSchoolYearId,
+        eventIds: selectedEventIds,
+        attendanceRecordIds: selectedRecordIds,
+      });
+      setSelectedEventIds([]);
+      setSelectedRecordIds([]);
+      await loadRecords({ preserveScroll: true });
+      toast.success("Selected record/s transferred successfully.");
+    } catch (transferError) {
+      const message =
+        transferError instanceof Error
+          ? transferError.message
+          : "Unable to transfer selected records.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsTransferringSchoolYearRecords(false);
     }
   }
 
@@ -8249,7 +8318,7 @@ export default function AttendancePage() {
                       className={tableFilterSelectTriggerClassName}
                     >
                       <SelectValue
-                        placeholder="Filter by year"
+                        placeholder="Filter by school year"
                         className="truncate"
                       />
                     </SelectTrigger>
@@ -8258,7 +8327,7 @@ export default function AttendancePage() {
                         value={ALL_YEARS_SELECT_VALUE}
                         className="max-w-full truncate"
                       >
-                        All years
+                        All school years
                       </SelectItem>
                       {yearFilterOptions.map((year) => (
                         <SelectItem
@@ -8266,7 +8335,7 @@ export default function AttendancePage() {
                           value={year}
                           className="max-w-full truncate"
                         >
-                          {year}
+                          {getSchoolYearLabel(schoolYears, year)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -8351,11 +8420,41 @@ export default function AttendancePage() {
               </div>
 
               <div className="flex min-w-0 flex-col gap-2">
-                {selectedRecordCount ? (
+                {selectedRecordCount || selectedEventCount ? (
                   <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                    {selectedRecordCount} selected
+                    {selectedRecordCount} record/s, {selectedEventCount} event/s selected
                   </p>
                 ) : null}
+                <Select
+                  value={transferTargetSchoolYearId}
+                  onValueChange={setTransferTargetSchoolYearId}
+                >
+                  <SelectTrigger className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black">
+                    <SelectValue placeholder="Target school year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schoolYears.map((schoolYear) => (
+                      <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                        {schoolYear.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    (!selectedRecordCount && !selectedEventCount) ||
+                    !transferTargetSchoolYearId ||
+                    isTransferringSchoolYearRecords
+                  }
+                  onClick={handleTransferSelectedSchoolYearRecords}
+                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+                >
+                  {isTransferringSchoolYearRecords
+                    ? "Transferring..."
+                    : "Transfer Selected"}
+                </Button>
                 <DeleteAttendanceRecordsConfirmation
                   label="Delete Selected"
                   title="Delete selected attendance records?"

@@ -4,6 +4,7 @@ export type FineStatus = "unpaid" | "paid" | "waived";
 
 export type FineRecord = {
   id: string;
+  school_year_id: string | null;
   attendance_record_id: string | null;
   penalty_id: string | null;
   student_id: string;
@@ -28,6 +29,7 @@ export type PenaltyRecord = {
 };
 
 export type ZeroAttendanceFinePayload = {
+  schoolYearId?: string;
   studentId: string;
   name: string;
   yearLevel?: string;
@@ -49,6 +51,7 @@ type ApiEnvelope<T> = {
 };
 
 type ListFineOptions = {
+  schoolYearId?: string;
   status?: FineStatus | "";
   studentId?: string;
   limit?: number;
@@ -162,6 +165,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
 
 export async function listFines(options: ListFineOptions = {}) {
   const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
     status: options.status || undefined,
     studentId: options.studentId,
     limit: options.limit ?? 100,

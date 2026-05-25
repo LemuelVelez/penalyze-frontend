@@ -3,6 +3,13 @@ import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import { listAttendanceRecords } from "../../api/attendance";
+import {
+  ALL_SCHOOL_YEARS_VALUE,
+  getSchoolYearLabel,
+  listSchoolYears,
+  transferSchoolYearRecords,
+} from "../../api/schoolYears";
+import type { SchoolYearRecord } from "../../api/schoolYears";
 import type { AttendanceRecord } from "../../api/attendance";
 import {
   createPenalty,
@@ -67,7 +74,7 @@ const emptyPenaltyForm: PenaltyFormState = {
   prescribedPenalty: "",
 };
 
-const ALL_YEARS_VALUE = "__all_years__";
+const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
 function getDateYear(value?: string | null) {
   if (!value) return "";
@@ -79,25 +86,27 @@ function getDateYear(value?: string | null) {
 }
 
 function getAttendanceRecordYear(record: AttendanceRecord) {
-  return getDateYear(record.scanned_at ?? record.created_at ?? null);
+  return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
 }
 
 function getFineRecordYear(fine: FineRecord) {
-  return getDateYear(fine.created_at ?? null);
+  return fine.school_year_id || getDateYear(fine.created_at ?? null);
 }
 
 function getYearOptions(
   attendanceRecords: AttendanceRecord[],
   fines: FineRecord[],
+  schoolYears: SchoolYearRecord[],
 ) {
   return Array.from(
     new Set(
       [
+        ...schoolYears.map((schoolYear) => schoolYear.id),
         ...attendanceRecords.map(getAttendanceRecordYear),
         ...fines.map(getFineRecordYear),
       ].filter(Boolean),
     ),
-  ).sort((left, right) => Number(right) - Number(left));
+  );
 }
 
 function matchesSelectedYear(recordYear: string, selectedYear: string) {
@@ -658,14 +667,18 @@ export default function FinesPage() {
     AttendanceRecord[]
   >([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
+  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedPenaltyIds, setSelectedPenaltyIds] = useState<string[]>([]);
+  const [selectedFineIds, setSelectedFineIds] = useState<string[]>([]);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
   const [studentId, setStudentId] = useState("");
+  const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
   const [isLoadingFines, setIsLoadingFines] = useState(true);
   const [isLoadingAttendanceRecords, setIsLoadingAttendanceRecords] =
     useState(true);
   const [isLoadingPenalties, setIsLoadingPenalties] = useState(true);
+  const [isTransferringFines, setIsTransferringFines] = useState(false);
   const [updatingId, setUpdatingId] = useState("");
   const [savingPenalty, setSavingPenalty] = useState(false);
   const [seedingPenalties, setSeedingPenalties] = useState(false);
@@ -678,8 +691,8 @@ export default function FinesPage() {
   const [penaltyError, setPenaltyError] = useState("");
 
   const yearOptions = useMemo(
-    () => getYearOptions(attendanceRecords, fines),
-    [attendanceRecords, fines],
+    () => getYearOptions(attendanceRecords, fines, schoolYears),
+    [attendanceRecords, fines, schoolYears],
   );
   const yearFilteredFines = useMemo(() => {
     const filteredFines = fines.filter((fine) => {
@@ -698,8 +711,7 @@ export default function FinesPage() {
 
     return mergeStudentFineRecords(filteredFines, attendanceRecords, yearFilter);
   }, [fines, attendanceRecords, yearFilter]);
-  const reportYearLabel =
-    yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
+  const reportYearLabel = getSchoolYearLabel(schoolYears, yearFilter);
   const totalFines = yearFilteredFines.length;
   const unpaidFines = useMemo(
     () => yearFilteredFines.filter((fine) => fine.status === "unpaid").length,
@@ -713,12 +725,24 @@ export default function FinesPage() {
     () => new Set(selectedPenaltyIds),
     [selectedPenaltyIds],
   );
+  const selectedFineIdsSet = useMemo(
+    () => new Set(selectedFineIds),
+    [selectedFineIds],
+  );
   const selectedPenaltyCount = selectedPenaltyIds.length;
+  const selectedFineCount = selectedFineIds.length;
   const allPenaltiesSelected =
     penalties.length > 0 && selectedPenaltyCount === penalties.length;
+  const allVisibleFinesSelected =
+    yearFilteredFines.length > 0 && selectedFineCount === yearFilteredFines.length;
   const penaltyHeaderChecked = allPenaltiesSelected
     ? true
     : selectedPenaltyCount > 0
+      ? "indeterminate"
+      : false;
+  const fineHeaderChecked = allVisibleFinesSelected
+    ? true
+    : selectedFineCount > 0
       ? "indeterminate"
       : false;
   const reportAttendanceRecords = useMemo(() => {
@@ -738,6 +762,59 @@ export default function FinesPage() {
       return matchesStudentId && matchesYear;
     });
   }, [attendanceRecords, studentId, yearFilter]);
+
+  function handleToggleFineSelected(
+    id: string,
+    checked: boolean | "indeterminate",
+  ) {
+    setSelectedFineIds((current) => {
+      if (checked === true) {
+        return current.includes(id) ? current : [...current, id];
+      }
+
+      return current.filter((fineId) => fineId !== id);
+    });
+  }
+
+  function handleToggleAllFines(checked: boolean | "indeterminate") {
+    setSelectedFineIds(
+      checked === true ? yearFilteredFines.map((fine) => fine.id) : [],
+    );
+  }
+
+  async function handleTransferSelectedFines() {
+    if (!selectedFineIds.length) {
+      toast.error("Please select fine record/s to transfer.");
+      return;
+    }
+
+    if (!transferTargetSchoolYearId) {
+      toast.error("Please select a target school year.");
+      return;
+    }
+
+    setIsTransferringFines(true);
+    setError("");
+
+    try {
+      await transferSchoolYearRecords({
+        targetSchoolYearId: transferTargetSchoolYearId,
+        fineIds: selectedFineIds,
+      });
+      setSelectedFineIds([]);
+      await Promise.all([loadFines(), loadAttendanceRecords()]);
+      toast.success("Selected fine record/s transferred successfully.");
+    } catch (transferError) {
+      const message =
+        transferError instanceof Error
+          ? transferError.message
+          : "Unable to transfer fine records.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsTransferringFines(false);
+    }
+  }
 
   function handleTogglePenaltySelected(
     id: string,
@@ -824,8 +901,27 @@ export default function FinesPage() {
     }
   }
 
+  async function loadSchoolYears() {
+    try {
+      const rows = await listSchoolYears();
+      setSchoolYears(rows);
+      setTransferTargetSchoolYearId((current) => current || rows[0]?.id || "");
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load school years.";
+      toast.error(message);
+    }
+  }
+
   async function loadPageData() {
-    await Promise.all([loadFines(), loadAttendanceRecords(), loadPenalties()]);
+    await Promise.all([
+      loadFines(),
+      loadAttendanceRecords(),
+      loadPenalties(),
+      loadSchoolYears(),
+    ]);
   }
 
   async function handleFilter(event: SyntheticEvent<HTMLFormElement>) {
@@ -1173,10 +1269,10 @@ export default function FinesPage() {
               <SelectValue placeholder="ALL YEARS" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_YEARS_VALUE}>ALL YEARS</SelectItem>
+              <SelectItem value={ALL_YEARS_VALUE}>ALL SCHOOL YEARS</SelectItem>
               {yearOptions.map((year) => (
                 <SelectItem key={year} value={year}>
-                  {year}
+                  {getSchoolYearLabel(schoolYears, year)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1220,6 +1316,30 @@ export default function FinesPage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+              <Select
+                value={transferTargetSchoolYearId}
+                onValueChange={setTransferTargetSchoolYearId}
+              >
+                <SelectTrigger className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black sm:w-52">
+                  <SelectValue placeholder="Target school year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {schoolYears.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                      {schoolYear.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!selectedFineCount || isTransferringFines}
+                onClick={handleTransferSelectedFines}
+                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {isTransferringFines ? "Transferring..." : "Transfer Selected"}
+              </Button>
               <ExportReport
                 attendanceRecords={reportAttendanceRecords}
                 fines={yearFilteredFines}
@@ -1249,6 +1369,18 @@ export default function FinesPage() {
                   key={fine.id}
                   className="rounded-2xl border bg-background p-4"
                 >
+                  <div className="mb-3 flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedFineIdsSet.has(fine.id)}
+                      onCheckedChange={(checked) =>
+                        handleToggleFineSelected(fine.id, checked)
+                      }
+                      aria-label={`Select fine record for ${fine.student_id}`}
+                    />
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Select fine
+                    </p>
+                  </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="wrap-break-word font-black">{fine.name}</p>
@@ -1317,6 +1449,13 @@ export default function FinesPage() {
             <table className="w-full min-w-max text-left text-sm">
               <thead className="border-b text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-3 py-3">
+                    <Checkbox
+                      checked={fineHeaderChecked}
+                      onCheckedChange={handleToggleAllFines}
+                      aria-label="Select all visible fine records"
+                    />
+                  </th>
                   <th className="px-3 py-3">Date</th>
                   <th className="px-3 py-3">Student ID</th>
                   <th className="px-3 py-3">Name</th>
@@ -1331,6 +1470,15 @@ export default function FinesPage() {
                 {yearFilteredFines.length ? (
                   yearFilteredFines.map((fine) => (
                     <tr key={fine.id} className="border-b last:border-b-0">
+                      <td className="px-3 py-3">
+                        <Checkbox
+                          checked={selectedFineIdsSet.has(fine.id)}
+                          onCheckedChange={(checked) =>
+                            handleToggleFineSelected(fine.id, checked)
+                          }
+                          aria-label={`Select fine record for ${fine.student_id}`}
+                        />
+                      </td>
                       <td className="px-3 py-3 font-semibold">
                         {formatDate(fine.created_at)}
                       </td>
@@ -1395,7 +1543,7 @@ export default function FinesPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoadingFines
