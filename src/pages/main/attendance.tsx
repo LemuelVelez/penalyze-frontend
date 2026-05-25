@@ -382,6 +382,48 @@ type ManualZeroAttendanceSyncProgress = {
   updatedRecords: number;
 };
 
+type AttendanceBulkUpdateResult = {
+  records?: AttendanceRecord[];
+  updatedRecordIds?: string[];
+  fines?: unknown[];
+} | null | undefined;
+
+function getAttendanceBulkUpdateIds(
+  result: AttendanceBulkUpdateResult,
+  fallbackRecordIds: string[],
+) {
+  const resultIds = result?.updatedRecordIds ?? [];
+  const updateIds = resultIds.length ? resultIds : fallbackRecordIds;
+
+  return Array.from(
+    new Set(
+      updateIds.map((recordId) => cleanImportValue(recordId)).filter(Boolean),
+    ),
+  );
+}
+
+function getAttendanceBulkUpdatedRecords(
+  result: AttendanceBulkUpdateResult,
+  fallbackRecordIds: string[],
+) {
+  const updateIds = new Set(
+    getAttendanceBulkUpdateIds(result, fallbackRecordIds),
+  );
+
+  return (result?.records ?? []).filter((record) => updateIds.has(record.id));
+}
+
+function getAttendanceBulkUpdatedCount(
+  result: AttendanceBulkUpdateResult,
+  fallbackRecordIds: string[],
+) {
+  return getAttendanceBulkUpdateIds(result, fallbackRecordIds).length;
+}
+
+function getAttendanceBulkFineCount(result: AttendanceBulkUpdateResult) {
+  return Array.isArray(result?.fines) ? result.fines.length : 0;
+}
+
 const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
   percent: 0,
   message: "",
@@ -2376,10 +2418,14 @@ async function syncManualZeroAttendanceRecords(
         candidate.calculatedAbsenceCount ?? 0,
       ),
     );
-    const resultRecords = result?.records ?? [];
+    const resultRecords = getAttendanceBulkUpdatedRecords(result, [
+      candidate.record.id,
+    ]);
 
     updatedRecords.push(...resultRecords);
-    updatedRecordsCount += resultRecords.length;
+    updatedRecordsCount += getAttendanceBulkUpdatedCount(result, [
+      candidate.record.id,
+    ]);
     processedRecords += 1;
 
     onProgress?.({
@@ -5464,30 +5510,24 @@ export default function AttendancePage() {
     await waitForNextPaint();
 
     const result = await updateAttendanceRecords(uniqueRecordIds, payload);
-    const updatedRecords = result?.records ?? [];
-    const updatedCount = result?.updatedRecordIds?.length || totalRecords;
+    const updatedRecords = getAttendanceBulkUpdatedRecords(
+      result,
+      uniqueRecordIds,
+    );
+    const updatedCount = getAttendanceBulkUpdatedCount(result, uniqueRecordIds);
     const elapsedTime = formatDuration(performance.now() - startedAt);
+    const fineCount = getAttendanceBulkFineCount(result);
 
     setManualSaveProgress({
       stage: "syncing",
-      percent: 92,
+      percent: 96,
       message: `Database updated ${updatedCount} record/s in ${elapsedTime}. Applying refreshed records...`,
       processedRows: updatedCount,
       totalRows: totalRecords,
       savedRecords: updatedRecords.length || updatedCount,
-      createdFines: result?.fines?.length ?? 0,
+      createdFines: fineCount,
     });
     await waitForNextPaint();
-
-    setManualSaveProgress({
-      stage: "completed",
-      percent: 100,
-      message: `Attendance update completed in ${elapsedTime}.`,
-      processedRows: updatedCount,
-      totalRows: totalRecords,
-      savedRecords: updatedRecords.length || updatedCount,
-      createdFines: result?.fines?.length ?? 0,
-    });
 
     return updatedRecords;
   }
@@ -5674,12 +5714,33 @@ export default function AttendancePage() {
         });
       }
 
-      if (!editingRecordId || selectedManualEventIds.length > 1) {
-        await loadRecords({ preserveScroll: true });
+      const shouldRefreshRecords =
+        !editingRecordId ||
+        selectedManualEventIds.length > 1 ||
+        !savedRecords.length;
+
+      if (editingRecordId) {
+        const completedRecordCount = Math.max(
+          affectedRecordCount,
+          savedRecords.length,
+        );
+
+        setManualSaveProgress({
+          stage: "completed",
+          percent: 100,
+          message: "Attendance update completed.",
+          processedRows: completedRecordCount,
+          totalRows: completedRecordCount,
+          savedRecords: completedRecordCount,
+          createdFines: 0,
+        });
+        setDisplayManualSaveProgressPercent(100);
+        await waitForNextPaint();
       }
 
       handleCancelEdit();
       setManualDialogOpen(false);
+      setIsSavingManual(false);
       restoreCapturedScrollPosition();
       toast.success(
         editingRecordId
@@ -5690,6 +5751,10 @@ export default function AttendancePage() {
             ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s.`
             : "Attendance record saved successfully.",
       );
+
+      if (shouldRefreshRecords) {
+        void loadRecords({ preserveScroll: true });
+      }
     } catch (manualError) {
       const message =
         manualError instanceof Error
@@ -6231,6 +6296,8 @@ export default function AttendancePage() {
             <ManualAttendanceDialog
               open={manualDialogOpen}
               onOpenChange={(open) => {
+                if (isSavingManual) return;
+
                 setManualDialogOpen(open);
                 if (!open) handleCancelEdit();
               }}
