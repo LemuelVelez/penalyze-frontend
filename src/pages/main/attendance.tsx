@@ -1990,6 +1990,26 @@ function getMatchingAttendanceEventRecordsForAttendee(
   });
 }
 
+function getMissingAttendanceEventIdsForAttendee(
+  records: AttendanceRecord[],
+  editingRecord: AttendanceRecord,
+  eventIds: string[],
+  events: AttendanceEvent[],
+) {
+  const uniqueEventIds = Array.from(
+    new Set(eventIds.map((eventId) => cleanImportValue(eventId)).filter(Boolean)),
+  );
+
+  return uniqueEventIds.filter((eventId) => {
+    return !getMatchingAttendanceEventRecordsForAttendee(
+      records,
+      editingRecord,
+      eventId,
+      events,
+    ).length;
+  });
+}
+
 function getAttendanceAttendeeSummaries(records: AttendanceRecord[]) {
   const attendees = new Map<string, AttendanceEventAttendeeSummary>();
 
@@ -5532,13 +5552,89 @@ export default function AttendancePage() {
     return updatedRecords;
   }
 
+  async function saveManualAttendanceEventsWithProgress(
+    eventIds: string[],
+    payload: ManualAttendanceInput,
+  ) {
+    const uniqueEventIds = Array.from(
+      new Set(eventIds.map((eventId) => cleanImportValue(eventId)).filter(Boolean)),
+    );
+    const totalEvents = uniqueEventIds.length;
+    const savedRecords: AttendanceRecord[] = [];
+
+    if (!totalEvents) {
+      setManualSaveProgress({
+        stage: "completed",
+        percent: 100,
+        message: "Selected attended event/s are already recorded.",
+        processedRows: 0,
+        totalRows: 0,
+        savedRecords: 0,
+        createdFines: 0,
+      });
+      setDisplayManualSaveProgressPercent(100);
+      await waitForNextPaint();
+
+      return savedRecords;
+    }
+
+    setManualSaveProgress({
+      stage: "preparing",
+      percent: 8,
+      message: `Preparing ${totalEvents} manual attended event record/s...`,
+      processedRows: 0,
+      totalRows: totalEvents,
+      savedRecords: 0,
+      createdFines: 0,
+    });
+    await waitForNextPaint();
+
+    for (const [index, eventId] of uniqueEventIds.entries()) {
+      const currentRecordNumber = index + 1;
+      const startPercent = Math.min(90, 12 + (index / totalEvents) * 78);
+
+      setManualSaveProgress({
+        stage: "saving",
+        percent: startPercent,
+        message: `Adding attended event ${currentRecordNumber}/${totalEvents}...`,
+        processedRows: index,
+        totalRows: totalEvents,
+        savedRecords: savedRecords.length,
+        createdFines: 0,
+      });
+      await waitForNextPaint();
+
+      const result = await saveManualAttendanceRecord({
+        ...payload,
+        eventId,
+        noOfAbsences: 0,
+      });
+
+      if (result?.record) savedRecords.push(result.record);
+
+      setManualSaveProgress({
+        stage: "syncing",
+        percent: Math.min(98, 20 + (currentRecordNumber / totalEvents) * 78),
+        message: `Added ${currentRecordNumber}/${totalEvents} attended event record/s. Applying refreshed records...`,
+        processedRows: currentRecordNumber,
+        totalRows: totalEvents,
+        savedRecords: savedRecords.length,
+        createdFines: 0,
+      });
+      await waitForNextPaint();
+    }
+
+    return savedRecords;
+  }
+
   async function handleManualSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const studentId = manualForm.studentId.trim();
     const name = manualForm.name.trim();
     const noOfAbsences = Number(manualForm.noOfAbsences);
-    const selectedManualEventIds = getManualAttendanceSelectedEventIds(manualForm);
+    const selectedManualEventIds =
+      getManualAttendanceSelectedEventIds(manualForm);
 
     if (!studentId) {
       setError("Student ID is required.");
@@ -5591,7 +5687,10 @@ export default function AttendancePage() {
     };
     const calculatedZeroAttendanceAbsences = selectedManualEventIds.length
       ? null
-      : getManualZeroAttendanceCalculatedAbsenceCount(draftRecord, normalizedRecords);
+      : getManualZeroAttendanceCalculatedAbsenceCount(
+          draftRecord,
+          normalizedRecords,
+        );
 
     if (calculatedZeroAttendanceAbsences !== null) {
       payload.eventId = undefined;
@@ -5605,13 +5704,40 @@ export default function AttendancePage() {
     try {
       let affectedRecordCount = 0;
       let savedRecords: AttendanceRecord[] = [];
+      let appendedManualEventRecords = false;
+      let skippedExistingEventCount = 0;
 
       if (editingRecordId) {
         const editingRecord = normalizedRecords.find(
           (record) => record.id === editingRecordId,
         );
+        const shouldAppendManualEventRecords = Boolean(
+          editingRecord &&
+            selectedManualEventIds.length &&
+            isEventlessAttendanceRecord(editingRecord),
+        );
 
-        if (!selectedManualEventIds.length || !editingRecord) {
+        if (shouldAppendManualEventRecords && editingRecord) {
+          appendedManualEventRecords = true;
+
+          const missingEventIds = getMissingAttendanceEventIdsForAttendee(
+            normalizedRecords,
+            editingRecord,
+            selectedManualEventIds,
+            events,
+          );
+
+          skippedExistingEventCount =
+            selectedManualEventIds.length - missingEventIds.length;
+          savedRecords = await saveManualAttendanceEventsWithProgress(
+            missingEventIds,
+            {
+              ...payload,
+              noOfAbsences: 0,
+            },
+          );
+          affectedRecordCount = savedRecords.length;
+        } else if (!selectedManualEventIds.length || !editingRecord) {
           const matchingEditRecords = getMatchingAttendanceEditRecords(
             normalizedRecords,
             editingRecordId,
@@ -5658,6 +5784,7 @@ export default function AttendancePage() {
                 {
                   ...payload,
                   eventId: selectedEventId,
+                  noOfAbsences: 0,
                 },
               );
 
@@ -5669,6 +5796,7 @@ export default function AttendancePage() {
             const result = await saveManualAttendanceRecord({
               ...payload,
               eventId: selectedEventId,
+              noOfAbsences: 0,
             });
 
             if (result?.record) {
@@ -5678,15 +5806,13 @@ export default function AttendancePage() {
           }
         }
       } else if (selectedManualEventIds.length) {
-        for (const selectedEventId of selectedManualEventIds) {
-          const result = await saveManualAttendanceRecord({
+        savedRecords = await saveManualAttendanceEventsWithProgress(
+          selectedManualEventIds,
+          {
             ...payload,
-            eventId: selectedEventId,
-          });
-
-          if (result?.record) savedRecords.push(result.record);
-        }
-
+            noOfAbsences: 0,
+          },
+        );
         affectedRecordCount = savedRecords.length;
       } else {
         const result = await saveManualAttendanceRecord({
@@ -5715,9 +5841,12 @@ export default function AttendancePage() {
       }
 
       const shouldRefreshRecords =
-        !editingRecordId ||
-        selectedManualEventIds.length > 1 ||
-        !savedRecords.length;
+        (!savedRecords.length &&
+          !(appendedManualEventRecords && skippedExistingEventCount > 0)) ||
+        (!appendedManualEventRecords &&
+          Boolean(editingRecordId) &&
+          selectedManualEventIds.length > 1 &&
+          savedRecords.length < affectedRecordCount);
 
       if (editingRecordId) {
         const completedRecordCount = Math.max(
@@ -5738,19 +5867,27 @@ export default function AttendancePage() {
         await waitForNextPaint();
       }
 
+      const successMessage = editingRecordId
+        ? appendedManualEventRecords
+          ? affectedRecordCount > 0
+            ? `Attendance attendee linked to ${affectedRecordCount} new event/s${
+                skippedExistingEventCount
+                  ? `; ${skippedExistingEventCount} already recorded.`
+                  : "."
+              }`
+            : "Selected event/s are already recorded for this attendee."
+          : selectedManualEventIds.length
+            ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s across ${affectedRecordCount} record/s.`
+            : `Attendance attendee updated as no event attended across ${affectedRecordCount} record/s.`
+        : selectedManualEventIds.length > 1
+          ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s.`
+          : "Attendance record saved successfully.";
+
       handleCancelEdit();
       setManualDialogOpen(false);
       setIsSavingManual(false);
       restoreCapturedScrollPosition();
-      toast.success(
-        editingRecordId
-          ? selectedManualEventIds.length
-            ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s across ${affectedRecordCount} record/s.`
-            : `Attendance attendee updated as no event attended across ${affectedRecordCount} record/s.`
-          : selectedManualEventIds.length > 1
-            ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s.`
-            : "Attendance record saved successfully.",
-      );
+      toast.success(successMessage);
 
       if (shouldRefreshRecords) {
         void loadRecords({ preserveScroll: true });
