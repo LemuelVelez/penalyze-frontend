@@ -2856,8 +2856,26 @@ function isAbortError(error: unknown) {
 function waitForNextPaint() {
   if (typeof window === "undefined") return Promise.resolve();
 
+  const browserDocument = window.document;
+
+  if (browserDocument.visibilityState === "hidden") {
+    return Promise.resolve();
+  }
+
   return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => resolve());
+    let isResolved = false;
+    let timeoutId: number | null = null;
+
+    const resolveOnce = () => {
+      if (isResolved) return;
+
+      isResolved = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      resolve();
+    };
+
+    timeoutId = window.setTimeout(resolveOnce, 120);
+    window.requestAnimationFrame(resolveOnce);
   });
 }
 
