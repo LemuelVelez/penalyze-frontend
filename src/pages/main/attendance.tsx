@@ -489,7 +489,7 @@ const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
   detail: "",
 };
 
-const ATTENDANCE_RECORDS_PAGE_SIZE = 5000;
+const ATTENDANCE_RECORDS_PAGE_SIZE = 25000;
 const ATTENDANCE_RECORDS_MAX_ROWS = 50000;
 
 function useProgressivePercent(isActive: boolean, targetPercent: number) {
@@ -5492,6 +5492,12 @@ export default function AttendancePage() {
     const updateRecordPageProgress = (
       progress: AttendanceRecordsPageProgress,
     ) => {
+      const recordRowsProgressTarget = progress.isComplete
+        ? Math.max(progress.loadedRows, 1)
+        : Math.min(
+            ATTENDANCE_RECORDS_MAX_ROWS,
+            Math.max(progress.loadedRows, ATTENDANCE_RECORDS_PAGE_SIZE),
+          );
       const nextRecordWeight = progress.isComplete
         ? 70
         : Math.min(
@@ -5499,7 +5505,7 @@ export default function AttendancePage() {
             Math.max(
               recordWeight,
               Math.round(
-                (progress.loadedRows / ATTENDANCE_RECORDS_MAX_ROWS) * 66,
+                (progress.loadedRows / recordRowsProgressTarget) * 66,
               ),
             ),
           );
