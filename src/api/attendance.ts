@@ -134,6 +134,7 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
 export type ManualAttendanceSaveResult = {
   event: AttendanceEvent | null;
   record: AttendanceRecord;
+  records?: AttendanceRecord[];
   fine: SavedAttendanceImportResult["createdFines"][number] | null;
 };
 
@@ -745,4 +746,7 @@ export async function deleteAttendanceRecord(id: string) {
 
   return response.data;
 }
+
+
+
 

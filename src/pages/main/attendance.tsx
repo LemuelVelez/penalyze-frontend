@@ -27,6 +27,7 @@ import type {
   SavedAttendanceImportResult,
   AttendanceRecord,
   ManualAttendanceInput,
+  ManualAttendanceSaveResult,
   ParsedAttendanceRow,
 } from "../../api/attendance";
 import {
@@ -374,6 +375,8 @@ type AttendanceRecordsPageProgress = {
 type ManualZeroAttendanceSyncContext = {
   allEventKeysCount: number;
   collegeEventKeyCounts: Map<string, number>;
+  studentEventKeyCounts: Map<string, number>;
+  studentCollegeEventKeyCounts: Map<string, number>;
 };
 
 type ManualZeroAttendanceSyncProgress = {
@@ -422,6 +425,22 @@ function getAttendanceBulkUpdatedCount(
 
 function getAttendanceBulkFineCount(result: AttendanceBulkUpdateResult) {
   return Array.isArray(result?.fines) ? result.fines.length : 0;
+}
+
+function getManualAttendanceSavedRecords(
+  result: ManualAttendanceSaveResult | null | undefined,
+) {
+  const recordsById = new Map<string, AttendanceRecord>();
+
+  result?.records?.forEach((record) => {
+    if (record.id) recordsById.set(record.id, record);
+  });
+
+  if (result?.record?.id) {
+    recordsById.set(result.record.id, result.record);
+  }
+
+  return Array.from(recordsById.values());
 }
 
 const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
@@ -1716,6 +1735,9 @@ function getCollegeScopedAttendanceAbsenceCount(
       .map((record) => getAttendanceCollegeScopeKey(record.college))
       .filter((collegeKey) => collegeKey !== NO_COLLEGE_SELECT_VALUE),
   );
+  const studentProfileKeys = new Set(
+    studentRecords.map(getRecordStudentProfileKey).filter(Boolean),
+  );
 
   if (!studentRecords.length || !allRecords.length) return null;
 
@@ -1732,7 +1754,10 @@ function getCollegeScopedAttendanceAbsenceCount(
   const collectEventKeys = (
     sourceRecords: AttendanceRecord[],
     useCollegeScope: boolean,
-    options: { excludeAbsentRecords?: boolean } = {},
+    options: {
+      excludeAbsentRecords?: boolean;
+      matchStudentProfileKeys?: Set<string>;
+    } = {},
   ) => {
     const eventKeys = new Set<string>();
 
@@ -1740,7 +1765,12 @@ function getCollegeScopedAttendanceAbsenceCount(
       if (
         !matchesStudentCollegeScope(record, useCollegeScope) ||
         isEventlessAttendanceRecord(record) ||
-        (options.excludeAbsentRecords && isExplicitAbsentAttendanceRecord(record)) ||
+        (options.excludeAbsentRecords &&
+          isExplicitAbsentAttendanceRecord(record)) ||
+        (options.matchStudentProfileKeys &&
+          !options.matchStudentProfileKeys.has(
+            getRecordStudentProfileKey(record),
+          )) ||
         !hasAttendanceEventIdentity(record)
       ) {
         return;
@@ -1761,13 +1791,15 @@ function getCollegeScopedAttendanceAbsenceCount(
 
   if (!collegeEventKeys.size) return null;
 
-  let attendedEventKeys = collectEventKeys(studentRecords, shouldUseCollegeScope, {
+  let attendedEventKeys = collectEventKeys(allRecords, shouldUseCollegeScope, {
     excludeAbsentRecords: true,
+    matchStudentProfileKeys: studentProfileKeys,
   });
 
   if (!attendedEventKeys.size && shouldUseCollegeScope) {
-    attendedEventKeys = collectEventKeys(studentRecords, false, {
+    attendedEventKeys = collectEventKeys(allRecords, false, {
       excludeAbsentRecords: true,
+      matchStudentProfileKeys: studentProfileKeys,
     });
   }
 
@@ -2350,6 +2382,18 @@ function createManualZeroAttendanceSyncContext(
 ): ManualZeroAttendanceSyncContext {
   const allEventKeys = new Set<string>();
   const collegeEventKeys = new Map<string, Set<string>>();
+  const studentEventKeys = new Map<string, Set<string>>();
+  const studentCollegeEventKeys = new Map<string, Set<string>>();
+
+  const addScopedEventKey = (
+    map: Map<string, Set<string>>,
+    scopeKey: string,
+    eventKey: string,
+  ) => {
+    const eventKeys = map.get(scopeKey) ?? new Set<string>();
+    eventKeys.add(eventKey);
+    map.set(scopeKey, eventKeys);
+  };
 
   rows.forEach((record) => {
     if (
@@ -2365,11 +2409,24 @@ function createManualZeroAttendanceSyncContext(
     allEventKeys.add(eventKey);
 
     const collegeKey = getAttendanceCollegeScopeKey(record.college);
-    if (collegeKey === NO_COLLEGE_SELECT_VALUE) return;
+    if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
+      addScopedEventKey(collegeEventKeys, collegeKey, eventKey);
+    }
 
-    const collegeEvents = collegeEventKeys.get(collegeKey) ?? new Set<string>();
-    collegeEvents.add(eventKey);
-    collegeEventKeys.set(collegeKey, collegeEvents);
+    if (isExplicitAbsentAttendanceRecord(record)) return;
+
+    const studentKey = getRecordStudentProfileKey(record);
+    if (!studentKey) return;
+
+    addScopedEventKey(studentEventKeys, studentKey, eventKey);
+
+    if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
+      addScopedEventKey(
+        studentCollegeEventKeys,
+        `${studentKey}:${collegeKey}`,
+        eventKey,
+      );
+    }
   });
 
   return {
@@ -2380,6 +2437,20 @@ function createManualZeroAttendanceSyncContext(
         eventKeys.size,
       ]),
     ),
+    studentEventKeyCounts: new Map(
+      Array.from(studentEventKeys.entries()).map(([studentKey, eventKeys]) => [
+        studentKey,
+        eventKeys.size,
+      ]),
+    ),
+    studentCollegeEventKeyCounts: new Map(
+      Array.from(studentCollegeEventKeys.entries()).map(
+        ([studentCollegeKey, eventKeys]) => [
+          studentCollegeKey,
+          eventKeys.size,
+        ],
+      ),
+    ),
   };
 }
 
@@ -2389,14 +2460,25 @@ function getManualZeroAttendanceCalculatedAbsenceCountFromContext(
 ) {
   if (!isEventlessAttendanceRecord(record)) return null;
 
+  const studentKey = getRecordStudentProfileKey(record);
   const collegeKey = getAttendanceCollegeScopeKey(record.college);
 
   if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
     const collegeEventCount = context.collegeEventKeyCounts.get(collegeKey) ?? 0;
-    if (collegeEventCount > 0) return collegeEventCount;
+    if (collegeEventCount > 0) {
+      const attendedEventCount =
+        context.studentCollegeEventKeyCounts.get(`${studentKey}:${collegeKey}`) ??
+        0;
+
+      return Math.max(0, collegeEventCount - attendedEventCount);
+    }
   }
 
-  return context.allEventKeysCount > 0 ? context.allEventKeysCount : null;
+  if (context.allEventKeysCount <= 0) return null;
+
+  const attendedEventCount = context.studentEventKeyCounts.get(studentKey) ?? 0;
+
+  return Math.max(0, context.allEventKeysCount - attendedEventCount);
 }
 
 async function syncManualZeroAttendanceRecords(
@@ -5110,7 +5192,7 @@ export default function AttendancePage() {
       updateProgress(
         96,
         "Syncing zero attendance records...",
-        "Updating manual zero-attendance records to match their college event totals.",
+        "Updating manual zero-attendance records to match their remaining missed events.",
       );
 
       const synchronizedRows = await syncManualZeroAttendanceRecords(
@@ -5628,7 +5710,7 @@ export default function AttendancePage() {
         noOfAbsences: 0,
       });
 
-      if (result?.record) savedRecords.push(result.record);
+      savedRecords.push(...getManualAttendanceSavedRecords(result));
 
       setManualSaveProgress({
         stage: "syncing",
@@ -5723,9 +5805,7 @@ export default function AttendancePage() {
       let affectedRecordCount = 0;
       let savedRecords: AttendanceRecord[] = [];
       let appendedManualEventRecords = false;
-      let linkedManualEventCount = 0;
       let skippedExistingEventCount = 0;
-      let shouldRefreshRecordsAfterManualSave = false;
 
       if (editingRecordId) {
         const editingRecord = normalizedRecords.find(
@@ -5739,7 +5819,6 @@ export default function AttendancePage() {
 
         if (shouldAppendManualEventRecords && editingRecord) {
           appendedManualEventRecords = true;
-          shouldRefreshRecordsAfterManualSave = true;
 
           const missingEventIds = getMissingAttendanceEventIdsForAttendee(
             normalizedRecords,
@@ -5747,43 +5826,17 @@ export default function AttendancePage() {
             selectedManualEventIds,
             events,
           );
-          const [replacementEventId, ...additionalEventIds] = missingEventIds;
 
           skippedExistingEventCount =
             selectedManualEventIds.length - missingEventIds.length;
-
-          if (replacementEventId) {
-            const updatedRecords = await updateAttendanceRecordsWithProgress(
-              [editingRecord.id],
-              {
-                ...payload,
-                eventId: replacementEventId,
-                noOfAbsences: 0,
-              },
-            );
-
-            savedRecords.push(...updatedRecords);
-            affectedRecordCount += 1;
-            linkedManualEventCount += 1;
-          } else if (selectedManualEventIds.length) {
-            await deleteAttendanceRecord(editingRecord.id);
-            affectedRecordCount += 1;
-          }
-
-          if (additionalEventIds.length) {
-            const additionalRecords =
-              await saveManualAttendanceEventsWithProgress(
-                additionalEventIds,
-                {
-                  ...payload,
-                  noOfAbsences: 0,
-                },
-              );
-
-            savedRecords.push(...additionalRecords);
-            affectedRecordCount += additionalRecords.length;
-            linkedManualEventCount += additionalRecords.length;
-          }
+          savedRecords = await saveManualAttendanceEventsWithProgress(
+            missingEventIds,
+            {
+              ...payload,
+              noOfAbsences: 0,
+            },
+          );
+          affectedRecordCount = missingEventIds.length;
         } else if (!selectedManualEventIds.length || !editingRecord) {
           const matchingEditRecords = getMatchingAttendanceEditRecords(
             normalizedRecords,
@@ -5846,10 +5899,11 @@ export default function AttendancePage() {
               noOfAbsences: 0,
             });
 
-            if (result?.record) {
-              savedRecords.push(result.record);
-              affectedRecordCount += 1;
-            }
+            const manualSavedRecords =
+              getManualAttendanceSavedRecords(result);
+
+            savedRecords.push(...manualSavedRecords);
+            if (manualSavedRecords.length) affectedRecordCount += 1;
           }
         }
       } else if (selectedManualEventIds.length) {
@@ -5860,13 +5914,13 @@ export default function AttendancePage() {
             noOfAbsences: 0,
           },
         );
-        affectedRecordCount = savedRecords.length;
+        affectedRecordCount = selectedManualEventIds.length;
       } else {
         const result = await saveManualAttendanceRecord({
           ...payload,
           eventId: undefined,
         });
-        if (result?.record) savedRecords = [result.record];
+        savedRecords = getManualAttendanceSavedRecords(result);
         affectedRecordCount = savedRecords.length;
       }
 
@@ -5875,8 +5929,9 @@ export default function AttendancePage() {
           const savedRecordById = new Map(
             savedRecords.map((record) => [record.id, record]),
           );
+          const uniqueSavedRecords = Array.from(savedRecordById.values());
           const currentRecordIds = new Set(current.map((record) => record.id));
-          const newRecords = savedRecords.filter(
+          const newRecords = uniqueSavedRecords.filter(
             (record) => !currentRecordIds.has(record.id),
           );
           const updatedRecords = current.map(
@@ -5888,7 +5943,8 @@ export default function AttendancePage() {
       }
 
       const shouldRefreshRecords =
-        shouldRefreshRecordsAfterManualSave ||
+        selectedManualEventIds.length > 0 ||
+        calculatedZeroAttendanceAbsences !== null ||
         (!savedRecords.length &&
           !(appendedManualEventRecords && skippedExistingEventCount > 0)) ||
         (!appendedManualEventRecords &&
@@ -5917,8 +5973,8 @@ export default function AttendancePage() {
 
       const successMessage = editingRecordId
         ? appendedManualEventRecords
-          ? linkedManualEventCount > 0
-            ? `Attendance attendee linked to ${linkedManualEventCount} new event/s${
+          ? affectedRecordCount > 0
+            ? `Attendance attendee linked to ${affectedRecordCount} new event/s${
                 skippedExistingEventCount
                   ? `; ${skippedExistingEventCount} already recorded.`
                   : "."
