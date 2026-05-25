@@ -4725,11 +4725,18 @@ function AttendanceEventGroupTriggerContent(props: {
 
 function AttendanceEventAttendeesDialog(props: {
   group: AttendanceEventRecordGroup;
+  events: AttendanceEvent[];
+  selectedEventIdsSet: Set<string>;
   selectedEventCount: number;
   selectedRecordIdsSet: Set<string>;
   deletingRecordId: string;
   isDeletingBulk: boolean;
   isAddingSelectedToEvents: boolean;
+  onToggleEventSelected: (
+    id: string,
+    checked: boolean | "indeterminate",
+  ) => void;
+  onToggleAllEvents: (checked: boolean | "indeterminate") => void;
   onToggleRecordSelected: (
     id: string,
     checked: boolean | "indeterminate",
@@ -4747,6 +4754,16 @@ function AttendanceEventAttendeesDialog(props: {
     .filter((record) => props.selectedRecordIdsSet.has(record.id))
     .map((record) => record.id);
   const selectedGroupRecordCount = selectedGroupRecordIds.length;
+  const selectedDialogEventCount = props.events.filter((event) =>
+    props.selectedEventIdsSet.has(event.id),
+  ).length;
+  const allDialogEventsSelected =
+    props.events.length > 0 && selectedDialogEventCount === props.events.length;
+  const eventSelectorHeaderChecked = allDialogEventsSelected
+    ? true
+    : selectedDialogEventCount > 0
+      ? "indeterminate"
+      : false;
   const canAddSelectedToEvents =
     props.group.key === NO_EVENT_FILTER_SELECT_VALUE &&
     selectedGroupRecordCount > 0 &&
@@ -4802,6 +4819,70 @@ function AttendanceEventAttendeesDialog(props: {
               </p>
             </div>
           </div>
+
+          {props.group.key === NO_EVENT_FILTER_SELECT_VALUE ? (
+            <div className="space-y-3 rounded-2xl border bg-background p-4">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="wrap-break-word text-sm font-black">
+                    Select target event/s
+                  </p>
+                  <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
+                    {props.events.length} existing event/s shown
+                    {props.selectedEventCount
+                      ? ` • ${props.selectedEventCount} selected`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex min-w-0 items-center gap-3 rounded-xl border bg-muted/40 px-3 py-2">
+                  <Checkbox
+                    checked={eventSelectorHeaderChecked}
+                    onCheckedChange={props.onToggleAllEvents}
+                    disabled={props.isAddingSelectedToEvents}
+                    aria-label="Select all existing attendance events"
+                    className="shrink-0"
+                  />
+                  <span className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                    Select all
+                  </span>
+                </div>
+              </div>
+
+              {props.events.length ? (
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {props.events.map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex min-w-0 items-start gap-3 rounded-xl border bg-muted/30 p-3"
+                    >
+                      <Checkbox
+                        checked={props.selectedEventIdsSet.has(event.id)}
+                        onCheckedChange={(checked) =>
+                          props.onToggleEventSelected(event.id, checked)
+                        }
+                        disabled={props.isAddingSelectedToEvents}
+                        aria-label={`Select ${event.name}`}
+                        className="mt-1 shrink-0"
+                      />
+                      <span className="min-w-0">
+                        <span className="block wrap-break-word text-sm font-black">
+                          {event.name}
+                        </span>
+                        <span className="mt-1 block wrap-break-word text-xs font-semibold text-muted-foreground">
+                          {formatEventSchedule(event)} • {event.attendees_count}{" "}
+                          attendee/s
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-muted/30 p-4 text-center text-sm font-semibold text-muted-foreground">
+                  No existing events available.
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {selectedGroupRecordCount ? (
             <div className="grid gap-3 rounded-2xl border bg-background p-4 sm:grid-cols-2">
@@ -8541,6 +8622,8 @@ export default function AttendancePage() {
                             <div className="flex shrink-0 justify-start lg:justify-end">
                               <AttendanceEventAttendeesDialog
                                 group={group}
+                                events={displayEvents}
+                                selectedEventIdsSet={selectedEventIdsSet}
                                 selectedEventCount={selectedEventCount}
                                 selectedRecordIdsSet={selectedRecordIdsSet}
                                 deletingRecordId={deletingRecordId}
@@ -8548,6 +8631,8 @@ export default function AttendancePage() {
                                 isAddingSelectedToEvents={
                                   isAddingSelectedRecordsToEvents
                                 }
+                                onToggleEventSelected={handleToggleEventSelected}
+                                onToggleAllEvents={handleToggleAllEvents}
                                 onToggleRecordSelected={
                                   handleToggleRecordSelected
                                 }
