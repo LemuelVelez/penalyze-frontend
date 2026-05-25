@@ -7,6 +7,7 @@ import {
   ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
   listSchoolYears,
+  saveSchoolYear,
   transferSchoolYearRecords,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
@@ -35,6 +36,14 @@ import {
 import ExportReport from "../../components/exportReport";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Select,
@@ -49,6 +58,13 @@ type StatusFilter = FineStatus | "all";
 type PenaltyFormState = {
   noOfAbsences: string;
   prescribedPenalty: string;
+};
+
+type SchoolYearFormState = {
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  isActive: boolean;
 };
 
 type DisplayFineRecord = FineRecord & {
@@ -74,6 +90,13 @@ const emptyPenaltyForm: PenaltyFormState = {
   prescribedPenalty: "",
 };
 
+const emptySchoolYearForm: SchoolYearFormState = {
+  name: "",
+  startsAt: "",
+  endsAt: "",
+  isActive: false,
+};
+
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
 function getDateYear(value?: string | null) {
@@ -89,8 +112,28 @@ function getAttendanceRecordYear(record: AttendanceRecord) {
   return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
 }
 
-function getFineRecordYear(fine: FineRecord) {
-  return fine.school_year_id || getDateYear(fine.created_at ?? null);
+function getAttendanceRecordById(records: AttendanceRecord[]) {
+  const recordById = new Map<string, AttendanceRecord>();
+
+  records.forEach((record) => {
+    if (record.id) recordById.set(String(record.id), record);
+  });
+
+  return recordById;
+}
+
+function getFineRecordYear(
+  fine: FineRecord,
+  attendanceRecordById?: Map<string, AttendanceRecord>,
+) {
+  const linkedRecord = attendanceRecordById?.get(getFineAttendanceRecordId(fine)) ?? null;
+
+  return (
+    fine.school_year_id ||
+    linkedRecord?.school_year_id ||
+    getDateYear(linkedRecord?.scanned_at ?? linkedRecord?.created_at ?? null) ||
+    getDateYear(fine.created_at ?? null)
+  );
 }
 
 function getYearOptions(
@@ -98,12 +141,14 @@ function getYearOptions(
   fines: FineRecord[],
   schoolYears: SchoolYearRecord[],
 ) {
+  const attendanceRecordById = getAttendanceRecordById(attendanceRecords);
+
   return Array.from(
     new Set(
       [
         ...schoolYears.map((schoolYear) => schoolYear.id),
         ...attendanceRecords.map(getAttendanceRecordYear),
-        ...fines.map(getFineRecordYear),
+        ...fines.map((fine) => getFineRecordYear(fine, attendanceRecordById)),
       ].filter(Boolean),
     ),
   );
@@ -577,6 +622,179 @@ function isFineLinkedToAttendeeCollege(props: {
   });
 }
 
+function getSelectedFineTransferIds(
+  fines: DisplayFineRecord[],
+  selectedFineIds: string[],
+) {
+  const selectedFineIdSet = new Set(selectedFineIds);
+
+  return Array.from(
+    new Set(
+      fines.flatMap((fine) => {
+        if (!selectedFineIdSet.has(fine.id)) return [];
+        return fine.merged_fine_ids?.length ? fine.merged_fine_ids : [fine.id];
+      }),
+    ),
+  );
+}
+
+function SchoolYearManagerDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  schoolYears: SchoolYearRecord[];
+  form: SchoolYearFormState;
+  targetSchoolYearId: string;
+  selectedFineCount: number;
+  isSaving: boolean;
+  isTransferring: boolean;
+  error: string;
+  onFormChange: <K extends keyof SchoolYearFormState>(key: K, value: SchoolYearFormState[K]) => void;
+  onCreate: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onTargetChange: (value: string) => void;
+  onTransferSelected: () => void | Promise<void>;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black">
+          School Years
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>School Years</DialogTitle>
+          <DialogDescription className="sr-only">
+            Create school years and link selected fine records to a school year.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-3xl border bg-card p-4">
+            <h3 className="text-sm font-black uppercase tracking-wide">Existing school years</h3>
+            <p className="text-xs font-semibold text-muted-foreground">
+              {props.schoolYears.length} school year/s saved
+            </p>
+            <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {props.schoolYears.length ? (
+                props.schoolYears.map((schoolYear) => (
+                  <div key={schoolYear.id} className="rounded-2xl border bg-background p-3">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="wrap-break-word text-sm font-black">{schoolYear.name}</p>
+                        <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
+                          {formatDate(schoolYear.starts_at)} - {formatDate(schoolYear.ends_at)}
+                        </p>
+                      </div>
+                      {schoolYear.is_active ? (
+                        <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
+                          Active
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-4 text-center text-sm font-semibold text-muted-foreground">
+                  No school years yet.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="space-y-4">
+            <form onSubmit={props.onCreate} className="rounded-3xl border bg-card p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide">Create school year</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="space-y-2 text-sm font-bold sm:col-span-2">
+                  <span>Name</span>
+                  <Input
+                    value={props.form.name}
+                    onChange={(event) => props.onFormChange("name", event.target.value)}
+                    placeholder="2025-2026"
+                    className="min-h-10 rounded-2xl"
+                    required
+                  />
+                </label>
+                <label className="space-y-2 text-sm font-bold">
+                  <span>Starts at</span>
+                  <Input
+                    type="date"
+                    value={props.form.startsAt}
+                    onChange={(event) => props.onFormChange("startsAt", event.target.value)}
+                    className="min-h-10 rounded-2xl"
+                  />
+                </label>
+                <label className="space-y-2 text-sm font-bold">
+                  <span>Ends at</span>
+                  <Input
+                    type="date"
+                    value={props.form.endsAt}
+                    onChange={(event) => props.onFormChange("endsAt", event.target.value)}
+                    className="min-h-10 rounded-2xl"
+                  />
+                </label>
+                <label className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 text-sm font-bold sm:col-span-2">
+                  <Checkbox
+                    checked={props.form.isActive}
+                    onCheckedChange={(checked) => props.onFormChange("isActive", checked === true)}
+                  />
+                  <span>Set as active school year</span>
+                </label>
+              </div>
+              <Button
+                type="submit"
+                disabled={props.isSaving}
+                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {props.isSaving ? "Saving..." : "Create School Year"}
+              </Button>
+            </form>
+
+            <section className="rounded-3xl border bg-card p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide">Link selected fines</h3>
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                {props.selectedFineCount} fine record/s selected.
+              </p>
+              <Select value={props.targetSchoolYearId} onValueChange={props.onTargetChange}>
+                <SelectTrigger className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black">
+                  <SelectValue placeholder="Target school year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {props.schoolYears.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                      {schoolYear.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!props.selectedFineCount || !props.targetSchoolYearId || props.isTransferring}
+                onClick={() => {
+                  void props.onTransferSelected();
+                }}
+                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {props.isTransferring ? "Linking..." : "Link Selected to School Year"}
+              </Button>
+            </section>
+          </div>
+        </div>
+
+        {props.error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {props.error}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DeletePenaltyConfirmation(props: {
   penalty: PenaltyRecord;
   isDeleting: boolean;
@@ -674,6 +892,10 @@ export default function FinesPage() {
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
   const [studentId, setStudentId] = useState("");
   const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
+  const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
+  const [schoolYearForm, setSchoolYearForm] = useState<SchoolYearFormState>(emptySchoolYearForm);
+  const [isSavingSchoolYear, setIsSavingSchoolYear] = useState(false);
+  const [schoolYearError, setSchoolYearError] = useState("");
   const [isLoadingFines, setIsLoadingFines] = useState(true);
   const [isLoadingAttendanceRecords, setIsLoadingAttendanceRecords] =
     useState(true);
@@ -690,6 +912,10 @@ export default function FinesPage() {
   const [error, setError] = useState("");
   const [penaltyError, setPenaltyError] = useState("");
 
+  const attendanceRecordById = useMemo(
+    () => getAttendanceRecordById(attendanceRecords),
+    [attendanceRecords],
+  );
   const yearOptions = useMemo(
     () => getYearOptions(attendanceRecords, fines, schoolYears),
     [attendanceRecords, fines, schoolYears],
@@ -697,7 +923,7 @@ export default function FinesPage() {
   const yearFilteredFines = useMemo(() => {
     const filteredFines = fines.filter((fine) => {
       const matchesYear = matchesSelectedYear(
-        getFineRecordYear(fine),
+        getFineRecordYear(fine, attendanceRecordById),
         yearFilter,
       );
       const matchesCollegeScope = isFineLinkedToAttendeeCollege({
@@ -710,7 +936,7 @@ export default function FinesPage() {
     });
 
     return mergeStudentFineRecords(filteredFines, attendanceRecords, yearFilter);
-  }, [fines, attendanceRecords, yearFilter]);
+  }, [fines, attendanceRecords, attendanceRecordById, yearFilter]);
   const reportYearLabel = getSchoolYearLabel(schoolYears, yearFilter);
   const totalFines = yearFilteredFines.length;
   const unpaidFines = useMemo(
@@ -783,7 +1009,9 @@ export default function FinesPage() {
   }
 
   async function handleTransferSelectedFines() {
-    if (!selectedFineIds.length) {
+    const fineIdsToTransfer = getSelectedFineTransferIds(yearFilteredFines, selectedFineIds);
+
+    if (!fineIdsToTransfer.length) {
       toast.error("Please select fine record/s to transfer.");
       return;
     }
@@ -795,24 +1023,73 @@ export default function FinesPage() {
 
     setIsTransferringFines(true);
     setError("");
+    setSchoolYearError("");
 
     try {
       await transferSchoolYearRecords({
         targetSchoolYearId: transferTargetSchoolYearId,
-        fineIds: selectedFineIds,
+        fineIds: fineIdsToTransfer,
       });
       setSelectedFineIds([]);
+      setSchoolYearDialogOpen(false);
       await Promise.all([loadFines(), loadAttendanceRecords()]);
-      toast.success("Selected fine record/s transferred successfully.");
+      toast.success("Selected fine record/s linked to school year successfully.");
     } catch (transferError) {
       const message =
         transferError instanceof Error
           ? transferError.message
           : "Unable to transfer fine records.";
       setError(message);
+      setSchoolYearError(message);
       toast.error(message);
     } finally {
       setIsTransferringFines(false);
+    }
+  }
+
+  function updateSchoolYearForm<K extends keyof SchoolYearFormState>(
+    key: K,
+    value: SchoolYearFormState[K],
+  ) {
+    setSchoolYearForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleCreateSchoolYear(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = schoolYearForm.name.trim();
+
+    if (!name) {
+      setSchoolYearError("School year name is required.");
+      toast.error("School year name is required.");
+      return;
+    }
+
+    setIsSavingSchoolYear(true);
+    setSchoolYearError("");
+
+    try {
+      const savedSchoolYear = await saveSchoolYear({
+        name,
+        startsAt: schoolYearForm.startsAt || undefined,
+        endsAt: schoolYearForm.endsAt || undefined,
+        isActive: schoolYearForm.isActive,
+      });
+
+      const refreshedSchoolYears = await listSchoolYears();
+      setSchoolYears(refreshedSchoolYears);
+      setTransferTargetSchoolYearId(savedSchoolYear?.id ?? refreshedSchoolYears[0]?.id ?? "");
+      setSchoolYearForm(emptySchoolYearForm);
+      toast.success("School year saved successfully.");
+    } catch (schoolYearSaveError) {
+      const message =
+        schoolYearSaveError instanceof Error
+          ? schoolYearSaveError.message
+          : "Unable to save school year.";
+      setSchoolYearError(message);
+      toast.error(message);
+    } finally {
+      setIsSavingSchoolYear(false);
     }
   }
 
@@ -1316,30 +1593,21 @@ export default function FinesPage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-              <Select
-                value={transferTargetSchoolYearId}
-                onValueChange={setTransferTargetSchoolYearId}
-              >
-                <SelectTrigger className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black sm:w-52">
-                  <SelectValue placeholder="Target school year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!selectedFineCount || isTransferringFines}
-                onClick={handleTransferSelectedFines}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-              >
-                {isTransferringFines ? "Transferring..." : "Transfer Selected"}
-              </Button>
+              <SchoolYearManagerDialog
+                open={schoolYearDialogOpen}
+                onOpenChange={setSchoolYearDialogOpen}
+                schoolYears={schoolYears}
+                form={schoolYearForm}
+                targetSchoolYearId={transferTargetSchoolYearId}
+                selectedFineCount={selectedFineCount}
+                isSaving={isSavingSchoolYear}
+                isTransferring={isTransferringFines}
+                error={schoolYearError}
+                onFormChange={updateSchoolYearForm}
+                onCreate={handleCreateSchoolYear}
+                onTargetChange={setTransferTargetSchoolYearId}
+                onTransferSelected={handleTransferSelectedFines}
+              />
               <ExportReport
                 attendanceRecords={reportAttendanceRecords}
                 fines={yearFilteredFines}

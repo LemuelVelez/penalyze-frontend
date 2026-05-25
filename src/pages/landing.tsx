@@ -375,8 +375,19 @@ function getDateYear(value?: string | null) {
   return String(date.getFullYear());
 }
 
-function getAttendanceRecordYear(record: AttendanceRecord) {
-  return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
+function getAttendanceRecordYear(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
+  const linkedEvent = record.event_id
+    ? eventById?.get(String(record.event_id)) ?? null
+    : null;
+
+  return (
+    record.school_year_id ||
+    getAttendanceEventYear(linkedEvent) ||
+    getDateYear(record.scanned_at ?? record.created_at ?? null)
+  );
 }
 
 function getAttendanceEventById(attendanceEvents: AttendanceEvent[]) {
@@ -425,7 +436,7 @@ function getLookupYearOptions(
   return Array.from(
     new Set([
       ...schoolYears.map((schoolYear) => schoolYear.id),
-      ...attendance.map(getAttendanceRecordYear),
+      ...attendance.map((record) => getAttendanceRecordYear(record, eventById)),
       ...fines.map((fine) => getFineRecordYear(fine, eventById, attendanceRecordById))
     ].filter(Boolean))
   );
@@ -1806,18 +1817,18 @@ export default function LandingPage() {
 
     return getUniqueDisplayAttendance(
       lookup.attendance.filter((record) =>
-        matchesSelectedYear(getAttendanceRecordYear(record), resultYearFilter),
+        matchesSelectedYear(getAttendanceRecordYear(record, attendanceEventById), resultYearFilter),
       ),
     );
-  }, [lookup, resultYearFilter]);
+  }, [lookup, resultYearFilter, attendanceEventById]);
 
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
 
     return lookup.attendanceRecords.filter((record) =>
-      matchesSelectedYear(getAttendanceRecordYear(record), resultYearFilter),
+      matchesSelectedYear(getAttendanceRecordYear(record, attendanceEventById), resultYearFilter),
     );
-  }, [lookup, resultYearFilter]);
+  }, [lookup, resultYearFilter, attendanceEventById]);
 
   const allDisplayedFines = useMemo(() => {
     return getUniqueDisplayFines(

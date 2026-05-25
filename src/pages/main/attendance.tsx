@@ -22,6 +22,7 @@ import {
   ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
   listSchoolYears,
+  saveSchoolYear,
   transferSchoolYearRecords,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
@@ -89,6 +90,13 @@ type AttendanceEventFormState = {
   eventStartAt: string;
   eventEndAt: string;
   description: string;
+};
+
+type SchoolYearFormState = {
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  isActive: boolean;
 };
 
 type AttendanceBulkEventAttendeesFormState = {
@@ -207,6 +215,13 @@ const emptyAttendanceEventForm: AttendanceEventFormState = {
   eventStartAt: "",
   eventEndAt: "",
   description: "",
+};
+
+const emptySchoolYearForm: SchoolYearFormState = {
+  name: "",
+  startsAt: "",
+  endsAt: "",
+  isActive: false,
 };
 
 const emptyBulkEventAttendeesForm: AttendanceBulkEventAttendeesFormState = {
@@ -1597,10 +1612,19 @@ function getRecordTimestamp(record: AttendanceRecord) {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function getAttendanceRecordYear(record: AttendanceRecord) {
+function getAttendanceRecordYear(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   if (record.school_year_id) return record.school_year_id;
 
-  const value = record.scanned_at ?? record.created_at;
+  const linkedEvent = record.event_id
+    ? eventById?.get(String(record.event_id)) ?? null
+    : null;
+
+  if (linkedEvent?.school_year_id) return linkedEvent.school_year_id;
+
+  const value = linkedEvent?.event_start_at ?? linkedEvent?.event_end_at ?? record.scanned_at ?? record.created_at;
   if (!value) return "";
 
   const date = new Date(value);
@@ -1609,14 +1633,21 @@ function getAttendanceRecordYear(record: AttendanceRecord) {
   return String(date.getFullYear());
 }
 
+function getAttendanceEventMap(events: AttendanceEvent[]) {
+  return new Map(events.map((event) => [String(event.id), event]));
+}
+
 function getAttendanceYearOptions(
   records: AttendanceRecord[],
   schoolYears: SchoolYearRecord[],
+  events: AttendanceEvent[] = [],
 ) {
+  const eventById = getAttendanceEventMap(events);
+
   return Array.from(
     new Set([
       ...schoolYears.map((schoolYear) => schoolYear.id),
-      ...records.map(getAttendanceRecordYear),
+      ...records.map((record) => getAttendanceRecordYear(record, eventById)),
     ].filter(Boolean)),
   );
 }
@@ -1624,10 +1655,11 @@ function getAttendanceYearOptions(
 function recordMatchesSelectedYear(
   record: AttendanceRecord,
   selectedYear: string,
+  eventById?: Map<string, AttendanceEvent>,
 ) {
   return (
     selectedYear === ALL_YEARS_SELECT_VALUE ||
-    getAttendanceRecordYear(record) === selectedYear
+    getAttendanceRecordYear(record, eventById) === selectedYear
   );
 }
 
@@ -4296,6 +4328,8 @@ function ManualAttendanceDialog(props: {
   };
   const selectedManualEventIds = getManualAttendanceSelectedEventIds(props.form);
   const selectedManualEventIdsSet = new Set(selectedManualEventIds);
+  const isEditingRecord = Boolean(props.editingRecordId);
+  const manualEventSelectValue = selectedManualEventIds[0] || NO_EVENT_FILTER_SELECT_VALUE;
   const shouldShowNoEventOption = !props.editingRecordId || !props.events.length;
   const handleNoEventChange = (checked: boolean | "indeterminate") => {
     if (checked === true) props.onChange("eventIds", []);
@@ -4310,6 +4344,9 @@ function ManualAttendanceDialog(props: {
         : selectedManualEventIds.filter((selectedEventId) => selectedEventId !== eventId);
 
     props.onChange("eventIds", nextEventIds);
+  };
+  const handleSingleEventChange = (value: string) => {
+    props.onChange("eventIds", value === NO_EVENT_FILTER_SELECT_VALUE ? [] : [value]);
   };
   const shouldShowManualProgress =
     props.isSaving || Boolean(props.updateProgress);
@@ -4337,37 +4374,58 @@ function ManualAttendanceDialog(props: {
 
         <form onSubmit={props.onSubmit} className="grid gap-4 lg:grid-cols-2">
           <div className="min-w-0 lg:col-span-2">
-            <Label htmlFor="manual-event-id">Event/s</Label>
-            <div
-              id="manual-event-id"
-              className="mt-2 grid max-h-72 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2"
-            >
-              {shouldShowNoEventOption ? (
-                <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold">
-                  <Checkbox
-                    checked={selectedManualEventIds.length === 0}
-                    onCheckedChange={handleNoEventChange}
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span className="min-w-0 wrap-break-word">No event</span>
-                </label>
-              ) : null}
-              {props.events.map((item) => (
-                <label
-                  key={item.id}
-                  className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold"
+            <Label htmlFor="manual-event-id">{isEditingRecord ? "Event" : "Event/s"}</Label>
+            {isEditingRecord ? (
+              <Select value={manualEventSelectValue} onValueChange={handleSingleEventChange}>
+                <SelectTrigger
+                  id="manual-event-id"
+                  className={manualSelectTriggerClassName}
                 >
-                  <Checkbox
-                    checked={selectedManualEventIdsSet.has(item.id)}
-                    onCheckedChange={(checked) =>
-                      handleEventChange(item.id, checked)
-                    }
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span className="min-w-0 wrap-break-word">{item.name}</span>
-                </label>
-              ))}
-            </div>
+                  <SelectValue placeholder="Select event" className="truncate" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  <SelectItem value={NO_EVENT_FILTER_SELECT_VALUE} className="max-w-full truncate">
+                    No event
+                  </SelectItem>
+                  {props.events.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="max-w-full truncate">
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div
+                id="manual-event-id"
+                className="mt-2 grid max-h-72 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2"
+              >
+                {shouldShowNoEventOption ? (
+                  <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold">
+                    <Checkbox
+                      checked={selectedManualEventIds.length === 0}
+                      onCheckedChange={handleNoEventChange}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className="min-w-0 wrap-break-word">No event</span>
+                  </label>
+                ) : null}
+                {props.events.map((item) => (
+                  <label
+                    key={item.id}
+                    className="flex min-w-0 cursor-pointer items-start gap-3 rounded-xl border bg-muted/40 p-3 text-sm font-semibold"
+                  >
+                    <Checkbox
+                      checked={selectedManualEventIdsSet.has(item.id)}
+                      onCheckedChange={(checked) =>
+                        handleEventChange(item.id, checked)
+                      }
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className="min-w-0 wrap-break-word">{item.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -4861,16 +4919,6 @@ function AttendanceEventAttendeesDialog(props: {
     .filter((record) => props.selectedRecordIdsSet.has(record.id))
     .map((record) => record.id);
   const selectedGroupRecordCount = selectedGroupRecordIds.length;
-  const selectedDialogEventCount = props.events.filter((event) =>
-    props.selectedEventIdsSet.has(event.id),
-  ).length;
-  const allDialogEventsSelected =
-    props.events.length > 0 && selectedDialogEventCount === props.events.length;
-  const eventSelectorHeaderChecked = allDialogEventsSelected
-    ? true
-    : selectedDialogEventCount > 0
-      ? "indeterminate"
-      : false;
   const canAddSelectedToEvents =
     props.group.key === NO_EVENT_FILTER_SELECT_VALUE &&
     selectedGroupRecordCount > 0 &&
@@ -4929,65 +4977,6 @@ function AttendanceEventAttendeesDialog(props: {
               </p>
             </div>
           </div>
-
-          {props.group.key === NO_EVENT_FILTER_SELECT_VALUE ? (
-            <div className="space-y-3 rounded-2xl border bg-background p-4">
-              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="wrap-break-word text-sm font-black">Event/s</p>
-                  <p className="wrap-break-word text-xs font-semibold text-muted-foreground">
-                    {props.events.length} existing event/s shown • {props.selectedEventCount} selected
-                  </p>
-                </div>
-                <div className="flex min-w-0 items-center gap-3 rounded-xl border bg-muted/40 px-3 py-2">
-                  <Checkbox
-                    checked={eventSelectorHeaderChecked}
-                    onCheckedChange={props.onToggleAllEvents}
-                    disabled={props.isAddingSelectedToEvents}
-                    aria-label="Select all existing attendance events"
-                    className="shrink-0"
-                  />
-                  <span className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                    Select all
-                  </span>
-                </div>
-              </div>
-
-              {props.events.length ? (
-                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                  {props.events.map((event) => (
-                    <div
-                      key={event.id}
-                      className="flex min-w-0 items-start gap-3 rounded-xl border bg-muted/30 p-3"
-                    >
-                      <Checkbox
-                        checked={props.selectedEventIdsSet.has(event.id)}
-                        onCheckedChange={(checked) =>
-                          props.onToggleEventSelected(event.id, checked)
-                        }
-                        disabled={props.isAddingSelectedToEvents}
-                        aria-label={`Select ${event.name}`}
-                        className="mt-1 shrink-0"
-                      />
-                      <span className="min-w-0">
-                        <span className="block wrap-break-word text-sm font-black">
-                          {event.name}
-                        </span>
-                        <span className="mt-1 block wrap-break-word text-xs font-semibold text-muted-foreground">
-                          {formatEventSchedule(event)} • {event.attendees_count}{" "}
-                          attendee/s
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-muted/30 p-4 text-center text-sm font-semibold text-muted-foreground">
-                  No existing events available.
-                </div>
-              )}
-            </div>
-          ) : null}
 
           {selectedGroupRecordCount ? (
             <div className="grid gap-3 rounded-2xl border bg-background p-4 sm:grid-cols-2">
@@ -5553,6 +5542,170 @@ function AttendanceRecordSearchDialog(props: {
   );
 }
 
+function SchoolYearManagerDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  schoolYears: SchoolYearRecord[];
+  form: SchoolYearFormState;
+  targetSchoolYearId: string;
+  selectedRecordCount: number;
+  selectedEventCount: number;
+  isSaving: boolean;
+  isTransferring: boolean;
+  error: string;
+  onFormChange: <K extends keyof SchoolYearFormState>(key: K, value: SchoolYearFormState[K]) => void;
+  onCreate: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onTargetChange: (value: string) => void;
+  onTransferSelected: () => void | Promise<void>;
+}) {
+  const selectedTotal = props.selectedRecordCount + props.selectedEventCount;
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black">
+          School Years
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>School Years</DialogTitle>
+          <DialogDescription className="sr-only">
+            Create school years and link selected attendance records or events to a school year.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-3xl border bg-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wide">Existing school years</h3>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {props.schoolYears.length} school year/s saved
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {props.schoolYears.length ? (
+                props.schoolYears.map((schoolYear) => (
+                  <div key={schoolYear.id} className="rounded-2xl border bg-background p-3">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="wrap-break-word text-sm font-black">{schoolYear.name}</p>
+                        <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
+                          {formatDate(schoolYear.starts_at)} - {formatDate(schoolYear.ends_at)}
+                        </p>
+                      </div>
+                      {schoolYear.is_active ? (
+                        <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
+                          Active
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-4 text-center text-sm font-semibold text-muted-foreground">
+                  No school years yet.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="space-y-4">
+            <form onSubmit={props.onCreate} className="rounded-3xl border bg-card p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide">Create school year</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="space-y-2 text-sm font-bold sm:col-span-2">
+                  <span>Name</span>
+                  <Input
+                    value={props.form.name}
+                    onChange={(event) => props.onFormChange("name", event.target.value)}
+                    placeholder="2025-2026"
+                    className="min-h-10 rounded-2xl"
+                    required
+                  />
+                </label>
+                <label className="space-y-2 text-sm font-bold">
+                  <span>Starts at</span>
+                  <Input
+                    type="date"
+                    value={props.form.startsAt}
+                    onChange={(event) => props.onFormChange("startsAt", event.target.value)}
+                    className="min-h-10 rounded-2xl"
+                  />
+                </label>
+                <label className="space-y-2 text-sm font-bold">
+                  <span>Ends at</span>
+                  <Input
+                    type="date"
+                    value={props.form.endsAt}
+                    onChange={(event) => props.onFormChange("endsAt", event.target.value)}
+                    className="min-h-10 rounded-2xl"
+                  />
+                </label>
+                <label className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 text-sm font-bold sm:col-span-2">
+                  <Checkbox
+                    checked={props.form.isActive}
+                    onCheckedChange={(checked) => props.onFormChange("isActive", checked === true)}
+                  />
+                  <span>Set as active school year</span>
+                </label>
+              </div>
+              <Button
+                type="submit"
+                disabled={props.isSaving}
+                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {props.isSaving ? "Saving..." : "Create School Year"}
+              </Button>
+            </form>
+
+            <section className="rounded-3xl border bg-card p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide">Link selected records</h3>
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                {props.selectedRecordCount} attendance record/s and {props.selectedEventCount} event/s selected.
+              </p>
+              <Select value={props.targetSchoolYearId} onValueChange={props.onTargetChange}>
+                <SelectTrigger className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black">
+                  <SelectValue placeholder="Target school year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {props.schoolYears.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                      {schoolYear.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!selectedTotal || !props.targetSchoolYearId || props.isTransferring}
+                onClick={() => {
+                  void props.onTransferSelected();
+                }}
+                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
+              >
+                {props.isTransferring ? "Linking..." : "Link Selected to School Year"}
+              </Button>
+            </section>
+          </div>
+        </div>
+
+        {props.error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {props.error}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendancePreviewResult | null>(null);
@@ -5570,6 +5723,10 @@ export default function AttendancePage() {
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
+  const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
+  const [schoolYearForm, setSchoolYearForm] = useState<SchoolYearFormState>(emptySchoolYearForm);
+  const [isSavingSchoolYear, setIsSavingSchoolYear] = useState(false);
+  const [schoolYearError, setSchoolYearError] = useState("");
   const [yearFilter, setYearFilter] = useState(ALL_YEARS_SELECT_VALUE);
   const [eventFilter, setEventFilter] = useState(ALL_EVENTS_SELECT_VALUE);
   const [collegeFilter, setCollegeFilter] = useState(ALL_COLLEGES_SELECT_VALUE);
@@ -5669,15 +5826,19 @@ export default function AttendancePage() {
     () => getZeroAttendanceRegistrationAttendeeOptions(mergedRecords),
     [mergedRecords],
   );
+  const attendanceEventById = useMemo(
+    () => getAttendanceEventMap(displayEvents),
+    [displayEvents],
+  );
   const yearFilterOptions = useMemo(
-    () => getAttendanceYearOptions(mergedRecords, schoolYears),
-    [mergedRecords, schoolYears],
+    () => getAttendanceYearOptions(mergedRecords, schoolYears, displayEvents),
+    [mergedRecords, schoolYears, displayEvents],
   );
   const yearFilteredRecords = useMemo<AttendanceRecord[]>(() => {
     return mergedRecords.filter((record) =>
-      recordMatchesSelectedYear(record, yearFilter),
+      recordMatchesSelectedYear(record, yearFilter, attendanceEventById),
     );
-  }, [mergedRecords, yearFilter]);
+  }, [mergedRecords, yearFilter, attendanceEventById]);
   const selectedYearLabel = getSchoolYearLabel(schoolYears, yearFilter);
   const eventFilterOptions = useMemo<
     Array<{ value: string; label: string }>
@@ -5928,6 +6089,52 @@ export default function AttendancePage() {
     value: AttendanceEventFormState[K],
   ) {
     setEventForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateSchoolYearForm<K extends keyof SchoolYearFormState>(
+    key: K,
+    value: SchoolYearFormState[K],
+  ) {
+    setSchoolYearForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleCreateSchoolYear(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = schoolYearForm.name.trim();
+
+    if (!name) {
+      setSchoolYearError("School year name is required.");
+      toast.error("School year name is required.");
+      return;
+    }
+
+    setIsSavingSchoolYear(true);
+    setSchoolYearError("");
+
+    try {
+      const savedSchoolYear = await saveSchoolYear({
+        name,
+        startsAt: schoolYearForm.startsAt || undefined,
+        endsAt: schoolYearForm.endsAt || undefined,
+        isActive: schoolYearForm.isActive,
+      });
+
+      const refreshedSchoolYears = await listSchoolYears();
+      setSchoolYears(refreshedSchoolYears);
+      setTransferTargetSchoolYearId(savedSchoolYear?.id ?? refreshedSchoolYears[0]?.id ?? "");
+      setSchoolYearForm(emptySchoolYearForm);
+      toast.success("School year saved successfully.");
+    } catch (schoolYearSaveError) {
+      const message =
+        schoolYearSaveError instanceof Error
+          ? schoolYearSaveError.message
+          : "Unable to save school year.";
+      setSchoolYearError(message);
+      toast.error(message);
+    } finally {
+      setIsSavingSchoolYear(false);
+    }
   }
 
   function handleToggleEventSelected(
@@ -7423,11 +7630,13 @@ export default function AttendancePage() {
       events,
     );
 
+    const recordEventId = cleanImportValue(record.event_id) || recordEventIds[0] || "";
+
     setEditingRecordId(record.id);
     setEditingRecordScope(scope);
     setManualForm({
-      eventId: recordEventIds[0] ?? "",
-      eventIds: recordEventIds,
+      eventId: recordEventId,
+      eventIds: recordEventId ? [recordEventId] : [],
       scannedAt: toDateTimeLocalValue(record.scanned_at),
       studentId: record.student_id,
       name: record.name,
@@ -7952,14 +8161,16 @@ export default function AttendancePage() {
       });
       setSelectedEventIds([]);
       setSelectedRecordIds([]);
+      setSchoolYearDialogOpen(false);
       await loadRecords({ preserveScroll: true });
-      toast.success("Selected record/s transferred successfully.");
+      toast.success("Selected record/s linked to school year successfully.");
     } catch (transferError) {
       const message =
         transferError instanceof Error
           ? transferError.message
           : "Unable to transfer selected records.";
       setError(message);
+      setSchoolYearError(message);
       toast.error(message);
     } finally {
       setIsTransferringSchoolYearRecords(false);
@@ -8862,36 +9073,22 @@ export default function AttendancePage() {
                     {selectedRecordCount} record/s, {selectedEventCount} event/s selected
                   </p>
                 ) : null}
-                <Select
-                  value={transferTargetSchoolYearId}
-                  onValueChange={setTransferTargetSchoolYearId}
-                >
-                  <SelectTrigger className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black">
-                    <SelectValue placeholder="Target school year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schoolYears.map((schoolYear) => (
-                      <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                        {schoolYear.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={
-                    (!selectedRecordCount && !selectedEventCount) ||
-                    !transferTargetSchoolYearId ||
-                    isTransferringSchoolYearRecords
-                  }
-                  onClick={handleTransferSelectedSchoolYearRecords}
-                  className="min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-                >
-                  {isTransferringSchoolYearRecords
-                    ? "Transferring..."
-                    : "Transfer Selected"}
-                </Button>
+                <SchoolYearManagerDialog
+                  open={schoolYearDialogOpen}
+                  onOpenChange={setSchoolYearDialogOpen}
+                  schoolYears={schoolYears}
+                  form={schoolYearForm}
+                  targetSchoolYearId={transferTargetSchoolYearId}
+                  selectedRecordCount={selectedRecordCount}
+                  selectedEventCount={selectedEventCount}
+                  isSaving={isSavingSchoolYear}
+                  isTransferring={isTransferringSchoolYearRecords}
+                  error={schoolYearError}
+                  onFormChange={updateSchoolYearForm}
+                  onCreate={handleCreateSchoolYear}
+                  onTargetChange={setTransferTargetSchoolYearId}
+                  onTransferSelected={handleTransferSelectedSchoolYearRecords}
+                />
                 <DeleteAttendanceRecordsConfirmation
                   label="Delete Selected"
                   title="Delete selected attendance records?"
