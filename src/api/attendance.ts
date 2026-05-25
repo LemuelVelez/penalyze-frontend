@@ -746,7 +746,3 @@ export async function deleteAttendanceRecord(id: string) {
 
   return response.data;
 }
-
-
-
-

@@ -338,8 +338,8 @@ function formatAbsenceCount(value: number, forceTenPlus = false) {
 }
 
 function getTotalAbsences(attendance: AttendanceRecord[], fines: FineRecord[] = []) {
-  const attendanceAbsences = attendance.map((row) => Number(row.no_of_absences || 0));
-  const fineAbsences = fines.map((fine) => Number(fine.no_of_absences || 0));
+  const attendanceAbsences = attendance.map(getRecordAbsenceCount);
+  const fineAbsences = fines.map(getFineAbsenceCount);
 
   return Math.max(0, ...attendanceAbsences, ...fineAbsences);
 }
@@ -1245,7 +1245,7 @@ function getFineDisplayKey(fine: FineRecord) {
     normalizeFineDisplayValue(fine.student_id),
     normalizeFineDisplayValue(fine.attendance_event_id),
     normalizeFineDisplayValue(fine.attendance_record_id),
-    Number(fine.no_of_absences || 0),
+    getFineAbsenceCount(fine),
     normalizeFineDisplayValue(fine.prescribed_penalty),
     normalizeFineDisplayValue(fine.created_at),
     normalizeFineDisplayValue(fine.status)
@@ -2329,7 +2329,7 @@ export default function LandingPage() {
                               <p className="mt-1 text-xs text-muted-foreground">
                                 Total: {formatAbsenceCount(
                                   getDisplayedFineAbsenceCount(fine, totalAbsences, hasZeroAttendanceForDisplay),
-                                  isFallbackFine(fine) && fine.no_of_absences >= 10
+                                  isFallbackFine(fine) && getFineAbsenceCount(fine) >= 10
                                 )} •{" "}
                                 {formatDate(fine.created_at)}
                                 {isFallbackFine(fine) ? " • computed" : ""}

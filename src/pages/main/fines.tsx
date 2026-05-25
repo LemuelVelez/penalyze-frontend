@@ -122,6 +122,65 @@ function getFineAttendanceEventId(fine: FineRecord) {
   return String(fine.attendance_event_id ?? "").trim();
 }
 
+function getAttendanceRecordAbsenceCount(record?: AttendanceRecord | null) {
+  const numericValue = Number(record?.no_of_absences ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, numericValue);
+}
+
+function getFineStoredAbsenceCount(fine: FineRecord) {
+  const numericValue = Number(fine.no_of_absences ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, numericValue);
+}
+
+function getFineLinkedAttendanceRecord(
+  fine: FineRecord,
+  attendanceRecords: AttendanceRecord[],
+) {
+  const fineAttendanceRecordId = getFineAttendanceRecordId(fine);
+  const fineAttendanceEventId = getFineAttendanceEventId(fine);
+  const cleanStudentId = normalizeDisplayValue(fine.student_id);
+
+  if (fineAttendanceRecordId) {
+    const linkedRecord = attendanceRecords.find(
+      (record) => String(record.id ?? "").trim() === fineAttendanceRecordId,
+    );
+
+    if (linkedRecord) return linkedRecord;
+  }
+
+  if (!fineAttendanceEventId || !cleanStudentId) return null;
+
+  return (
+    attendanceRecords.find(
+      (record) =>
+        String(record.event_id ?? "").trim() === fineAttendanceEventId &&
+        normalizeDisplayValue(record.student_id) === cleanStudentId,
+    ) ?? null
+  );
+}
+
+function getFineBaseAbsenceCount(
+  fine: FineRecord,
+  attendanceRecords: AttendanceRecord[],
+) {
+  const linkedAttendanceRecord = getFineLinkedAttendanceRecord(
+    fine,
+    attendanceRecords,
+  );
+
+  if (linkedAttendanceRecord) {
+    return getAttendanceRecordAbsenceCount(linkedAttendanceRecord);
+  }
+
+  return getFineStoredAbsenceCount(fine);
+}
+
 function isZeroAttendanceRecord(record: AttendanceRecord) {
   return (
     !record.event_id &&
@@ -247,7 +306,10 @@ function getDisplayedFineAbsenceCount(
   attendanceRecords: AttendanceRecord[],
   selectedYear: string,
 ) {
-  const fineAbsenceCount = Math.max(0, Number(fine.no_of_absences || 0));
+  const fineAbsenceCount = getFineBaseAbsenceCount(
+    fine,
+    attendanceRecords,
+  );
   const collegeLinkedAbsenceCount = getStudentMissingCollegeLinkedEventCount({
     studentId: fine.student_id,
     attendanceRecords,
@@ -308,7 +370,7 @@ function getFineDisplayKey(fine: FineRecord) {
     normalizeFineDisplayValue(fine.student_id),
     normalizeFineDisplayValue(fine.attendance_event_id),
     normalizeFineDisplayValue(fine.attendance_record_id),
-    Number(fine.no_of_absences || 0),
+    getFineStoredAbsenceCount(fine),
     normalizeFineDisplayValue(fine.prescribed_penalty),
     normalizeFineDisplayValue(fine.created_at),
     normalizeFineDisplayValue(fine.status),
