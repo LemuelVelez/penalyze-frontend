@@ -903,17 +903,6 @@ function getFineAbsentEventRemarks(fine: FineRecord) {
   return String(fine.attendance_remarks ?? "").trim();
 }
 
-function getSummaryAbsentEventRemarks(summary: StudentAbsentEventSummary) {
-  const remarks = Array.from(
-    new Set([
-      ...summary.records.map((record) => String(record.remarks ?? "").trim()),
-      ...summary.remarks
-    ].filter(Boolean))
-  );
-
-  return remarks.length ? remarks.join(" • ") : "—";
-}
-
 function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
   const directSequence = parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
   if (directSequence !== null) return directSequence;
@@ -2284,7 +2273,6 @@ export default function LandingPage() {
                               <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
                             </div>
                           </div>
-                          <p className="mt-3 text-sm text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</p>
                         </article>
                       ))}
                     </div>
@@ -2297,7 +2285,6 @@ export default function LandingPage() {
                           <tr>
                             <th className="px-3 py-3">No.</th>
                             <th className="px-3 py-3">Absent Event</th>
-                            <th className="px-3 py-3">Remarks</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2305,7 +2292,6 @@ export default function LandingPage() {
                             <tr key={eventSummary.key} className="border-b last:border-b-0">
                               <td className="px-3 py-3 font-black">{index + 1}</td>
                               <td className="px-3 py-3 font-semibold">{eventSummary.eventName}</td>
-                              <td className="px-3 py-3 text-muted-foreground">{getSummaryAbsentEventRemarks(eventSummary)}</td>
                             </tr>
                           ))}
                         </tbody>
