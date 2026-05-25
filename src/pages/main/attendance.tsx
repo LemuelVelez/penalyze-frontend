@@ -410,6 +410,17 @@ type AttendanceEventDeleteProgress = {
   currentEventName: string;
 };
 
+type AttendanceSelectedRecordsAddProgress = {
+  processedSteps: number;
+  totalSteps: number;
+  totalRecords: number;
+  savedRecords: number;
+  deletedSourceRecords: number;
+  percent: number;
+  message: string;
+  currentEventName: string;
+};
+
 type AttendanceRecordsPageProgress = {
   loadedRows: number;
   pageCount: number;
@@ -4763,6 +4774,8 @@ function AttendanceEventAttendeesDialog(props: {
   deletingRecordId: string;
   isDeletingBulk: boolean;
   isAddingSelectedToEvents: boolean;
+  addProgress: AttendanceSelectedRecordsAddProgress | null;
+  addProgressPercent: number;
   onToggleEventSelected: (
     id: string,
     checked: boolean | "indeterminate",
@@ -4799,6 +4812,9 @@ function AttendanceEventAttendeesDialog(props: {
     props.group.key === NO_EVENT_FILTER_SELECT_VALUE &&
     selectedGroupRecordCount > 0 &&
     props.selectedEventCount > 0;
+  const shouldShowAddProgress =
+    props.group.key === NO_EVENT_FILTER_SELECT_VALUE &&
+    (props.isAddingSelectedToEvents || Boolean(props.addProgress));
 
   return (
     <Dialog>
@@ -4942,11 +4958,49 @@ function AttendanceEventAttendeesDialog(props: {
                   className="min-h-10 w-full rounded-xl px-4 py-2 text-xs font-black"
                 >
                   {props.isAddingSelectedToEvents
-                    ? "Adding..."
+                    ? `Adding ${props.addProgressPercent}%`
                     : `Add Selected to ${props.selectedEventCount} Event/s`}
                 </Button>
               ) : null}
             </div>
+          ) : null}
+
+          {shouldShowAddProgress ? (
+            <section
+              className="rounded-2xl border bg-background px-4 py-3"
+              aria-live="polite"
+            >
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                    Adding attendees
+                  </p>
+                  <p className="mt-1 wrap-break-word text-sm font-semibold">
+                    {props.addProgress?.message ??
+                      "Preparing selected attendee/s..."}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border bg-card px-3 py-1 text-xs font-black">
+                  {props.addProgressPercent}%
+                </span>
+              </div>
+              <Progress
+                value={props.addProgressPercent}
+                className="mt-3 h-3 w-full min-w-0"
+              />
+              <div className="mt-2 flex min-w-0 flex-col gap-1 text-xs font-bold text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <span className="wrap-break-word">
+                  {props.addProgress
+                    ? `${props.addProgress.savedRecords}/${props.addProgress.totalRecords} attendee record/s added`
+                    : "Preparing attendee record/s..."}
+                </span>
+                {props.addProgress?.currentEventName ? (
+                  <span className="wrap-break-word sm:text-right">
+                    {props.addProgress.currentEventName}
+                  </span>
+                ) : null}
+              </div>
+            </section>
           ) : null}
 
           <AttendanceEventAttendeesList
@@ -5494,6 +5548,8 @@ export default function AttendancePage() {
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isAddingSelectedRecordsToEvents, setIsAddingSelectedRecordsToEvents] =
     useState(false);
+  const [selectedRecordsAddProgress, setSelectedRecordsAddProgress] =
+    useState<AttendanceSelectedRecordsAddProgress | null>(null);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   const [isTransferringSchoolYearRecords, setIsTransferringSchoolYearRecords] = useState(false);
   const [eventDeleteProgress, setEventDeleteProgress] =
@@ -5714,6 +5770,10 @@ export default function AttendancePage() {
   const eventDeleteProgressPercent = useProgressivePercent(
     isDeletingEvents,
     eventDeleteProgress?.percent ?? 0,
+  );
+  const selectedRecordsAddProgressPercent = useProgressivePercent(
+    isAddingSelectedRecordsToEvents,
+    selectedRecordsAddProgress?.percent ?? 0,
   );
 
   function captureScrollPosition() {
@@ -7350,19 +7410,64 @@ export default function AttendancePage() {
       return;
     }
 
+    const noEventSourceRecordIdsToDelete =
+      getAttendanceNoEventSourceRecordIdsForRecords(
+        normalizedRecords,
+        recordsToSave.map((item) => item.record),
+      );
+    const totalAddSteps =
+      recordsToSave.length + noEventSourceRecordIdsToDelete.length + 1;
+    let processedAddSteps = 0;
+    let savedRecordSteps = 0;
+    let deletedSourceRecordSteps = 0;
+
+    const updateSelectedRecordsAddProgress = (
+      message: string,
+      currentEventName = "",
+    ) => {
+      setSelectedRecordsAddProgress({
+        processedSteps: processedAddSteps,
+        totalSteps: totalAddSteps,
+        totalRecords: recordsToSave.length,
+        savedRecords: savedRecordSteps,
+        deletedSourceRecords: deletedSourceRecordSteps,
+        percent: totalAddSteps
+          ? Math.min(
+              100,
+              Math.max(0, Math.round((processedAddSteps / totalAddSteps) * 100)),
+            )
+          : 0,
+        message,
+        currentEventName,
+      });
+    };
+
     setIsAddingSelectedRecordsToEvents(true);
+    setSelectedRecordsAddProgress(null);
     setError("");
+    updateSelectedRecordsAddProgress(
+      `Preparing to add ${recordsToSave.length} attendee record/s...`,
+    );
 
     try {
       const savedRecords: AttendanceRecord[] = [];
 
-      for (const item of recordsToSave) {
+      for (const [index, item] of recordsToSave.entries()) {
+        const targetEvent = getAttendanceEventById(displayEvents, item.eventId);
+        const currentEventName = targetEvent?.name ?? "Selected event";
+
+        updateSelectedRecordsAddProgress(
+          `Adding attendee ${index + 1}/${recordsToSave.length}...`,
+          currentEventName,
+        );
+
         const scannedAt =
           normalizeAttendanceDateTimeValue(
             item.record.scanned_at ?? item.record.created_at,
           ) || undefined;
         const result = await saveManualAttendanceRecord({
-          schoolYearId: yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
+          schoolYearId:
+            yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
           eventId: String(item.eventId),
           scannedAt,
           studentId: cleanImportValue(item.record.student_id).toUpperCase(),
@@ -7378,19 +7483,23 @@ export default function AttendancePage() {
         });
 
         savedRecords.push(...getManualAttendanceSavedRecords(result));
+        processedAddSteps += 1;
+        savedRecordSteps += 1;
+        updateSelectedRecordsAddProgress(
+          `Added attendee ${savedRecordSteps}/${recordsToSave.length}.`,
+          currentEventName,
+        );
       }
 
-      const noEventSourceRecordIdsToDelete =
-        getAttendanceNoEventSourceRecordIdsForRecords(
-          normalizedRecords,
-          recordsToSave.map((item) => item.record),
+      for (const [index, recordId] of noEventSourceRecordIdsToDelete.entries()) {
+        updateSelectedRecordsAddProgress(
+          `Removing no event source ${index + 1}/${noEventSourceRecordIdsToDelete.length}...`,
         );
-
-      if (noEventSourceRecordIdsToDelete.length) {
-        await Promise.all(
-          noEventSourceRecordIdsToDelete.map((recordId) =>
-            deleteAttendanceRecord(recordId),
-          ),
+        await deleteAttendanceRecord(recordId);
+        processedAddSteps += 1;
+        deletedSourceRecordSteps += 1;
+        updateSelectedRecordsAddProgress(
+          `Removed no event source ${deletedSourceRecordSteps}/${noEventSourceRecordIdsToDelete.length}.`,
         );
       }
 
@@ -7408,7 +7517,10 @@ export default function AttendancePage() {
         );
       }
 
+      updateSelectedRecordsAddProgress("Refreshing attendance records...");
       await loadRecords({ preserveScroll: true });
+      processedAddSteps = totalAddSteps;
+      updateSelectedRecordsAddProgress("Finished adding selected attendee/s.");
       restoreCapturedScrollPosition();
       toast.success(
         `Added ${recordsToSave.length} selected attendee record/s to selected event/s${
@@ -7428,9 +7540,16 @@ export default function AttendancePage() {
           : "Unable to add selected attendee/s to event/s.";
       setError(message);
       toast.error(message);
+      updateSelectedRecordsAddProgress("Reloading attendance records...");
       await loadRecords({ preserveScroll: true });
     } finally {
       setIsAddingSelectedRecordsToEvents(false);
+
+      if (typeof window === "undefined") {
+        setSelectedRecordsAddProgress(null);
+      } else {
+        window.setTimeout(() => setSelectedRecordsAddProgress(null), 600);
+      }
     }
   }
 
@@ -8717,6 +8836,10 @@ export default function AttendancePage() {
                                 isDeletingBulk={isDeletingBulk}
                                 isAddingSelectedToEvents={
                                   isAddingSelectedRecordsToEvents
+                                }
+                                addProgress={selectedRecordsAddProgress}
+                                addProgressPercent={
+                                  selectedRecordsAddProgressPercent
                                 }
                                 onToggleEventSelected={handleToggleEventSelected}
                                 onToggleAllEvents={handleToggleAllEvents}
