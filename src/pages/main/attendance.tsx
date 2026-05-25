@@ -105,6 +105,11 @@ type AttendanceBulkEventAttendeeRow = {
   remarks: string;
 };
 
+type AttendanceZeroAttendanceAttendeeOption = AttendanceBulkEventAttendeeRow & {
+  key: string;
+  latestScannedAt: string | null;
+};
+
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
 
@@ -2025,6 +2030,147 @@ function getManualAttendanceSelectedEventIds(form: ManualAttendanceFormState) {
   );
 }
 
+function getZeroAttendanceRegistrationAttendeeOptions(
+  records: AttendanceRecord[],
+) {
+  const attendeesByKey = new Map<string, AttendanceZeroAttendanceAttendeeOption>();
+
+  records.forEach((record) => {
+    if (!isZeroAttendanceRecord(record)) return;
+
+    const studentId = cleanImportValue(record.student_id).toUpperCase();
+    const name = cleanImportValue(record.name);
+
+    if (!studentId || !name) return;
+
+    const option: AttendanceZeroAttendanceAttendeeOption = {
+      key: getBulkAttendanceEventAttendeeKey(studentId, record.college),
+      studentId,
+      name,
+      yearLevel: cleanImportValue(record.year_level),
+      college: cleanImportValue(record.college),
+      program: cleanImportValue(record.program),
+      institution:
+        cleanImportValue(record.institution) || DEFAULT_STUDENT_INSTITUTION,
+      remarks: cleanImportValue(record.remarks),
+      latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+    };
+    const currentOption = attendeesByKey.get(option.key);
+    const optionTime = getRecordTimestamp(record);
+    const currentTime = currentOption?.latestScannedAt
+      ? new Date(currentOption.latestScannedAt).getTime()
+      : 0;
+
+    if (
+      !currentOption ||
+      optionTime > (Number.isNaN(currentTime) ? 0 : currentTime)
+    ) {
+      attendeesByKey.set(option.key, option);
+    }
+  });
+
+  return Array.from(attendeesByKey.values()).sort((left, right) => {
+    const nameCompare = compareAttendanceLabels(left.name, right.name);
+    if (nameCompare !== 0) return nameCompare;
+
+    return compareAttendanceLabels(left.studentId, right.studentId);
+  });
+}
+
+function findZeroAttendanceAttendeeOption(
+  zeroAttendanceAttendees: AttendanceZeroAttendanceAttendeeOption[],
+  value?: string | null,
+) {
+  const cleanValue = cleanImportValue(value);
+  if (!cleanValue) return null;
+
+  const normalizedValue = normalizeImportHeader(cleanValue);
+  const upperValue = cleanValue.toUpperCase();
+
+  return (
+    zeroAttendanceAttendees.find((attendee) => {
+      return (
+        attendee.studentId.toUpperCase() === upperValue ||
+        normalizeImportHeader(attendee.name) === normalizedValue
+      );
+    }) ?? null
+  );
+}
+
+function getBulkAttendanceAttendeeNameFromInputRow(row: string[]) {
+  if (row.length <= 1) return cleanImportValue(row[0]);
+
+  return cleanImportValue(row[1]) || cleanImportValue(row[0]);
+}
+
+function appendBulkAttendanceAttendeeName(
+  attendees: string,
+  attendeeName: string,
+) {
+  const name = cleanImportValue(attendeeName);
+  if (!name) return attendees;
+
+  const existingNames = new Set(
+    parseDelimitedText(attendees)
+      .map((row) => getBulkAttendanceAttendeeNameFromInputRow(row))
+      .map(normalizeImportHeader)
+      .filter(Boolean),
+  );
+
+  if (existingNames.has(normalizeImportHeader(name))) return attendees;
+
+  const currentAttendees = attendees.trimEnd();
+
+  return currentAttendees ? `${currentAttendees}\n${name}` : name;
+}
+
+function getZeroAttendanceAttendeeSelectLabel(
+  attendee: AttendanceZeroAttendanceAttendeeOption,
+) {
+  return [
+    attendee.name,
+    attendee.studentId,
+    attendee.yearLevel,
+    attendee.college,
+    attendee.program,
+  ]
+    .map(cleanImportValue)
+    .filter(Boolean)
+    .join(" • ");
+}
+
+function bulkAttendanceFieldMatchesSelectedFilter(
+  selectedValue: string,
+  attendeeValue: string,
+) {
+  const selected = normalizeImportHeader(selectedValue);
+  if (!selected) return true;
+
+  const attendee = normalizeImportHeader(attendeeValue);
+
+  return !attendee || attendee === selected;
+}
+
+function getFilteredZeroAttendanceAttendees(
+  attendees: AttendanceZeroAttendanceAttendeeOption[],
+  form: AttendanceBulkEventAttendeesFormState,
+) {
+  return attendees.filter((attendee) => {
+    return (
+      bulkAttendanceFieldMatchesSelectedFilter(
+        form.yearLevel,
+        attendee.yearLevel,
+      ) &&
+      bulkAttendanceFieldMatchesSelectedFilter(form.college, attendee.college) &&
+      bulkAttendanceFieldMatchesSelectedFilter(form.program, attendee.program) &&
+      bulkAttendanceFieldMatchesSelectedFilter(
+        form.institution,
+        attendee.institution,
+      )
+    );
+  });
+}
+
 function getBulkEventAttendeeRowFallbackValue(
   row: string[],
   index: number,
@@ -2048,6 +2194,7 @@ function getBulkEventAttendeeRowHeaderValue(
 
 function getBulkAttendanceEventAttendeeRows(
   form: AttendanceBulkEventAttendeesFormState,
+  zeroAttendanceAttendees: AttendanceZeroAttendanceAttendeeOption[] = [],
 ) {
   const rows = parseDelimitedText(form.attendees)
     .map((row) => row.map(cleanImportValue))
@@ -2064,16 +2211,24 @@ function getBulkAttendanceEventAttendeeRows(
   const attendeesByKey = new Map<string, AttendanceBulkEventAttendeeRow>();
 
   dataRows.forEach((row) => {
-    const studentId = cleanImportValue(
+    const inputStudentId = cleanImportValue(
       hasHeaderRow
         ? getBulkEventAttendeeRowHeaderValue(row, headers, "studentId", "")
-        : row[0],
+        : row.length > 1
+          ? row[0]
+          : "",
     ).toUpperCase();
-    const name = cleanImportValue(
+    const inputName = cleanImportValue(
       hasHeaderRow
         ? getBulkEventAttendeeRowHeaderValue(row, headers, "name", "")
-        : row[1],
+        : getBulkAttendanceAttendeeNameFromInputRow(row),
     );
+    const matchedAttendee =
+      findZeroAttendanceAttendeeOption(zeroAttendanceAttendees, inputStudentId) ??
+      findZeroAttendanceAttendeeOption(zeroAttendanceAttendees, inputName);
+    const studentId =
+      inputStudentId || matchedAttendee?.studentId || inputName.toUpperCase();
+    const name = inputName || matchedAttendee?.name || "";
 
     if (!studentId || !name) return;
 
@@ -2081,49 +2236,83 @@ function getBulkAttendanceEventAttendeeRows(
       ? {
           studentId,
           name,
-          yearLevel: getBulkEventAttendeeRowHeaderValue(
-            row,
-            headers,
-            "yearLevel",
-            form.yearLevel,
-          ),
-          college: getBulkEventAttendeeRowHeaderValue(
-            row,
-            headers,
-            "college",
-            form.college,
-          ),
-          program: getBulkEventAttendeeRowHeaderValue(
-            row,
-            headers,
-            "program",
-            form.program,
-          ),
-          institution: getBulkEventAttendeeRowHeaderValue(
-            row,
-            headers,
-            "institution",
-            form.institution,
-          ),
-          remarks: getBulkEventAttendeeRowHeaderValue(
-            row,
-            headers,
-            "remarks",
-            form.remarks,
-          ),
+          yearLevel:
+            form.yearLevel ||
+            getBulkEventAttendeeRowHeaderValue(
+              row,
+              headers,
+              "yearLevel",
+              matchedAttendee?.yearLevel ?? "",
+            ),
+          college:
+            form.college ||
+            getBulkEventAttendeeRowHeaderValue(
+              row,
+              headers,
+              "college",
+              matchedAttendee?.college ?? "",
+            ),
+          program:
+            form.program ||
+            getBulkEventAttendeeRowHeaderValue(
+              row,
+              headers,
+              "program",
+              matchedAttendee?.program ?? "",
+            ),
+          institution:
+            form.institution ||
+            getBulkEventAttendeeRowHeaderValue(
+              row,
+              headers,
+              "institution",
+              matchedAttendee?.institution ?? DEFAULT_STUDENT_INSTITUTION,
+            ),
+          remarks:
+            getBulkEventAttendeeRowHeaderValue(
+              row,
+              headers,
+              "remarks",
+              form.remarks || matchedAttendee?.remarks || "",
+            ) || form.remarks,
         }
       : {
           studentId,
           name,
-          yearLevel: getBulkEventAttendeeRowFallbackValue(row, 2, form.yearLevel),
-          college: getBulkEventAttendeeRowFallbackValue(row, 3, form.college),
-          program: getBulkEventAttendeeRowFallbackValue(row, 4, form.program),
-          institution: getBulkEventAttendeeRowFallbackValue(
-            row,
-            5,
-            form.institution,
-          ),
-          remarks: getBulkEventAttendeeRowFallbackValue(row, 6, form.remarks),
+          yearLevel:
+            form.yearLevel ||
+            getBulkEventAttendeeRowFallbackValue(
+              row,
+              2,
+              matchedAttendee?.yearLevel ?? "",
+            ),
+          college:
+            form.college ||
+            getBulkEventAttendeeRowFallbackValue(
+              row,
+              3,
+              matchedAttendee?.college ?? "",
+            ),
+          program:
+            form.program ||
+            getBulkEventAttendeeRowFallbackValue(
+              row,
+              4,
+              matchedAttendee?.program ?? "",
+            ),
+          institution:
+            form.institution ||
+            getBulkEventAttendeeRowFallbackValue(
+              row,
+              5,
+              matchedAttendee?.institution ?? DEFAULT_STUDENT_INSTITUTION,
+            ),
+          remarks:
+            getBulkEventAttendeeRowFallbackValue(
+              row,
+              6,
+              form.remarks || matchedAttendee?.remarks || "",
+            ) || form.remarks,
         };
 
     const attendeeKey = [
@@ -3429,6 +3618,7 @@ function BulkEventAttendeesDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   events: AttendanceEvent[];
+  zeroAttendanceAttendees: AttendanceZeroAttendanceAttendeeOption[];
   form: AttendanceBulkEventAttendeesFormState;
   isSaving: boolean;
   progress: AttendanceImportProgress | null;
@@ -3442,18 +3632,53 @@ function BulkEventAttendeesDialog(props: {
     value: AttendanceBulkEventAttendeesFormState[K],
   ) => void;
 }) {
+  const [selectedZeroAttendanceAttendeeKey, setSelectedZeroAttendanceAttendeeKey] =
+    useState("");
   const programOptions = getQrCodeProgramOptions(props.form.college);
   const selectedEvent = props.events.find(
     (event) => event.id === props.form.eventId,
   );
+  const filteredZeroAttendanceAttendees = useMemo(
+    () =>
+      getFilteredZeroAttendanceAttendees(
+        props.zeroAttendanceAttendees,
+        props.form,
+      ),
+    [props.form, props.zeroAttendanceAttendees],
+  );
   const parsedAttendees = useMemo(
-    () => getBulkAttendanceEventAttendeeRows(props.form),
-    [props.form],
+    () =>
+      getBulkAttendanceEventAttendeeRows(
+        props.form,
+        filteredZeroAttendanceAttendees,
+      ),
+    [filteredZeroAttendanceAttendees, props.form],
   );
   const shouldShowProgress = props.isSaving || Boolean(props.progress);
   const handleCollegeChange = (value: string) => {
     props.onChange("college", value);
     props.onChange("program", "");
+  };
+  const handleZeroAttendanceAttendeeSelect = (attendeeKey: string) => {
+    const attendee = props.zeroAttendanceAttendees.find(
+      (option) => option.key === attendeeKey,
+    );
+
+    if (!attendee) return;
+
+    const nextAttendees = appendBulkAttendanceAttendeeName(
+      props.form.attendees,
+      attendee.name,
+    );
+
+    if (nextAttendees === props.form.attendees) {
+      toast.info("Selected attendee is already listed.");
+    } else {
+      props.onChange("attendees", nextAttendees);
+    }
+
+    setSelectedZeroAttendanceAttendeeKey(attendeeKey);
+    window.setTimeout(() => setSelectedZeroAttendanceAttendeeKey(""), 0);
   };
 
   return (
@@ -3695,8 +3920,44 @@ function BulkEventAttendeesDialog(props: {
             />
           </div>
 
+          <div className="min-w-0 lg:col-span-2">
+            <Label htmlFor="bulk-zero-attendance-attendees">
+              Zero attendance attendees
+            </Label>
+            <Select
+              value={selectedZeroAttendanceAttendeeKey}
+              onValueChange={handleZeroAttendanceAttendeeSelect}
+              disabled={!filteredZeroAttendanceAttendees.length}
+            >
+              <SelectTrigger
+                id="bulk-zero-attendance-attendees"
+                className={manualSelectTriggerClassName}
+              >
+                <SelectValue
+                  placeholder={
+                    filteredZeroAttendanceAttendees.length
+                      ? "Select attendee from landing page registration"
+                      : "No zero attendance registration found"
+                  }
+                  className="truncate"
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 max-w-80">
+                {filteredZeroAttendanceAttendees.map((attendee) => (
+                  <SelectItem
+                    key={attendee.key}
+                    value={attendee.key}
+                    className="max-w-full truncate"
+                  >
+                    {getZeroAttendanceAttendeeSelectLabel(attendee)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="lg:col-span-2">
-            <Label htmlFor="bulk-attendees">Attendees</Label>
+            <Label htmlFor="bulk-attendees">Attendee names</Label>
             <Textarea
               id="bulk-attendees"
               value={props.form.attendees}
@@ -3704,7 +3965,7 @@ function BulkEventAttendeesDialog(props: {
                 props.onChange("attendees", event.target.value)
               }
               className="mt-2 min-h-32"
-              placeholder={`Student ID, Name, Year Level, College, Program, Institution, Remarks`}
+              placeholder="Name per line"
               required
             />
           </div>
@@ -5026,6 +5287,10 @@ export default function AttendancePage() {
     () => mergeAttendanceRecordsByStudentId(normalizedRecords),
     [normalizedRecords],
   );
+  const zeroAttendanceAttendeeOptions = useMemo(
+    () => getZeroAttendanceRegistrationAttendeeOptions(mergedRecords),
+    [mergedRecords],
+  );
   const yearFilterOptions = useMemo(
     () => getAttendanceYearOptions(mergedRecords),
     [mergedRecords],
@@ -6116,8 +6381,10 @@ export default function AttendancePage() {
 
     const eventId = cleanImportValue(bulkAttendeesForm.eventId);
     const selectedEvent = getAttendanceEventById(displayEvents, eventId);
-    const attendeeRows =
-      getBulkAttendanceEventAttendeeRows(bulkAttendeesForm);
+    const attendeeRows = getBulkAttendanceEventAttendeeRows(
+      bulkAttendeesForm,
+      zeroAttendanceAttendeeOptions,
+    );
     const scannedAt =
       normalizeAttendanceDateTimeValue(bulkAttendeesForm.scannedAt) ||
       undefined;
@@ -7116,6 +7383,7 @@ export default function AttendancePage() {
                 if (!open) handleClearBulkAttendeesForm();
               }}
               events={displayEvents}
+              zeroAttendanceAttendees={zeroAttendanceAttendeeOptions}
               form={bulkAttendeesForm}
               isSaving={isSavingBulkAttendees}
               progress={bulkAttendeesSaveProgress}
