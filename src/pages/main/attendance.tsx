@@ -506,6 +506,68 @@ function mergeAttendanceSavedRecords(
   return [...newRecords, ...updatedRecords];
 }
 
+function getAttendanceEventLinkedRecord(
+  record: AttendanceRecord,
+  eventId: string,
+  events: AttendanceEvent[],
+) {
+  const cleanEventId = cleanImportValue(eventId);
+  const targetEvent = getAttendanceEventById(events, cleanEventId);
+
+  if (recordMatchesAttendanceEventId(record, cleanEventId, events)) {
+    return record;
+  }
+
+  return {
+    ...record,
+    event_id: cleanEventId,
+    event_name: targetEvent?.name ?? record.event_name ?? null,
+    no_of_absences: 0,
+  };
+}
+
+async function saveManualAttendanceRecordForEvent(
+  payload: ManualAttendanceInput,
+  eventId: string,
+  events: AttendanceEvent[],
+) {
+  const cleanEventId = cleanImportValue(eventId);
+  const eventPayload: ManualAttendanceInput = {
+    ...payload,
+    eventId: cleanEventId,
+    noOfAbsences: 0,
+  };
+  const result = await saveManualAttendanceRecord(eventPayload);
+  const savedRecords = getManualAttendanceSavedRecords(result);
+
+  if (!savedRecords.length) return savedRecords;
+
+  const recordIdsNeedingEvent = savedRecords
+    .filter(
+      (record) =>
+        !recordMatchesAttendanceEventId(record, cleanEventId, events),
+    )
+    .map((record) => record.id)
+    .filter(Boolean);
+
+  const linkedSavedRecords = savedRecords.map((record) =>
+    getAttendanceEventLinkedRecord(record, cleanEventId, events),
+  );
+
+  if (!recordIdsNeedingEvent.length) return linkedSavedRecords;
+
+  const updateResult = await updateAttendanceRecords(
+    Array.from(new Set(recordIdsNeedingEvent)),
+    eventPayload,
+  );
+  const updatedRecords = getAttendanceBulkUpdatedRecords(
+    updateResult,
+    recordIdsNeedingEvent,
+  ).map((record) => getAttendanceEventLinkedRecord(record, cleanEventId, events));
+
+  return mergeAttendanceSavedRecords(linkedSavedRecords, updatedRecords);
+}
+
 const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
   percent: 0,
   message: "",
@@ -6669,13 +6731,13 @@ export default function AttendancePage() {
       });
       await waitForNextPaint();
 
-      const result = await saveManualAttendanceRecord({
-        ...payload,
+      const savedEventRecords = await saveManualAttendanceRecordForEvent(
+        payload,
         eventId,
-        noOfAbsences: 0,
-      });
+        displayEvents,
+      );
 
-      savedRecords.push(...getManualAttendanceSavedRecords(result));
+      savedRecords.push(...savedEventRecords);
 
       setManualSaveProgress({
         stage: "syncing",
@@ -6792,20 +6854,24 @@ export default function AttendancePage() {
         });
         await waitForNextPaint();
 
-        const result = await saveManualAttendanceRecord({
+        const savedEventRecords = await saveManualAttendanceRecordForEvent(
+          {
+            eventId,
+            scannedAt,
+            studentId: attendee.studentId,
+            name: attendee.name,
+            yearLevel: attendee.yearLevel,
+            college: attendee.college,
+            program: attendee.program,
+            institution: attendee.institution,
+            noOfAbsences: 0,
+            remarks: attendee.remarks,
+          },
           eventId,
-          scannedAt,
-          studentId: attendee.studentId,
-          name: attendee.name,
-          yearLevel: attendee.yearLevel,
-          college: attendee.college,
-          program: attendee.program,
-          institution: attendee.institution,
-          noOfAbsences: 0,
-          remarks: attendee.remarks,
-        });
+          displayEvents,
+        );
 
-        savedRecords.push(...getManualAttendanceSavedRecords(result));
+        savedRecords.push(...savedEventRecords);
 
         setBulkAttendeesSaveProgress({
           stage: "syncing",
@@ -6822,11 +6888,14 @@ export default function AttendancePage() {
         await waitForNextPaint();
       }
 
+      const savedRecordIds = new Set(
+        savedRecords.map((record) => record.id).filter(Boolean),
+      );
       const noEventSourceRecordIdsToDelete =
         getAttendanceNoEventSourceRecordIdsForAttendees(
           normalizedRecords,
           attendeeRowsToSave,
-        );
+        ).filter((recordId) => !savedRecordIds.has(recordId));
 
       if (noEventSourceRecordIdsToDelete.length) {
         setBulkAttendeesSaveProgress({
@@ -7032,10 +7101,13 @@ export default function AttendancePage() {
             },
           );
 
+          const savedRecordIds = new Set(
+            savedRecords.map((record) => record.id).filter(Boolean),
+          );
           const noEventSourceRecordIdsToDelete =
             getAttendanceNoEventSourceRecordIdsForRecords(normalizedRecords, [
               editingRecord,
-            ]);
+            ]).filter((recordId) => !savedRecordIds.has(recordId));
 
           if (missingEventIds.length && noEventSourceRecordIdsToDelete.length) {
             setManualSaveProgress({
@@ -7143,14 +7215,11 @@ export default function AttendancePage() {
             });
             await waitForNextPaint();
 
-            const result = await saveManualAttendanceRecord({
-              ...payload,
-              eventId: selectedEventId,
-              noOfAbsences: 0,
-            });
-
-            const manualSavedRecords =
-              getManualAttendanceSavedRecords(result);
+            const manualSavedRecords = await saveManualAttendanceRecordForEvent(
+              payload,
+              selectedEventId,
+              displayEvents,
+            );
 
             savedRecords.push(...manualSavedRecords);
             if (manualSavedRecords.length) affectedRecordCount += 1;
@@ -7479,13 +7548,13 @@ export default function AttendancePage() {
       return;
     }
 
-    const noEventSourceRecordIdsToDelete =
+    const candidateNoEventSourceRecordIdsToDelete =
       getAttendanceNoEventSourceRecordIdsForRecords(
         normalizedRecords,
         recordsToSave.map((item) => item.record),
       );
     const totalAddSteps =
-      recordsToSave.length + noEventSourceRecordIdsToDelete.length + 1;
+      recordsToSave.length + candidateNoEventSourceRecordIdsToDelete.length + 1;
     let processedAddSteps = 0;
     let savedRecordSteps = 0;
     let deletedSourceRecordSteps = 0;
@@ -7534,24 +7603,28 @@ export default function AttendancePage() {
           normalizeAttendanceDateTimeValue(
             item.record.scanned_at ?? item.record.created_at,
           ) || undefined;
-        const result = await saveManualAttendanceRecord({
-          schoolYearId:
-            yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
-          eventId: String(item.eventId),
-          scannedAt,
-          studentId: cleanImportValue(item.record.student_id).toUpperCase(),
-          name: cleanImportValue(item.record.name),
-          yearLevel: cleanImportValue(item.record.year_level),
-          college: cleanImportValue(item.record.college),
-          program: cleanImportValue(item.record.program),
-          institution:
-            cleanImportValue(item.record.institution) ||
-            DEFAULT_STUDENT_INSTITUTION,
-          noOfAbsences: 0,
-          remarks: cleanImportValue(item.record.remarks),
-        });
+        const savedEventRecords = await saveManualAttendanceRecordForEvent(
+          {
+            schoolYearId:
+              yearFilter !== ALL_YEARS_SELECT_VALUE ? yearFilter : undefined,
+            eventId: String(item.eventId),
+            scannedAt,
+            studentId: cleanImportValue(item.record.student_id).toUpperCase(),
+            name: cleanImportValue(item.record.name),
+            yearLevel: cleanImportValue(item.record.year_level),
+            college: cleanImportValue(item.record.college),
+            program: cleanImportValue(item.record.program),
+            institution:
+              cleanImportValue(item.record.institution) ||
+              DEFAULT_STUDENT_INSTITUTION,
+            noOfAbsences: 0,
+            remarks: cleanImportValue(item.record.remarks),
+          },
+          item.eventId,
+          displayEvents,
+        );
 
-        savedRecords.push(...getManualAttendanceSavedRecords(result));
+        savedRecords.push(...savedEventRecords);
         processedAddSteps += 1;
         savedRecordSteps += 1;
         updateSelectedRecordsAddProgress(
@@ -7559,6 +7632,14 @@ export default function AttendancePage() {
           currentEventName,
         );
       }
+
+      const savedRecordIds = new Set(
+        savedRecords.map((record) => record.id).filter(Boolean),
+      );
+      const noEventSourceRecordIdsToDelete =
+        candidateNoEventSourceRecordIdsToDelete.filter(
+          (recordId) => !savedRecordIds.has(recordId),
+        );
 
       for (const [index, recordId] of noEventSourceRecordIdsToDelete.entries()) {
         updateSelectedRecordsAddProgress(
