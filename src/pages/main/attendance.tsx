@@ -372,19 +372,6 @@ type AttendanceRecordsPageProgress = {
   isComplete: boolean;
 };
 
-type ManualZeroAttendanceSyncContext = {
-  allEventKeysCount: number;
-  collegeEventKeyCounts: Map<string, number>;
-  studentEventKeyCounts: Map<string, number>;
-  studentCollegeEventKeyCounts: Map<string, number>;
-};
-
-type ManualZeroAttendanceSyncProgress = {
-  processedRecords: number;
-  totalRecords: number;
-  updatedRecords: number;
-};
-
 type AttendanceBulkUpdateResult = {
   records?: AttendanceRecord[];
   updatedRecordIds?: string[];
@@ -441,6 +428,27 @@ function getManualAttendanceSavedRecords(
   }
 
   return Array.from(recordsById.values());
+}
+
+function mergeAttendanceSavedRecords(
+  currentRecords: AttendanceRecord[],
+  savedRecords: AttendanceRecord[],
+) {
+  if (!savedRecords.length) return currentRecords;
+
+  const savedRecordById = new Map(
+    savedRecords.map((record) => [record.id, record]),
+  );
+  const uniqueSavedRecords = Array.from(savedRecordById.values());
+  const currentRecordIds = new Set(currentRecords.map((record) => record.id));
+  const newRecords = uniqueSavedRecords.filter(
+    (record) => !currentRecordIds.has(record.id),
+  );
+  const updatedRecords = currentRecords.map(
+    (record) => savedRecordById.get(record.id) ?? record,
+  );
+
+  return [...newRecords, ...updatedRecords];
 }
 
 const INITIAL_PROGRESSIVE_LOAD_PROGRESS: ProgressiveLoadProgress = {
@@ -2375,175 +2383,6 @@ function buildManualAttendanceInputFromRecord(
     noOfAbsences,
     remarks: cleanImportValue(record.remarks),
   };
-}
-
-function createManualZeroAttendanceSyncContext(
-  rows: AttendanceRecord[],
-): ManualZeroAttendanceSyncContext {
-  const allEventKeys = new Set<string>();
-  const collegeEventKeys = new Map<string, Set<string>>();
-  const studentEventKeys = new Map<string, Set<string>>();
-  const studentCollegeEventKeys = new Map<string, Set<string>>();
-
-  const addScopedEventKey = (
-    map: Map<string, Set<string>>,
-    scopeKey: string,
-    eventKey: string,
-  ) => {
-    const eventKeys = map.get(scopeKey) ?? new Set<string>();
-    eventKeys.add(eventKey);
-    map.set(scopeKey, eventKeys);
-  };
-
-  rows.forEach((record) => {
-    if (
-      isEventlessAttendanceRecord(record) ||
-      !hasAttendanceEventIdentity(record)
-    ) {
-      return;
-    }
-
-    const eventKey = getRecordEventGroupKey(record);
-    if (eventKey === NO_EVENT_FILTER_SELECT_VALUE) return;
-
-    allEventKeys.add(eventKey);
-
-    const collegeKey = getAttendanceCollegeScopeKey(record.college);
-    if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
-      addScopedEventKey(collegeEventKeys, collegeKey, eventKey);
-    }
-
-    if (isExplicitAbsentAttendanceRecord(record)) return;
-
-    const studentKey = getRecordStudentProfileKey(record);
-    if (!studentKey) return;
-
-    addScopedEventKey(studentEventKeys, studentKey, eventKey);
-
-    if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
-      addScopedEventKey(
-        studentCollegeEventKeys,
-        `${studentKey}:${collegeKey}`,
-        eventKey,
-      );
-    }
-  });
-
-  return {
-    allEventKeysCount: allEventKeys.size,
-    collegeEventKeyCounts: new Map(
-      Array.from(collegeEventKeys.entries()).map(([collegeKey, eventKeys]) => [
-        collegeKey,
-        eventKeys.size,
-      ]),
-    ),
-    studentEventKeyCounts: new Map(
-      Array.from(studentEventKeys.entries()).map(([studentKey, eventKeys]) => [
-        studentKey,
-        eventKeys.size,
-      ]),
-    ),
-    studentCollegeEventKeyCounts: new Map(
-      Array.from(studentCollegeEventKeys.entries()).map(
-        ([studentCollegeKey, eventKeys]) => [
-          studentCollegeKey,
-          eventKeys.size,
-        ],
-      ),
-    ),
-  };
-}
-
-function getManualZeroAttendanceCalculatedAbsenceCountFromContext(
-  record: AttendanceRecord,
-  context: ManualZeroAttendanceSyncContext,
-) {
-  if (!isEventlessAttendanceRecord(record)) return null;
-
-  const studentKey = getRecordStudentProfileKey(record);
-  const collegeKey = getAttendanceCollegeScopeKey(record.college);
-
-  if (collegeKey !== NO_COLLEGE_SELECT_VALUE) {
-    const collegeEventCount = context.collegeEventKeyCounts.get(collegeKey) ?? 0;
-    if (collegeEventCount > 0) {
-      const attendedEventCount =
-        context.studentCollegeEventKeyCounts.get(`${studentKey}:${collegeKey}`) ??
-        0;
-
-      return Math.max(0, collegeEventCount - attendedEventCount);
-    }
-  }
-
-  if (context.allEventKeysCount <= 0) return null;
-
-  const attendedEventCount = context.studentEventKeyCounts.get(studentKey) ?? 0;
-
-  return Math.max(0, context.allEventKeysCount - attendedEventCount);
-}
-
-async function syncManualZeroAttendanceRecords(
-  rows: AttendanceRecord[],
-  onProgress?: (progress: ManualZeroAttendanceSyncProgress) => void,
-) {
-  const syncContext = createManualZeroAttendanceSyncContext(rows);
-  const candidates = rows
-    .map((record) => ({
-      record,
-      calculatedAbsenceCount:
-        getManualZeroAttendanceCalculatedAbsenceCountFromContext(
-          record,
-          syncContext,
-        ),
-    }))
-    .filter((candidate) => {
-      return (
-        candidate.calculatedAbsenceCount !== null &&
-        candidate.calculatedAbsenceCount !==
-          getStoredAttendanceAbsenceCount(candidate.record)
-      );
-    });
-  const updatedRecords: AttendanceRecord[] = [];
-  let processedRecords = 0;
-  let updatedRecordsCount = 0;
-
-  onProgress?.({
-    processedRecords,
-    totalRecords: candidates.length,
-    updatedRecords: updatedRecordsCount,
-  });
-
-  for (const candidate of candidates) {
-    const result = await updateAttendanceRecords(
-      [candidate.record.id],
-      buildManualAttendanceInputFromRecord(
-        candidate.record,
-        candidate.calculatedAbsenceCount ?? 0,
-      ),
-    );
-    const resultRecords = getAttendanceBulkUpdatedRecords(result, [
-      candidate.record.id,
-    ]);
-
-    updatedRecords.push(...resultRecords);
-    updatedRecordsCount += getAttendanceBulkUpdatedCount(result, [
-      candidate.record.id,
-    ]);
-    processedRecords += 1;
-
-    onProgress?.({
-      processedRecords,
-      totalRecords: candidates.length,
-      updatedRecords: updatedRecordsCount,
-    });
-  }
-
-  if (!updatedRecords.length) return rows;
-
-  const updatedRecordById = new Map(
-    updatedRecords.map((record) => [record.id, record]),
-  );
-
-  return rows.map((record) => updatedRecordById.get(record.id) ?? record);
 }
 
 function getAttendanceSearchRecordDeduplicationKey(record: AttendanceRecord) {
@@ -5189,47 +5028,22 @@ export default function AttendancePage() {
         importsPromise,
       ]);
 
-      updateProgress(
-        96,
-        "Syncing zero attendance records...",
-        "Updating manual zero-attendance records to match their remaining missed events.",
-      );
-
-      const synchronizedRows = await syncManualZeroAttendanceRecords(
-        rows,
-        (progress) => {
-          if (!progress.totalRecords) {
-            updateProgress(
-              98,
-              "Zero attendance records checked.",
-              "No manual zero-attendance records needed an absence total update.",
-            );
-            return;
-          }
-
-          updateProgress(
-            96 + (progress.processedRecords / progress.totalRecords) * 2,
-            "Syncing zero attendance records...",
-            `${progress.processedRecords}/${progress.totalRecords} zero-attendance record/s synced. ${progress.updatedRecords} record/s updated.`,
-          );
-        },
-      );
-      const rowIds = new Set(synchronizedRows.map((record) => record.id));
+      const rowIds = new Set(rows.map((record) => record.id));
 
       updateProgress(
         98,
         "Updating attendance table...",
-        "Applying filters and syncing selected records.",
+        "Applying filters and selected records.",
       );
 
-      setRecords(synchronizedRows);
+      setRecords(rows);
       setEvents(eventRows);
       setImports(importRows);
       setSelectedRecordIds((current) => current.filter((id) => rowIds.has(id)));
       updateProgress(
         100,
         "Attendance data loaded.",
-        `${synchronizedRows.length.toLocaleString()} records, ${eventRows.length.toLocaleString()} events, and ${importRows.length.toLocaleString()} import history item/s are ready.`,
+        `${rows.length.toLocaleString()} records, ${eventRows.length.toLocaleString()} events, and ${importRows.length.toLocaleString()} import history item/s are ready.`,
       );
     } catch (loadError) {
       const message =
@@ -5806,6 +5620,7 @@ export default function AttendancePage() {
       let savedRecords: AttendanceRecord[] = [];
       let appendedManualEventRecords = false;
       let skippedExistingEventCount = 0;
+      let finalizedManualZeroAttendanceAbsences: number | null = null;
 
       if (editingRecordId) {
         const editingRecord = normalizedRecords.find(
@@ -5836,7 +5651,45 @@ export default function AttendancePage() {
               noOfAbsences: 0,
             },
           );
-          affectedRecordCount = missingEventIds.length;
+
+          const manualZeroAttendanceDraft: AttendanceRecord = {
+            ...editingRecord,
+            event_id: null,
+            event_name: null,
+            student_id: payload.studentId,
+            name: payload.name,
+            year_level: payload.yearLevel ?? null,
+            college: payload.college ?? null,
+            program: payload.program ?? null,
+            institution: payload.institution ?? null,
+            scanned_at: payload.scannedAt ?? null,
+            remarks: payload.remarks ?? null,
+          };
+          const recordsAfterLinkingEvents = mergeAttendanceSavedRecords(
+            normalizedRecords,
+            savedRecords,
+          );
+          const nextAbsenceCount =
+            getManualZeroAttendanceCalculatedAbsenceCount(
+              manualZeroAttendanceDraft,
+              recordsAfterLinkingEvents,
+            ) ?? noOfAbsences;
+          const updatedManualZeroAttendanceRecords =
+            await updateAttendanceRecordsWithProgress(
+              [editingRecord.id],
+              buildManualAttendanceInputFromRecord(
+                manualZeroAttendanceDraft,
+                nextAbsenceCount,
+              ),
+            );
+
+          finalizedManualZeroAttendanceAbsences = nextAbsenceCount;
+          savedRecords = [
+            ...savedRecords,
+            ...updatedManualZeroAttendanceRecords,
+          ];
+          affectedRecordCount =
+            missingEventIds.length + updatedManualZeroAttendanceRecords.length;
         } else if (!selectedManualEventIds.length || !editingRecord) {
           const matchingEditRecords = getMatchingAttendanceEditRecords(
             normalizedRecords,
@@ -5925,21 +5778,7 @@ export default function AttendancePage() {
       }
 
       if (savedRecords.length) {
-        setRecords((current) => {
-          const savedRecordById = new Map(
-            savedRecords.map((record) => [record.id, record]),
-          );
-          const uniqueSavedRecords = Array.from(savedRecordById.values());
-          const currentRecordIds = new Set(current.map((record) => record.id));
-          const newRecords = uniqueSavedRecords.filter(
-            (record) => !currentRecordIds.has(record.id),
-          );
-          const updatedRecords = current.map(
-            (record) => savedRecordById.get(record.id) ?? record,
-          );
-
-          return [...newRecords, ...updatedRecords];
-        });
+        setRecords((current) => mergeAttendanceSavedRecords(current, savedRecords));
       }
 
       const shouldRefreshRecords =
@@ -5974,9 +5813,16 @@ export default function AttendancePage() {
       const successMessage = editingRecordId
         ? appendedManualEventRecords
           ? affectedRecordCount > 0
-            ? `Attendance attendee linked to ${affectedRecordCount} new event/s${
+            ? `Attendance attendee linked to ${
+                affectedRecordCount -
+                (finalizedManualZeroAttendanceAbsences !== null ? 1 : 0)
+              } new event/s${
                 skippedExistingEventCount
-                  ? `; ${skippedExistingEventCount} already recorded.`
+                  ? `; ${skippedExistingEventCount} already recorded`
+                  : ""
+              }${
+                finalizedManualZeroAttendanceAbsences !== null
+                  ? `; absences finalized at ${finalizedManualZeroAttendanceAbsences}.`
                   : "."
               }`
             : "Selected event/s are already recorded for this attendee."
