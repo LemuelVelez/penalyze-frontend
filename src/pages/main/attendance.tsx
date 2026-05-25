@@ -4710,9 +4710,11 @@ function AttendanceEventGroupTriggerContent(props: {
 
 function AttendanceEventAttendeesDialog(props: {
   group: AttendanceEventRecordGroup;
+  selectedEventCount: number;
   selectedRecordIdsSet: Set<string>;
   deletingRecordId: string;
   isDeletingBulk: boolean;
+  isAddingSelectedToEvents: boolean;
   onToggleRecordSelected: (
     id: string,
     checked: boolean | "indeterminate",
@@ -4721,9 +4723,20 @@ function AttendanceEventAttendeesDialog(props: {
     records: AttendanceRecord[],
     checked: boolean | "indeterminate",
   ) => void;
+  onAddSelectedRecordsToEvents: (recordIds: string[]) => void | Promise<void>;
+  onDeleteSelectedRecords: (recordIds: string[]) => void | Promise<void>;
   onEditRecord: (record: AttendanceRecord) => void;
   onDeleteRecord: (id: string) => void;
 }) {
+  const selectedGroupRecordIds = props.group.records
+    .filter((record) => props.selectedRecordIdsSet.has(record.id))
+    .map((record) => record.id);
+  const selectedGroupRecordCount = selectedGroupRecordIds.length;
+  const canAddSelectedToEvents =
+    props.group.key === NO_EVENT_FILTER_SELECT_VALUE &&
+    selectedGroupRecordCount > 0 &&
+    props.selectedEventCount > 0;
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -4775,11 +4788,47 @@ function AttendanceEventAttendeesDialog(props: {
             </div>
           </div>
 
+          {selectedGroupRecordCount ? (
+            <div className="grid gap-3 rounded-2xl border bg-background p-4 sm:grid-cols-2">
+              <DeleteAttendanceRecordsConfirmation
+                label="Delete Selected"
+                title="Delete selected attendance records?"
+                description={`This will permanently delete ${selectedGroupRecordCount} selected attendance record/s.`}
+                isDeleting={props.isDeletingBulk}
+                disabled={!selectedGroupRecordCount}
+                onConfirm={() =>
+                  props.onDeleteSelectedRecords(selectedGroupRecordIds)
+                }
+                className="min-h-10 w-full rounded-xl px-4 py-2 text-xs font-black"
+              />
+              {props.group.key === NO_EVENT_FILTER_SELECT_VALUE ? (
+                <Button
+                  type="button"
+                  disabled={
+                    !canAddSelectedToEvents || props.isAddingSelectedToEvents
+                  }
+                  onClick={() => {
+                    void props.onAddSelectedRecordsToEvents(
+                      selectedGroupRecordIds,
+                    );
+                  }}
+                  className="min-h-10 w-full rounded-xl px-4 py-2 text-xs font-black"
+                >
+                  {props.isAddingSelectedToEvents
+                    ? "Adding..."
+                    : `Add Selected to ${props.selectedEventCount} Event/s`}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
           <AttendanceEventAttendeesList
             group={props.group}
             selectedRecordIdsSet={props.selectedRecordIdsSet}
             deletingRecordId={props.deletingRecordId}
-            isDeletingBulk={props.isDeletingBulk}
+            isDeletingBulk={
+              props.isDeletingBulk || props.isAddingSelectedToEvents
+            }
             onToggleRecordSelected={props.onToggleRecordSelected}
             onToggleAttendeeRecordsSelected={
               props.onToggleAttendeeRecordsSelected
@@ -5314,6 +5363,8 @@ export default function AttendancePage() {
   const [recordLoadProgress, setRecordLoadProgress] =
     useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [isAddingSelectedRecordsToEvents, setIsAddingSelectedRecordsToEvents] =
+    useState(false);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
   const [eventDeleteProgress, setEventDeleteProgress] =
     useState<AttendanceEventDeleteProgress | null>(null);
@@ -7050,6 +7101,138 @@ export default function AttendancePage() {
     setError("");
   }
 
+  async function handleAddSelectedRecordsToSelectedEvents(recordIds: string[]) {
+    const selectedRecordIdSet = new Set(
+      recordIds.map((recordId) => cleanImportValue(recordId)).filter(Boolean),
+    );
+    const targetEventIds = Array.from(
+      new Set(
+        selectedEventIds
+          .map((eventId) => cleanImportValue(eventId))
+          .filter((eventId) =>
+            displayEvents.some((event) => event.id === eventId),
+          ),
+      ),
+    );
+
+    if (!selectedRecordIdSet.size) {
+      toast.error("Please select no event attendee/s to add.");
+      return;
+    }
+
+    if (!targetEventIds.length) {
+      toast.error("Please select target event/s first.");
+      return;
+    }
+
+    const selectedNoEventRecords = mergedRecords
+      .filter((record) => selectedRecordIdSet.has(record.id))
+      .filter(isEventlessAttendanceRecord)
+      .filter((record) => {
+        return cleanImportValue(record.student_id) && cleanImportValue(record.name);
+      })
+      .sort((leftRecord, rightRecord) =>
+        getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord),
+      );
+    const attendeeRecordsByKey = new Map<string, AttendanceRecord>();
+
+    selectedNoEventRecords.forEach((record) => {
+      const attendeeKey = getBulkAttendanceEventAttendeeKey(
+        record.student_id,
+        record.college,
+      );
+
+      if (!attendeeRecordsByKey.has(attendeeKey)) {
+        attendeeRecordsByKey.set(attendeeKey, record);
+      }
+    });
+
+    const attendeeRecords = Array.from(attendeeRecordsByKey.values());
+
+    if (!attendeeRecords.length) {
+      toast.error("Selected record/s cannot be added to events.");
+      return;
+    }
+
+    const recordsToSave = attendeeRecords.flatMap((record) => {
+      return targetEventIds
+        .filter((eventId) => {
+          return !getMatchingAttendanceEventRecordsForAttendee(
+            normalizedRecords,
+            record,
+            eventId,
+            displayEvents,
+          ).length;
+        })
+        .map((eventId) => ({ eventId, record }));
+    });
+    const skippedExistingCount =
+      attendeeRecords.length * targetEventIds.length - recordsToSave.length;
+
+    if (!recordsToSave.length) {
+      toast.info(
+        "Selected attendee/s are already recorded for the selected event/s.",
+      );
+      return;
+    }
+
+    setIsAddingSelectedRecordsToEvents(true);
+    setError("");
+
+    try {
+      const savedRecords: AttendanceRecord[] = [];
+
+      for (const item of recordsToSave) {
+        const scannedAt =
+          normalizeAttendanceDateTimeValue(
+            item.record.scanned_at ?? item.record.created_at,
+          ) || undefined;
+        const result = await saveManualAttendanceRecord({
+          eventId: item.eventId,
+          scannedAt,
+          studentId: cleanImportValue(item.record.student_id).toUpperCase(),
+          name: cleanImportValue(item.record.name),
+          yearLevel: cleanImportValue(item.record.year_level),
+          college: cleanImportValue(item.record.college),
+          program: cleanImportValue(item.record.program),
+          institution:
+            cleanImportValue(item.record.institution) ||
+            DEFAULT_STUDENT_INSTITUTION,
+          noOfAbsences: 0,
+          remarks: cleanImportValue(item.record.remarks),
+        });
+
+        savedRecords.push(...getManualAttendanceSavedRecords(result));
+      }
+
+      if (savedRecords.length) {
+        setRecords((current) =>
+          mergeAttendanceSavedRecords(current, savedRecords),
+        );
+      }
+
+      await loadRecords({ preserveScroll: true });
+      restoreCapturedScrollPosition();
+      toast.success(
+        `Added ${recordsToSave.length} selected attendee record/s to selected event/s${
+          skippedExistingCount
+            ? `; ${skippedExistingCount} already recorded.`
+            : "."
+        }`,
+      );
+    } catch (addError) {
+      const message =
+        addError instanceof Error
+          ? addError.message
+          : "Unable to add selected attendee/s to event/s.";
+      setError(message);
+      toast.error(message);
+      await loadRecords({ preserveScroll: true });
+    } finally {
+      setIsAddingSelectedRecordsToEvents(false);
+    }
+  }
+
   async function handleDeleteRecord(id: string) {
     setDeletingRecordId(id);
     setError("");
@@ -7256,6 +7439,10 @@ export default function AttendancePage() {
       if (editingRecordId && idsToDelete.includes(editingRecordId)) {
         handleCancelEdit();
       }
+
+      setSelectedRecordIds((current) =>
+        current.filter((recordId) => !idsToDelete.includes(recordId)),
+      );
 
       toast.success(
         `${idsToDelete.length} attendance record/s deleted successfully.`,
@@ -8255,15 +8442,23 @@ export default function AttendancePage() {
                             <div className="flex shrink-0 justify-start lg:justify-end">
                               <AttendanceEventAttendeesDialog
                                 group={group}
+                                selectedEventCount={selectedEventCount}
                                 selectedRecordIdsSet={selectedRecordIdsSet}
                                 deletingRecordId={deletingRecordId}
                                 isDeletingBulk={isDeletingBulk}
+                                isAddingSelectedToEvents={
+                                  isAddingSelectedRecordsToEvents
+                                }
                                 onToggleRecordSelected={
                                   handleToggleRecordSelected
                                 }
                                 onToggleAttendeeRecordsSelected={
                                   handleToggleGroupedRecordsSelected
                                 }
+                                onAddSelectedRecordsToEvents={
+                                  handleAddSelectedRecordsToSelectedEvents
+                                }
+                                onDeleteSelectedRecords={handleDeleteRecords}
                                 onEditRecord={handleEditRecord}
                                 onDeleteRecord={handleDeleteRecord}
                               />
