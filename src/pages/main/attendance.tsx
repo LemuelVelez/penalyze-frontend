@@ -2351,6 +2351,56 @@ function getBulkAttendanceEventAttendeeKey(
   ].join(":");
 }
 
+
+function getAttendanceNoEventSourceRecordIdsForAttendeeKeys(
+  records: AttendanceRecord[],
+  attendeeKeys: string[],
+) {
+  const sourceKeys = new Set(
+    attendeeKeys.map((key) => cleanImportValue(key)).filter(Boolean),
+  );
+
+  if (!sourceKeys.size) return [];
+
+  return Array.from(
+    new Set(
+      records
+        .filter(isEventlessAttendanceRecord)
+        .filter((record) =>
+          sourceKeys.has(
+            getBulkAttendanceEventAttendeeKey(record.student_id, record.college),
+          ),
+        )
+        .map((record) => record.id)
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getAttendanceNoEventSourceRecordIdsForAttendees(
+  records: AttendanceRecord[],
+  attendees: AttendanceBulkEventAttendeeRow[],
+) {
+  return getAttendanceNoEventSourceRecordIdsForAttendeeKeys(
+    records,
+    attendees.map((attendee) =>
+      getBulkAttendanceEventAttendeeKey(attendee.studentId, attendee.college),
+    ),
+  );
+}
+
+function getAttendanceNoEventSourceRecordIdsForRecords(
+  records: AttendanceRecord[],
+  sourceRecords: AttendanceRecord[],
+) {
+  return getAttendanceNoEventSourceRecordIdsForAttendeeKeys(
+    records,
+    sourceRecords.map((record) =>
+      getBulkAttendanceEventAttendeeKey(record.student_id, record.college),
+    ),
+  );
+}
+
 function getAttendanceEventById(
   events: AttendanceEvent[],
   eventId: string,
@@ -2791,25 +2841,6 @@ function getManualZeroAttendanceCalculatedAbsenceCount(
   return getCollegeScopedAttendanceAbsenceCount([record], allRecords);
 }
 
-function buildManualAttendanceInputFromRecord(
-  record: AttendanceRecord,
-  noOfAbsences: number,
-): ManualAttendanceInput {
-  return {
-    eventId: isEventlessAttendanceRecord(record)
-      ? undefined
-      : record.event_id || undefined,
-    scannedAt: normalizeAttendanceDateTimeValue(record.scanned_at) || undefined,
-    studentId: cleanImportValue(record.student_id),
-    name: cleanImportValue(record.name),
-    yearLevel: cleanImportValue(record.year_level),
-    college: cleanImportValue(record.college),
-    program: cleanImportValue(record.program),
-    institution: cleanImportValue(record.institution),
-    noOfAbsences,
-    remarks: cleanImportValue(record.remarks),
-  };
-}
 
 function getAttendanceSearchRecordDeduplicationKey(record: AttendanceRecord) {
   return [getRecordEventGroupKey(record), getAttendeeKey(record)].join(":");
@@ -6728,9 +6759,42 @@ export default function AttendancePage() {
         await waitForNextPaint();
       }
 
-      if (savedRecords.length) {
+      const noEventSourceRecordIdsToDelete =
+        getAttendanceNoEventSourceRecordIdsForAttendees(
+          normalizedRecords,
+          attendeeRowsToSave,
+        );
+
+      if (noEventSourceRecordIdsToDelete.length) {
+        setBulkAttendeesSaveProgress({
+          stage: "syncing",
+          percent: 99,
+          message: `Removing ${noEventSourceRecordIdsToDelete.length} copied no event attendee record/s...`,
+          processedRows: attendeeRowsToSave.length,
+          totalRows: attendeeRowsToSave.length,
+          savedRecords: savedRecords.length || attendeeRowsToSave.length,
+          createdFines: 0,
+        });
+        await waitForNextPaint();
+
+        await Promise.all(
+          noEventSourceRecordIdsToDelete.map((recordId) =>
+            deleteAttendanceRecord(recordId),
+          ),
+        );
+      }
+
+      const deletedSourceRecordIds = new Set(noEventSourceRecordIdsToDelete);
+
+      if (savedRecords.length || deletedSourceRecordIds.size) {
         setRecords((current) =>
-          mergeAttendanceSavedRecords(current, savedRecords),
+          mergeAttendanceSavedRecords(
+            current.filter((record) => !deletedSourceRecordIds.has(record.id)),
+            savedRecords,
+          ),
+        );
+        setSelectedRecordIds((current) =>
+          current.filter((recordId) => !deletedSourceRecordIds.has(recordId)),
         );
       }
 
@@ -6751,10 +6815,14 @@ export default function AttendancePage() {
       restoreCapturedScrollPosition();
       toast.success(
         `Added ${attendeeRowsToSave.length} attendee/s to ${selectedEvent.name}${
+          noEventSourceRecordIdsToDelete.length
+            ? `; removed ${noEventSourceRecordIdsToDelete.length} no event record/s`
+            : ""
+        }${
           skippedExistingCount
-            ? `; ${skippedExistingCount} already recorded.`
-            : "."
-        }`,
+            ? `; ${skippedExistingCount} already recorded`
+            : ""
+        }.`,
       );
     } catch (bulkError) {
       const message =
@@ -6858,7 +6926,6 @@ export default function AttendancePage() {
       let savedRecords: AttendanceRecord[] = [];
       let appendedManualEventRecords = false;
       let skippedExistingEventCount = 0;
-      let finalizedManualZeroAttendanceAbsences: number | null = null;
 
       if (editingRecordId) {
         const editingRecord = normalizedRecords.find(
@@ -6890,44 +6957,45 @@ export default function AttendancePage() {
             },
           );
 
-          const manualZeroAttendanceDraft: AttendanceRecord = {
-            ...editingRecord,
-            event_id: null,
-            event_name: null,
-            student_id: payload.studentId,
-            name: payload.name,
-            year_level: payload.yearLevel ?? null,
-            college: payload.college ?? null,
-            program: payload.program ?? null,
-            institution: payload.institution ?? null,
-            scanned_at: payload.scannedAt ?? null,
-            remarks: payload.remarks ?? null,
-          };
-          const recordsAfterLinkingEvents = mergeAttendanceSavedRecords(
-            normalizedRecords,
-            savedRecords,
-          );
-          const nextAbsenceCount =
-            getManualZeroAttendanceCalculatedAbsenceCount(
-              manualZeroAttendanceDraft,
-              recordsAfterLinkingEvents,
-            ) ?? noOfAbsences;
-          const updatedManualZeroAttendanceRecords =
-            await updateAttendanceRecordsWithProgress(
-              [editingRecord.id],
-              buildManualAttendanceInputFromRecord(
-                manualZeroAttendanceDraft,
-                nextAbsenceCount,
+          const noEventSourceRecordIdsToDelete =
+            getAttendanceNoEventSourceRecordIdsForRecords(normalizedRecords, [
+              editingRecord,
+            ]);
+
+          if (missingEventIds.length && noEventSourceRecordIdsToDelete.length) {
+            setManualSaveProgress({
+              stage: "syncing",
+              percent: 99,
+              message: `Removing ${noEventSourceRecordIdsToDelete.length} copied no event attendee record/s...`,
+              processedRows: missingEventIds.length,
+              totalRows:
+                missingEventIds.length + noEventSourceRecordIdsToDelete.length,
+              savedRecords: savedRecords.length || missingEventIds.length,
+              createdFines: 0,
+            });
+            await waitForNextPaint();
+
+            await Promise.all(
+              noEventSourceRecordIdsToDelete.map((recordId) =>
+                deleteAttendanceRecord(recordId),
               ),
             );
 
-          finalizedManualZeroAttendanceAbsences = nextAbsenceCount;
-          savedRecords = [
-            ...savedRecords,
-            ...updatedManualZeroAttendanceRecords,
-          ];
-          affectedRecordCount =
-            missingEventIds.length + updatedManualZeroAttendanceRecords.length;
+            const deletedSourceRecordIds = new Set(noEventSourceRecordIdsToDelete);
+
+            setRecords((current) =>
+              current.filter((record) => !deletedSourceRecordIds.has(record.id)),
+            );
+            setSelectedRecordIds((current) =>
+              current.filter((recordId) => !deletedSourceRecordIds.has(recordId)),
+            );
+
+            if (noEventSourceRecordIdsToDelete.includes(editingRecord.id)) {
+              handleCancelEdit();
+            }
+          }
+
+          affectedRecordCount = missingEventIds.length;
         } else if (!selectedManualEventIds.length || !editingRecord) {
           const matchingEditRecords = getMatchingAttendanceEditRecords(
             normalizedRecords,
@@ -7051,18 +7119,11 @@ export default function AttendancePage() {
       const successMessage = editingRecordId
         ? appendedManualEventRecords
           ? affectedRecordCount > 0
-            ? `Attendance attendee linked to ${
-                affectedRecordCount -
-                (finalizedManualZeroAttendanceAbsences !== null ? 1 : 0)
-              } new event/s${
+            ? `Attendance attendee linked to ${affectedRecordCount} new event/s and removed from no event${
                 skippedExistingEventCount
                   ? `; ${skippedExistingEventCount} already recorded`
                   : ""
-              }${
-                finalizedManualZeroAttendanceAbsences !== null
-                  ? `; absences finalized at ${finalizedManualZeroAttendanceAbsences}.`
-                  : "."
-              }`
+              }.`
             : "Selected event/s are already recorded for this attendee."
           : selectedManualEventIds.length
             ? `Attendance attendee linked to ${selectedManualEventIds.length} event/s across ${affectedRecordCount} record/s.`
@@ -7319,9 +7380,31 @@ export default function AttendancePage() {
         savedRecords.push(...getManualAttendanceSavedRecords(result));
       }
 
-      if (savedRecords.length) {
+      const noEventSourceRecordIdsToDelete =
+        getAttendanceNoEventSourceRecordIdsForRecords(
+          normalizedRecords,
+          recordsToSave.map((item) => item.record),
+        );
+
+      if (noEventSourceRecordIdsToDelete.length) {
+        await Promise.all(
+          noEventSourceRecordIdsToDelete.map((recordId) =>
+            deleteAttendanceRecord(recordId),
+          ),
+        );
+      }
+
+      const deletedSourceRecordIds = new Set(noEventSourceRecordIdsToDelete);
+
+      if (savedRecords.length || deletedSourceRecordIds.size) {
         setRecords((current) =>
-          mergeAttendanceSavedRecords(current, savedRecords),
+          mergeAttendanceSavedRecords(
+            current.filter((record) => !deletedSourceRecordIds.has(record.id)),
+            savedRecords,
+          ),
+        );
+        setSelectedRecordIds((current) =>
+          current.filter((recordId) => !deletedSourceRecordIds.has(recordId)),
         );
       }
 
@@ -7329,10 +7412,14 @@ export default function AttendancePage() {
       restoreCapturedScrollPosition();
       toast.success(
         `Added ${recordsToSave.length} selected attendee record/s to selected event/s${
+          noEventSourceRecordIdsToDelete.length
+            ? `; removed ${noEventSourceRecordIdsToDelete.length} no event record/s`
+            : ""
+        }${
           skippedExistingCount
-            ? `; ${skippedExistingCount} already recorded.`
-            : "."
-        }`,
+            ? `; ${skippedExistingCount} already recorded`
+            : ""
+        }.`,
       );
     } catch (addError) {
       const message =
