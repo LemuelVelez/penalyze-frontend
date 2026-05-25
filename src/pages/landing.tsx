@@ -31,6 +31,11 @@ type LookupState = {
   fallbackFine: FineRecord | null;
 };
 
+type DisplayFineRecord = FineRecord & {
+  merged_fine_ids?: string[];
+  merged_record_count?: number;
+};
+
 type ProgressiveLoadProgress = {
   percent: number;
   message: string;
@@ -1266,6 +1271,78 @@ function getUniqueDisplayFines(fines: FineRecord[]) {
   return Array.from(uniqueFines.values());
 }
 
+function getFineTimestamp(fine: FineRecord) {
+  const value = fine.created_at ?? fine.updated_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getMergedFineStatus(fines: FineRecord[]): FineRecord["status"] {
+  if (fines.some((fine) => fine.status === "unpaid")) return "unpaid";
+  if (fines.length && fines.every((fine) => fine.status === "paid"))
+    return "paid";
+  if (fines.length && fines.every((fine) => fine.status === "waived"))
+    return "waived";
+
+  return fines[0]?.status ?? "unpaid";
+}
+
+function getStudentMergedFineKey(fine: FineRecord) {
+  if (isFallbackFine(fine)) return `fallback:${fine.id}`;
+
+  const cleanStudentId = normalizeFineDisplayValue(fine.student_id);
+
+  return cleanStudentId || getFineDisplayKey(fine);
+}
+
+function getMergedFineIds(fines: FineRecord[]) {
+  return Array.from(new Set(fines.map((fine) => fine.id).filter(Boolean)));
+}
+
+function mergeStudentFineRecords(fines: FineRecord[]): DisplayFineRecord[] {
+  const fineGroups = new Map<string, FineRecord[]>();
+
+  fines.forEach((fine) => {
+    const key = getStudentMergedFineKey(fine);
+    const currentGroup = fineGroups.get(key) ?? [];
+
+    currentGroup.push(fine);
+    fineGroups.set(key, currentGroup);
+  });
+
+  return Array.from(fineGroups.values()).map((group) => {
+    if (group.length === 1) {
+      return {
+        ...group[0],
+        merged_fine_ids: getMergedFineIds(group),
+        merged_record_count: 1
+      };
+    }
+
+    const sortedGroup = [...group].sort((leftFine, rightFine) => {
+      const absenceDifference =
+        getFineAbsenceCount(rightFine) - getFineAbsenceCount(leftFine);
+
+      if (absenceDifference !== 0) return absenceDifference;
+
+      return getFineTimestamp(rightFine) - getFineTimestamp(leftFine);
+    });
+    const baseFine = sortedGroup[0];
+    const mergedAbsenceCount = group.reduce((highestCount, fine) => {
+      return Math.max(highestCount, getFineAbsenceCount(fine));
+    }, 0);
+
+    return {
+      ...baseFine,
+      no_of_absences: mergedAbsenceCount,
+      status: getMergedFineStatus(group),
+      merged_fine_ids: getMergedFineIds(group),
+      merged_record_count: group.length
+    };
+  });
+}
+
 async function resolveFallbackPenalty(noOfAbsences: number) {
   try {
     return await matchPenalty(noOfAbsences);
@@ -1711,8 +1788,10 @@ export default function LandingPage() {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
   const displayedFines = useMemo(() => {
-    const visibleFines = allDisplayedFines.filter((fine) =>
-      shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay, collegeAttendanceScope)
+    const visibleFines = mergeStudentFineRecords(
+      allDisplayedFines.filter((fine) =>
+        shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay, collegeAttendanceScope)
+      )
     );
 
     if (visibleFines.length || !lookup || !absentEvents.length) return visibleFines;

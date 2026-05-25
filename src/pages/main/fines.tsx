@@ -44,6 +44,11 @@ type PenaltyFormState = {
   prescribedPenalty: string;
 };
 
+type DisplayFineRecord = FineRecord & {
+  merged_fine_ids?: string[];
+  merged_record_count?: number;
+};
+
 const statusOptions: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "ALL STATUS" },
   { value: "unpaid", label: "UNPAID" },
@@ -391,6 +396,94 @@ function getUniqueDisplayFines(fines: FineRecord[]) {
   return Array.from(uniqueFines.values());
 }
 
+function getFineTimestamp(fine: FineRecord) {
+  const value = fine.created_at ?? fine.updated_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getMergedFineStatus(fines: FineRecord[]): FineStatus {
+  if (fines.some((fine) => fine.status === "unpaid")) return "unpaid";
+  if (fines.length && fines.every((fine) => fine.status === "paid"))
+    return "paid";
+  if (fines.length && fines.every((fine) => fine.status === "waived"))
+    return "waived";
+
+  return fines[0]?.status ?? "unpaid";
+}
+
+function getStudentMergedFineKey(fine: FineRecord) {
+  const cleanStudentId = normalizeFineDisplayValue(fine.student_id);
+
+  return cleanStudentId || getFineDisplayKey(fine);
+}
+
+function getMergedFineIds(fines: FineRecord[]) {
+  return Array.from(new Set(fines.map((fine) => fine.id).filter(Boolean)));
+}
+
+function mergeStudentFineRecords(
+  fines: FineRecord[],
+  attendanceRecords: AttendanceRecord[],
+  selectedYear: string,
+): DisplayFineRecord[] {
+  const fineGroups = new Map<string, FineRecord[]>();
+
+  fines.forEach((fine) => {
+    const key = getStudentMergedFineKey(fine);
+    const currentGroup = fineGroups.get(key) ?? [];
+
+    currentGroup.push(fine);
+    fineGroups.set(key, currentGroup);
+  });
+
+  return Array.from(fineGroups.values()).map((group) => {
+    if (group.length === 1) {
+      return {
+        ...group[0],
+        merged_fine_ids: getMergedFineIds(group),
+        merged_record_count: 1,
+      };
+    }
+
+    const sortedGroup = [...group].sort((leftFine, rightFine) => {
+      const absenceDifference =
+        getDisplayedFineAbsenceCount(
+          rightFine,
+          attendanceRecords,
+          selectedYear,
+        ) -
+        getDisplayedFineAbsenceCount(leftFine, attendanceRecords, selectedYear);
+
+      if (absenceDifference !== 0) return absenceDifference;
+
+      return getFineTimestamp(rightFine) - getFineTimestamp(leftFine);
+    });
+    const baseFine = sortedGroup[0];
+    const mergedAbsenceCount = group.reduce((highestCount, fine) => {
+      return Math.max(
+        highestCount,
+        getDisplayedFineAbsenceCount(fine, attendanceRecords, selectedYear),
+      );
+    }, 0);
+
+    return {
+      ...baseFine,
+      no_of_absences: mergedAbsenceCount,
+      status: getMergedFineStatus(group),
+      merged_fine_ids: getMergedFineIds(group),
+      merged_record_count: group.length,
+    };
+  });
+}
+
+function getFineUpdateIds(fine: DisplayFineRecord) {
+  const mergedFineIds = fine.merged_fine_ids?.filter(Boolean) ?? [];
+
+  return mergedFineIds.length ? mergedFineIds : [fine.id];
+}
+
 function getStudentCollegeScopeKeys(
   studentId: string,
   attendanceRecords: AttendanceRecord[],
@@ -589,7 +682,7 @@ export default function FinesPage() {
     [attendanceRecords, fines],
   );
   const yearFilteredFines = useMemo(() => {
-    return fines.filter((fine) => {
+    const filteredFines = fines.filter((fine) => {
       const matchesYear = matchesSelectedYear(
         getFineRecordYear(fine),
         yearFilter,
@@ -602,6 +695,8 @@ export default function FinesPage() {
 
       return matchesYear && matchesCollegeScope;
     });
+
+    return mergeStudentFineRecords(filteredFines, attendanceRecords, yearFilter);
   }, [fines, attendanceRecords, yearFilter]);
   const reportYearLabel =
     yearFilter === ALL_YEARS_VALUE ? "All years" : yearFilter;
@@ -764,16 +859,29 @@ export default function FinesPage() {
     }
   }
 
-  async function handleStatusChange(id: string, nextStatus: FineStatus) {
-    setUpdatingId(id);
+  async function handleStatusChange(
+    fineRecord: DisplayFineRecord,
+    nextStatus: FineStatus,
+  ) {
+    const idsToUpdate = getFineUpdateIds(fineRecord);
+
+    setUpdatingId(fineRecord.id);
     setError("");
 
     try {
-      const updated = await updateFineStatus(id, nextStatus);
-      if (updated) {
+      const updatedRows = await Promise.all(
+        idsToUpdate.map((id) => updateFineStatus(id, nextStatus)),
+      );
+      const updatedById = new Map(
+        updatedRows
+          .filter((row): row is FineRecord => Boolean(row))
+          .map((row) => [row.id, row]),
+      );
+
+      if (updatedById.size) {
         setFines((current) =>
           getUniqueDisplayFines(
-            current.map((fine) => (fine.id === id ? updated : fine)),
+            current.map((fine) => updatedById.get(fine.id) ?? fine),
           ),
         );
         toast.success("Fine status updated successfully.");
@@ -1177,7 +1285,7 @@ export default function FinesPage() {
                       value={fine.status}
                       disabled={updatingId === fine.id}
                       onValueChange={(value) =>
-                        handleStatusChange(fine.id, value as FineStatus)
+                        handleStatusChange(fine, value as FineStatus)
                       }
                     >
                       <SelectTrigger className="min-h-10 rounded-xl border bg-card px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40">
@@ -1265,7 +1373,7 @@ export default function FinesPage() {
                           value={fine.status}
                           disabled={updatingId === fine.id}
                           onValueChange={(value) =>
-                            handleStatusChange(fine.id, value as FineStatus)
+                            handleStatusChange(fine, value as FineStatus)
                           }
                         >
                           <SelectTrigger className="min-h-10 rounded-xl border bg-background px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 lg:w-36">
