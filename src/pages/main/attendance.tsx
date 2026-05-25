@@ -5723,7 +5723,9 @@ export default function AttendancePage() {
       let affectedRecordCount = 0;
       let savedRecords: AttendanceRecord[] = [];
       let appendedManualEventRecords = false;
+      let linkedManualEventCount = 0;
       let skippedExistingEventCount = 0;
+      let shouldRefreshRecordsAfterManualSave = false;
 
       if (editingRecordId) {
         const editingRecord = normalizedRecords.find(
@@ -5737,6 +5739,7 @@ export default function AttendancePage() {
 
         if (shouldAppendManualEventRecords && editingRecord) {
           appendedManualEventRecords = true;
+          shouldRefreshRecordsAfterManualSave = true;
 
           const missingEventIds = getMissingAttendanceEventIdsForAttendee(
             normalizedRecords,
@@ -5744,17 +5747,43 @@ export default function AttendancePage() {
             selectedManualEventIds,
             events,
           );
+          const [replacementEventId, ...additionalEventIds] = missingEventIds;
 
           skippedExistingEventCount =
             selectedManualEventIds.length - missingEventIds.length;
-          savedRecords = await saveManualAttendanceEventsWithProgress(
-            missingEventIds,
-            {
-              ...payload,
-              noOfAbsences: 0,
-            },
-          );
-          affectedRecordCount = savedRecords.length;
+
+          if (replacementEventId) {
+            const updatedRecords = await updateAttendanceRecordsWithProgress(
+              [editingRecord.id],
+              {
+                ...payload,
+                eventId: replacementEventId,
+                noOfAbsences: 0,
+              },
+            );
+
+            savedRecords.push(...updatedRecords);
+            affectedRecordCount += 1;
+            linkedManualEventCount += 1;
+          } else if (selectedManualEventIds.length) {
+            await deleteAttendanceRecord(editingRecord.id);
+            affectedRecordCount += 1;
+          }
+
+          if (additionalEventIds.length) {
+            const additionalRecords =
+              await saveManualAttendanceEventsWithProgress(
+                additionalEventIds,
+                {
+                  ...payload,
+                  noOfAbsences: 0,
+                },
+              );
+
+            savedRecords.push(...additionalRecords);
+            affectedRecordCount += additionalRecords.length;
+            linkedManualEventCount += additionalRecords.length;
+          }
         } else if (!selectedManualEventIds.length || !editingRecord) {
           const matchingEditRecords = getMatchingAttendanceEditRecords(
             normalizedRecords,
@@ -5859,6 +5888,7 @@ export default function AttendancePage() {
       }
 
       const shouldRefreshRecords =
+        shouldRefreshRecordsAfterManualSave ||
         (!savedRecords.length &&
           !(appendedManualEventRecords && skippedExistingEventCount > 0)) ||
         (!appendedManualEventRecords &&
@@ -5887,8 +5917,8 @@ export default function AttendancePage() {
 
       const successMessage = editingRecordId
         ? appendedManualEventRecords
-          ? affectedRecordCount > 0
-            ? `Attendance attendee linked to ${affectedRecordCount} new event/s${
+          ? linkedManualEventCount > 0
+            ? `Attendance attendee linked to ${linkedManualEventCount} new event/s${
                 skippedExistingEventCount
                   ? `; ${skippedExistingEventCount} already recorded.`
                   : "."
