@@ -120,6 +120,11 @@ type BuildCalculationRowsProgress = {
   sourceRecords: number;
 };
 
+type SelectedImportProgressSummary = {
+  selectedImports: AttendanceImportRecord[];
+  expectedImportedRecords: number;
+};
+
 const CALCULATION_PROGRESS_STORAGE_KEY = "penalyze.calculate.progress";
 const CALCULATION_PROGRESS_STALE_MS = 1000 * 60 * 60;
 
@@ -129,6 +134,53 @@ function clampProgressPercent(value: unknown) {
   if (!Number.isFinite(numericValue)) return 0;
 
   return Math.min(100, Math.max(0, numericValue));
+}
+
+function getProgressRangePercent(
+  processed: number,
+  total: number,
+  startPercent: number,
+  endPercent: number,
+) {
+  if (!total || total <= 0) return clampProgressPercent(startPercent);
+
+  const safeProcessed = Math.min(Math.max(processed, 0), total);
+  const safeTotal = Math.max(total, 1);
+  const ratio = safeProcessed / safeTotal;
+
+  return clampProgressPercent(
+    startPercent + ratio * (endPercent - startPercent),
+  );
+}
+
+function getSelectedImportProgressSummary(
+  imports: AttendanceImportRecord[],
+  selectedImportIds: string[],
+): SelectedImportProgressSummary {
+  const selectedIds = new Set(selectedImportIds);
+  const selectedImports = imports.filter((importRecord) =>
+    selectedIds.has(importRecord.id),
+  );
+  const expectedImportedRecords = selectedImports.reduce(
+    (totalRows, importRecord) => {
+      const validRows = Number(importRecord.rows_valid ?? 0);
+      const totalImportedRows = Number(importRecord.rows_total ?? 0);
+      const bestKnownRows =
+        Number.isFinite(validRows) && validRows > 0
+          ? validRows
+          : totalImportedRows;
+
+      if (!Number.isFinite(bestKnownRows)) return totalRows;
+
+      return totalRows + Math.max(0, bestKnownRows);
+    },
+    0,
+  );
+
+  return {
+    selectedImports,
+    expectedImportedRecords,
+  };
 }
 
 function readStoredCalculationProgress() {
@@ -496,6 +548,7 @@ async function buildCalculationRows(
   );
   const totalStudents = studentKeys.length;
   const sourceRecords = importedRecords.length + props.manualRecords.length;
+  const progressInterval = Math.max(1, Math.floor(totalStudents / 100));
   const rows: CalculationRow[] = [];
 
   if (!totalStudents) {
@@ -562,7 +615,10 @@ async function buildCalculationRows(
 
     const processedStudents = index + 1;
 
-    if (processedStudents % 25 === 0 || processedStudents === totalStudents) {
+    if (
+      processedStudents % progressInterval === 0 ||
+      processedStudents === totalStudents
+    ) {
       onProgress?.({
         processedStudents,
         totalStudents,
@@ -823,7 +879,10 @@ export default function CalculatePage() {
     updateCalculationProgress(taskId, {
       detail: "Loading school years and penalties",
       percent: progressTaskId ? 72 : 8,
+      processed: 0,
+      total: 0,
     });
+    await yieldCalculationProgressFrame();
 
     try {
       const [schoolYearRows, penaltyRows] = await Promise.all([
@@ -844,7 +903,10 @@ export default function CalculatePage() {
       updateCalculationProgress(taskId, {
         detail: "Loading imports and saved calculation rows",
         percent: progressTaskId ? 78 : 32,
+        processed: 0,
+        total: 0,
       });
+      await yieldCalculationProgressFrame();
 
       const [importRows, resultRows] = await Promise.all([
         listAttendanceImports({
@@ -873,6 +935,7 @@ export default function CalculatePage() {
         processed: savedRows.length,
         total: savedRows.length,
       });
+      await yieldCalculationProgressFrame();
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
@@ -915,14 +978,39 @@ export default function CalculatePage() {
       nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
         ? undefined
         : nextSchoolYearId;
+    const {
+      selectedImports,
+      expectedImportedRecords,
+    } = getSelectedImportProgressSummary(attendanceImports, nextImportIds);
+    const selectedImportCount = selectedImports.length || nextImportIds.length;
+    const importedStartPercent = progressTaskId ? 58 : 8;
+    const importedRequestPercent = progressTaskId ? 62 : 18;
+    const importedEndPercent = progressTaskId ? 68 : 46;
+    const manualStartPercent = progressTaskId ? 68 : 48;
+    const manualEndPercent = progressTaskId ? 78 : 68;
+    const calculationStartPercent = progressTaskId ? 80 : 72;
+    const calculationEndPercent = 96;
 
     updateCalculationProgress(taskId, {
       label: "Calculating attendance fines",
-      detail: "Loading imported attendance records",
-      percent: progressTaskId ? 58 : 10,
+      detail: expectedImportedRecords
+        ? `Preparing ${expectedImportedRecords.toLocaleString()} expected imported row/s from ${selectedImportCount.toLocaleString()} selected file/s`
+        : `Preparing selected imported file/s`,
+      percent: importedStartPercent,
       processed: 0,
-      total: 0,
+      total: expectedImportedRecords,
     });
+    await yieldCalculationProgressFrame();
+
+    updateCalculationProgress(taskId, {
+      detail: expectedImportedRecords
+        ? `Requesting ${expectedImportedRecords.toLocaleString()} imported attendance row/s`
+        : "Requesting imported attendance records",
+      percent: importedRequestPercent,
+      processed: 0,
+      total: expectedImportedRecords,
+    });
+    await yieldCalculationProgressFrame();
 
     try {
       const attendanceRows = await listAllAttendanceRecords({
@@ -931,37 +1019,54 @@ export default function CalculatePage() {
         maxPages: 100,
       });
       const selectedImportIdSet = new Set(nextImportIds);
-      const selectedImportedRecordCount = attendanceRows.filter((record) => {
+      const selectedAttendanceRows = attendanceRows.filter((record) => {
         if (!record.import_id) return false;
         if (!selectedImportIdSet.size) return true;
 
         return selectedImportIdSet.has(record.import_id);
-      }).length;
+      });
+      const selectedImportedRecordCount = selectedAttendanceRows.length;
+      const importedRecordProgressTotal =
+        expectedImportedRecords || selectedImportedRecordCount;
 
       updateCalculationProgress(taskId, {
         detail: `Loaded ${selectedImportedRecordCount.toLocaleString()} imported attendance record/s`,
-        percent: progressTaskId ? 68 : 46,
+        percent: getProgressRangePercent(
+          selectedImportedRecordCount,
+          importedRecordProgressTotal,
+          importedRequestPercent,
+          importedEndPercent,
+        ),
         processed: selectedImportedRecordCount,
-        total: selectedImportedRecordCount,
+        total: importedRecordProgressTotal,
       });
+      await yieldCalculationProgressFrame();
+
+      updateCalculationProgress(taskId, {
+        detail: "Loading manual attendance records",
+        percent: manualStartPercent,
+        processed: 0,
+        total: 0,
+      });
+      await yieldCalculationProgressFrame();
 
       const manualRows = await listAllManualAttendanceRecords(
         {
           schoolYearId: requestSchoolYearId,
         },
         (progress) => {
-          const basePercent = progressTaskId ? 68 : 52;
-          const maxPercent = progressTaskId ? 78 : 68;
           const pagePercent = Math.min(
-            maxPercent,
-            basePercent + progress.page * 2,
+            manualEndPercent,
+            manualStartPercent + progress.page * 2,
           );
 
           updateCalculationProgress(taskId, {
-            detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual attendance record/s`,
-            percent: progress.isComplete ? maxPercent : pagePercent,
+            detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual attendance record/s from ${progress.page.toLocaleString()} page/s`,
+            percent: progress.isComplete ? manualEndPercent : pagePercent,
             processed: progress.loadedRecords,
-            total: progress.loadedRecords,
+            total: progress.isComplete
+              ? progress.loadedRecords
+              : Math.max(progress.loadedRecords, progress.pageSize),
           });
         },
       );
@@ -969,30 +1074,28 @@ export default function CalculatePage() {
 
       updateCalculationProgress(taskId, {
         detail: `Calculating ${totalSourceRecords.toLocaleString()} source record/s`,
-        percent: progressTaskId ? 80 : 72,
+        percent: calculationStartPercent,
         processed: 0,
         total: totalSourceRecords,
       });
+      await yieldCalculationProgressFrame();
 
       const nextRows = await buildCalculationRows(
         {
-          attendanceRecords: attendanceRows,
+          attendanceRecords: selectedAttendanceRows,
           manualRecords: manualRows,
           penalties,
           importIds: nextImportIds,
         },
         (progress) => {
-          const startPercent = progressTaskId ? 80 : 72;
-          const endPercent = progressTaskId ? 96 : 96;
-          const calculationPercent = progress.totalStudents
-            ? startPercent +
-              (progress.processedStudents / progress.totalStudents) *
-                (endPercent - startPercent)
-            : endPercent;
-
           updateCalculationProgress(taskId, {
-            detail: `Calculated ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s`,
-            percent: calculationPercent,
+            detail: `Calculated ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s from ${progress.sourceRecords.toLocaleString()} source record/s`,
+            percent: getProgressRangePercent(
+              progress.processedStudents,
+              progress.totalStudents,
+              calculationStartPercent,
+              calculationEndPercent,
+            ),
             processed: progress.processedStudents,
             total: progress.totalStudents,
           });
@@ -1005,6 +1108,7 @@ export default function CalculatePage() {
         processed: nextRows.length,
         total: nextRows.length,
       });
+      await yieldCalculationProgressFrame();
 
       setCalculationRows(nextRows);
       setLastCalculatedAt(new Date().toISOString());
@@ -1168,7 +1272,10 @@ export default function CalculatePage() {
     updateCalculationProgress(progressTaskId, {
       percent: 12,
       detail: "Saving calculated results",
+      processed: 0,
+      total: calculationRows.length,
     });
+    await yieldCalculationProgressFrame();
 
     try {
       const requestSchoolYearId =
@@ -1184,7 +1291,10 @@ export default function CalculatePage() {
       updateCalculationProgress(progressTaskId, {
         percent: 70,
         detail: "Reloading saved calculation results",
+        processed: calculationRows.length,
+        total: calculationRows.length,
       });
+      await yieldCalculationProgressFrame();
 
       toast.success("Calculation results saved.");
       await loadSavedResults(
@@ -1237,6 +1347,13 @@ export default function CalculatePage() {
     );
 
     setIsSavingEdit(true);
+    updateCalculationProgress(progressTaskId, {
+      detail: "Saving source records",
+      percent: 8,
+      processed: 0,
+      total: recordEditForms.length,
+    });
+    await yieldCalculationProgressFrame();
 
     try {
       for (let index = 0; index < recordEditForms.length; index += 1) {
@@ -1246,10 +1363,16 @@ export default function CalculatePage() {
 
         updateCalculationProgress(progressTaskId, {
           detail: `Saved ${index + 1} of ${recordEditForms.length} source record/s`,
-          percent: 12 + ((index + 1) / recordEditForms.length) * 42,
+          percent: getProgressRangePercent(
+            index + 1,
+            recordEditForms.length,
+            12,
+            54,
+          ),
           processed: index + 1,
           total: recordEditForms.length,
         });
+        await yieldCalculationProgressFrame();
       }
 
       toast.success("Source records updated.");
