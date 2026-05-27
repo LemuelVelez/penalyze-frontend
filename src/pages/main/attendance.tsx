@@ -148,29 +148,40 @@ export default function AttendancePage() {
     setIsLoading(true);
 
     try {
-      const [schoolYearRows, importRows, resultRows] = await Promise.all([
-        listSchoolYears(),
-        listAttendanceImports({
-          schoolYearId:
-            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
-          limit: 50,
-          offset: 0,
-        }),
-        listAttendanceFinalResults({
-          schoolYearId:
-            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-      ]);
+      const schoolYearRows = await listSchoolYears({ activeOnly: true });
       const activeSchoolYearId = getActiveSchoolYearId(schoolYearRows);
+      const fallbackSchoolYearId =
+        nextSchoolYearId &&
+        nextSchoolYearId !== ALL_YEARS_VALUE &&
+        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : activeSchoolYearId;
+      const [importRows, resultRows] = fallbackSchoolYearId
+        ? await Promise.all([
+            listAttendanceImports({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 50,
+              offset: 0,
+            }),
+            listAttendanceFinalResults({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+          ])
+        : [[], []];
 
       setSchoolYears(schoolYearRows);
+      setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setImports(importRows);
       setFinalResults(resultRows);
       setUploadForm((current) => ({
         ...current,
-        schoolYearId: current.schoolYearId || activeSchoolYearId,
+        schoolYearId:
+          current.schoolYearId &&
+          schoolYearRows.some((schoolYear) => schoolYear.id === current.schoolYearId)
+            ? current.schoolYearId
+            : activeSchoolYearId,
       }));
     } catch (error) {
       toast.error(
@@ -317,9 +328,6 @@ export default function AttendancePage() {
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_YEARS_VALUE}>
-                    All school years
-                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}

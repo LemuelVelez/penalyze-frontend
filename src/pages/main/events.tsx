@@ -48,6 +48,7 @@ import {
 
 const emptyEventForm = {
   schoolYearId: "",
+  eventOrder: "",
   name: "",
   eventStartAt: "",
   eventEndAt: "",
@@ -103,6 +104,7 @@ function buildEventForm(
 
   return {
     schoolYearId: event.school_year_id ?? "",
+    eventOrder: event.event_order ? String(event.event_order) : "",
     name: event.name ?? "",
     eventStartAt: toDateTimeLocalValue(event.event_start_at),
     eventEndAt: toDateTimeLocalValue(event.event_end_at),
@@ -111,20 +113,22 @@ function buildEventForm(
 }
 
 function buildEventPayload(form: EventFormState): AttendanceEventInput {
+  const eventOrder = Number(form.eventOrder);
+
   return {
     schoolYearId: form.schoolYearId || undefined,
     name: form.name.trim(),
     eventStartAt: fromDateTimeLocalValue(form.eventStartAt),
     eventEndAt: fromDateTimeLocalValue(form.eventEndAt),
     description: form.description.trim() || undefined,
+    eventOrder:
+      Number.isInteger(eventOrder) && eventOrder > 0 ? eventOrder : undefined,
   };
 }
 
 export default function EventsPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(
-    ALL_SCHOOL_YEARS_VALUE,
-  );
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<AttendanceEvent | null>(
@@ -156,19 +160,19 @@ export default function EventsPage() {
     setIsLoading(true);
 
     try {
-      const schoolYearRows = await listSchoolYears();
+      const schoolYearRows = await listSchoolYears({ activeOnly: true });
       const fallbackSchoolYearId =
-        nextSchoolYearId ||
-        getActiveSchoolYearId(schoolYearRows) ||
-        ALL_SCHOOL_YEARS_VALUE;
-      const rows = await listAttendanceEvents({
-        schoolYearId:
-          fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
-            ? undefined
-            : fallbackSchoolYearId,
-        limit: 500,
-        offset: 0,
-      });
+        nextSchoolYearId &&
+        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : getActiveSchoolYearId(schoolYearRows);
+      const rows = fallbackSchoolYearId
+        ? await listAttendanceEvents({
+            schoolYearId: fallbackSchoolYearId,
+            limit: 500,
+            offset: 0,
+          })
+        : [];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
@@ -213,6 +217,20 @@ export default function EventsPage() {
     if (!form.name.trim()) {
       toast.error("Event name is required.");
       return;
+    }
+
+    if (!form.schoolYearId) {
+      toast.error("Active school year is required.");
+      return;
+    }
+
+    if (form.eventOrder) {
+      const eventOrder = Number(form.eventOrder);
+
+      if (!Number.isInteger(eventOrder) || eventOrder < 1) {
+        toast.error("Event order must be a positive whole number.");
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -280,9 +298,6 @@ export default function EventsPage() {
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent className="max-w-xs">
-                  <SelectItem value={ALL_SCHOOL_YEARS_VALUE}>
-                    All school years
-                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}
@@ -454,17 +469,33 @@ export default function EventsPage() {
           </DialogHeader>
 
           <form onSubmit={handleSaveEvent} className="space-y-5">
-            <label className="space-y-2 text-sm font-bold">
-              <span>Event name</span>
-              <Input
-                value={form.name}
-                onChange={(event) =>
-                  handleFieldChange("name", event.target.value)
-                }
-                placeholder="Event name"
-                className="min-h-12 rounded-2xl"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="space-y-2 text-sm font-bold">
+                <span>Order</span>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.eventOrder}
+                  onChange={(event) =>
+                    handleFieldChange("eventOrder", event.target.value)
+                  }
+                  placeholder="1"
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+              <label className="space-y-2 text-sm font-bold sm:col-span-2">
+                <span>Event name</span>
+                <Input
+                  value={form.name}
+                  onChange={(event) =>
+                    handleFieldChange("name", event.target.value)
+                  }
+                  placeholder="Event name"
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+            </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-bold">

@@ -17,6 +17,10 @@ export type SchoolYearInput = {
   isActive?: boolean;
 };
 
+export type ListSchoolYearsOptions = {
+  activeOnly?: boolean;
+};
+
 export type TransferSchoolYearRecordsPayload = {
   targetSchoolYearId: string;
   eventIds?: string[];
@@ -168,13 +172,29 @@ export function getSchoolYearLabel(
   return schoolYears.find((item) => item.id === schoolYearId)?.name ?? schoolYearId;
 }
 
-export function getActiveSchoolYearId(schoolYears: SchoolYearRecord[]) {
-  return schoolYears.find((item) => item.is_active)?.id ?? schoolYears[0]?.id ?? "";
+export function getActiveSchoolYears(schoolYears: SchoolYearRecord[]) {
+  return schoolYears.filter((item) => item.is_active);
 }
 
-export async function listSchoolYears() {
-  const response = await apiRequest<SchoolYearRecord[]>("/api/school-years");
+export function getSelectableSchoolYears(schoolYears: SchoolYearRecord[]) {
+  const activeSchoolYears = getActiveSchoolYears(schoolYears);
+  return activeSchoolYears.length ? activeSchoolYears : schoolYears;
+}
+
+export function getActiveSchoolYearId(schoolYears: SchoolYearRecord[]) {
+  const selectableSchoolYears = getSelectableSchoolYears(schoolYears);
+  return selectableSchoolYears[0]?.id ?? "";
+}
+
+export async function listSchoolYears(options: ListSchoolYearsOptions = {}) {
+  const query = options.activeOnly ? "?activeOnly=true" : "";
+  const response = await apiRequest<SchoolYearRecord[]>(`/api/school-years${query}`);
   return response.data ?? [];
+}
+
+export async function listActiveSchoolYears() {
+  const rows = await listSchoolYears({ activeOnly: true });
+  return getSelectableSchoolYears(rows);
 }
 
 export async function saveSchoolYear(input: SchoolYearInput) {

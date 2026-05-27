@@ -542,6 +542,17 @@ export default function HistoryPage() {
                 ? `${formatDate(selectedSchoolYear.starts_at)} - ${formatDate(selectedSchoolYear.ends_at)}`
                 : "No school year selected"}
             </p>
+            {selectedSchoolYear ? (
+              <span
+                className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                  selectedSchoolYear.is_active
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-slate-200 bg-slate-50 text-slate-600"
+                }`}
+              >
+                {selectedSchoolYear.is_active ? "Active" : "Inactive"}
+              </span>
+            ) : null}
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
@@ -780,7 +791,7 @@ export default function HistoryPage() {
                     }
                   />
                   <span className="text-sm font-bold">
-                    Set as active school year
+                    {form.isActive ? "Active school year" : "Inactive school year"}
                   </span>
                 </label>
               </div>

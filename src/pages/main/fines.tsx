@@ -173,21 +173,26 @@ export default function FinesPage() {
     setIsLoading(true);
 
     try {
-      const [schoolYearRows, penaltyRows, penaltyResultRows] =
-        await Promise.all([
-          listSchoolYears(),
-          listPenalties(),
-          listPenaltyResults({
-            schoolYearId:
-              nextSchoolYearId === ALL_YEARS_VALUE
-                ? undefined
-                : nextSchoolYearId,
+      const [schoolYearRows, penaltyRows] = await Promise.all([
+        listSchoolYears({ activeOnly: true }),
+        listPenalties(),
+      ]);
+      const fallbackSchoolYearId =
+        nextSchoolYearId &&
+        nextSchoolYearId !== ALL_YEARS_VALUE &&
+        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : schoolYearRows[0]?.id ?? "";
+      const penaltyResultRows = fallbackSchoolYearId
+        ? await listPenaltyResults({
+            schoolYearId: fallbackSchoolYearId,
             limit: 500,
             offset: 0,
-          }),
-        ]);
+          })
+        : [];
 
       setSchoolYears(schoolYearRows);
+      setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setPenalties(penaltyRows);
       setPenaltyResults(penaltyResultRows);
     } catch (error) {
@@ -381,9 +386,6 @@ export default function FinesPage() {
                   <SelectValue placeholder="School year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_YEARS_VALUE}>
-                    All school years
-                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}

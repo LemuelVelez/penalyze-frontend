@@ -131,29 +131,40 @@ export default function ManualAttendancePage() {
     setIsLoading(true);
 
     try {
-      const [schoolYearRows, eventRows, manualRows] = await Promise.all([
-        listSchoolYears(),
-        listAttendanceEvents({
-          schoolYearId:
-            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-        listManualAttendanceRecords({
-          schoolYearId:
-            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-      ]);
+      const schoolYearRows = await listSchoolYears({ activeOnly: true });
       const activeSchoolYearId = getActiveSchoolYearId(schoolYearRows);
+      const fallbackSchoolYearId =
+        nextSchoolYearId &&
+        nextSchoolYearId !== ALL_YEARS_VALUE &&
+        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : activeSchoolYearId;
+      const [eventRows, manualRows] = fallbackSchoolYearId
+        ? await Promise.all([
+            listAttendanceEvents({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+            listManualAttendanceRecords({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+          ])
+        : [[], []];
 
       setSchoolYears(schoolYearRows);
+      setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setEvents(eventRows);
       setRecords(manualRows);
       setForm((current) => ({
         ...current,
-        schoolYearId: current.schoolYearId || activeSchoolYearId,
+        schoolYearId:
+          current.schoolYearId &&
+          schoolYearRows.some((schoolYear) => schoolYear.id === current.schoolYearId)
+            ? current.schoolYearId
+            : activeSchoolYearId,
       }));
     } catch (error) {
       toast.error(
@@ -187,6 +198,11 @@ export default function ManualAttendancePage() {
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!form.schoolYearId) {
+      toast.error("Active school year is required.");
+      return;
+    }
 
     if (!form.eventId) {
       toast.error("Please select an existing event.");
@@ -264,9 +280,6 @@ export default function ManualAttendancePage() {
                   <SelectValue placeholder="School year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_YEARS_VALUE}>
-                    All school years
-                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}

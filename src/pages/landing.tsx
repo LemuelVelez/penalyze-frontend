@@ -20,6 +20,7 @@ import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
   getSchoolYearLabel,
+  getSelectableSchoolYears,
   listSchoolYears,
 } from "../api/schoolYears";
 import type { SchoolYearRecord } from "../api/schoolYears";
@@ -1812,6 +1813,7 @@ function ZeroAttendanceRegistrationDialog(props: {
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   const programOptions = getStudentProgramOptions(props.form.college);
+  const schoolYearOptions = getSelectableSchoolYears(props.schoolYears);
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -1866,20 +1868,20 @@ function ZeroAttendanceRegistrationDialog(props: {
                 onValueChange={(value) =>
                   props.onFieldChange("schoolYearId", value)
                 }
-                disabled={!props.schoolYears.length}
+                disabled={!schoolYearOptions.length}
               >
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue
                     placeholder={
-                      props.schoolYears.length
-                        ? "Select school year"
+                      schoolYearOptions.length
+                        ? "Select active school year"
                         : "Current school year"
                     }
                     className="truncate"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
-                  {props.schoolYears.map((schoolYear) => (
+                  {schoolYearOptions.map((schoolYear) => (
                     <SelectItem
                       key={schoolYear.id}
                       value={schoolYear.id}
@@ -2147,7 +2149,7 @@ export default function LandingPage() {
 
   async function loadLandingSchoolYears() {
     try {
-      const rows = await listSchoolYears();
+      const rows = await listSchoolYears({ activeOnly: true });
       setSchoolYears(rows);
       setZeroAttendanceForm((current) => ({
         ...current,
@@ -2376,7 +2378,7 @@ export default function LandingPage() {
     setZeroAttendanceForm({
       ...emptyZeroAttendanceForm,
       studentId: cleanStudentId,
-      schoolYearId: getActiveSchoolYearId(availableSchoolYears),
+      schoolYearId: getActiveSchoolYearId(getSelectableSchoolYears(availableSchoolYears)),
     });
     setZeroAttendanceDialogOpen(true);
   }
@@ -2401,7 +2403,7 @@ export default function LandingPage() {
       studentId: zeroAttendanceForm.studentId.trim(),
       schoolYearId:
         zeroAttendanceForm.schoolYearId ||
-        getActiveSchoolYearId(schoolYears) ||
+        getActiveSchoolYearId(getSelectableSchoolYears(schoolYears)) ||
         undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),

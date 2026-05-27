@@ -481,17 +481,16 @@ export default function CalculatePage() {
 
     try {
       const [schoolYearRows, penaltyRows] = await Promise.all([
-        listSchoolYears(),
+        listSchoolYears({ activeOnly: true }),
         listPenalties(),
       ]);
       const fallbackSchoolYearId =
-        nextSchoolYearId ||
-        getActiveSchoolYearId(schoolYearRows) ||
-        ALL_SCHOOL_YEARS_VALUE;
-      const requestSchoolYearId =
-        fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
-          ? undefined
-          : fallbackSchoolYearId;
+        nextSchoolYearId &&
+        nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
+        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : getActiveSchoolYearId(schoolYearRows);
+      const requestSchoolYearId = fallbackSchoolYearId || undefined;
       const [importRows, resultRows] = await Promise.all([
         listAttendanceImports({
           schoolYearId: requestSchoolYearId,
@@ -754,9 +753,6 @@ export default function CalculatePage() {
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent className="max-w-xs">
-                  <SelectItem value={ALL_SCHOOL_YEARS_VALUE}>
-                    All school years
-                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}

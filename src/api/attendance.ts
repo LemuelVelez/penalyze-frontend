@@ -151,6 +151,7 @@ export type AttendanceEventInput = {
   eventStartAt?: string;
   eventEndAt?: string;
   description?: string;
+  eventOrder?: number;
 };
 
 export type ParsedAttendanceRow = AttendanceImportInput & {

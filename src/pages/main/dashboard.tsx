@@ -123,7 +123,7 @@ export default function DashboardPage() {
   const [fines, setFines] = useState<FineRecord[]>([]);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
+  const [yearFilter, setYearFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -159,18 +159,29 @@ export default function DashboardPage() {
     setError("");
 
     try {
-      const [fineRows, attendanceRows, importRows, schoolYearRows] =
-        await Promise.all([
-          listFines({ limit: 5000, offset: 0 }),
-          listAttendanceRecords({ limit: 5000, offset: 0 }),
-          listAttendanceImports({ limit: 500, offset: 0 }),
-          listSchoolYears(),
-        ]);
+      const schoolYearRows = await listSchoolYears({ activeOnly: true });
+      const activeSchoolYearId = schoolYearRows[0]?.id ?? "";
+      const [fineRows, attendanceRows, importRows] = activeSchoolYearId
+        ? await Promise.all([
+            listFines({ schoolYearId: activeSchoolYearId, limit: 5000, offset: 0 }),
+            listAttendanceRecords({
+              schoolYearId: activeSchoolYearId,
+              limit: 5000,
+              offset: 0,
+            }),
+            listAttendanceImports({
+              schoolYearId: activeSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+          ])
+        : [[], [], []];
 
       setFines(fineRows);
       setRecords(attendanceRows);
       setImports(importRows);
       setSchoolYears(schoolYearRows);
+      setYearFilter(activeSchoolYearId);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -183,8 +194,8 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    if (yearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(yearFilter)) {
-      setYearFilter(ALL_YEARS_VALUE);
+    if (yearFilter && !yearOptions.includes(yearFilter)) {
+      setYearFilter(yearOptions[0] ?? "");
     }
   }, [yearFilter, yearOptions]);
 
@@ -211,12 +222,9 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Select value={yearFilter} onValueChange={setYearFilter}>
               <SelectTrigger className="min-h-11 rounded-xl px-4 text-sm font-black sm:w-36">
-                <SelectValue placeholder="All school years" />
+                <SelectValue placeholder="Active school year" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_YEARS_VALUE}>
-                  All school years
-                </SelectItem>
                 {yearOptions.map((year) => (
                   <SelectItem key={year} value={year}>
                     {getSchoolYearLabel(schoolYears, year)}
