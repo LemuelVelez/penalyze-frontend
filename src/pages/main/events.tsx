@@ -135,7 +135,6 @@ export default function EventsPage() {
     null,
   );
   const [form, setForm] = useState<EventFormState>(emptyEventForm);
-  const [showAllSchoolYears, setShowAllSchoolYears] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingEventId, setDeletingEventId] = useState("");
@@ -157,21 +156,16 @@ export default function EventsPage() {
     };
   }, [events]);
 
-  async function loadEvents(
-    nextSchoolYearId = selectedSchoolYearId,
-    includeInactiveSchoolYears = showAllSchoolYears,
-  ) {
+  async function loadEvents(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
 
     try {
-      const schoolYearRows = await listSchoolYears({
-        activeOnly: !includeInactiveSchoolYears,
-      });
+      const schoolYearRows = await listSchoolYears({ activeOnly: true });
       const fallbackSchoolYearId =
         nextSchoolYearId &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
-          : getActiveSchoolYearId(schoolYearRows) || schoolYearRows[0]?.id || "";
+          : getActiveSchoolYearId(schoolYearRows);
       const rows = fallbackSchoolYearId
         ? await listAttendanceEvents({
             schoolYearId: fallbackSchoolYearId,
@@ -199,11 +193,6 @@ export default function EventsPage() {
   async function handleSchoolYearChange(value: string) {
     setSelectedSchoolYearId(value);
     await loadEvents(value);
-  }
-
-  async function handleShowAllSchoolYearsChange(checked: boolean) {
-    setShowAllSchoolYears(checked);
-    await loadEvents(selectedSchoolYearId, checked);
   }
 
   function handleOpenCreateDialog() {
@@ -300,25 +289,7 @@ export default function EventsPage() {
               </p>
             </div>
 
-            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto lg:flex-row lg:flex-nowrap lg:items-center lg:justify-end">
-              <label className="flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-2xl border bg-background px-4 sm:justify-start">
-                <span className="whitespace-nowrap text-sm font-black">
-                  All school years
-                </span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={showAllSchoolYears}
-                  onChange={(event) =>
-                    void handleShowAllSchoolYearsChange(event.target.checked)
-                  }
-                  disabled={isLoading}
-                  aria-label="Show all school years"
-                  className="peer sr-only"
-                />
-                <span className="relative h-6 w-11 rounded-full bg-muted transition peer-checked:bg-primary peer-disabled:cursor-not-allowed peer-disabled:opacity-60 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-background after:shadow-sm after:transition peer-checked:after:translate-x-5" />
-              </label>
-
+            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row lg:items-center">
               <Select
                 value={selectedSchoolYearId}
                 onValueChange={handleSchoolYearChange}
