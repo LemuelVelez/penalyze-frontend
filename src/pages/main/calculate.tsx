@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Progress } from "../../components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -85,6 +86,121 @@ type SourceRecordEditFormState = {
   noOfAbsences: string;
   remarks: string;
 };
+
+
+type CalculationProgressState = {
+  id: string;
+  label: string;
+  detail: string;
+  percent: number;
+  processed: number;
+  total: number;
+  completed: boolean;
+  startedAt: number;
+  updatedAt: number;
+};
+
+type CalculationProgressPatch = Partial<
+  Pick<
+    CalculationProgressState,
+    "label" | "detail" | "percent" | "processed" | "total" | "completed"
+  >
+>;
+
+type ManualAttendanceLoadProgress = {
+  loadedRecords: number;
+  page: number;
+  pageSize: number;
+  isComplete: boolean;
+};
+
+type BuildCalculationRowsProgress = {
+  processedStudents: number;
+  totalStudents: number;
+  sourceRecords: number;
+};
+
+const CALCULATION_PROGRESS_STORAGE_KEY = "penalyze.calculate.progress";
+const CALCULATION_PROGRESS_STALE_MS = 1000 * 60 * 60;
+
+function clampProgressPercent(value: unknown) {
+  const numericValue = Number(value ?? 0);
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.min(100, Math.max(0, numericValue));
+}
+
+function readStoredCalculationProgress() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawValue = window.localStorage.getItem(
+      CALCULATION_PROGRESS_STORAGE_KEY,
+    );
+
+    if (!rawValue) return null;
+
+    const parsedValue = JSON.parse(rawValue) as CalculationProgressState;
+    const updatedAt = Number(parsedValue.updatedAt || 0);
+    const isStale =
+      !updatedAt || Date.now() - updatedAt > CALCULATION_PROGRESS_STALE_MS;
+
+    if (isStale || (parsedValue.completed && Date.now() - updatedAt > 5000)) {
+      window.localStorage.removeItem(CALCULATION_PROGRESS_STORAGE_KEY);
+      return null;
+    }
+
+    return {
+      ...parsedValue,
+      percent: clampProgressPercent(parsedValue.percent),
+      processed: Math.max(0, Number(parsedValue.processed || 0)),
+      total: Math.max(0, Number(parsedValue.total || 0)),
+      completed: Boolean(parsedValue.completed),
+    } satisfies CalculationProgressState;
+  } catch {
+    window.localStorage.removeItem(CALCULATION_PROGRESS_STORAGE_KEY);
+    return null;
+  }
+}
+
+function persistCalculationProgress(progress: CalculationProgressState | null) {
+  if (typeof window === "undefined") return;
+
+  if (!progress) {
+    window.localStorage.removeItem(CALCULATION_PROGRESS_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    CALCULATION_PROGRESS_STORAGE_KEY,
+    JSON.stringify(progress),
+  );
+}
+
+function yieldCalculationProgressFrame() {
+  return new Promise<void>((resolve) => {
+    if (typeof MessageChannel !== "undefined") {
+      const channel = new MessageChannel();
+
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        channel.port2.close();
+        resolve();
+      };
+
+      channel.port2.postMessage(undefined);
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      resolve();
+      return;
+    }
+
+    window.setTimeout(resolve, 0);
+  });
+}
 
 function normalizeValue(value: unknown) {
   return String(value ?? "").trim();
@@ -307,6 +423,7 @@ function buildAttendanceInput(form: SourceRecordEditFormState): ManualAttendance
 
 async function listAllManualAttendanceRecords(
   options: { schoolYearId?: string } = {},
+  onProgress?: (progress: ManualAttendanceLoadProgress) => void,
 ) {
   const pageSize = 500;
   const rows: ManualAttendanceRecord[] = [];
@@ -320,18 +437,30 @@ async function listAllManualAttendanceRecords(
 
     rows.push(...pageRows);
 
-    if (pageRows.length < pageSize) break;
+    const isComplete = pageRows.length < pageSize;
+
+    onProgress?.({
+      loadedRecords: rows.length,
+      page: page + 1,
+      pageSize,
+      isComplete,
+    });
+
+    if (isComplete) break;
   }
 
   return rows;
 }
 
-function buildCalculationRows(props: {
-  attendanceRecords: AttendanceRecord[];
-  manualRecords: ManualAttendanceRecord[];
-  penalties: PenaltyRecord[];
-  importIds: string[];
-}) {
+async function buildCalculationRows(
+  props: {
+    attendanceRecords: AttendanceRecord[];
+    manualRecords: ManualAttendanceRecord[];
+    penalties: PenaltyRecord[];
+    importIds: string[];
+  },
+  onProgress?: (progress: BuildCalculationRowsProgress) => void,
+) {
   const selectedImportIds = new Set(props.importIds);
   const importedRecords = props.attendanceRecords.filter((record) => {
     if (!record.import_id) return false;
@@ -365,72 +494,94 @@ function buildCalculationRows(props: {
   const studentKeys = Array.from(
     new Set([...groupedRecords.keys(), ...groupedManualRecords.keys()]),
   );
+  const totalStudents = studentKeys.length;
+  const sourceRecords = importedRecords.length + props.manualRecords.length;
+  const rows: CalculationRow[] = [];
 
-  return studentKeys
-    .map((studentKey) => {
-      const attendanceGroup = sortByBackendEventOrder(
-        groupedRecords.get(studentKey) ?? [],
-      );
-      const manualGroup = sortByBackendEventOrder(
-        groupedManualRecords.get(studentKey) ?? [],
-      );
-      const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
-      const eventKeys = new Set(
-        attendanceGroup.map(getEventKey).filter(Boolean),
-      );
-      const importedAbsences = attendanceGroup.reduce(
-        (highestCount, record) => {
-          return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
-        },
-        0,
-      );
-      const manualAbsences = manualGroup.reduce((total, record) => {
-        return total + getAbsenceCount(record.no_of_absences);
-      }, 0);
-      const totalAbsences = importedAbsences + manualAbsences;
-      const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
-
-      return {
-        key: `preview-${props.importIds.join("-") || "all"}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
-        schoolYearId: bestRecord?.school_year_id ?? null,
-        calculationScopeKey: props.importIds.length
-          ? [...props.importIds].sort().join(":")
-          : "all_imports",
-        importIds: [...props.importIds],
-        studentId: bestRecord?.student_id ?? studentKey,
-        name: getBestTextValue(bestRecord?.name, studentKey),
-        yearLevel: getBestTextValue(bestRecord?.year_level) || null,
-        college: getBestTextValue(bestRecord?.college) || null,
-        program: getBestTextValue(bestRecord?.program) || null,
-        institution: getBestTextValue(bestRecord?.institution) || null,
-        attendedEvents: eventKeys.size,
-        importedAbsences,
-        manualAbsences,
-        totalAbsences,
-        attendanceStatus:
-          totalAbsences > 0 ? "with_absences" : "perfect_attendance",
-        prescribedPenalty:
-          totalAbsences > 0
-            ? penalty?.prescribed_penalty ??
-              "No prescribed penalty configured."
-            : null,
-        penalty,
-        sourceRecordCount: attendanceGroup.length + manualGroup.length,
-        attendanceRecords: attendanceGroup,
-        manualRecords: manualGroup,
-        calculatedAt: new Date().toISOString(),
-        isSavedResult: false,
-      } satisfies CalculationRow;
-    })
-    .sort((leftRow, rightRow) => {
-      const absenceDifference = rightRow.totalAbsences - leftRow.totalAbsences;
-      if (absenceDifference !== 0) return absenceDifference;
-
-      return leftRow.studentId.localeCompare(rightRow.studentId, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
+  if (!totalStudents) {
+    onProgress?.({
+      processedStudents: 0,
+      totalStudents: 0,
+      sourceRecords,
     });
+
+    return rows;
+  }
+
+  for (let index = 0; index < studentKeys.length; index += 1) {
+    const studentKey = studentKeys[index];
+    const attendanceGroup = sortByBackendEventOrder(
+      groupedRecords.get(studentKey) ?? [],
+    );
+    const manualGroup = sortByBackendEventOrder(
+      groupedManualRecords.get(studentKey) ?? [],
+    );
+    const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
+    const eventKeys = new Set(attendanceGroup.map(getEventKey).filter(Boolean));
+    const importedAbsences = attendanceGroup.reduce(
+      (highestCount, record) => {
+        return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
+      },
+      0,
+    );
+    const manualAbsences = manualGroup.reduce((total, record) => {
+      return total + getAbsenceCount(record.no_of_absences);
+    }, 0);
+    const totalAbsences = importedAbsences + manualAbsences;
+    const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
+
+    rows.push({
+      key: `preview-${props.importIds.join("-") || "all"}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
+      schoolYearId: bestRecord?.school_year_id ?? null,
+      calculationScopeKey: props.importIds.length
+        ? [...props.importIds].sort().join(":")
+        : "all_imports",
+      importIds: [...props.importIds],
+      studentId: bestRecord?.student_id ?? studentKey,
+      name: getBestTextValue(bestRecord?.name, studentKey),
+      yearLevel: getBestTextValue(bestRecord?.year_level) || null,
+      college: getBestTextValue(bestRecord?.college) || null,
+      program: getBestTextValue(bestRecord?.program) || null,
+      institution: getBestTextValue(bestRecord?.institution) || null,
+      attendedEvents: eventKeys.size,
+      importedAbsences,
+      manualAbsences,
+      totalAbsences,
+      attendanceStatus: totalAbsences > 0 ? "with_absences" : "perfect_attendance",
+      prescribedPenalty:
+        totalAbsences > 0
+          ? penalty?.prescribed_penalty ?? "No prescribed penalty configured."
+          : null,
+      penalty,
+      sourceRecordCount: attendanceGroup.length + manualGroup.length,
+      attendanceRecords: attendanceGroup,
+      manualRecords: manualGroup,
+      calculatedAt: new Date().toISOString(),
+      isSavedResult: false,
+    } satisfies CalculationRow);
+
+    const processedStudents = index + 1;
+
+    if (processedStudents % 25 === 0 || processedStudents === totalStudents) {
+      onProgress?.({
+        processedStudents,
+        totalStudents,
+        sourceRecords,
+      });
+
+      await yieldCalculationProgressFrame();
+    }
+  }
+
+  return rows.sort((leftRow, rightRow) => {
+    const absenceDifference = rightRow.totalAbsences - leftRow.totalAbsences;
+    if (absenceDifference !== 0) return absenceDifference;
+
+    return leftRow.studentId.localeCompare(rightRow.studentId, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
 }
 
 function calculationResultToRow(result: CalculationResultRecord) {
@@ -496,6 +647,14 @@ export default function CalculatePage() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSavingResults, setIsSavingResults] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [calculationProgress, setCalculationProgress] =
+    useState<CalculationProgressState | null>(() =>
+      readStoredCalculationProgress(),
+    );
+  const activeProgressTaskIdRef = useRef("");
+  const progressClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -542,11 +701,129 @@ export default function CalculatePage() {
     };
   }, [calculationRows]);
 
+  const setStoredCalculationProgress = useCallback(
+    (progress: CalculationProgressState | null) => {
+      setCalculationProgress(progress);
+      persistCalculationProgress(progress);
+    },
+    [],
+  );
+
+  const startCalculationProgress = useCallback(
+    (label: string, detail: string) => {
+      const now = Date.now();
+      const id = `${now}-${Math.random().toString(36).slice(2)}`;
+      const nextProgress = {
+        id,
+        label,
+        detail,
+        percent: 0,
+        processed: 0,
+        total: 0,
+        completed: false,
+        startedAt: now,
+        updatedAt: now,
+      } satisfies CalculationProgressState;
+
+      activeProgressTaskIdRef.current = id;
+
+      if (progressClearTimeoutRef.current) {
+        clearTimeout(progressClearTimeoutRef.current);
+        progressClearTimeoutRef.current = null;
+      }
+
+      setStoredCalculationProgress(nextProgress);
+
+      return id;
+    },
+    [setStoredCalculationProgress],
+  );
+
+  const updateCalculationProgress = useCallback(
+    (taskId: string, patch: CalculationProgressPatch) => {
+      if (!taskId || activeProgressTaskIdRef.current !== taskId) return;
+
+      setCalculationProgress((currentProgress) => {
+        if (!currentProgress || currentProgress.id !== taskId) {
+          return currentProgress;
+        }
+
+        const nextProgress = {
+          ...currentProgress,
+          ...patch,
+          percent: clampProgressPercent(
+            patch.percent ?? currentProgress.percent,
+          ),
+          processed: Math.max(
+            0,
+            Number(patch.processed ?? currentProgress.processed ?? 0),
+          ),
+          total: Math.max(0, Number(patch.total ?? currentProgress.total ?? 0)),
+          updatedAt: Date.now(),
+        } satisfies CalculationProgressState;
+
+        persistCalculationProgress(nextProgress);
+
+        return nextProgress;
+      });
+    },
+    [],
+  );
+
+  const finishCalculationProgress = useCallback(
+    (taskId: string, detail: string) => {
+      updateCalculationProgress(taskId, {
+        detail,
+        percent: 100,
+        completed: true,
+      });
+
+      if (progressClearTimeoutRef.current) {
+        clearTimeout(progressClearTimeoutRef.current);
+      }
+
+      progressClearTimeoutRef.current = setTimeout(() => {
+        if (activeProgressTaskIdRef.current !== taskId) return;
+
+        activeProgressTaskIdRef.current = "";
+        setStoredCalculationProgress(null);
+        progressClearTimeoutRef.current = null;
+      }, 1800);
+    },
+    [setStoredCalculationProgress, updateCalculationProgress],
+  );
+
+  const failCalculationProgress = useCallback(
+    (taskId: string, detail: string) => {
+      updateCalculationProgress(taskId, {
+        detail,
+        completed: true,
+      });
+
+      if (activeProgressTaskIdRef.current === taskId) {
+        activeProgressTaskIdRef.current = "";
+      }
+    },
+    [updateCalculationProgress],
+  );
+
   async function loadSavedResults(
     nextSchoolYearId = selectedSchoolYearId,
     nextImportIds = selectedImportIds,
+    progressTaskId?: string,
   ) {
+    const taskId =
+      progressTaskId ??
+      startCalculationProgress(
+        "Loading saved calculation results",
+        "Loading school years and penalties",
+      );
+
     setIsLoading(true);
+    updateCalculationProgress(taskId, {
+      detail: "Loading school years and penalties",
+      percent: progressTaskId ? 72 : 8,
+    });
 
     try {
       const [schoolYearRows, penaltyRows] = await Promise.all([
@@ -558,8 +835,17 @@ export default function CalculatePage() {
         nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
-          : getActiveSchoolYearId(schoolYearRows);
-      const requestSchoolYearId = fallbackSchoolYearId || undefined;
+          : getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE;
+      const requestSchoolYearId =
+        fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+          ? undefined
+          : fallbackSchoolYearId || undefined;
+
+      updateCalculationProgress(taskId, {
+        detail: "Loading imports and saved calculation rows",
+        percent: progressTaskId ? 78 : 32,
+      });
+
       const [importRows, resultRows] = await Promise.all([
         listAttendanceImports({
           schoolYearId: requestSchoolYearId,
@@ -581,6 +867,13 @@ export default function CalculatePage() {
       const latestCalculatedAt =
         calculatedDates[calculatedDates.length - 1] ?? "";
 
+      updateCalculationProgress(taskId, {
+        detail: `Loaded ${savedRows.length.toLocaleString()} saved calculation row/s`,
+        percent: progressTaskId ? 92 : 82,
+        processed: savedRows.length,
+        total: savedRows.length,
+      });
+
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
       setAttendanceImports(sortByBackendEventOrder(importRows));
@@ -588,7 +881,15 @@ export default function CalculatePage() {
       setCalculationRows(savedRows);
       setLastCalculatedAt(latestCalculatedAt ?? "");
       setCalculationMode("saved");
+
+      finishCalculationProgress(taskId, "Saved calculation results loaded.");
     } catch (error) {
+      failCalculationProgress(
+        taskId,
+        error instanceof Error
+          ? error.message
+          : "Unable to load saved calculation results.",
+      );
       toast.error(
         error instanceof Error
           ? error.message
@@ -602,34 +903,152 @@ export default function CalculatePage() {
   async function loadPreviewRows(
     nextSchoolYearId = selectedSchoolYearId,
     nextImportIds = selectedImportIds,
+    progressTaskId?: string,
   ) {
+    const taskId =
+      progressTaskId ??
+      startCalculationProgress(
+        "Calculating attendance fines",
+        "Preparing calculation",
+      );
     const requestSchoolYearId =
       nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
         ? undefined
         : nextSchoolYearId;
-    const [attendanceRows, manualRows] = await Promise.all([
-      listAllAttendanceRecords({
+
+    updateCalculationProgress(taskId, {
+      label: "Calculating attendance fines",
+      detail: "Loading imported attendance records",
+      percent: progressTaskId ? 58 : 10,
+      processed: 0,
+      total: 0,
+    });
+
+    try {
+      const attendanceRows = await listAllAttendanceRecords({
         schoolYearId: requestSchoolYearId,
         pageSize: 500,
         maxPages: 100,
-      }),
-      listAllManualAttendanceRecords({
-        schoolYearId: requestSchoolYearId,
-      }),
-    ]);
-    const nextRows = buildCalculationRows({
-      attendanceRecords: attendanceRows,
-      manualRecords: manualRows,
-      penalties,
-      importIds: nextImportIds,
-    });
+      });
+      const selectedImportIdSet = new Set(nextImportIds);
+      const selectedImportedRecordCount = attendanceRows.filter((record) => {
+        if (!record.import_id) return false;
+        if (!selectedImportIdSet.size) return true;
 
-    setCalculationRows(nextRows);
-    setLastCalculatedAt(new Date().toISOString());
-    setCalculationMode("preview");
+        return selectedImportIdSet.has(record.import_id);
+      }).length;
 
-    return nextRows;
+      updateCalculationProgress(taskId, {
+        detail: `Loaded ${selectedImportedRecordCount.toLocaleString()} imported attendance record/s`,
+        percent: progressTaskId ? 68 : 46,
+        processed: selectedImportedRecordCount,
+        total: selectedImportedRecordCount,
+      });
+
+      const manualRows = await listAllManualAttendanceRecords(
+        {
+          schoolYearId: requestSchoolYearId,
+        },
+        (progress) => {
+          const basePercent = progressTaskId ? 68 : 52;
+          const maxPercent = progressTaskId ? 78 : 68;
+          const pagePercent = Math.min(
+            maxPercent,
+            basePercent + progress.page * 2,
+          );
+
+          updateCalculationProgress(taskId, {
+            detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual attendance record/s`,
+            percent: progress.isComplete ? maxPercent : pagePercent,
+            processed: progress.loadedRecords,
+            total: progress.loadedRecords,
+          });
+        },
+      );
+      const totalSourceRecords = selectedImportedRecordCount + manualRows.length;
+
+      updateCalculationProgress(taskId, {
+        detail: `Calculating ${totalSourceRecords.toLocaleString()} source record/s`,
+        percent: progressTaskId ? 80 : 72,
+        processed: 0,
+        total: totalSourceRecords,
+      });
+
+      const nextRows = await buildCalculationRows(
+        {
+          attendanceRecords: attendanceRows,
+          manualRecords: manualRows,
+          penalties,
+          importIds: nextImportIds,
+        },
+        (progress) => {
+          const startPercent = progressTaskId ? 80 : 72;
+          const endPercent = progressTaskId ? 96 : 96;
+          const calculationPercent = progress.totalStudents
+            ? startPercent +
+              (progress.processedStudents / progress.totalStudents) *
+                (endPercent - startPercent)
+            : endPercent;
+
+          updateCalculationProgress(taskId, {
+            detail: `Calculated ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s`,
+            percent: calculationPercent,
+            processed: progress.processedStudents,
+            total: progress.totalStudents,
+          });
+        },
+      );
+
+      updateCalculationProgress(taskId, {
+        detail: `Prepared ${nextRows.length.toLocaleString()} calculation row/s`,
+        percent: 98,
+        processed: nextRows.length,
+        total: nextRows.length,
+      });
+
+      setCalculationRows(nextRows);
+      setLastCalculatedAt(new Date().toISOString());
+      setCalculationMode("preview");
+
+      finishCalculationProgress(taskId, "Calculation preview completed.");
+
+      return nextRows;
+    } catch (error) {
+      failCalculationProgress(
+        taskId,
+        error instanceof Error ? error.message : "Unable to preview calculation.",
+      );
+
+      throw error;
+    }
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncStoredProgress = () => {
+      setCalculationProgress(readStoredCalculationProgress());
+    };
+    const handleStorageProgress = (event: StorageEvent) => {
+      if (event.key !== CALCULATION_PROGRESS_STORAGE_KEY) return;
+
+      syncStoredProgress();
+    };
+
+    window.addEventListener("storage", handleStorageProgress);
+    window.addEventListener("focus", syncStoredProgress);
+    document.addEventListener("visibilitychange", syncStoredProgress);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageProgress);
+      window.removeEventListener("focus", syncStoredProgress);
+      document.removeEventListener("visibilitychange", syncStoredProgress);
+
+      if (progressClearTimeoutRef.current) {
+        clearTimeout(progressClearTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     void loadSavedResults();
@@ -642,8 +1061,11 @@ export default function CalculatePage() {
   }
 
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
-    const importOrder = new Map(
-      attendanceImports.map((importRecord, index) => [importRecord.id, index]),
+    const importOrder = new Map<string, number>(
+      attendanceImports.map((importRecord, index) => [
+        importRecord.id,
+        index,
+      ]),
     );
 
     return [...importIds].sort((leftId, rightId) => {
@@ -737,7 +1159,16 @@ export default function CalculatePage() {
       return;
     }
 
+    const progressTaskId = startCalculationProgress(
+      "Saving calculation results",
+      "Saving calculated results",
+    );
+
     setIsSavingResults(true);
+    updateCalculationProgress(progressTaskId, {
+      percent: 12,
+      detail: "Saving calculated results",
+    });
 
     try {
       const requestSchoolYearId =
@@ -750,9 +1181,24 @@ export default function CalculatePage() {
         importIds: selectedImportIds,
       });
 
+      updateCalculationProgress(progressTaskId, {
+        percent: 70,
+        detail: "Reloading saved calculation results",
+      });
+
       toast.success("Calculation results saved.");
-      await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+      await loadSavedResults(
+        selectedSchoolYearId,
+        selectedImportIds,
+        progressTaskId,
+      );
     } catch (error) {
+      failCalculationProgress(
+        progressTaskId,
+        error instanceof Error
+          ? error.message
+          : "Unable to save calculated results.",
+      );
       toast.error(
         error instanceof Error
           ? error.message
@@ -785,18 +1231,36 @@ export default function CalculatePage() {
       return;
     }
 
+    const progressTaskId = startCalculationProgress(
+      "Saving source record edits",
+      "Saving source records",
+    );
+
     setIsSavingEdit(true);
 
     try {
-      for (const form of recordEditForms) {
+      for (let index = 0; index < recordEditForms.length; index += 1) {
+        const form = recordEditForms[index];
+
         await updateAttendanceRecord(form.recordId, buildAttendanceInput(form));
+
+        updateCalculationProgress(progressTaskId, {
+          detail: `Saved ${index + 1} of ${recordEditForms.length} source record/s`,
+          percent: 12 + ((index + 1) / recordEditForms.length) * 42,
+          processed: index + 1,
+          total: recordEditForms.length,
+        });
       }
 
       toast.success("Source records updated.");
       setEditingRow(null);
       setRecordEditForms([]);
-      await loadPreviewRows(selectedSchoolYearId, selectedImportIds);
+      await loadPreviewRows(selectedSchoolYearId, selectedImportIds, progressTaskId);
     } catch (error) {
+      failCalculationProgress(
+        progressTaskId,
+        error instanceof Error ? error.message : "Unable to update calculation row.",
+      );
       toast.error(
         error instanceof Error
           ? error.message
@@ -880,6 +1344,34 @@ export default function CalculatePage() {
               </div>
             </div>
           </div>
+
+          {calculationProgress ? (
+            <div className="mt-5 rounded-2xl border bg-background p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-black">
+                    {calculationProgress.label}
+                  </p>
+                  <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
+                    {calculationProgress.detail}
+                  </p>
+                </div>
+                <p className="shrink-0 text-lg font-black">
+                  {Math.round(calculationProgress.percent)}%
+                </p>
+              </div>
+              <Progress
+                value={calculationProgress.percent}
+                className="mt-4 h-3 rounded-full"
+              />
+              {calculationProgress.total > 0 ? (
+                <div className="mt-2 flex justify-end text-xs font-bold text-muted-foreground">
+                  {calculationProgress.processed.toLocaleString()} /{" "}
+                  {calculationProgress.total.toLocaleString()}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-4 md:grid-cols-4">
