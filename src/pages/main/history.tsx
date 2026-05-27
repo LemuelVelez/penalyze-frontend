@@ -71,6 +71,12 @@ type SelectedRecordState = {
 
 type SelectedRecordKey = keyof SelectedRecordState;
 
+type FilteredRecordGroupKey =
+  | "uploadedFiles"
+  | "penaltyResults"
+  | "finalAttendanceResults"
+  | "manualAttendanceRecords";
+
 const emptyForm: SchoolYearFormState = {
   name: "",
   startsAt: "",
@@ -147,6 +153,15 @@ function getSelectedCount(records: SelectedRecordState) {
   return Object.values(records).reduce((total, ids) => total + ids.length, 0);
 }
 
+function getSelectionCheckboxState(selectedIds: string[], recordIds: string[]) {
+  const selectedCount = recordIds.filter((id) => selectedIds.includes(id)).length;
+
+  if (!recordIds.length || selectedCount === 0) return false;
+  if (selectedCount === recordIds.length) return true;
+
+  return "indeterminate" as const;
+}
+
 export default function HistoryPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
@@ -165,6 +180,8 @@ export default function HistoryPage() {
   const [form, setForm] = useState<SchoolYearFormState>(createDefaultForm);
   const [editingSchoolYearId, setEditingSchoolYearId] = useState("");
   const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
+  const [activeRecordsDialog, setActiveRecordsDialog] =
+    useState<FilteredRecordGroupKey | null>(null);
   const [selectedRecords, setSelectedRecords] =
     useState<SelectedRecordState>(emptySelectedRecords);
   const [isLoading, setIsLoading] = useState(true);
@@ -210,6 +227,68 @@ export default function HistoryPage() {
       ),
     };
   }, [imports, finalResults, manualRecords, penaltyResults]);
+
+  const recordGroupSummaries = useMemo<
+    Array<{
+      key: FilteredRecordGroupKey;
+      title: string;
+      count: number;
+      selectedCount: number;
+    }>
+  >(
+    () => [
+      {
+        key: "uploadedFiles",
+        title: "Uploaded files",
+        count: imports.length,
+        selectedCount: selectedRecords.importIds.length,
+      },
+      {
+        key: "penaltyResults",
+        title: "Penalty results",
+        count: penaltyResults.length,
+        selectedCount: selectedRecords.penaltyResultIds.length,
+      },
+      {
+        key: "finalAttendanceResults",
+        title: "Final attendance results",
+        count: finalResults.length,
+        selectedCount: selectedRecords.finalResultIds.length,
+      },
+      {
+        key: "manualAttendanceRecords",
+        title: "Manual attendance records",
+        count: manualRecords.length,
+        selectedCount: selectedRecords.manualRecordIds.length,
+      },
+    ],
+    [
+      finalResults.length,
+      imports.length,
+      manualRecords.length,
+      penaltyResults.length,
+      selectedRecords.finalResultIds.length,
+      selectedRecords.importIds.length,
+      selectedRecords.manualRecordIds.length,
+      selectedRecords.penaltyResultIds.length,
+    ],
+  );
+
+  const allFilteredRecordCount = useMemo(() => {
+    return (
+      imports.length +
+      finalResults.length +
+      manualRecords.length +
+      penaltyResults.length
+    );
+  }, [finalResults.length, imports.length, manualRecords.length, penaltyResults.length]);
+
+  const allFilteredSelectionState = useMemo(() => {
+    if (!allFilteredRecordCount || selectedRecordCount === 0) return false;
+    if (selectedRecordCount === allFilteredRecordCount) return true;
+
+    return "indeterminate" as const;
+  }, [allFilteredRecordCount, selectedRecordCount]);
 
   async function loadHistory(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -271,6 +350,7 @@ export default function HistoryPage() {
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
       setSelectedRecords(emptySelectedRecords);
+      setActiveRecordsDialog(null);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -289,6 +369,7 @@ export default function HistoryPage() {
   async function handleSchoolYearChange(value: string) {
     setSelectedSchoolYearId(value);
     setSelectedRecords(emptySelectedRecords);
+    setActiveRecordsDialog(null);
     await loadHistory(value);
   }
 
@@ -488,6 +569,36 @@ export default function HistoryPage() {
     });
   }
 
+  function toggleRecordGroupSelection(
+    key: SelectedRecordKey,
+    ids: string[],
+    checked: boolean,
+  ) {
+    setSelectedRecords((current) => {
+      const currentIds = current[key];
+
+      return {
+        ...current,
+        [key]: checked
+          ? Array.from(new Set([...currentIds, ...ids]))
+          : currentIds.filter((item) => !ids.includes(item)),
+      };
+    });
+  }
+
+  function handleToggleAllFilteredRecords(checked: boolean) {
+    setSelectedRecords(
+      checked
+        ? {
+            importIds: imports.map((item) => item.id),
+            finalResultIds: finalResults.map((item) => item.id),
+            manualRecordIds: manualRecords.map((item) => item.id),
+            penaltyResultIds: penaltyResults.map((item) => item.id),
+          }
+        : emptySelectedRecords,
+    );
+  }
+
   async function handleTransferSelectedRecords() {
     if (!transferTargetSchoolYearId) {
       toast.error("Please select a target school year.");
@@ -527,6 +638,256 @@ export default function HistoryPage() {
     }
   }
 
+  function renderEmptyRecordState(message: string) {
+    return (
+      <p className="rounded-xl border border-dashed p-4 text-sm font-semibold text-muted-foreground">
+        {isLoading ? "Loading records..." : message}
+      </p>
+    );
+  }
+
+  function renderDialogSelectAll(
+    title: string,
+    selectionKey: SelectedRecordKey,
+    ids: string[],
+  ) {
+    const selectedGroupCount = ids.filter((id) =>
+      selectedRecords[selectionKey].includes(id),
+    ).length;
+
+    return (
+      <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+        <label className="flex items-center gap-3">
+          <Checkbox
+            checked={getSelectionCheckboxState(
+              selectedRecords[selectionKey],
+              ids,
+            )}
+            onCheckedChange={(value) =>
+              toggleRecordGroupSelection(selectionKey, ids, value === true)
+            }
+            disabled={!ids.length}
+            aria-label={`Select all ${title}`}
+          />
+          <span className="text-sm font-black">Select all</span>
+        </label>
+        <p className="text-sm font-semibold text-muted-foreground">
+          {selectedGroupCount.toLocaleString()} of {ids.length.toLocaleString()}{" "}
+          selected
+        </p>
+      </div>
+    );
+  }
+
+  function renderActiveRecordsDialogContent() {
+    switch (activeRecordsDialog) {
+      case "uploadedFiles": {
+        const ids = imports.map((item) => item.id);
+
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Uploaded files</DialogTitle>
+            </DialogHeader>
+            {renderDialogSelectAll("uploaded files", "importIds", ids)}
+            <div className="mt-4 space-y-3">
+              {imports.length
+                ? imports.map((item) => (
+                    <article
+                      key={item.id}
+                      className="flex gap-3 rounded-xl border bg-card p-3"
+                    >
+                      <Checkbox
+                        checked={selectedRecords.importIds.includes(item.id)}
+                        onCheckedChange={(value) =>
+                          toggleRecordSelection(
+                            "importIds",
+                            item.id,
+                            Boolean(value),
+                          )
+                        }
+                        aria-label={`Select uploaded file ${item.file_name}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">{item.file_name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.rows_valid} valid row/s •{" "}
+                          {formatDate(item.created_at)}
+                        </p>
+                      </div>
+                    </article>
+                  ))
+                : renderEmptyRecordState(
+                    "No uploaded files for this school year.",
+                  )}
+            </div>
+          </>
+        );
+      }
+
+      case "penaltyResults": {
+        const ids = penaltyResults.map((item) => item.id);
+
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Penalty results</DialogTitle>
+            </DialogHeader>
+            {renderDialogSelectAll("penalty results", "penaltyResultIds", ids)}
+            <div className="mt-4 space-y-3">
+              {penaltyResults.length
+                ? penaltyResults.map((item) => (
+                    <article
+                      key={item.id}
+                      className="flex gap-3 rounded-xl border bg-card p-3"
+                    >
+                      <Checkbox
+                        checked={selectedRecords.penaltyResultIds.includes(
+                          item.id,
+                        )}
+                        onCheckedChange={(value) =>
+                          toggleRecordSelection(
+                            "penaltyResultIds",
+                            item.id,
+                            Boolean(value),
+                          )
+                        }
+                        aria-label={`Select penalty result for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">
+                          {item.student_id} • {item.name}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.no_of_absences} absence/s •{" "}
+                          {item.prescribed_penalty}
+                        </p>
+                      </div>
+                    </article>
+                  ))
+                : renderEmptyRecordState(
+                    "No penalty results for this school year.",
+                  )}
+            </div>
+          </>
+        );
+      }
+
+      case "finalAttendanceResults": {
+        const ids = finalResults.map((item) => item.id);
+
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Final attendance results</DialogTitle>
+            </DialogHeader>
+            {renderDialogSelectAll(
+              "final attendance results",
+              "finalResultIds",
+              ids,
+            )}
+            <div className="mt-4 space-y-3">
+              {finalResults.length
+                ? finalResults.map((item) => (
+                    <article
+                      key={item.id}
+                      className="flex gap-3 rounded-xl border bg-card p-3"
+                    >
+                      <Checkbox
+                        checked={selectedRecords.finalResultIds.includes(
+                          item.id,
+                        )}
+                        onCheckedChange={(value) =>
+                          toggleRecordSelection(
+                            "finalResultIds",
+                            item.id,
+                            Boolean(value),
+                          )
+                        }
+                        aria-label={`Select final result for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">
+                          {item.student_id} • {item.name}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.total_absences} absence/s •{" "}
+                          {item.attended_events} attended event/s
+                        </p>
+                      </div>
+                    </article>
+                  ))
+                : renderEmptyRecordState(
+                    "No final attendance results for this school year.",
+                  )}
+            </div>
+          </>
+        );
+      }
+
+      case "manualAttendanceRecords": {
+        const ids = manualRecords.map((item) => item.id);
+
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Manual attendance records</DialogTitle>
+            </DialogHeader>
+            {renderDialogSelectAll(
+              "manual attendance records",
+              "manualRecordIds",
+              ids,
+            )}
+            <div className="mt-4 space-y-3">
+              {manualRecords.length
+                ? manualRecords.map((item) => (
+                    <article
+                      key={item.id}
+                      className="flex gap-3 rounded-xl border bg-card p-3"
+                    >
+                      <Checkbox
+                        checked={selectedRecords.manualRecordIds.includes(
+                          item.id,
+                        )}
+                        onCheckedChange={(value) =>
+                          toggleRecordSelection(
+                            "manualRecordIds",
+                            item.id,
+                            Boolean(value),
+                          )
+                        }
+                        aria-label={`Select manual record for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">
+                          {item.student_id} • {item.name}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.attendance_type === "zero_attendance"
+                            ? "Zero attendance"
+                            : "Manual attendance"}{" "}
+                          • {item.college || "No college"}
+                        </p>
+                      </div>
+                    </article>
+                  ))
+                : renderEmptyRecordState(
+                    "No manual records for this school year.",
+                  )}
+            </div>
+          </>
+        );
+      }
+
+      default:
+        return null;
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -563,7 +924,7 @@ export default function HistoryPage() {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-5">
+        <section className="grid gap-4 md:grid-cols-6">
           <div className="rounded-3xl border bg-card p-5 md:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               Selected School Year
@@ -610,6 +971,14 @@ export default function HistoryPage() {
             </p>
             <p className="mt-2 text-2xl font-black">
               {summary.penaltyResults.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5">
+            <p className="text-sm font-bold text-muted-foreground">
+              Manual Records
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.manualRecords.toLocaleString()}
             </p>
           </div>
         </section>
@@ -896,188 +1265,64 @@ export default function HistoryPage() {
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="mb-4">
-            <h2 className="text-xl font-black">Filtered records</h2>
-            <p className="text-sm text-muted-foreground">
-              Showing records assigned to {selectedSchoolYearLabel}.
-            </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Filtered records</h2>
+              <p className="text-sm text-muted-foreground">
+                Showing records assigned to {selectedSchoolYearLabel}.
+              </p>
+            </div>
+
+            <label className="flex min-h-12 items-center gap-3 rounded-2xl border bg-background px-4 py-3">
+              <Checkbox
+                checked={allFilteredSelectionState}
+                onCheckedChange={(value) =>
+                  handleToggleAllFilteredRecords(value === true)
+                }
+                disabled={!allFilteredRecordCount}
+                aria-label="Select all filtered records"
+              />
+              <span className="text-sm font-black">
+                Select all filtered records
+              </span>
+            </label>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border bg-background p-4">
-              <h3 className="font-black">Uploaded files</h3>
-              <div className="mt-3 space-y-3">
-                {imports.length ? (
-                  imports.map((item) => (
-                    <article
-                      key={item.id}
-                      className="flex gap-3 rounded-xl border bg-card p-3"
-                    >
-                      <Checkbox
-                        checked={selectedRecords.importIds.includes(item.id)}
-                        onCheckedChange={(value) =>
-                          toggleRecordSelection(
-                            "importIds",
-                            item.id,
-                            Boolean(value),
-                          )
-                        }
-                        aria-label={`Select uploaded file ${item.file_name}`}
-                        className="mt-1"
-                      />
-                      <div>
-                        <p className="font-bold">{item.file_name}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {item.rows_valid} valid row/s •{" "}
-                          {formatDate(item.created_at)}
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed p-4 text-sm font-semibold text-muted-foreground">
-                    {isLoading
-                      ? "Loading records..."
-                      : "No uploaded files for this school year."}
+          <div className="mt-5 grid gap-4 lg:grid-cols-4">
+            {recordGroupSummaries.map((group) => (
+              <div
+                key={group.key}
+                className="flex flex-col justify-between gap-5 rounded-2xl border bg-background p-4"
+              >
+                <div>
+                  <h3 className="font-black">{group.title}</h3>
+                  <p className="mt-2 text-sm font-semibold text-muted-foreground">
+                    {group.count.toLocaleString()} record/s •{" "}
+                    {group.selectedCount.toLocaleString()} selected
                   </p>
-                )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActiveRecordsDialog(group.key)}
+                  className="min-h-11 w-full rounded-2xl px-5 font-black"
+                >
+                  View Records
+                </Button>
               </div>
-            </div>
-
-            <div className="rounded-2xl border bg-background p-4">
-              <h3 className="font-black">Penalty results</h3>
-              <div className="mt-3 space-y-3">
-                {penaltyResults.length ? (
-                  penaltyResults.map((item) => (
-                    <article
-                      key={item.id}
-                      className="flex gap-3 rounded-xl border bg-card p-3"
-                    >
-                      <Checkbox
-                        checked={selectedRecords.penaltyResultIds.includes(
-                          item.id,
-                        )}
-                        onCheckedChange={(value) =>
-                          toggleRecordSelection(
-                            "penaltyResultIds",
-                            item.id,
-                            Boolean(value),
-                          )
-                        }
-                        aria-label={`Select penalty result for ${item.student_id}`}
-                        className="mt-1"
-                      />
-                      <div>
-                        <p className="font-bold">
-                          {item.student_id} • {item.name}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {item.no_of_absences} absence/s •{" "}
-                          {item.prescribed_penalty}
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed p-4 text-sm font-semibold text-muted-foreground">
-                    {isLoading
-                      ? "Loading records..."
-                      : "No penalty results for this school year."}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-background p-4">
-              <h3 className="font-black">Final attendance results</h3>
-              <div className="mt-3 space-y-3">
-                {finalResults.length ? (
-                  finalResults.map((item) => (
-                    <article
-                      key={item.id}
-                      className="flex gap-3 rounded-xl border bg-card p-3"
-                    >
-                      <Checkbox
-                        checked={selectedRecords.finalResultIds.includes(
-                          item.id,
-                        )}
-                        onCheckedChange={(value) =>
-                          toggleRecordSelection(
-                            "finalResultIds",
-                            item.id,
-                            Boolean(value),
-                          )
-                        }
-                        aria-label={`Select final result for ${item.student_id}`}
-                        className="mt-1"
-                      />
-                      <div>
-                        <p className="font-bold">
-                          {item.student_id} • {item.name}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {item.total_absences} absence/s •{" "}
-                          {item.attended_events} attended event/s
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed p-4 text-sm font-semibold text-muted-foreground">
-                    {isLoading
-                      ? "Loading records..."
-                      : "No final attendance results for this school year."}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-background p-4">
-              <h3 className="font-black">Manual attendance records</h3>
-              <div className="mt-3 space-y-3">
-                {manualRecords.length ? (
-                  manualRecords.map((item) => (
-                    <article
-                      key={item.id}
-                      className="flex gap-3 rounded-xl border bg-card p-3"
-                    >
-                      <Checkbox
-                        checked={selectedRecords.manualRecordIds.includes(
-                          item.id,
-                        )}
-                        onCheckedChange={(value) =>
-                          toggleRecordSelection(
-                            "manualRecordIds",
-                            item.id,
-                            Boolean(value),
-                          )
-                        }
-                        aria-label={`Select manual record for ${item.student_id}`}
-                        className="mt-1"
-                      />
-                      <div>
-                        <p className="font-bold">
-                          {item.student_id} • {item.name}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {item.attendance_type === "zero_attendance"
-                            ? "Zero attendance"
-                            : "Manual attendance"}{" "}
-                          • {item.college || "No college"}
-                        </p>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="rounded-xl border border-dashed p-4 text-sm font-semibold text-muted-foreground">
-                    {isLoading
-                      ? "Loading records..."
-                      : "No manual records for this school year."}
-                  </p>
-                )}
-              </div>
-            </div>
+            ))}
           </div>
+
+          <Dialog
+            open={Boolean(activeRecordsDialog)}
+            onOpenChange={(open) => {
+              if (!open) setActiveRecordsDialog(null);
+            }}
+          >
+            <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+              {renderActiveRecordsDialogContent()}
+            </DialogContent>
+          </Dialog>
         </section>
       </div>
     </main>
