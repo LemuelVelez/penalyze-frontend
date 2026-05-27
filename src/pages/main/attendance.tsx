@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   getAcceptedAttendanceFileTypes,
   listAllAttendanceRecords,
+  listAttendanceEvents,
   listAttendanceFinalResults,
   listAttendanceImports,
   listManualAttendanceRecords,
@@ -13,6 +14,7 @@ import {
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
+  AttendanceEvent,
   AttendanceFinalResultRecord,
   AttendanceImportProgress,
   AttendanceImportRecord,
@@ -46,9 +48,11 @@ import {
 import { Textarea } from "../../components/ui/textarea";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
+const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
 
 type UploadFormState = {
   schoolYearId: string;
+  eventId: string;
   eventName: string;
   eventStartAt: string;
   eventEndAt: string;
@@ -80,6 +84,7 @@ type StudentEventSummary = {
 
 const emptyUploadForm: UploadFormState = {
   schoolYearId: "",
+  eventId: "",
   eventName: "",
   eventStartAt: "",
   eventEndAt: "",
@@ -590,6 +595,9 @@ export default function AttendancePage() {
   const [file, setFile] = useState<File | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>(
+    [],
+  );
   const [finalResults, setFinalResults] = useState<
     AttendanceFinalResultRecord[]
   >([]);
@@ -622,6 +630,12 @@ export default function AttendancePage() {
       uploadForm.schoolYearId || selectedSchoolYearId,
     );
   }, [schoolYears, uploadForm.schoolYearId, selectedSchoolYearId]);
+
+  const uploadEventOptions = useMemo(() => {
+    return sortByBackendEventOrder(attendanceEvents);
+  }, [attendanceEvents]);
+
+  const selectedUploadEventValue = uploadForm.eventId || CUSTOM_UPLOAD_EVENT_VALUE;
 
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
@@ -684,9 +698,14 @@ export default function AttendancePage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : activeSchoolYearId;
-      const [importRows, resultRows, uploadedRows, manualRows] =
+      const [eventRows, importRows, resultRows, uploadedRows, manualRows] =
         fallbackSchoolYearId
           ? await Promise.all([
+              listAttendanceEvents({
+                schoolYearId: fallbackSchoolYearId,
+                limit: 100,
+                offset: 0,
+              }),
               listAttendanceImports({
                 schoolYearId: fallbackSchoolYearId,
                 limit: 50,
@@ -708,10 +727,11 @@ export default function AttendancePage() {
                 offset: 0,
               }),
             ])
-          : [[], [], [], []];
+          : [[], [], [], [], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
+      setAttendanceEvents(sortByBackendEventOrder(eventRows));
       setImports(sortByBackendEventOrder(importRows));
       setFinalResults(sortByBackendEventOrder(resultRows));
       setUploadedAttendanceRecords(uploadedRows);
@@ -761,6 +781,7 @@ export default function AttendancePage() {
         setUploadForm((current) => ({
           ...current,
           ...metadata,
+          eventId: metadata.eventName ? "" : current.eventId,
           schoolYearId:
             metadata.schoolYearId ||
             current.schoolYearId ||
@@ -793,6 +814,29 @@ export default function AttendancePage() {
     void selectAttendanceFile(event.dataTransfer.files?.[0] ?? null);
   }
 
+  function handleUploadEventSelect(value: string) {
+    if (value === CUSTOM_UPLOAD_EVENT_VALUE) {
+      setUploadForm((current) => ({
+        ...current,
+        eventId: "",
+      }));
+      return;
+    }
+
+    const selectedEvent = uploadEventOptions.find((event) => event.id === value);
+
+    if (!selectedEvent) return;
+
+    setUploadForm((current) => ({
+      ...current,
+      eventId: selectedEvent.id,
+      eventName: selectedEvent.name,
+      eventStartAt: formatDateTimeInputValue(selectedEvent.event_start_at),
+      eventEndAt: formatDateTimeInputValue(selectedEvent.event_end_at),
+      schoolYearId: selectedEvent.school_year_id || current.schoolYearId,
+    }));
+  }
+
   function handleUploadFieldChange(
     field: keyof UploadFormState,
     value: string,
@@ -800,6 +844,7 @@ export default function AttendancePage() {
     setUploadForm((current) => ({
       ...current,
       [field]: value,
+      eventId: field === "eventName" ? "" : current.eventId,
     }));
   }
 
@@ -830,6 +875,7 @@ export default function AttendancePage() {
     try {
       const result = await saveAttendanceFile(file, {
         schoolYearId: uploadForm.schoolYearId || undefined,
+        eventId: uploadForm.eventId || undefined,
         eventName: uploadForm.eventName.trim(),
         eventStartAt: uploadForm.eventStartAt || undefined,
         eventEndAt: uploadForm.eventEndAt || undefined,
@@ -845,6 +891,7 @@ export default function AttendancePage() {
       setFile(null);
       setUploadForm((current) => ({
         ...current,
+        eventId: "",
         eventName: "",
         eventStartAt: "",
         eventEndAt: "",
@@ -1156,6 +1203,29 @@ export default function AttendancePage() {
               </label>
 
               <label className="space-y-2 lg:col-span-3">
+                <span className="text-sm font-bold">Select event</span>
+                <Select
+                  value={selectedUploadEventValue}
+                  onValueChange={handleUploadEventSelect}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
+                    <SelectValue placeholder="Select existing event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
+                      New event / manual input
+                    </SelectItem>
+                    {uploadEventOptions.map((event) => (
+                      <SelectItem key={event.id} value={event.id}>
+                        {event.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+
+              <label className="space-y-2 lg:col-span-5">
                 <span className="text-sm font-bold">Event name</span>
                 <Input
                   value={uploadForm.eventName}
