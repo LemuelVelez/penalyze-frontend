@@ -2071,8 +2071,8 @@ function ZeroAttendanceRegistrationDialog(props: {
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
             This Student ID has no saved attendance or fine record. Fill out the
-            attendee details to register the student as zero attendance and
-            create the related fine record.
+            attendee details to create an empty-events zero attendance record in
+            Manual Attendance, then add multiple events to the attendee later.
           </div>
 
           {props.error ? (
@@ -2664,6 +2664,8 @@ export default function LandingPage() {
         zeroAttendanceForm.schoolYearId ||
         getActiveSchoolYearId(getSelectableSchoolYears(schoolYears)) ||
         undefined,
+      eventId: undefined,
+      eventName: undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
       college: zeroAttendanceForm.college.trim(),
@@ -2691,7 +2693,7 @@ export default function LandingPage() {
       const result = await saveManualAttendanceRecord(payload);
 
       if (!result?.record) {
-        throw new Error("Unable to save zero attendance record.");
+        throw new Error("Unable to save empty-events zero attendance record.");
       }
 
       const savedZeroAttendanceRecord = {
@@ -2734,7 +2736,7 @@ export default function LandingPage() {
       setZeroAttendanceError(
         saveError instanceof Error
           ? saveError.message
-          : "Unable to save zero attendance record.",
+          : "Unable to save empty-events zero attendance record.",
       );
     } finally {
       setIsSavingZeroAttendance(false);

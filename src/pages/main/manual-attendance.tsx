@@ -76,6 +76,42 @@ type ManualAttendanceStudentGroup = {
   events: ManualAttendanceRecord[];
 };
 
+const DEFAULT_STUDENT_INSTITUTION =
+  "Jose Rizal Memorial State University - Tampilisan Campus";
+
+const QR_CODE_YEAR_LEVEL_OPTIONS = [
+  "1st Year",
+  "2nd Year",
+  "3rd Year",
+  "4th Year",
+  "5th Year",
+] as const;
+
+const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
+  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
+  "College of Teacher Education": [
+    "BSED Filipino",
+    "BSED English",
+    "BSED Math",
+    "BSED Social Studies",
+    "Bachelor of Physical Education",
+    "BEED",
+  ],
+  "College of Computing Studies": [
+    "BS Information Systems",
+    "BS Computer Science",
+  ],
+  "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
+  "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
+  "School of Engineering": ["Agricultural Biosystems Engineering"],
+  "School of Criminal Justice Education": ["BS Criminology"],
+};
+
+const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
+const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
+
+const customSelectInputClassName = "min-h-12 rounded-2xl";
+
 const emptyForm: ManualAttendanceFormState = {
   schoolYearId: "",
   eventIds: [],
@@ -85,7 +121,7 @@ const emptyForm: ManualAttendanceFormState = {
   yearLevel: "",
   college: "",
   program: "",
-  institution: "Jose Rizal Memorial State University - Tampilisan Campus",
+  institution: DEFAULT_STUDENT_INSTITUTION,
   remarks: "",
 };
 
@@ -116,6 +152,34 @@ function normalizeStudentId(value: unknown) {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+function getStudentProgramOptions(college: string) {
+  return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
+}
+
+function hasStudentSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
+  const cleanValue = String(value ?? "").trim();
+
+  return Boolean(cleanValue) && options.includes(cleanValue);
+}
+
+function renderCurrentStudentSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
+  const cleanValue = String(value ?? "").trim();
+
+  if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
+
+  return (
+    <SelectItem value={cleanValue} className="max-w-full truncate">
+      {cleanValue}
+    </SelectItem>
+  );
 }
 
 type BackendEventOrderedRecord = {
@@ -311,6 +375,10 @@ export default function ManualAttendancePage() {
     () => getSelectedEventRecords(records, form.eventIds),
     [records, form.eventIds],
   );
+  const programOptions = useMemo(
+    () => getStudentProgramOptions(form.college),
+    [form.college],
+  );
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -380,6 +448,7 @@ export default function ManualAttendancePage() {
     setForm((current) => ({
       ...current,
       [field]: value,
+      ...(field === "college" ? { program: "" } : {}),
     }));
   }
 
@@ -523,15 +592,15 @@ export default function ManualAttendancePage() {
         toast.success("Manual attendance updated.");
       } else {
         if (!selectedEventIds.length) {
-          toast.error("Please select at least one event.");
-          return;
+          await saveManualAttendanceRecord(buildManualPayload());
+        } else {
+          await Promise.all(
+            selectedEventIds.map((eventId) =>
+              saveManualAttendanceRecord(buildManualPayload(eventId)),
+            ),
+          );
         }
 
-        await Promise.all(
-          selectedEventIds.map((eventId) =>
-            saveManualAttendanceRecord(buildManualPayload(eventId)),
-          ),
-        );
         toast.success("Manual attendance saved.");
       }
 
@@ -581,8 +650,9 @@ export default function ManualAttendancePage() {
                 College-based manual attendance
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Manual attendance is merged by Student ID and can store multiple
-                attended events for each attendee.
+                Manual attendance is merged by Student ID and can store zero
+                attendance placeholders or multiple attended events for each
+                attendee.
               </p>
             </div>
 
@@ -630,8 +700,8 @@ export default function ManualAttendancePage() {
             <div>
               <h2 className="text-xl font-black">Add manual attendance</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create one attendee row and select all events attended by that
-                student.
+                Create one attendee row, save with empty events, or select all
+                events attended by that student.
               </p>
             </div>
             <Button
@@ -714,49 +784,155 @@ export default function ManualAttendancePage() {
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">Year level</span>
+                <Select
+                  value={form.yearLevel}
+                  onValueChange={(value) =>
+                    handleFieldChange("yearLevel", value)
+                  }
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
+                    <SelectValue placeholder="Select year level" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      QR_CODE_YEAR_LEVEL_OPTIONS,
+                      form.yearLevel,
+                    )}
+                    {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                      <SelectItem
+                        key={yearLevel}
+                        value={yearLevel}
+                        className="max-w-full truncate"
+                      >
+                        {yearLevel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={form.yearLevel}
                   onChange={(event) =>
                     handleFieldChange("yearLevel", event.target.value)
                   }
-                  placeholder="Year level"
-                  className="min-h-12 rounded-2xl"
+                  placeholder="Type custom year level if not listed"
+                  className={customSelectInputClassName}
                 />
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">College</span>
+                <Select
+                  value={form.college}
+                  onValueChange={(value) => handleFieldChange("college", value)}
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
+                    <SelectValue placeholder="Select college" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      QR_CODE_COLLEGE_OPTIONS,
+                      form.college,
+                    )}
+                    {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                      <SelectItem
+                        key={college}
+                        value={college}
+                        className="max-w-full truncate"
+                      >
+                        {college}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={form.college}
                   onChange={(event) =>
                     handleFieldChange("college", event.target.value)
                   }
-                  placeholder="College"
-                  className="min-h-12 rounded-2xl"
+                  placeholder="Type custom college if not listed"
+                  className={customSelectInputClassName}
                 />
               </label>
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">Program</span>
+                <Select
+                  value={form.program}
+                  onValueChange={(value) => handleFieldChange("program", value)}
+                  disabled={!form.college}
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
+                    <SelectValue
+                      placeholder={
+                        form.college ? "Select program" : "Select college first"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      programOptions,
+                      form.program,
+                    )}
+                    {programOptions.map((program) => (
+                      <SelectItem
+                        key={program}
+                        value={program}
+                        className="max-w-full truncate"
+                      >
+                        {program}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={form.program}
                   onChange={(event) =>
                     handleFieldChange("program", event.target.value)
                   }
-                  placeholder="Program"
-                  className="min-h-12 rounded-2xl"
+                  placeholder={
+                    form.college
+                      ? "Type custom program if not listed"
+                      : "Select college before typing program"
+                  }
+                  disabled={!form.college}
+                  className={customSelectInputClassName}
                 />
               </label>
 
               <label className="space-y-2 lg:col-span-2">
                 <span className="text-sm font-bold">Institution</span>
+                <Select
+                  value={form.institution}
+                  onValueChange={(value) =>
+                    handleFieldChange("institution", value)
+                  }
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
+                    <SelectValue placeholder="Select institution" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      QR_CODE_INSTITUTION_OPTIONS,
+                      form.institution,
+                    )}
+                    {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
+                      <SelectItem
+                        key={institution}
+                        value={institution}
+                        className="max-w-full truncate"
+                      >
+                        {institution}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input
                   value={form.institution}
                   onChange={(event) =>
                     handleFieldChange("institution", event.target.value)
                   }
-                  placeholder="Institution"
-                  className="min-h-12 rounded-2xl"
+                  placeholder="Type custom institution if not listed"
+                  className={customSelectInputClassName}
                 />
               </label>
 
@@ -789,7 +965,7 @@ export default function ManualAttendancePage() {
                     })
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-card p-5 text-center text-sm font-semibold text-muted-foreground sm:col-span-2">
-                      No events available.
+                      No events available. Saving will create an empty-events attendee.
                     </div>
                   )}
                 </div>
