@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -23,6 +22,12 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Progress } from "../../components/ui/progress";
 import {
@@ -80,24 +85,55 @@ function getResultLabel(result: AttendanceFinalResultRecord) {
 
 export default function AttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(ALL_YEARS_VALUE);
-  const [uploadForm, setUploadForm] = useState<UploadFormState>(emptyUploadForm);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] =
+    useState(ALL_YEARS_VALUE);
+  const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadForm, setUploadForm] =
+    useState<UploadFormState>(emptyUploadForm);
   const [file, setFile] = useState<File | null>(null);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
-  const [finalResults, setFinalResults] = useState<AttendanceFinalResultRecord[]>([]);
+  const [finalResults, setFinalResults] = useState<
+    AttendanceFinalResultRecord[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [progress, setProgress] = useState<AttendanceImportProgress | null>(null);
+  const [progress, setProgress] = useState<AttendanceImportProgress | null>(
+    null,
+  );
   const acceptedFileTypes = getAcceptedAttendanceFileTypes();
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
 
+  const collegeOptions = useMemo(() => {
+    const colleges = finalResults
+      .map((row) => String(row.college ?? "").trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(colleges)).sort((left, right) =>
+      left.localeCompare(right),
+    );
+  }, [finalResults]);
+
+  const displayedFinalResults = useMemo(() => {
+    if (collegeFilter === "__all_colleges__") return finalResults;
+
+    return finalResults.filter(
+      (row) => String(row.college ?? "").trim() === collegeFilter,
+    );
+  }, [finalResults, collegeFilter]);
+
   const summary = useMemo(() => {
-    const totalStudents = finalResults.length;
-    const studentsWithAbsences = finalResults.filter((row) => row.total_absences > 0).length;
-    const totalAbsences = finalResults.reduce((total, row) => total + Number(row.total_absences || 0), 0);
+    const totalStudents = displayedFinalResults.length;
+    const studentsWithAbsences = displayedFinalResults.filter(
+      (row) => row.total_absences > 0,
+    ).length;
+    const totalAbsences = displayedFinalResults.reduce(
+      (total, row) => total + Number(row.total_absences || 0),
+      0,
+    );
     const perfectAttendance = totalStudents - studentsWithAbsences;
 
     return {
@@ -106,7 +142,7 @@ export default function AttendancePage() {
       totalAbsences,
       perfectAttendance,
     };
-  }, [finalResults]);
+  }, [displayedFinalResults]);
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -115,12 +151,14 @@ export default function AttendancePage() {
       const [schoolYearRows, importRows, resultRows] = await Promise.all([
         listSchoolYears(),
         listAttendanceImports({
-          schoolYearId: nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
+          schoolYearId:
+            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
           limit: 50,
           offset: 0,
         }),
         listAttendanceFinalResults({
-          schoolYearId: nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
+          schoolYearId:
+            nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
           limit: 500,
           offset: 0,
         }),
@@ -135,7 +173,11 @@ export default function AttendancePage() {
         schoolYearId: current.schoolYearId || activeSchoolYearId,
       }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to load attendance records.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load attendance records.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +196,10 @@ export default function AttendancePage() {
     setFile(event.target.files?.[0] ?? null);
   }
 
-  function handleUploadFieldChange(field: keyof UploadFormState, value: string) {
+  function handleUploadFieldChange(
+    field: keyof UploadFormState,
+    value: string,
+  ) {
     setUploadForm((current) => ({
       ...current,
       [field]: value,
@@ -207,9 +252,14 @@ export default function AttendancePage() {
         eventStartAt: "",
         eventEndAt: "",
       }));
+      setUploadDialogOpen(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save attendance file.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to save attendance file.",
+      );
     } finally {
       setIsSaving(false);
       setProgress(null);
@@ -221,12 +271,19 @@ export default function AttendancePage() {
 
     try {
       await refreshAttendanceFinalResults({
-        schoolYearId: selectedSchoolYearId === ALL_YEARS_VALUE ? undefined : selectedSchoolYearId,
+        schoolYearId:
+          selectedSchoolYearId === ALL_YEARS_VALUE
+            ? undefined
+            : selectedSchoolYearId,
       });
       await loadPageData(selectedSchoolYearId);
       toast.success("Final attendance results refreshed.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to refresh final results.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh final results.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -245,17 +302,24 @@ export default function AttendancePage() {
                 File-upload attendance records
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Upload an attendance file, finalize the calculated results, and load the saved final records instead of recalculating the same file every time.
+                Upload an attendance file, finalize the calculated results, and
+                load the saved final records instead of recalculating the same
+                file every time.
               </p>
             </div>
 
-            <div className="w-full lg:w-80">
-              <Select value={selectedSchoolYearId} onValueChange={handleSchoolYearChange}>
-                <SelectTrigger className="min-h-12 rounded-2xl">
+            <div className="w-full max-w-64">
+              <Select
+                value={selectedSchoolYearId}
+                onValueChange={handleSchoolYearChange}
+              >
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_YEARS_VALUE}>All school years</SelectItem>
+                  <SelectItem value={ALL_YEARS_VALUE}>
+                    All school years
+                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}
@@ -269,96 +333,56 @@ export default function AttendancePage() {
 
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">School Year</p>
-            <p className="mt-2 text-2xl font-black">{selectedSchoolYearLabel}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              School Year
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {selectedSchoolYearLabel}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">Final Results</p>
-            <p className="mt-2 text-2xl font-black">{formatNumber(summary.totalStudents)}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              Final Results
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {formatNumber(summary.totalStudents)}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">Perfect Attendance</p>
-            <p className="mt-2 text-2xl font-black">{formatNumber(summary.perfectAttendance)}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              Perfect Attendance
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {formatNumber(summary.perfectAttendance)}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">Total Absences</p>
-            <p className="mt-2 text-2xl font-black">{formatNumber(summary.totalAbsences)}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              Total Absences
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {formatNumber(summary.totalAbsences)}
+            </p>
           </div>
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
-            <label className="space-y-2 lg:col-span-2">
-              <span className="text-sm font-bold">Attendance file</span>
-              <Input
-                type="file"
-                accept={acceptedFileTypes}
-                onChange={handleFileChange}
-                disabled={isSaving}
-                className="min-h-12 rounded-2xl"
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold">School year</span>
-              <Select
-                value={uploadForm.schoolYearId}
-                onValueChange={(value) => handleUploadFieldChange("schoolYearId", value)}
-                disabled={isSaving}
-              >
-                <SelectTrigger className="min-h-12 rounded-2xl">
-                  <SelectValue placeholder="School year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold">Event name</span>
-              <Input
-                value={uploadForm.eventName}
-                onChange={(event) => handleUploadFieldChange("eventName", event.target.value)}
-                placeholder="Event name"
-                disabled={isSaving}
-                className="min-h-12 rounded-2xl"
-              />
-            </label>
-
-            <div className="flex items-end">
-              <Button type="submit" disabled={isSaving} className="min-h-12 w-full rounded-2xl font-black">
-                {isSaving ? "Saving..." : "Save File"}
-              </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Upload attendance file</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Open the upload form in a dialog to create a new attendance
+                import.
+              </p>
             </div>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold">Start date/time</span>
-              <Input
-                type="datetime-local"
-                value={uploadForm.eventStartAt}
-                onChange={(event) => handleUploadFieldChange("eventStartAt", event.target.value)}
-                disabled={isSaving}
-                className="min-h-12 rounded-2xl"
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold">End date/time</span>
-              <Input
-                type="datetime-local"
-                value={uploadForm.eventEndAt}
-                onChange={(event) => handleUploadFieldChange("eventEndAt", event.target.value)}
-                disabled={isSaving}
-                className="min-h-12 rounded-2xl"
-              />
-            </label>
-
-            <div className="flex items-end lg:col-span-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                onClick={() => setUploadDialogOpen(true)}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                Upload Attendance File
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -369,8 +393,7 @@ export default function AttendancePage() {
                 Refresh Final Results
               </Button>
             </div>
-          </form>
-
+          </div>
           {progress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">
               <div className="flex items-center justify-between gap-3 text-sm font-bold">
@@ -379,23 +402,130 @@ export default function AttendancePage() {
               </div>
               <Progress value={progress.percent} className="mt-3 h-3" />
               <p className="mt-2 text-xs font-semibold text-muted-foreground">
-                {formatNumber(progress.savedRecords)} saved record/s from {formatNumber(progress.totalRows)} parsed row/s
+                {formatNumber(progress.savedRecords)} saved record/s from{" "}
+                {formatNumber(progress.totalRows)} parsed row/s
               </p>
             </div>
           ) : null}
         </section>
 
+        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Upload attendance file</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
+              <label className="space-y-2 lg:col-span-2">
+                <span className="text-sm font-bold">Attendance file</span>
+                <Input
+                  type="file"
+                  accept={acceptedFileTypes}
+                  onChange={handleFileChange}
+                  disabled={isSaving}
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold">School year</span>
+                <Select
+                  value={uploadForm.schoolYearId}
+                  onValueChange={(value) =>
+                    handleUploadFieldChange("schoolYearId", value)
+                  }
+                  disabled={isSaving}
+                >
+                  <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
+                    <SelectValue placeholder="School year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {schoolYears.map((schoolYear) => (
+                      <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                        {schoolYear.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold">Event name</span>
+                <Input
+                  value={uploadForm.eventName}
+                  onChange={(event) =>
+                    handleUploadFieldChange("eventName", event.target.value)
+                  }
+                  placeholder="Event name"
+                  disabled={isSaving}
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+
+              <div className="flex items-end">
+                <Button
+                  type="submit"
+                  disabled={isSaving}
+                  className="min-h-12 w-full rounded-2xl font-black"
+                >
+                  {isSaving ? "Saving..." : "Save File"}
+                </Button>
+              </div>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold">Start date/time</span>
+                <Input
+                  type="datetime-local"
+                  value={uploadForm.eventStartAt}
+                  onChange={(event) =>
+                    handleUploadFieldChange("eventStartAt", event.target.value)
+                  }
+                  disabled={isSaving}
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold">End date/time</span>
+                <Input
+                  type="datetime-local"
+                  value={uploadForm.eventEndAt}
+                  onChange={(event) =>
+                    handleUploadFieldChange("eventEndAt", event.target.value)
+                  }
+                  disabled={isSaving}
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+            </form>
+          </DialogContent>
+        </Dialog>
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Final attendance results</h2>
               <p className="text-sm text-muted-foreground">
-                These rows come from the final results table and are loaded directly for faster page rendering.
+                These rows come from the final results table and can be switched
+                by college.
               </p>
             </div>
-            <p className="text-sm font-bold text-muted-foreground">
-              {formatNumber(finalResults.length)} result/s
-            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Select value={collegeFilter} onValueChange={setCollegeFilter}>
+                <SelectTrigger className="min-h-11 w-full min-w-0 max-w-64 rounded-2xl">
+                  <SelectValue placeholder="College" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all_colleges__">All colleges</SelectItem>
+                  {collegeOptions.map((college) => (
+                    <SelectItem key={college} value={college}>
+                      {college}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm font-bold text-muted-foreground">
+                {formatNumber(displayedFinalResults.length)} result/s
+              </p>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-2xl border bg-background">
@@ -412,26 +542,43 @@ export default function AttendancePage() {
                 </tr>
               </thead>
               <tbody>
-                {finalResults.length ? (
-                  finalResults.map((result) => (
+                {displayedFinalResults.length ? (
+                  displayedFinalResults.map((result) => (
                     <tr key={result.id} className="border-t">
-                      <td className="px-4 py-3 font-black">{result.student_id}</td>
+                      <td className="px-4 py-3 font-black">
+                        {result.student_id}
+                      </td>
                       <td className="px-4 py-3 font-semibold">{result.name}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{result.college || "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{result.program || "—"}</td>
-                      <td className="px-4 py-3 font-semibold">{formatNumber(result.attended_events)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {result.college || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {result.program || "—"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold">
+                        {formatNumber(result.attended_events)}
+                      </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${getResultBadgeClassName(result.total_absences)}`}>
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${getResultBadgeClassName(result.total_absences)}`}
+                        >
                           {getResultLabel(result)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatDate(result.latest_scanned_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {formatDate(result.latest_scanned_at)}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground">
-                      {isLoading ? "Loading final results..." : "No final attendance results found."}
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
+                    >
+                      {isLoading
+                        ? "Loading final results..."
+                        : "No final attendance results found."}
                     </td>
                   </tr>
                 )}
@@ -445,16 +592,21 @@ export default function AttendancePage() {
           <div className="mt-4 grid gap-3">
             {imports.length ? (
               imports.map((item) => (
-                <article key={item.id} className="rounded-2xl border bg-background p-4">
+                <article
+                  key={item.id}
+                  className="rounded-2xl border bg-background p-4"
+                >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-black">{item.file_name}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {item.event_name || "Uploaded attendance"} • {formatDate(item.created_at)}
+                        {item.event_name || "Uploaded attendance"} •{" "}
+                        {formatDate(item.created_at)}
                       </p>
                     </div>
                     <p className="text-sm font-bold text-muted-foreground">
-                      {formatNumber(item.rows_valid)} valid / {formatNumber(item.rows_total)} total
+                      {formatNumber(item.rows_valid)} valid /{" "}
+                      {formatNumber(item.rows_total)} total
                     </p>
                   </div>
                 </article>

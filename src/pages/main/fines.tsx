@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -13,7 +12,11 @@ import {
   updatePenalty,
   updatePenaltyResultStatus,
 } from "../../api/fines";
-import type { FineStatus, PenaltyRecord, PenaltyResultRecord } from "../../api/fines";
+import type {
+  FineStatus,
+  PenaltyRecord,
+  PenaltyResultRecord,
+} from "../../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
@@ -32,6 +35,12 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Select,
@@ -94,35 +103,69 @@ function getStatusBadgeClassName(status: FineStatus) {
   return styles[status];
 }
 
+function getPenaltyResultCollege(result: PenaltyResultRecord) {
+  return String((result as { college?: string | null }).college ?? "").trim();
+}
+
 export default function FinesPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(ALL_YEARS_VALUE);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] =
+    useState(ALL_YEARS_VALUE);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>([]);
+  const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
+  const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
+    [],
+  );
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
-  const [penaltyForm, setPenaltyForm] = useState<PenaltyFormState>(emptyPenaltyForm);
+  const [penaltyForm, setPenaltyForm] =
+    useState<PenaltyFormState>(emptyPenaltyForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshingResults, setIsRefreshingResults] = useState(false);
   const [isSavingPenalty, setIsSavingPenalty] = useState(false);
+  const [penaltyDialogOpen, setPenaltyDialogOpen] = useState(false);
   const [updatingStatusId, setUpdatingStatusId] = useState("");
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
 
+  const collegeOptions = useMemo(() => {
+    const colleges = penaltyResults
+      .map(getPenaltyResultCollege)
+      .filter(Boolean);
+
+    return Array.from(new Set(colleges)).sort((left, right) =>
+      left.localeCompare(right),
+    );
+  }, [penaltyResults]);
+
   const filteredPenaltyResults = useMemo(() => {
     return penaltyResults.filter((result) => {
-      return statusFilter === "all" || result.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all" || result.status === statusFilter;
+      const matchesCollege =
+        collegeFilter === "__all_colleges__" ||
+        getPenaltyResultCollege(result) === collegeFilter;
+
+      return matchesStatus && matchesCollege;
     });
-  }, [penaltyResults, statusFilter]);
+  }, [penaltyResults, statusFilter, collegeFilter]);
 
   const summary = useMemo(() => {
     return {
       total: filteredPenaltyResults.length,
-      unpaid: filteredPenaltyResults.filter((result) => result.status === "unpaid").length,
-      paid: filteredPenaltyResults.filter((result) => result.status === "paid").length,
-      waived: filteredPenaltyResults.filter((result) => result.status === "waived").length,
-      absences: filteredPenaltyResults.reduce((total, result) => total + Number(result.no_of_absences || 0), 0),
+      unpaid: filteredPenaltyResults.filter(
+        (result) => result.status === "unpaid",
+      ).length,
+      paid: filteredPenaltyResults.filter((result) => result.status === "paid")
+        .length,
+      waived: filteredPenaltyResults.filter(
+        (result) => result.status === "waived",
+      ).length,
+      absences: filteredPenaltyResults.reduce(
+        (total, result) => total + Number(result.no_of_absences || 0),
+        0,
+      ),
     };
   }, [filteredPenaltyResults]);
 
@@ -130,21 +173,29 @@ export default function FinesPage() {
     setIsLoading(true);
 
     try {
-      const [schoolYearRows, penaltyRows, penaltyResultRows] = await Promise.all([
-        listSchoolYears(),
-        listPenalties(),
-        listPenaltyResults({
-          schoolYearId: nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-      ]);
+      const [schoolYearRows, penaltyRows, penaltyResultRows] =
+        await Promise.all([
+          listSchoolYears(),
+          listPenalties(),
+          listPenaltyResults({
+            schoolYearId:
+              nextSchoolYearId === ALL_YEARS_VALUE
+                ? undefined
+                : nextSchoolYearId,
+            limit: 500,
+            offset: 0,
+          }),
+        ]);
 
       setSchoolYears(schoolYearRows);
       setPenalties(penaltyRows);
       setPenaltyResults(penaltyResultRows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to load penalty results.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load penalty results.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -164,12 +215,19 @@ export default function FinesPage() {
 
     try {
       await refreshPenaltyResults({
-        schoolYearId: selectedSchoolYearId === ALL_YEARS_VALUE ? undefined : selectedSchoolYearId,
+        schoolYearId:
+          selectedSchoolYearId === ALL_YEARS_VALUE
+            ? undefined
+            : selectedSchoolYearId,
       });
       await loadPageData(selectedSchoolYearId);
       toast.success("Penalty results refreshed from final absences.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to refresh penalty results.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh penalty results.",
+      );
     } finally {
       setIsRefreshingResults(false);
     }
@@ -203,9 +261,12 @@ export default function FinesPage() {
       }
 
       setPenaltyForm(emptyPenaltyForm);
+      setPenaltyDialogOpen(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save penalty rule.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save penalty rule.",
+      );
     } finally {
       setIsSavingPenalty(false);
     }
@@ -219,7 +280,11 @@ export default function FinesPage() {
       await loadPageData(selectedSchoolYearId);
       toast.success("Default penalty rules loaded.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to seed penalty rules.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to seed penalty rules.",
+      );
     } finally {
       setIsSavingPenalty(false);
     }
@@ -233,26 +298,50 @@ export default function FinesPage() {
       await loadPageData(selectedSchoolYearId);
       toast.success("Penalty rule deleted.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to delete penalty rule.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete penalty rule.",
+      );
     } finally {
       setIsSavingPenalty(false);
     }
   }
 
-  async function handleStatusChange(result: PenaltyResultRecord, status: FineStatus) {
+  async function handleStatusChange(
+    result: PenaltyResultRecord,
+    status: FineStatus,
+  ) {
     setUpdatingStatusId(result.id);
 
     try {
       const updated = await updatePenaltyResultStatus(result.id, status);
       setPenaltyResults((current) =>
-        current.map((item) => (item.id === result.id && updated ? updated : item)),
+        current.map((item) =>
+          item.id === result.id && updated ? updated : item,
+        ),
       );
       toast.success("Penalty status updated.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update penalty status.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to update penalty status.",
+      );
     } finally {
       setUpdatingStatusId("");
     }
+  }
+
+  function handleOpenCreatePenaltyDialog() {
+    setPenaltyForm(emptyPenaltyForm);
+    setPenaltyDialogOpen(true);
+  }
+
+  function handlePenaltyDialogOpenChange(open: boolean) {
+    setPenaltyDialogOpen(open);
+
+    if (!open) setPenaltyForm(emptyPenaltyForm);
   }
 
   function handleEditPenalty(penalty: PenaltyRecord) {
@@ -261,6 +350,7 @@ export default function FinesPage() {
       noOfAbsences: String(penalty.no_of_absences),
       prescribedPenalty: penalty.prescribed_penalty,
     });
+    setPenaltyDialogOpen(true);
   }
 
   return (
@@ -276,17 +366,24 @@ export default function FinesPage() {
                 Penalties based on absences
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                This page renders the saved penalty result table. Results are refreshed from final attendance absences and matched to the configured penalty rules.
+                This page renders the saved penalty result table. Results are
+                refreshed from final attendance absences and matched to the
+                configured penalty rules.
               </p>
             </div>
 
-            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
-              <Select value={selectedSchoolYearId} onValueChange={handleSchoolYearChange}>
-                <SelectTrigger className="min-h-12 rounded-2xl lg:w-72">
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto xl:grid-cols-3">
+              <Select
+                value={selectedSchoolYearId}
+                onValueChange={handleSchoolYearChange}
+              >
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
                   <SelectValue placeholder="School year" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_YEARS_VALUE}>All school years</SelectItem>
+                  <SelectItem value={ALL_YEARS_VALUE}>
+                    All school years
+                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}
@@ -295,8 +392,13 @@ export default function FinesPage() {
                 </SelectContent>
               </Select>
 
-              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                <SelectTrigger className="min-h-12 rounded-2xl lg:w-56">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) =>
+                  setStatusFilter(value as StatusFilter)
+                }
+              >
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-56 rounded-2xl">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -307,26 +409,50 @@ export default function FinesPage() {
                   ))}
                 </SelectContent>
               </Select>
+
+              <Select value={collegeFilter} onValueChange={setCollegeFilter}>
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
+                  <SelectValue placeholder="College" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all_colleges__">All colleges</SelectItem>
+                  {collegeOptions.map((college) => (
+                    <SelectItem key={college} value={college}>
+                      {college}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </section>
 
         <section className="grid gap-4 md:grid-cols-5">
           <div className="rounded-3xl border bg-card p-5 md:col-span-2">
-            <p className="text-sm font-bold text-muted-foreground">School Year</p>
-            <p className="mt-2 text-2xl font-black">{selectedSchoolYearLabel}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              School Year
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {selectedSchoolYearLabel}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">Results</p>
-            <p className="mt-2 text-2xl font-black">{summary.total.toLocaleString()}</p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.total.toLocaleString()}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">Unpaid</p>
-            <p className="mt-2 text-2xl font-black">{summary.unpaid.toLocaleString()}</p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.unpaid.toLocaleString()}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">Absences</p>
-            <p className="mt-2 text-2xl font-black">{summary.absences.toLocaleString()}</p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.absences.toLocaleString()}
+            </p>
           </div>
         </section>
 
@@ -344,7 +470,9 @@ export default function FinesPage() {
               disabled={isRefreshingResults}
               className="min-h-12 rounded-2xl px-6 font-black"
             >
-              {isRefreshingResults ? "Refreshing..." : "Refresh Penalty Results"}
+              {isRefreshingResults
+                ? "Refreshing..."
+                : "Refresh Penalty Results"}
             </Button>
           </div>
 
@@ -354,6 +482,7 @@ export default function FinesPage() {
                 <tr>
                   <th className="px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Absences</th>
                   <th className="px-4 py-3">Prescribed Penalty</th>
                   <th className="px-4 py-3">Status</th>
@@ -364,18 +493,31 @@ export default function FinesPage() {
                 {filteredPenaltyResults.length ? (
                   filteredPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
-                      <td className="px-4 py-3 font-black">{result.student_id}</td>
+                      <td className="px-4 py-3 font-black">
+                        {result.student_id}
+                      </td>
                       <td className="px-4 py-3 font-semibold">{result.name}</td>
-                      <td className="px-4 py-3 font-black">{result.no_of_absences}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{result.prescribed_penalty}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {getPenaltyResultCollege(result) || "—"}
+                      </td>
+                      <td className="px-4 py-3 font-black">
+                        {result.no_of_absences}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {result.prescribed_penalty}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}
+                          >
                             {result.status}
                           </span>
                           <Select
                             value={result.status}
-                            onValueChange={(value) => handleStatusChange(result, value as FineStatus)}
+                            onValueChange={(value) =>
+                              handleStatusChange(result, value as FineStatus)
+                            }
                             disabled={updatingStatusId === result.id}
                           >
                             <SelectTrigger className="h-9 w-32 rounded-xl text-xs font-bold">
@@ -383,7 +525,10 @@ export default function FinesPage() {
                             </SelectTrigger>
                             <SelectContent>
                               {fineStatusOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
                                   {option.label}
                                 </SelectItem>
                               ))}
@@ -391,13 +536,20 @@ export default function FinesPage() {
                           </Select>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatDate(result.updated_at)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {formatDate(result.updated_at)}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground">
-                      {isLoading ? "Loading penalty results..." : "No penalty results found."}
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
+                    >
+                      {isLoading
+                        ? "Loading penalty results..."
+                        : "No penalty results found."}
                     </td>
                   </tr>
                 )}
@@ -406,115 +558,180 @@ export default function FinesPage() {
           </div>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-2">
-          <form onSubmit={handleSavePenalty} className="rounded-3xl border bg-card p-5 shadow-sm">
-            <h2 className="text-xl font-black">{penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}</h2>
-
-            <div className="mt-5 grid gap-4">
-              <label className="space-y-2">
-                <span className="text-sm font-bold">No. of absences</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={penaltyForm.noOfAbsences}
-                  onChange={(event) => setPenaltyForm((current) => ({ ...current, noOfAbsences: event.target.value }))}
-                  placeholder="Example: 3"
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-bold">Prescribed penalty</span>
-                <Textarea
-                  value={penaltyForm.prescribedPenalty}
-                  onChange={(event) => setPenaltyForm((current) => ({ ...current, prescribedPenalty: event.target.value }))}
-                  placeholder="Penalty description"
-                  className="min-h-28 rounded-2xl"
-                />
-              </label>
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Penalty rules</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Create and edit penalty rules in a dialog.
+              </p>
             </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <Button type="submit" disabled={isSavingPenalty} className="min-h-12 rounded-2xl px-6 font-black">
-                {isSavingPenalty ? "Saving..." : penaltyForm.id ? "Update Rule" : "Save Rule"}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                onClick={handleOpenCreatePenaltyDialog}
+                className="min-h-11 rounded-2xl px-5 font-black"
+              >
+                Create Penalty Rule
               </Button>
-              {penaltyForm.id ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isSavingPenalty}
-                  onClick={() => setPenaltyForm(emptyPenaltyForm)}
-                  className="min-h-12 rounded-2xl px-6 font-black"
-                >
-                  Cancel Edit
-                </Button>
-              ) : null}
               <Button
                 type="button"
                 variant="outline"
                 disabled={isSavingPenalty}
                 onClick={handleSeedDefaultPenalties}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-11 rounded-2xl px-5 font-black"
               >
                 Seed Defaults
               </Button>
             </div>
-          </form>
-
-          <section className="rounded-3xl border bg-card p-5 shadow-sm">
-            <h2 className="text-xl font-black">Penalty rules</h2>
-            <div className="mt-5 space-y-3">
-              {penalties.length ? (
-                penalties.map((penalty) => (
-                  <article key={penalty.id} className="rounded-2xl border bg-background p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="font-black">{penalty.no_of_absences} absence/s</p>
-                        <p className="mt-1 text-sm leading-6 text-muted-foreground">{penalty.prescribed_penalty}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => handleEditPenalty(penalty)}
-                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                        >
-                          Edit
-                        </Button>
-
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button type="button" variant="destructive" className="min-h-10 rounded-xl px-4 py-2 text-xs font-black">
-                              Delete
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="rounded-3xl">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete penalty rule?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This removes the selected rule. Existing penalty results keep their saved prescribed penalty text until refreshed.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeletePenalty(penalty)}>
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
+          </div>
+          <div className="mt-5 space-y-3">
+            {penalties.length ? (
+              penalties.map((penalty) => (
+                <article
+                  key={penalty.id}
+                  className="rounded-2xl border bg-background p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-black">
+                        {penalty.no_of_absences} absence/s
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {penalty.prescribed_penalty}
+                      </p>
                     </div>
-                  </article>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No penalty rules found.
-                </div>
-              )}
-            </div>
-          </section>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleEditPenalty(penalty)}
+                        className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                      >
+                        Edit
+                      </Button>
+
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Delete
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="rounded-3xl">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Delete penalty rule?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This removes the selected rule. Existing penalty
+                              results keep their saved prescribed penalty text
+                              until refreshed.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeletePenalty(penalty)}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                No penalty rules found.
+              </div>
+            )}
+          </div>
         </section>
+        <Dialog
+          open={penaltyDialogOpen}
+          onOpenChange={handlePenaltyDialogOpenChange}
+        >
+          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}
+              </DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={handleSavePenalty}
+              className="rounded-3xl border bg-card p-5 shadow-sm"
+            >
+              <h2 className="text-xl font-black">
+                {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}
+              </h2>
+
+              <div className="mt-5 grid gap-4">
+                <label className="space-y-2">
+                  <span className="text-sm font-bold">No. of absences</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={penaltyForm.noOfAbsences}
+                    onChange={(event) =>
+                      setPenaltyForm((current) => ({
+                        ...current,
+                        noOfAbsences: event.target.value,
+                      }))
+                    }
+                    placeholder="Example: 3"
+                    className="min-h-12 rounded-2xl"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-bold">Prescribed penalty</span>
+                  <Textarea
+                    value={penaltyForm.prescribedPenalty}
+                    onChange={(event) =>
+                      setPenaltyForm((current) => ({
+                        ...current,
+                        prescribedPenalty: event.target.value,
+                      }))
+                    }
+                    placeholder="Penalty description"
+                    className="min-h-28 rounded-2xl"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button
+                  type="submit"
+                  disabled={isSavingPenalty}
+                  className="min-h-12 rounded-2xl px-6 font-black"
+                >
+                  {isSavingPenalty
+                    ? "Saving..."
+                    : penaltyForm.id
+                      ? "Update Rule"
+                      : "Save Rule"}
+                </Button>
+                {penaltyForm.id ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSavingPenalty}
+                    onClick={() => handlePenaltyDialogOpenChange(false)}
+                    className="min-h-12 rounded-2xl px-6 font-black"
+                  >
+                    Cancel Edit
+                  </Button>
+                ) : null}
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </main>
   );

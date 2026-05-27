@@ -12,7 +12,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 type ExportReportProps = {
   attendanceRecords: AttendanceRecord[];
@@ -87,7 +93,10 @@ function getAbsenceCount(value?: number | null) {
   return Number.isFinite(absences) && absences > 0 ? absences : 0;
 }
 
-function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[]) {
+function getReportRows(
+  attendanceRecords: AttendanceRecord[],
+  fines: FineRecord[],
+) {
   const rows = new Map<string, ReportRow>();
   const rowsByStudentId = new Map<string, ReportRow[]>();
 
@@ -113,7 +122,10 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
 
       const studentKey = normalizeValue(studentId);
       if (studentKey) {
-        rowsByStudentId.set(studentKey, [...(rowsByStudentId.get(studentKey) ?? []), row]);
+        rowsByStudentId.set(studentKey, [
+          ...(rowsByStudentId.get(studentKey) ?? []),
+          row,
+        ]);
       }
 
       return;
@@ -130,7 +142,9 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
 
   fines.forEach((fine) => {
     const studentKey = normalizeValue(fine.student_id);
-    const matchedRows = studentKey ? rowsByStudentId.get(studentKey) ?? [] : [];
+    const matchedRows = studentKey
+      ? (rowsByStudentId.get(studentKey) ?? [])
+      : [];
     const targetRows =
       matchedRows.length > 0
         ? matchedRows
@@ -153,7 +167,10 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
               rows.set(key, row);
 
               if (studentKey) {
-                rowsByStudentId.set(studentKey, [...(rowsByStudentId.get(studentKey) ?? []), row]);
+                rowsByStudentId.set(studentKey, [
+                  ...(rowsByStudentId.get(studentKey) ?? []),
+                  row,
+                ]);
               }
 
               return row;
@@ -162,17 +179,20 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
 
     targetRows.forEach((row) => {
       if (!row.name && fine.name) row.name = cleanValue(fine.name);
-      if (!row.studentId && fine.student_id) row.studentId = cleanValue(fine.student_id);
+      if (!row.studentId && fine.student_id)
+        row.studentId = cleanValue(fine.student_id);
 
       const absences = getAbsenceCount(fine.no_of_absences);
-      const penalty = cleanValue(fine.prescribed_penalty) || "No prescribed penalty";
+      const penalty =
+        cleanValue(fine.prescribed_penalty) || "No prescribed penalty";
       const status = cleanValue(fine.status).toUpperCase() || "NO STATUS";
       const fineKey = `${absences}::${normalizeValue(penalty)}::${normalizeValue(status)}`;
 
       if (
         !row.fines.some(
           (item) =>
-            `${item.absences}::${normalizeValue(item.penalty)}::${normalizeValue(item.status)}` === fineKey,
+            `${item.absences}::${normalizeValue(item.penalty)}::${normalizeValue(item.status)}` ===
+            fineKey,
         )
       ) {
         row.fines.push({ absences, penalty, status });
@@ -181,10 +201,14 @@ function getReportRows(attendanceRecords: AttendanceRecord[], fines: FineRecord[
   });
 
   return Array.from(rows.values()).sort((left, right) => {
-    const collegeCompare = left.college.localeCompare(right.college, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
+    const collegeCompare = left.college.localeCompare(
+      right.college,
+      undefined,
+      {
+        numeric: true,
+        sensitivity: "base",
+      },
+    );
 
     if (collegeCompare !== 0) return collegeCompare;
 
@@ -329,23 +353,37 @@ export default function ExportReport(props: ExportReportProps) {
     () => getReportRows(props.attendanceRecords, props.fines),
     [props.attendanceRecords, props.fines],
   );
-  const collegeOptions = useMemo(() => Object.keys(getRowsByCollege(reportRows)), [reportRows]);
+  const collegeOptions = useMemo(
+    () => Object.keys(getRowsByCollege(reportRows)),
+    [reportRows],
+  );
   const filteredReportRows = useMemo(() => {
     if (selectedCollege === ALL_COLLEGES_VALUE) return reportRows;
     return reportRows.filter((row) => row.college === selectedCollege);
   }, [reportRows, selectedCollege]);
-  const rowsByCollege = useMemo(() => getRowsByCollege(filteredReportRows), [filteredReportRows]);
-  const selectedCollegeLabel = selectedCollege === ALL_COLLEGES_VALUE ? "All colleges" : selectedCollege;
+  const rowsByCollege = useMemo(
+    () => getRowsByCollege(filteredReportRows),
+    [filteredReportRows],
+  );
+  const selectedCollegeLabel =
+    selectedCollege === ALL_COLLEGES_VALUE ? "All colleges" : selectedCollege;
   const selectedYearLabel = props.yearLabel ?? "All years";
 
   useEffect(() => {
-    if (selectedCollege !== ALL_COLLEGES_VALUE && !collegeOptions.includes(selectedCollege)) {
+    if (
+      selectedCollege !== ALL_COLLEGES_VALUE &&
+      !collegeOptions.includes(selectedCollege)
+    ) {
       setSelectedCollege(ALL_COLLEGES_VALUE);
     }
   }, [collegeOptions, selectedCollege]);
 
   function handleExport() {
-    const workbook = buildExcelDocument(rowsByCollege, selectedCollegeLabel, selectedYearLabel);
+    const workbook = buildExcelDocument(
+      rowsByCollege,
+      selectedCollegeLabel,
+      selectedYearLabel,
+    );
     const blob = new Blob(["\ufeff", workbook], {
       type: "application/vnd.ms-excel;charset=utf-8;",
     });
@@ -382,21 +420,28 @@ export default function ExportReport(props: ExportReportProps) {
         <DialogHeader className="shrink-0">
           <DialogTitle>Report preview by college</DialogTitle>
           <DialogDescription>
-            Preview attendees with fines for the selected year, then export all colleges or one specific college.
+            Preview attendees with fines for the selected year, then export all
+            colleges or one specific college.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0 rounded-2xl border bg-muted/40 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">College to preview/export</p>
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+              College to preview/export
+            </p>
             <Select value={selectedCollege} onValueChange={setSelectedCollege}>
-              <SelectTrigger className="mt-2 min-h-11 w-full max-w-xs overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold">
+              <SelectTrigger className="mt-2 min-h-11 w-full max-w-64 overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold">
                 <SelectValue placeholder="All colleges" className="truncate" />
               </SelectTrigger>
               <SelectContent className="max-w-xs">
                 <SelectItem value={ALL_COLLEGES_VALUE}>All colleges</SelectItem>
                 {collegeOptions.map((college) => (
-                  <SelectItem key={college} value={college} className="wrap-break-word">
+                  <SelectItem
+                    key={college}
+                    value={college}
+                    className="wrap-break-word"
+                  >
                     {college}
                   </SelectItem>
                 ))}
@@ -404,16 +449,28 @@ export default function ExportReport(props: ExportReportProps) {
             </Select>
           </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Year</p>
-            <p className="mt-1 wrap-break-word text-2xl font-black">{selectedYearLabel}</p>
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+              Year
+            </p>
+            <p className="mt-1 wrap-break-word text-2xl font-black">
+              {selectedYearLabel}
+            </p>
           </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Attendees</p>
-            <p className="mt-1 text-2xl font-black">{filteredReportRows.length}</p>
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+              Attendees
+            </p>
+            <p className="mt-1 text-2xl font-black">
+              {filteredReportRows.length}
+            </p>
           </div>
           <div className="rounded-2xl border bg-muted/40 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">Colleges</p>
-            <p className="mt-1 text-2xl font-black">{Object.keys(rowsByCollege).length}</p>
+            <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+              Colleges
+            </p>
+            <p className="mt-1 text-2xl font-black">
+              {Object.keys(rowsByCollege).length}
+            </p>
           </div>
         </div>
 
@@ -434,25 +491,43 @@ export default function ExportReport(props: ExportReportProps) {
                 Object.entries(rowsByCollege).map(([college, rows]) => (
                   <Fragment key={college}>
                     <tr key={`${college}-heading`} className="bg-muted/60">
-                      <td colSpan={6} className="wrap-break-word px-3 py-3 font-black">
+                      <td
+                        colSpan={6}
+                        className="wrap-break-word px-3 py-3 font-black"
+                      >
                         {college}
                       </td>
                     </tr>
                     {rows.map((row) => (
                       <tr key={row.key} className="border-b last:border-b-0">
-                        <td className="max-w-40 break-all px-3 py-3">{row.studentId || "—"}</td>
-                        <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">{row.name || "—"}</td>
-                        <td className="max-w-56 wrap-break-word px-3 py-3">{row.college}</td>
-                        <td className="px-3 py-3 text-center">{getAbsenceText(row)}</td>
-                        <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">{getFineText(row)}</td>
-                        <td className="px-3 py-3">{formatDate(row.latestDate)}</td>
+                        <td className="max-w-40 break-all px-3 py-3">
+                          {row.studentId || "—"}
+                        </td>
+                        <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">
+                          {row.name || "—"}
+                        </td>
+                        <td className="max-w-56 wrap-break-word px-3 py-3">
+                          {row.college}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {getAbsenceText(row)}
+                        </td>
+                        <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">
+                          {getFineText(row)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {formatDate(row.latestDate)}
+                        </td>
                       </tr>
                     ))}
                   </Fragment>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground">
+                  <td
+                    colSpan={6}
+                    className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground"
+                  >
                     No report data available.
                   </td>
                 </tr>

@@ -6,28 +6,38 @@ import {
   getStudentAttendanceRecords,
   listAttendanceEvents,
   listAttendanceFinalResults,
-  saveManualAttendanceRecord
+  saveManualAttendanceRecord,
 } from "../api/attendance";
-import type { AttendanceEvent, AttendanceFinalResultRecord, AttendanceRecord, ManualAttendanceInput } from "../api/attendance";
+import type {
+  AttendanceEvent,
+  AttendanceFinalResultRecord,
+  AttendanceRecord,
+  ManualAttendanceInput,
+} from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
   getSchoolYearLabel,
-  listSchoolYears
+  listSchoolYears,
 } from "../api/schoolYears";
 import type { SchoolYearRecord } from "../api/schoolYears";
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 import { Progress } from "../components/ui/progress";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
 } from "../components/ui/select";
 
 type LookupState = {
@@ -72,10 +82,7 @@ function useProgressivePercent(isActive: boolean, targetPercent: number) {
     }
 
     setDisplayPercent((currentPercent) => {
-      const nextTarget = Math.max(
-        1,
-        Math.min(100, Math.round(targetPercent)),
-      );
+      const nextTarget = Math.max(1, Math.min(100, Math.round(targetPercent)));
 
       if (currentPercent <= 0) return Math.min(nextTarget, 2);
       return Math.min(currentPercent, nextTarget);
@@ -95,10 +102,7 @@ function useProgressivePercent(isActive: boolean, targetPercent: number) {
         if (currentPercent >= nextTarget) return currentPercent;
 
         const remainingPercent = nextTarget - currentPercent;
-        const step = Math.max(
-          1,
-          Math.min(5, Math.ceil(remainingPercent / 7)),
-        );
+        const step = Math.max(1, Math.min(5, Math.ceil(remainingPercent / 7)));
 
         return Math.min(nextTarget, currentPercent + step);
       });
@@ -152,38 +156,49 @@ const AUTH_STORAGE_KEYS = [
   "auth.token",
   "session",
   "token",
-  "accessToken"
+  "accessToken",
 ];
 
 const LANDING_RESOURCE_LINKS = [
   {
     audience: "SSG Officers",
     title: "Download QR Scanner",
-    description: "Download the scanner for checking student QR codes during attendance and monitoring.",
+    description:
+      "Download the scanner for checking student QR codes during attendance and monitoring.",
     href: "https://drive.google.com/file/d/19vu1IvWgpmASxRWUVDjIpe9ql6kbqrPw/view?usp=sharing",
-    cta: "Download Scanner"
+    cta: "Download Scanner",
   },
   {
     audience: "Students",
     title: "Generate Student QR Code",
-    description: "Create your QR code using your student details before presenting it for scanning.",
+    description:
+      "Create your QR code using your student details before presenting it for scanning.",
     href: "https://ssg-qrcode-generator.vercel.app/",
-    cta: "Generate QR Code"
+    cta: "Generate QR Code",
   },
   {
     audience: "Researchers",
     title: "Survey and Statistics Support",
-    description: "Access external services for thesis Chapter IV survey and statistics needs.",
+    description:
+      "Access external services for thesis Chapter IV survey and statistics needs.",
     href: "https://surveystat.jrmsu-tc.online/",
-    cta: "Visit SurveyStat"
-  }
+    cta: "Visit SurveyStat",
+  },
 ] as const;
 
-const ZERO_ATTENDANCE_REMARK = "Zero attendance registration from landing page.";
+const ZERO_ATTENDANCE_REMARK =
+  "Zero attendance registration from landing page.";
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
-const DEFAULT_STUDENT_INSTITUTION = "Jose Rizal Memorial State University - Tampilisan Campus";
+const DEFAULT_STUDENT_INSTITUTION =
+  "Jose Rizal Memorial State University - Tampilisan Campus";
 
-const QR_CODE_YEAR_LEVEL_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"] as const;
+const QR_CODE_YEAR_LEVEL_OPTIONS = [
+  "1st Year",
+  "2nd Year",
+  "3rd Year",
+  "4th Year",
+  "5th Year",
+] as const;
 
 const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
   "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
@@ -193,13 +208,16 @@ const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
     "BSED Math",
     "BSED Social Studies",
     "Bachelor of Physical Education",
-    "BEED"
+    "BEED",
   ],
-  "College of Computing Studies": ["BS Information Systems", "BS Computer Science"],
+  "College of Computing Studies": [
+    "BS Information Systems",
+    "BS Computer Science",
+  ],
   "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
   "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
   "School of Engineering": ["Agricultural Biosystems Engineering"],
-  "School of Criminal Justice Education": ["BS Criminology"]
+  "School of Criminal Justice Education": ["BS Criminology"],
 };
 
 const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
@@ -212,14 +230,14 @@ const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   yearLevel: "",
   college: "",
   program: "",
-  institution: DEFAULT_STUDENT_INSTITUTION
+  institution: DEFAULT_STUDENT_INSTITUTION,
 };
 
 const textInputClassName =
   "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const selectTriggerClassName =
-  "min-h-12 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+  "min-h-12 w-full min-w-0 max-w-72 overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const customSelectInputClassName =
   "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
@@ -228,13 +246,19 @@ function getStudentProgramOptions(college: string) {
   return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
 }
 
-function hasStudentSelectOption(options: readonly string[], value?: string | null) {
+function hasStudentSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
   const cleanValue = String(value ?? "").trim();
 
   return Boolean(cleanValue) && options.includes(cleanValue);
 }
 
-function renderCurrentStudentSelectOption(options: readonly string[], value?: string | null) {
+function renderCurrentStudentSelectOption(
+  options: readonly string[],
+  value?: string | null,
+) {
   const cleanValue = String(value ?? "").trim();
 
   if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
@@ -258,7 +282,9 @@ function getExpiryTime(value: unknown) {
   if (typeof value === "string" && value.trim()) {
     const parsedNumericValue = Number(value);
     if (!Number.isNaN(parsedNumericValue)) {
-      return parsedNumericValue < 1_000_000_000_000 ? parsedNumericValue * 1000 : parsedNumericValue;
+      return parsedNumericValue < 1_000_000_000_000
+        ? parsedNumericValue * 1000
+        : parsedNumericValue;
     }
 
     const parsedDateValue = new Date(value).getTime();
@@ -276,12 +302,12 @@ function hasUsableSessionPayload(payload: Record<string, unknown>) {
 
   return Boolean(
     payload.token ||
-      payload.accessToken ||
-      payload.access_token ||
-      payload.jwt ||
-      payload.user ||
-      payload.email ||
-      payload.id
+    payload.accessToken ||
+    payload.access_token ||
+    payload.jwt ||
+    payload.user ||
+    payload.email ||
+    payload.id,
   );
 }
 
@@ -289,7 +315,8 @@ function hasStoredSessionValue(value: string | null) {
   if (!value) return false;
 
   const cleanValue = value.trim();
-  if (!cleanValue || cleanValue === "null" || cleanValue === "undefined") return false;
+  if (!cleanValue || cleanValue === "null" || cleanValue === "undefined")
+    return false;
 
   try {
     const parsedValue: unknown = JSON.parse(cleanValue);
@@ -310,7 +337,9 @@ function hasCurrentSession() {
 
   return storageAreas.some((storageArea) => {
     try {
-      return AUTH_STORAGE_KEYS.some((key) => hasStoredSessionValue(storageArea.getItem(key)));
+      return AUTH_STORAGE_KEYS.some((key) =>
+        hasStoredSessionValue(storageArea.getItem(key)),
+      );
     } catch {
       return false;
     }
@@ -326,7 +355,7 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
-    day: "2-digit"
+    day: "2-digit",
   }).format(date);
 }
 
@@ -334,11 +363,13 @@ function statusBadge(status: FineRecord["status"]) {
   const styles: Record<FineRecord["status"], string> = {
     unpaid: "border-red-200 bg-red-50 text-red-700",
     paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    waived: "border-blue-200 bg-blue-50 text-blue-700"
+    waived: "border-blue-200 bg-blue-50 text-blue-700",
   };
 
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${styles[status]}`}>
+    <span
+      className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${styles[status]}`}
+    >
       {status}
     </span>
   );
@@ -352,7 +383,10 @@ function formatAbsenceCount(value: number, forceTenPlus = false) {
   return String(numericValue);
 }
 
-function getTotalAbsences(attendance: AttendanceRecord[], fines: FineRecord[] = []) {
+function getTotalAbsences(
+  attendance: AttendanceRecord[],
+  fines: FineRecord[] = [],
+) {
   const attendanceAbsences = attendance.map(getRecordAbsenceCount);
   const fineAbsences = fines.map(getFineAbsenceCount);
 
@@ -380,7 +414,7 @@ function getAttendanceRecordYear(
   eventById?: Map<string, AttendanceEvent>,
 ) {
   const linkedEvent = record.event_id
-    ? eventById?.get(String(record.event_id)) ?? null
+    ? (eventById?.get(String(record.event_id)) ?? null)
     : null;
 
   return (
@@ -399,14 +433,17 @@ function getAttendanceEventDateValue(event?: AttendanceEvent | null) {
 }
 
 function getAttendanceEventYear(event?: AttendanceEvent | null) {
-  return event?.school_year_id || getDateYear(getAttendanceEventDateValue(event));
+  return (
+    event?.school_year_id || getDateYear(getAttendanceEventDateValue(event))
+  );
 }
 
 function getFineAttendanceRecordDateValue(
   fine: FineRecord,
-  attendanceRecordById?: Map<string, AttendanceRecord>
+  attendanceRecordById?: Map<string, AttendanceRecord>,
 ) {
-  const linkedRecord = attendanceRecordById?.get(getFineAttendanceRecordId(fine)) ?? null;
+  const linkedRecord =
+    attendanceRecordById?.get(getFineAttendanceRecordId(fine)) ?? null;
 
   return linkedRecord?.scanned_at ?? linkedRecord?.created_at ?? null;
 }
@@ -414,7 +451,7 @@ function getFineAttendanceRecordDateValue(
 function getFineRecordYear(
   fine: FineRecord,
   eventById?: Map<string, AttendanceEvent>,
-  attendanceRecordById?: Map<string, AttendanceRecord>
+  attendanceRecordById?: Map<string, AttendanceRecord>,
 ) {
   const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
 
@@ -431,14 +468,20 @@ function getLookupYearOptions(
   fines: FineRecord[],
   schoolYears: SchoolYearRecord[],
   eventById?: Map<string, AttendanceEvent>,
-  attendanceRecordById?: Map<string, AttendanceRecord>
+  attendanceRecordById?: Map<string, AttendanceRecord>,
 ) {
   return Array.from(
-    new Set([
-      ...schoolYears.map((schoolYear) => schoolYear.id),
-      ...attendance.map((record) => getAttendanceRecordYear(record, eventById)),
-      ...fines.map((fine) => getFineRecordYear(fine, eventById, attendanceRecordById))
-    ].filter(Boolean))
+    new Set(
+      [
+        ...schoolYears.map((schoolYear) => schoolYear.id),
+        ...attendance.map((record) =>
+          getAttendanceRecordYear(record, eventById),
+        ),
+        ...fines.map((fine) =>
+          getFineRecordYear(fine, eventById, attendanceRecordById),
+        ),
+      ].filter(Boolean),
+    ),
   );
 }
 
@@ -446,7 +489,10 @@ function matchesSelectedYear(recordYear: string, selectedYear: string) {
   return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
 }
 
-function getRecordEventName(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+function getRecordEventName(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   const eventId = String(record.event_id ?? "").trim();
   const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
 
@@ -464,7 +510,10 @@ function normalizeEventKey(value: string) {
     .trim();
 }
 
-const eventNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const eventNameCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
 
 function parseEventSequence(value?: string | null) {
   const cleanValue = String(value ?? "").trim();
@@ -473,7 +522,7 @@ function parseEventSequence(value?: string | null) {
   const sequencePatterns = [
     /^#?0*(\d+)\s*(?:[.)-]|$)/,
     /\b(?:event|activity|program|attendance|attended|day|no\.?)[\s_-]*#?0*(\d+)\b/i,
-    /\b0*(\d+)\s*(?:st|nd|rd|th)?\s*(?:event|activity|program|attendance|day)\b/i
+    /\b0*(\d+)\s*(?:st|nd|rd|th)?\s*(?:event|activity|program|attendance|day)\b/i,
   ];
 
   for (const pattern of sequencePatterns) {
@@ -491,7 +540,7 @@ function getAttendanceEventSequence(record: AttendanceRecord) {
     record.event_name,
     record.event_id,
     record.import_id,
-    record.remarks
+    record.remarks,
   ];
 
   for (const candidate of candidates) {
@@ -503,7 +552,8 @@ function getAttendanceEventSequence(record: AttendanceRecord) {
 }
 
 function getSummaryEventSequence(summary: StudentAttendedEventSummary) {
-  const directSequence = parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
+  const directSequence =
+    parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
   if (directSequence !== null) return directSequence;
 
   for (const record of summary.records) {
@@ -526,7 +576,7 @@ function getSummaryEarliestTime(summary: StudentAttendedEventSummary) {
 
 function compareStudentAttendedEventSummaries(
   leftSummary: StudentAttendedEventSummary,
-  rightSummary: StudentAttendedEventSummary
+  rightSummary: StudentAttendedEventSummary,
 ) {
   const leftSequence = getSummaryEventSequence(leftSummary);
   const rightSequence = getSummaryEventSequence(rightSummary);
@@ -537,14 +587,22 @@ function compareStudentAttendedEventSummaries(
     if (leftSequence !== rightSequence) return leftSequence - rightSequence;
   }
 
-  const timeDifference = getSummaryEarliestTime(leftSummary) - getSummaryEarliestTime(rightSummary);
+  const timeDifference =
+    getSummaryEarliestTime(leftSummary) - getSummaryEarliestTime(rightSummary);
   if (timeDifference !== 0) return timeDifference;
 
-  return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
+  return eventNameCollator.compare(
+    leftSummary.eventName,
+    rightSummary.eventName,
+  );
 }
 
 function hasZeroAttendanceMarker(...values: unknown[]) {
-  return values.some((value) => String(value ?? "").toLowerCase().includes("zero attendance"));
+  return values.some((value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .includes("zero attendance"),
+  );
 }
 
 function isZeroAttendanceRecord(record: AttendanceRecord) {
@@ -555,7 +613,7 @@ function isZeroAttendanceRecord(record: AttendanceRecord) {
     recordData.attendance_remarks,
     recordData.classification,
     recordData.status,
-    recordData.result
+    recordData.result,
   );
 }
 
@@ -567,16 +625,29 @@ function isZeroAttendanceFine(fine: FineRecord) {
     fineData.remarks,
     fineData.classification,
     fineData.status,
-    fineData.result
+    fineData.result,
   );
 }
 
-function hasZeroAttendanceResult(attendance: AttendanceRecord[], fines: FineRecord[]) {
-  return attendance.some(isZeroAttendanceRecord) || fines.some(isZeroAttendanceFine);
+function hasZeroAttendanceResult(
+  attendance: AttendanceRecord[],
+  fines: FineRecord[],
+) {
+  return (
+    attendance.some(isZeroAttendanceRecord) || fines.some(isZeroAttendanceFine)
+  );
 }
 
-function getStudentDisplayName(attendance: AttendanceRecord[], fines: FineRecord[], fallbackId: string) {
-  return attendance.find((record) => record.name)?.name || fines.find((fine) => fine.name)?.name || fallbackId;
+function getStudentDisplayName(
+  attendance: AttendanceRecord[],
+  fines: FineRecord[],
+  fallbackId: string,
+) {
+  return (
+    attendance.find((record) => record.name)?.name ||
+    fines.find((fine) => fine.name)?.name ||
+    fallbackId
+  );
 }
 
 function normalizeDisplayValue(value: unknown) {
@@ -593,7 +664,7 @@ function getAttendanceDisplayKey(record: AttendanceRecord) {
     normalizeDisplayValue(record.import_id),
     normalizeDisplayValue(formatDate(record.scanned_at ?? record.created_at)),
     Number(record.no_of_absences || 0),
-    normalizeDisplayValue(record.remarks)
+    normalizeDisplayValue(record.remarks),
   ].join("::");
 }
 
@@ -604,14 +675,19 @@ function getUniqueDisplayAttendance(attendance: AttendanceRecord[]) {
     const key = getAttendanceDisplayKey(record);
     const savedRecord = uniqueAttendance.get(key);
 
-    if (!savedRecord || getRecordTimestamp(record) > getRecordTimestamp(savedRecord)) {
+    if (
+      !savedRecord ||
+      getRecordTimestamp(record) > getRecordTimestamp(savedRecord)
+    ) {
       uniqueAttendance.set(key, record);
     }
   });
 
-  return Array.from(uniqueAttendance.values()).sort((leftRecord, rightRecord) => {
-    return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-  });
+  return Array.from(uniqueAttendance.values()).sort(
+    (leftRecord, rightRecord) => {
+      return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
+    },
+  );
 }
 
 function getAttendanceRecordId(record: AttendanceRecord) {
@@ -634,12 +710,19 @@ function getAttendanceRecordCollegeKey(record: AttendanceRecord) {
 }
 
 function getStudentCollegeKey(attendance: AttendanceRecord[]) {
-  const latestRecordWithCollege = getUniqueDisplayAttendance(attendance).find((record) => getAttendanceRecordCollegeKey(record));
+  const latestRecordWithCollege = getUniqueDisplayAttendance(attendance).find(
+    (record) => getAttendanceRecordCollegeKey(record),
+  );
 
-  return latestRecordWithCollege ? getAttendanceRecordCollegeKey(latestRecordWithCollege) : "";
+  return latestRecordWithCollege
+    ? getAttendanceRecordCollegeKey(latestRecordWithCollege)
+    : "";
 }
 
-function getAttendanceEventSummaryKey(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+function getAttendanceEventSummaryKey(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   if (isZeroAttendanceRecord(record)) return "";
 
   const eventId = String(record.event_id ?? "").trim();
@@ -650,26 +733,38 @@ function getAttendanceEventSummaryKey(record: AttendanceRecord, eventById?: Map<
   if (normalizedEventName) return `event-name:${normalizedEventName}`;
 
   const importId = String(record.import_id ?? "").trim();
-  if (importId) return `import-event:${normalizeEventKey(importId) || importId}`;
+  if (importId)
+    return `import-event:${normalizeEventKey(importId) || importId}`;
 
   return "";
 }
 
-function hasAttendanceEventIdentity(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+function hasAttendanceEventIdentity(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   return Boolean(getAttendanceEventSummaryKey(record, eventById));
 }
 
-function getAttendanceEventSummaryDateValue(record: AttendanceRecord, eventById?: Map<string, AttendanceEvent>) {
+function getAttendanceEventSummaryDateValue(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   const eventId = String(record.event_id ?? "").trim();
   const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
 
-  return getAttendanceEventDateValue(linkedEvent) ?? record.scanned_at ?? record.created_at ?? null;
+  return (
+    getAttendanceEventDateValue(linkedEvent) ??
+    record.scanned_at ??
+    record.created_at ??
+    null
+  );
 }
 
 function getCollegeLinkedEventSummaryMap(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
-  attendanceEvents: AttendanceEvent[] = []
+  attendanceEvents: AttendanceEvent[] = [],
 ) {
   const studentCollegeKey = getStudentCollegeKey(attendance);
 
@@ -683,7 +778,7 @@ function getCollegeLinkedEventSummaryMap(
       (record) =>
         !isZeroAttendanceRecord(record) &&
         getAttendanceRecordCollegeKey(record) === studentCollegeKey &&
-        hasAttendanceEventIdentity(record, eventById)
+        hasAttendanceEventIdentity(record, eventById),
     )
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
@@ -696,7 +791,7 @@ function getCollegeLinkedEventSummaryMap(
         eventName,
         latestScannedAt: getAttendanceEventSummaryDateValue(record, eventById),
         remarks: ["No attendance record found for this college-linked event."],
-        totalAbsences: 1
+        totalAbsences: 1,
       });
     });
 
@@ -706,14 +801,20 @@ function getCollegeLinkedEventSummaryMap(
 function getCollegeLinkedAbsentEventSummaries(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
-  attendanceEvents: AttendanceEvent[] = []
+  attendanceEvents: AttendanceEvent[] = [],
 ) {
-  const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(attendance, allAttendanceRecords, attendanceEvents);
+  const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(
+    attendance,
+    allAttendanceRecords,
+    attendanceEvents,
+  );
 
   if (!collegeLinkedEvents) return null;
 
   const attendedEventKeys = new Set(
-    getStudentAttendedEventSummaries(attendance, attendanceEvents).map((eventSummary) => eventSummary.key)
+    getStudentAttendedEventSummaries(attendance, attendanceEvents).map(
+      (eventSummary) => eventSummary.key,
+    ),
   );
 
   return Array.from(collegeLinkedEvents.values())
@@ -723,7 +824,7 @@ function getCollegeLinkedAbsentEventSummaries(
       remarks: Array.from(new Set(summary.remarks)),
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      })
+      }),
     }))
     .sort(compareStudentAbsentEventSummaries);
 }
@@ -731,9 +832,13 @@ function getCollegeLinkedAbsentEventSummaries(
 function getCollegeLinkedAttendanceScope(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
-  attendanceEvents: AttendanceEvent[] = []
+  attendanceEvents: AttendanceEvent[] = [],
 ): CollegeLinkedAttendanceScope {
-  const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(attendance, allAttendanceRecords, attendanceEvents);
+  const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(
+    attendance,
+    allAttendanceRecords,
+    attendanceEvents,
+  );
   const eventKeys = new Set<string>();
   const recordIds = new Set<string>();
 
@@ -763,7 +868,10 @@ function getCollegeLinkedAttendanceScope(
   return { hasScope: true, eventKeys, recordIds };
 }
 
-function getStudentAttendedEventSummaries(attendance: AttendanceRecord[], attendanceEvents: AttendanceEvent[] = []) {
+function getStudentAttendedEventSummaries(
+  attendance: AttendanceRecord[],
+  attendanceEvents: AttendanceEvent[] = [],
+) {
   const summaries = new Map<string, StudentAttendedEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
 
@@ -772,11 +880,13 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[], attend
       (record) =>
         !isZeroAttendanceRecord(record) &&
         !isExplicitAbsentAttendanceRecord(record) &&
-        (record.event_id || record.event_name || record.import_id)
+        (record.event_id || record.event_name || record.import_id),
     )
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
-      const key = getAttendanceEventSummaryKey(record, eventById) || `attendance-event-${record.id}`;
+      const key =
+        getAttendanceEventSummaryKey(record, eventById) ||
+        `attendance-event-${record.id}`;
       const currentSummary = summaries.get(key);
       const recordTime = getRecordTimestamp(record);
 
@@ -786,17 +896,22 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[], attend
           eventName,
           latestScannedAt: record.scanned_at ?? record.created_at ?? null,
           records: [record],
-          totalAbsences: 0
+          totalAbsences: 0,
         });
         return;
       }
 
-      const latestTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+      const latestTime = currentSummary.latestScannedAt
+        ? new Date(currentSummary.latestScannedAt).getTime()
+        : 0;
 
       currentSummary.records.push(record);
 
       if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
-        currentSummary.latestScannedAt = record.scanned_at ?? record.created_at ?? currentSummary.latestScannedAt;
+        currentSummary.latestScannedAt =
+          record.scanned_at ??
+          record.created_at ??
+          currentSummary.latestScannedAt;
       }
     });
 
@@ -805,7 +920,7 @@ function getStudentAttendedEventSummaries(attendance: AttendanceRecord[], attend
       ...summary,
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      })
+      }),
     }))
     .sort(compareStudentAttendedEventSummaries);
 }
@@ -834,13 +949,18 @@ function getFineAttendanceEventId(fine: FineRecord) {
   return String(fine.attendance_event_id ?? "").trim();
 }
 
-function isFineLinkedToAttendanceRecord(fine: FineRecord, record: AttendanceRecord) {
+function isFineLinkedToAttendanceRecord(
+  fine: FineRecord,
+  record: AttendanceRecord,
+) {
   const fineAttendanceRecordId = getFineAttendanceRecordId(fine);
   const fineAttendanceEventId = getFineAttendanceEventId(fine);
 
   return Boolean(
-    (fineAttendanceRecordId && fineAttendanceRecordId === String(record.id ?? "")) ||
-      (fineAttendanceEventId && fineAttendanceEventId === String(record.event_id ?? ""))
+    (fineAttendanceRecordId &&
+      fineAttendanceRecordId === String(record.id ?? "")) ||
+    (fineAttendanceEventId &&
+      fineAttendanceEventId === String(record.event_id ?? "")),
   );
 }
 
@@ -851,15 +971,22 @@ function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
     recordData.attendance_status,
     recordData.classification,
     recordData.result,
-    record.remarks
+    record.remarks,
   ]
     .map(normalizeDisplayValue)
     .filter(Boolean);
 
-  return statusValues.some((value) => /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(value));
+  return statusValues.some((value) =>
+    /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(
+      value,
+    ),
+  );
 }
 
-function getFineAbsentEventName(fine: FineRecord, eventById?: Map<string, AttendanceEvent>) {
+function getFineAbsentEventName(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   const eventId = getFineAttendanceEventId(fine);
   const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
 
@@ -869,10 +996,18 @@ function getFineAbsentEventName(fine: FineRecord, eventById?: Map<string, Attend
   return "Absence record";
 }
 
-function getFineAbsentEventDateValue(fine: FineRecord, eventById?: Map<string, AttendanceEvent>) {
+function getFineAbsentEventDateValue(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
   const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
 
-  return getAttendanceEventDateValue(linkedEvent) ?? fine.created_at ?? fine.updated_at ?? null;
+  return (
+    getAttendanceEventDateValue(linkedEvent) ??
+    fine.created_at ??
+    fine.updated_at ??
+    null
+  );
 }
 
 function hasFineLinkedAttendanceEvent(fine: FineRecord) {
@@ -898,9 +1033,14 @@ function getAttendanceEventSequenceSet(attendance: AttendanceRecord[]) {
   return sequenceSet;
 }
 
-function getInferredMissingAttendanceSequences(attendance: AttendanceRecord[], totalAbsences: number) {
+function getInferredMissingAttendanceSequences(
+  attendance: AttendanceRecord[],
+  totalAbsences: number,
+) {
   const sequenceSet = getAttendanceEventSequenceSet(attendance);
-  const sequences = Array.from(sequenceSet).sort((leftSequence, rightSequence) => leftSequence - rightSequence);
+  const sequences = Array.from(sequenceSet).sort(
+    (leftSequence, rightSequence) => leftSequence - rightSequence,
+  );
 
   if (!sequences.length || totalAbsences <= 0) return [];
 
@@ -920,12 +1060,22 @@ function getAbsentSummaryAbsenceCount(summary: StudentAbsentEventSummary) {
   return summary.records.length > 0 ? 1 : Math.max(1, summary.totalAbsences);
 }
 
-function getAbsentSummariesAbsenceCount(summaries: Map<string, StudentAbsentEventSummary>) {
-  return Array.from(summaries.values()).reduce((total, summary) => total + getAbsentSummaryAbsenceCount(summary), 0);
+function getAbsentSummariesAbsenceCount(
+  summaries: Map<string, StudentAbsentEventSummary>,
+) {
+  return Array.from(summaries.values()).reduce(
+    (total, summary) => total + getAbsentSummaryAbsenceCount(summary),
+    0,
+  );
 }
 
-function hasAbsentSummarySequence(summaries: Map<string, StudentAbsentEventSummary>, sequence: number) {
-  return Array.from(summaries.values()).some((summary) => getAbsentEventSequence(summary) === sequence);
+function hasAbsentSummarySequence(
+  summaries: Map<string, StudentAbsentEventSummary>,
+  sequence: number,
+) {
+  return Array.from(summaries.values()).some(
+    (summary) => getAbsentEventSequence(summary) === sequence,
+  );
 }
 
 function getFineAbsentEventRemarks(fine: FineRecord) {
@@ -933,7 +1083,8 @@ function getFineAbsentEventRemarks(fine: FineRecord) {
 }
 
 function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
-  const directSequence = parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
+  const directSequence =
+    parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
   if (directSequence !== null) return directSequence;
 
   for (const record of summary.records) {
@@ -951,14 +1102,16 @@ function getAbsentSummaryEarliestTime(summary: StudentAbsentEventSummary) {
 
   if (recordTimes.length) return Math.min(...recordTimes);
 
-  const latestTime = summary.latestScannedAt ? new Date(summary.latestScannedAt).getTime() : 0;
+  const latestTime = summary.latestScannedAt
+    ? new Date(summary.latestScannedAt).getTime()
+    : 0;
 
   return Number.isNaN(latestTime) ? 0 : latestTime;
 }
 
 function compareStudentAbsentEventSummaries(
   leftSummary: StudentAbsentEventSummary,
-  rightSummary: StudentAbsentEventSummary
+  rightSummary: StudentAbsentEventSummary,
 ) {
   const leftSequence = getAbsentEventSequence(leftSummary);
   const rightSequence = getAbsentEventSequence(rightSummary);
@@ -969,10 +1122,15 @@ function compareStudentAbsentEventSummaries(
     if (leftSequence !== rightSequence) return leftSequence - rightSequence;
   }
 
-  const timeDifference = getAbsentSummaryEarliestTime(leftSummary) - getAbsentSummaryEarliestTime(rightSummary);
+  const timeDifference =
+    getAbsentSummaryEarliestTime(leftSummary) -
+    getAbsentSummaryEarliestTime(rightSummary);
   if (timeDifference !== 0) return timeDifference;
 
-  return eventNameCollator.compare(leftSummary.eventName, rightSummary.eventName);
+  return eventNameCollator.compare(
+    leftSummary.eventName,
+    rightSummary.eventName,
+  );
 }
 
 function addAbsentEventSummary(
@@ -984,13 +1142,18 @@ function addAbsentEventSummary(
     records?: AttendanceRecord[];
     remarks?: string[];
     totalAbsences?: number;
-  }
+  },
 ) {
   const currentSummary = summaries.get(props.key);
   const nextRecords = props.records ?? [];
   const nextRemarks = props.remarks ?? [];
-  const nextTotalAbsences = Math.max(1, Number(props.totalAbsences ?? nextRecords.length ?? 1));
-  const nextTime = props.latestScannedAt ? new Date(props.latestScannedAt).getTime() : 0;
+  const nextTotalAbsences = Math.max(
+    1,
+    Number(props.totalAbsences ?? nextRecords.length ?? 1),
+  );
+  const nextTime = props.latestScannedAt
+    ? new Date(props.latestScannedAt).getTime()
+    : 0;
 
   if (!currentSummary) {
     summaries.set(props.key, {
@@ -999,19 +1162,25 @@ function addAbsentEventSummary(
       latestScannedAt: props.latestScannedAt,
       records: nextRecords,
       remarks: nextRemarks,
-      totalAbsences: nextTotalAbsences
+      totalAbsences: nextTotalAbsences,
     });
     return;
   }
 
-  const currentTime = currentSummary.latestScannedAt ? new Date(currentSummary.latestScannedAt).getTime() : 0;
+  const currentTime = currentSummary.latestScannedAt
+    ? new Date(currentSummary.latestScannedAt).getTime()
+    : 0;
 
   currentSummary.records.push(...nextRecords);
   currentSummary.remarks.push(...nextRemarks);
-  currentSummary.totalAbsences = Math.max(currentSummary.totalAbsences, nextTotalAbsences);
+  currentSummary.totalAbsences = Math.max(
+    currentSummary.totalAbsences,
+    nextTotalAbsences,
+  );
 
   if (nextTime > (Number.isNaN(currentTime) ? 0 : currentTime)) {
-    currentSummary.latestScannedAt = props.latestScannedAt ?? currentSummary.latestScannedAt;
+    currentSummary.latestScannedAt =
+      props.latestScannedAt ?? currentSummary.latestScannedAt;
   }
 }
 
@@ -1019,25 +1188,38 @@ function getStudentAbsentEventSummaries(
   attendance: AttendanceRecord[],
   fines: FineRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
-  allAttendanceRecords: AttendanceRecord[] = []
+  allAttendanceRecords: AttendanceRecord[] = [],
 ) {
-  const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(attendance, allAttendanceRecords, attendanceEvents);
+  const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(
+    attendance,
+    allAttendanceRecords,
+    attendanceEvents,
+  );
 
   if (collegeLinkedAbsentEvents !== null) return collegeLinkedAbsentEvents;
 
   const summaries = new Map<string, StudentAbsentEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
-  const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter((record) => !isZeroAttendanceRecord(record));
-  const explicitAbsentRecords = uniqueAttendance.filter(isExplicitAbsentAttendanceRecord);
+  const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter(
+    (record) => !isZeroAttendanceRecord(record),
+  );
+  const explicitAbsentRecords = uniqueAttendance.filter(
+    isExplicitAbsentAttendanceRecord,
+  );
   const absenceFines = fines.filter(
-    (fine) => !isFallbackFine(fine) && !isZeroAttendanceFine(fine) && getFineAbsenceCount(fine) > 0
+    (fine) =>
+      !isFallbackFine(fine) &&
+      !isZeroAttendanceFine(fine) &&
+      getFineAbsenceCount(fine) > 0,
   );
   const usedAbsentRecordIds = new Set<string>();
   const hasLinkedFineEvent = absenceFines.some(hasFineLinkedAttendanceEvent);
   const verifiedAbsenceCount = getTotalAbsences(uniqueAttendance, absenceFines);
 
   absenceFines.forEach((fine) => {
-    const matchingRecords = explicitAbsentRecords.filter((record) => isFineLinkedToAttendanceRecord(fine, record));
+    const matchingRecords = explicitAbsentRecords.filter((record) =>
+      isFineLinkedToAttendanceRecord(fine, record),
+    );
     const remarks = getFineAbsentEventRemarks(fine);
     const fineEventId = getFineAttendanceEventId(fine);
 
@@ -1045,15 +1227,20 @@ function getStudentAbsentEventSummaries(
       usedAbsentRecordIds.add(record.id);
 
       const eventName = getRecordEventName(record, eventById);
-      const key = getAttendanceEventSummaryKey(record, eventById) || `absent-event-${record.id}`;
+      const key =
+        getAttendanceEventSummaryKey(record, eventById) ||
+        `absent-event-${record.id}`;
 
       addAbsentEventSummary(summaries, {
         key,
         eventName,
-        latestScannedAt: record.scanned_at ?? record.created_at ?? getFineAbsentEventDateValue(fine, eventById),
+        latestScannedAt:
+          record.scanned_at ??
+          record.created_at ??
+          getFineAbsentEventDateValue(fine, eventById),
         records: [record],
         remarks: remarks ? [remarks] : [],
-        totalAbsences: 1
+        totalAbsences: 1,
       });
     });
 
@@ -1063,7 +1250,7 @@ function getStudentAbsentEventSummaries(
         eventName: getFineAbsentEventName(fine, eventById),
         latestScannedAt: getFineAbsentEventDateValue(fine, eventById),
         remarks: remarks ? [remarks] : [],
-        totalAbsences: 1
+        totalAbsences: 1,
       });
     }
   });
@@ -1072,20 +1259,26 @@ function getStudentAbsentEventSummaries(
     .filter((record) => !usedAbsentRecordIds.has(record.id))
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
-      const key = getAttendanceEventSummaryKey(record, eventById) || `absent-event-${record.id}`;
+      const key =
+        getAttendanceEventSummaryKey(record, eventById) ||
+        `absent-event-${record.id}`;
 
       addAbsentEventSummary(summaries, {
         key,
         eventName,
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
         records: [record],
-        totalAbsences: 1
+        totalAbsences: 1,
       });
     });
 
   if (!hasLinkedFineEvent) {
-    getInferredMissingAttendanceSequences(uniqueAttendance, verifiedAbsenceCount).forEach((sequence) => {
-      if (getAbsentSummariesAbsenceCount(summaries) >= verifiedAbsenceCount) return;
+    getInferredMissingAttendanceSequences(
+      uniqueAttendance,
+      verifiedAbsenceCount,
+    ).forEach((sequence) => {
+      if (getAbsentSummariesAbsenceCount(summaries) >= verifiedAbsenceCount)
+        return;
       if (hasAbsentSummarySequence(summaries, sequence)) return;
 
       addAbsentEventSummary(summaries, {
@@ -1093,22 +1286,29 @@ function getStudentAbsentEventSummaries(
         eventName: `Event ${sequence}`,
         latestScannedAt: null,
         remarks: ["No attendance record found for this event sequence."],
-        totalAbsences: 1
+        totalAbsences: 1,
       });
     });
 
-    const unresolvedAbsenceCount = verifiedAbsenceCount - getAbsentSummariesAbsenceCount(summaries);
+    const unresolvedAbsenceCount =
+      verifiedAbsenceCount - getAbsentSummariesAbsenceCount(summaries);
 
     if (unresolvedAbsenceCount > 0) {
       const representativeFine = absenceFines[0];
-      const remarks = representativeFine ? getFineAbsentEventRemarks(representativeFine) : "";
+      const remarks = representativeFine
+        ? getFineAbsentEventRemarks(representativeFine)
+        : "";
 
       addAbsentEventSummary(summaries, {
         key: `unresolved-absent-event-${representativeFine?.id ?? "attendance-record"}`,
-        eventName: representativeFine ? getFineAbsentEventName(representativeFine, eventById) : "Absence record",
-        latestScannedAt: representativeFine ? getFineAbsentEventDateValue(representativeFine, eventById) : null,
+        eventName: representativeFine
+          ? getFineAbsentEventName(representativeFine, eventById)
+          : "Absence record",
+        latestScannedAt: representativeFine
+          ? getFineAbsentEventDateValue(representativeFine, eventById)
+          : null,
         remarks: remarks ? [remarks] : [],
-        totalAbsences: unresolvedAbsenceCount
+        totalAbsences: unresolvedAbsenceCount,
       });
     }
   }
@@ -1119,20 +1319,26 @@ function getStudentAbsentEventSummaries(
       remarks: Array.from(new Set(summary.remarks)),
       records: [...summary.records].sort((leftRecord, rightRecord) => {
         return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      })
+      }),
     }))
     .sort(compareStudentAbsentEventSummaries);
 }
 function getFallbackAbsenceCount(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
-  attendanceEvents: AttendanceEvent[] = []
+  attendanceEvents: AttendanceEvent[] = [],
 ) {
-  const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(attendance, allAttendanceRecords, attendanceEvents);
+  const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(
+    attendance,
+    allAttendanceRecords,
+    attendanceEvents,
+  );
 
-  if (collegeLinkedAbsentEvents !== null) return collegeLinkedAbsentEvents.length;
+  if (collegeLinkedAbsentEvents !== null)
+    return collegeLinkedAbsentEvents.length;
 
-  if (attendance.some(isZeroAttendanceRecord)) return getTotalAbsences(attendance);
+  if (attendance.some(isZeroAttendanceRecord))
+    return getTotalAbsences(attendance);
 
   const explicitAbsenceCounts = getUniqueDisplayAttendance(attendance)
     .filter(isExplicitAbsentAttendanceRecord)
@@ -1152,7 +1358,10 @@ function getVerifiedTotalAbsences(props: {
   const recordedAbsenceCount = getTotalAbsences(props.attendance, props.fines);
 
   if (hasZeroAttendanceResult(props.attendance, props.fines)) {
-    return Math.max(recordedAbsenceCount, getAbsentEventsAbsenceCount(props.absentEvents));
+    return Math.max(
+      recordedAbsenceCount,
+      getAbsentEventsAbsenceCount(props.absentEvents),
+    );
   }
 
   if (props.hasCollegeAttendanceScope) {
@@ -1172,11 +1381,15 @@ function getAbsentEventKeySet(absentEvents: StudentAbsentEventSummary[]) {
   return new Set(absentEvents.map((eventSummary) => eventSummary.key));
 }
 
-function getAbsentAttendanceRecordIdSet(absentEvents: StudentAbsentEventSummary[]) {
+function getAbsentAttendanceRecordIdSet(
+  absentEvents: StudentAbsentEventSummary[],
+) {
   return new Set(
     absentEvents
-      .flatMap((eventSummary) => eventSummary.records.map(getAttendanceRecordId))
-      .filter(Boolean)
+      .flatMap((eventSummary) =>
+        eventSummary.records.map(getAttendanceRecordId),
+      )
+      .filter(Boolean),
   );
 }
 
@@ -1184,7 +1397,7 @@ function shouldDisplayFine(
   fine: FineRecord,
   absentEvents: StudentAbsentEventSummary[],
   hasZeroAttendance: boolean,
-  collegeAttendanceScope?: CollegeLinkedAttendanceScope
+  collegeAttendanceScope?: CollegeLinkedAttendanceScope,
 ) {
   if (hasZeroAttendance || isZeroAttendanceFine(fine)) return true;
   if (isFallbackFine(fine)) return absentEvents.length > 0;
@@ -1204,8 +1417,8 @@ function shouldDisplayFine(
 
     return Boolean(
       collegeAttendanceScope?.hasScope &&
-        collegeAttendanceScope.recordIds.has(fineAttendanceRecordId) &&
-        absentEvents.length > 0
+      collegeAttendanceScope.recordIds.has(fineAttendanceRecordId) &&
+      absentEvents.length > 0,
     );
   }
 
@@ -1214,23 +1427,36 @@ function shouldDisplayFine(
   return getFineAbsenceCount(fine) > 0;
 }
 
-function getDisplayedFineAbsenceCount(fine: FineRecord, totalAbsences: number, hasZeroAttendance: boolean) {
+function getDisplayedFineAbsenceCount(
+  fine: FineRecord,
+  totalAbsences: number,
+  hasZeroAttendance: boolean,
+) {
   const fineAbsenceCount = getFineAbsenceCount(fine);
 
-  if (hasZeroAttendance || isZeroAttendanceFine(fine) || isFallbackFine(fine)) return fineAbsenceCount;
-  if (totalAbsences > 0) return Math.min(Math.max(1, fineAbsenceCount), totalAbsences);
+  if (hasZeroAttendance || isZeroAttendanceFine(fine) || isFallbackFine(fine))
+    return fineAbsenceCount;
+  if (totalAbsences > 0)
+    return Math.min(Math.max(1, fineAbsenceCount), totalAbsences);
 
   return fineAbsenceCount;
 }
 
-function getAbsentEventsAbsenceCount(absentEvents: StudentAbsentEventSummary[]) {
+function getAbsentEventsAbsenceCount(
+  absentEvents: StudentAbsentEventSummary[],
+) {
   return absentEvents.reduce((total, eventSummary) => {
     return total + getAbsentSummaryAbsenceCount(eventSummary);
   }, 0);
 }
 
-function getFirstAbsentEventDateValue(absentEvents: StudentAbsentEventSummary[]) {
-  return absentEvents.find((eventSummary) => eventSummary.latestScannedAt)?.latestScannedAt ?? null;
+function getFirstAbsentEventDateValue(
+  absentEvents: StudentAbsentEventSummary[],
+) {
+  return (
+    absentEvents.find((eventSummary) => eventSummary.latestScannedAt)
+      ?.latestScannedAt ?? null
+  );
 }
 
 function buildDisplayedAbsentEventFallbackFine(props: {
@@ -1239,13 +1465,27 @@ function buildDisplayedAbsentEventFallbackFine(props: {
   attendance: AttendanceRecord[];
   absentEvents: StudentAbsentEventSummary[];
 }) {
-  const absenceCount = Math.max(1, getAbsentEventsAbsenceCount(props.absentEvents));
-  const baseFine = props.baseFine ?? buildFallbackFine(props.studentId, props.attendance, absenceCount, null);
-  const displayDate = getFirstAbsentEventDateValue(props.absentEvents) ?? baseFine.created_at ?? new Date().toISOString();
+  const absenceCount = Math.max(
+    1,
+    getAbsentEventsAbsenceCount(props.absentEvents),
+  );
+  const baseFine =
+    props.baseFine ??
+    buildFallbackFine(props.studentId, props.attendance, absenceCount, null);
+  const displayDate =
+    getFirstAbsentEventDateValue(props.absentEvents) ??
+    baseFine.created_at ??
+    new Date().toISOString();
   const studentAttendanceRecord = props.attendance.find((record) => {
-    return normalizeDisplayValue(record.student_id) === normalizeDisplayValue(props.studentId);
+    return (
+      normalizeDisplayValue(record.student_id) ===
+      normalizeDisplayValue(props.studentId)
+    );
   });
-  const eventKey = normalizeEventKey(props.absentEvents.map((eventSummary) => eventSummary.key).join(" ")) || "absent";
+  const eventKey =
+    normalizeEventKey(
+      props.absentEvents.map((eventSummary) => eventSummary.key).join(" "),
+    ) || "absent";
 
   return {
     ...baseFine,
@@ -1253,11 +1493,15 @@ function buildDisplayedAbsentEventFallbackFine(props: {
     attendance_record_id: studentAttendanceRecord?.id ?? null,
     attendance_event_id: studentAttendanceRecord?.event_id ?? null,
     student_id: props.studentId || baseFine.student_id,
-    name: baseFine.name || studentAttendanceRecord?.name || props.studentId || "Student record pending",
+    name:
+      baseFine.name ||
+      studentAttendanceRecord?.name ||
+      props.studentId ||
+      "Student record pending",
     no_of_absences: absenceCount,
     status: "unpaid" as const,
     created_at: String(displayDate),
-    updated_at: String(baseFine.updated_at ?? displayDate)
+    updated_at: String(baseFine.updated_at ?? displayDate),
   } satisfies FineRecord;
 }
 
@@ -1277,7 +1521,7 @@ function getFineDisplayKey(fine: FineRecord) {
     getFineAbsenceCount(fine),
     normalizeFineDisplayValue(fine.prescribed_penalty),
     normalizeFineDisplayValue(fine.created_at),
-    normalizeFineDisplayValue(fine.status)
+    normalizeFineDisplayValue(fine.status),
   ].join("::");
 }
 
@@ -1340,7 +1584,7 @@ function mergeStudentFineRecords(fines: FineRecord[]): DisplayFineRecord[] {
       return {
         ...group[0],
         merged_fine_ids: getMergedFineIds(group),
-        merged_record_count: 1
+        merged_record_count: 1,
       };
     }
 
@@ -1362,7 +1606,7 @@ function mergeStudentFineRecords(fines: FineRecord[]): DisplayFineRecord[] {
       no_of_absences: mergedAbsenceCount,
       status: getMergedFineStatus(group),
       merged_fine_ids: getMergedFineIds(group),
-      merged_record_count: group.length
+      merged_record_count: group.length,
     };
   });
 }
@@ -1379,7 +1623,7 @@ function buildFallbackFine(
   studentId: string,
   attendance: AttendanceRecord[],
   noOfAbsences: number,
-  penalty: PenaltyRecord | null
+  penalty: PenaltyRecord | null,
 ): FineRecord {
   const latestAttendance = [...attendance].sort((leftRecord, rightRecord) => {
     return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
@@ -1394,25 +1638,34 @@ function buildFallbackFine(
     student_id: latestAttendance?.student_id ?? studentId,
     name: latestAttendance?.name ?? "Student record pending",
     no_of_absences: noOfAbsences,
-    prescribed_penalty: penalty?.prescribed_penalty ?? "No prescribed penalty configured.",
+    prescribed_penalty:
+      penalty?.prescribed_penalty ?? "No prescribed penalty configured.",
     status: "unpaid",
     attendance_event_id: latestAttendance?.event_id ?? null,
     attendance_remarks: latestAttendance?.remarks ?? null,
     created_at: String(latestAttendance?.created_at ?? now),
-    updated_at: String(latestAttendance?.updated_at ?? latestAttendance?.created_at ?? now)
+    updated_at: String(
+      latestAttendance?.updated_at ?? latestAttendance?.created_at ?? now,
+    ),
   };
 }
 
 function normalizeManualAttendanceFineForDisplay(
   fine: unknown,
-  attendanceRecord: AttendanceRecord
+  attendanceRecord: AttendanceRecord,
 ): FineRecord | null {
   const fineRecord = fine as Partial<FineRecord> | null | undefined;
 
   if (!fineRecord?.id) return null;
 
-  const createdAt = String(fineRecord.created_at ?? attendanceRecord.created_at ?? new Date().toISOString());
-  const updatedAt = String(fineRecord.updated_at ?? attendanceRecord.updated_at ?? createdAt);
+  const createdAt = String(
+    fineRecord.created_at ??
+      attendanceRecord.created_at ??
+      new Date().toISOString(),
+  );
+  const updatedAt = String(
+    fineRecord.updated_at ?? attendanceRecord.updated_at ?? createdAt,
+  );
   const status =
     fineRecord.status === "paid" || fineRecord.status === "waived"
       ? fineRecord.status
@@ -1420,19 +1673,25 @@ function normalizeManualAttendanceFineForDisplay(
 
   return {
     id: String(fineRecord.id),
-    school_year_id: fineRecord.school_year_id ?? attendanceRecord.school_year_id ?? null,
-    attendance_record_id: fineRecord.attendance_record_id ?? attendanceRecord.id,
+    school_year_id:
+      fineRecord.school_year_id ?? attendanceRecord.school_year_id ?? null,
+    attendance_record_id:
+      fineRecord.attendance_record_id ?? attendanceRecord.id,
     penalty_id: fineRecord.penalty_id ?? null,
     student_id: fineRecord.student_id ?? attendanceRecord.student_id,
     name: fineRecord.name ?? attendanceRecord.name,
-    no_of_absences: Number(fineRecord.no_of_absences ?? attendanceRecord.no_of_absences ?? 0),
+    no_of_absences: Number(
+      fineRecord.no_of_absences ?? attendanceRecord.no_of_absences ?? 0,
+    ),
     prescribed_penalty:
       fineRecord.prescribed_penalty ?? "No prescribed penalty configured.",
     status,
-    attendance_event_id: fineRecord.attendance_event_id ?? attendanceRecord.event_id ?? null,
-    attendance_remarks: fineRecord.attendance_remarks ?? attendanceRecord.remarks ?? null,
+    attendance_event_id:
+      fineRecord.attendance_event_id ?? attendanceRecord.event_id ?? null,
+    attendance_remarks:
+      fineRecord.attendance_remarks ?? attendanceRecord.remarks ?? null,
     created_at: createdAt,
-    updated_at: updatedAt
+    updated_at: updatedAt,
   };
 }
 
@@ -1445,22 +1704,31 @@ function getResultClassification(props: {
   if (!props.lookup) return "Search result";
 
   const hasZeroAttendanceRecord =
-    props.lookup.attendance.some(isZeroAttendanceRecord) || props.displayedFines.some(isZeroAttendanceFine);
+    props.lookup.attendance.some(isZeroAttendanceRecord) ||
+    props.displayedFines.some(isZeroAttendanceFine);
 
   if (hasZeroAttendanceRecord) return "Zero attendance";
-  if (props.attendedEvents.length > 0 && props.totalAbsences === 0 && props.displayedFines.length === 0) {
+  if (
+    props.attendedEvents.length > 0 &&
+    props.totalAbsences === 0 &&
+    props.displayedFines.length === 0
+  ) {
     return "Perfect attendance";
   }
 
-  if (props.totalAbsences > 0 || props.displayedFines.length > 0) return "With absences";
+  if (props.totalAbsences > 0 || props.displayedFines.length > 0)
+    return "With absences";
 
   return "No attendance record";
 }
 
 function getClassificationStyle(classification: string) {
-  if (classification === "Perfect attendance") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (classification === "Zero attendance") return "border-red-200 bg-red-50 text-red-700";
-  if (classification === "With absences") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (classification === "Perfect attendance")
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (classification === "Zero attendance")
+    return "border-red-200 bg-red-50 text-red-700";
+  if (classification === "With absences")
+    return "border-amber-200 bg-amber-50 text-amber-800";
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
@@ -1478,13 +1746,18 @@ function StudentAttendedEventsDialog(props: {
         className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
       >
         <DialogHeader>
-          <DialogTitle>Events attended by {props.studentName || props.studentId}</DialogTitle>
+          <DialogTitle>
+            Events attended by {props.studentName || props.studentId}
+          </DialogTitle>
         </DialogHeader>
 
         {props.events.length ? (
           <div className="space-y-3">
             {props.events.map((eventSummary, index) => (
-              <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+              <article
+                key={eventSummary.key}
+                className="rounded-2xl border bg-background p-4"
+              >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex gap-3">
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
@@ -1493,7 +1766,8 @@ function StudentAttendedEventsDialog(props: {
                     <div>
                       <p className="font-black">{eventSummary.eventName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Latest {formatDate(eventSummary.latestScannedAt)} • {eventSummary.records.length} record/s
+                        Latest {formatDate(eventSummary.latestScannedAt)} •{" "}
+                        {eventSummary.records.length} record/s
                       </p>
                     </div>
                   </div>
@@ -1501,9 +1775,16 @@ function StudentAttendedEventsDialog(props: {
 
                 <div className="mt-3 space-y-2">
                   {eventSummary.records.map((record) => (
-                    <div key={record.id} className="rounded-xl border bg-card px-3 py-2 text-sm">
-                      <p className="font-semibold">{formatDate(record.scanned_at ?? record.created_at)}</p>
-                      <p className="mt-1 text-muted-foreground">{record.remarks || "No remarks"}</p>
+                    <div
+                      key={record.id}
+                      className="rounded-xl border bg-card px-3 py-2 text-sm"
+                    >
+                      <p className="font-semibold">
+                        {formatDate(record.scanned_at ?? record.created_at)}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {record.remarks || "No remarks"}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -1544,8 +1825,9 @@ function ZeroAttendanceRegistrationDialog(props: {
 
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
-            This Student ID has no saved attendance or fine record. Fill out the attendee details to register the
-            student as zero attendance and create the related fine record.
+            This Student ID has no saved attendance or fine record. Fill out the
+            attendee details to register the student as zero attendance and
+            create the related fine record.
           </div>
 
           {props.error ? (
@@ -1559,7 +1841,9 @@ function ZeroAttendanceRegistrationDialog(props: {
               <span>Student ID</span>
               <input
                 value={props.form.studentId}
-                onChange={(event) => props.onFieldChange("studentId", event.target.value)}
+                onChange={(event) =>
+                  props.onFieldChange("studentId", event.target.value)
+                }
                 placeholder="Student ID"
                 className={textInputClassName}
               />
@@ -1568,7 +1852,9 @@ function ZeroAttendanceRegistrationDialog(props: {
               <span>Name</span>
               <input
                 value={props.form.name}
-                onChange={(event) => props.onFieldChange("name", event.target.value)}
+                onChange={(event) =>
+                  props.onFieldChange("name", event.target.value)
+                }
                 placeholder="Full name"
                 className={textInputClassName}
               />
@@ -1577,15 +1863,28 @@ function ZeroAttendanceRegistrationDialog(props: {
               <span>School Year</span>
               <Select
                 value={props.form.schoolYearId}
-                onValueChange={(value) => props.onFieldChange("schoolYearId", value)}
+                onValueChange={(value) =>
+                  props.onFieldChange("schoolYearId", value)
+                }
                 disabled={!props.schoolYears.length}
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder={props.schoolYears.length ? "Select school year" : "Current school year"} className="truncate" />
+                  <SelectValue
+                    placeholder={
+                      props.schoolYears.length
+                        ? "Select school year"
+                        : "Current school year"
+                    }
+                    className="truncate"
+                  />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
                   {props.schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id} className="max-w-full truncate">
+                    <SelectItem
+                      key={schoolYear.id}
+                      value={schoolYear.id}
+                      className="max-w-full truncate"
+                    >
                       {schoolYear.name}
                     </SelectItem>
                   ))}
@@ -1594,14 +1893,29 @@ function ZeroAttendanceRegistrationDialog(props: {
             </div>
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Year Level</span>
-              <Select value={props.form.yearLevel} onValueChange={(value) => props.onFieldChange("yearLevel", value)}>
+              <Select
+                value={props.form.yearLevel}
+                onValueChange={(value) =>
+                  props.onFieldChange("yearLevel", value)
+                }
+              >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select year level" className="truncate" />
+                  <SelectValue
+                    placeholder="Select year level"
+                    className="truncate"
+                  />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
-                  {renderCurrentStudentSelectOption(QR_CODE_YEAR_LEVEL_OPTIONS, props.form.yearLevel)}
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_YEAR_LEVEL_OPTIONS,
+                    props.form.yearLevel,
+                  )}
                   {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
-                    <SelectItem key={yearLevel} value={yearLevel} className="max-w-full truncate">
+                    <SelectItem
+                      key={yearLevel}
+                      value={yearLevel}
+                      className="max-w-full truncate"
+                    >
                       {yearLevel}
                     </SelectItem>
                   ))}
@@ -1609,21 +1923,36 @@ function ZeroAttendanceRegistrationDialog(props: {
               </Select>
               <input
                 value={props.form.yearLevel}
-                onChange={(event) => props.onFieldChange("yearLevel", event.target.value)}
+                onChange={(event) =>
+                  props.onFieldChange("yearLevel", event.target.value)
+                }
                 placeholder="Type custom year level if not listed"
                 className={customSelectInputClassName}
               />
             </div>
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>College</span>
-              <Select value={props.form.college} onValueChange={(value) => props.onFieldChange("college", value)}>
+              <Select
+                value={props.form.college}
+                onValueChange={(value) => props.onFieldChange("college", value)}
+              >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select college" className="truncate" />
+                  <SelectValue
+                    placeholder="Select college"
+                    className="truncate"
+                  />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
-                  {renderCurrentStudentSelectOption(QR_CODE_COLLEGE_OPTIONS, props.form.college)}
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_COLLEGE_OPTIONS,
+                    props.form.college,
+                  )}
                   {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                    <SelectItem key={college} value={college} className="max-w-full truncate">
+                    <SelectItem
+                      key={college}
+                      value={college}
+                      className="max-w-full truncate"
+                    >
                       {college}
                     </SelectItem>
                   ))}
@@ -1631,7 +1960,9 @@ function ZeroAttendanceRegistrationDialog(props: {
               </Select>
               <input
                 value={props.form.college}
-                onChange={(event) => props.onFieldChange("college", event.target.value)}
+                onChange={(event) =>
+                  props.onFieldChange("college", event.target.value)
+                }
                 placeholder="Type custom college if not listed"
                 className={customSelectInputClassName}
               />
@@ -1645,14 +1976,25 @@ function ZeroAttendanceRegistrationDialog(props: {
               >
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue
-                    placeholder={props.form.college ? "Select program" : "Select college first"}
+                    placeholder={
+                      props.form.college
+                        ? "Select program"
+                        : "Select college first"
+                    }
                     className="truncate"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
-                  {renderCurrentStudentSelectOption(programOptions, props.form.program)}
+                  {renderCurrentStudentSelectOption(
+                    programOptions,
+                    props.form.program,
+                  )}
                   {programOptions.map((program) => (
-                    <SelectItem key={program} value={program} className="max-w-full truncate">
+                    <SelectItem
+                      key={program}
+                      value={program}
+                      className="max-w-full truncate"
+                    >
                       {program}
                     </SelectItem>
                   ))}
@@ -1660,8 +2002,14 @@ function ZeroAttendanceRegistrationDialog(props: {
               </Select>
               <input
                 value={props.form.program}
-                onChange={(event) => props.onFieldChange("program", event.target.value)}
-                placeholder={props.form.college ? "Type custom program if not listed" : "Select college before typing program"}
+                onChange={(event) =>
+                  props.onFieldChange("program", event.target.value)
+                }
+                placeholder={
+                  props.form.college
+                    ? "Type custom program if not listed"
+                    : "Select college before typing program"
+                }
                 disabled={!props.form.college}
                 className={customSelectInputClassName}
               />
@@ -1670,15 +2018,27 @@ function ZeroAttendanceRegistrationDialog(props: {
               <span>Institution</span>
               <Select
                 value={props.form.institution}
-                onValueChange={(value) => props.onFieldChange("institution", value)}
+                onValueChange={(value) =>
+                  props.onFieldChange("institution", value)
+                }
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select institution" className="truncate" />
+                  <SelectValue
+                    placeholder="Select institution"
+                    className="truncate"
+                  />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-80">
-                  {renderCurrentStudentSelectOption(QR_CODE_INSTITUTION_OPTIONS, props.form.institution)}
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_INSTITUTION_OPTIONS,
+                    props.form.institution,
+                  )}
                   {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
-                    <SelectItem key={institution} value={institution} className="max-w-full truncate">
+                    <SelectItem
+                      key={institution}
+                      value={institution}
+                      className="max-w-full truncate"
+                    >
                       {institution}
                     </SelectItem>
                   ))}
@@ -1686,7 +2046,9 @@ function ZeroAttendanceRegistrationDialog(props: {
               </Select>
               <input
                 value={props.form.institution}
-                onChange={(event) => props.onFieldChange("institution", event.target.value)}
+                onChange={(event) =>
+                  props.onFieldChange("institution", event.target.value)
+                }
                 placeholder="Type custom institution if not listed"
                 className={customSelectInputClassName}
               />
@@ -1703,7 +2065,11 @@ function ZeroAttendanceRegistrationDialog(props: {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={props.isSaving} className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black">
+            <Button
+              type="submit"
+              disabled={props.isSaving}
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
+            >
               {props.isSaving ? "Saving..." : "Save Zero Attendance"}
             </Button>
           </div>
@@ -1713,7 +2079,9 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
-function finalResultToAttendanceRecord(row: AttendanceFinalResultRecord): AttendanceRecord {
+function finalResultToAttendanceRecord(
+  row: AttendanceFinalResultRecord,
+): AttendanceRecord {
   return {
     id: row.id,
     school_year_id: row.school_year_id,
@@ -1759,13 +2127,16 @@ export default function LandingPage() {
   const [searchedId, setSearchedId] = useState("");
   const [resultYearFilter, setResultYearFilter] = useState(ALL_YEARS_VALUE);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchProgress, setSearchProgress] =
-    useState<ProgressiveLoadProgress>(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
+  const [searchProgress, setSearchProgress] = useState<ProgressiveLoadProgress>(
+    INITIAL_PROGRESSIVE_LOAD_PROGRESS,
+  );
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [eventsDialogOpen, setEventsDialogOpen] = useState(false);
-  const [zeroAttendanceDialogOpen, setZeroAttendanceDialogOpen] = useState(false);
-  const [zeroAttendanceForm, setZeroAttendanceForm] = useState<ZeroAttendanceFormState>(emptyZeroAttendanceForm);
+  const [zeroAttendanceDialogOpen, setZeroAttendanceDialogOpen] =
+    useState(false);
+  const [zeroAttendanceForm, setZeroAttendanceForm] =
+    useState<ZeroAttendanceFormState>(emptyZeroAttendanceForm);
   const [isSavingZeroAttendance, setIsSavingZeroAttendance] = useState(false);
   const [zeroAttendanceError, setZeroAttendanceError] = useState("");
   const [error, setError] = useState("");
@@ -1807,22 +2178,45 @@ export default function LandingPage() {
     return lookup.fallbackFine ? [lookup.fallbackFine] : lookup.fines;
   }, [lookup]);
   const attendanceEventById = useMemo(() => {
-    return lookup ? getAttendanceEventById(lookup.attendanceEvents) : new Map<string, AttendanceEvent>();
+    return lookup
+      ? getAttendanceEventById(lookup.attendanceEvents)
+      : new Map<string, AttendanceEvent>();
   }, [lookup]);
   const attendanceRecordById = useMemo(() => {
     return lookup
-      ? getAttendanceRecordById([...lookup.attendanceRecords, ...lookup.attendance])
+      ? getAttendanceRecordById([
+          ...lookup.attendanceRecords,
+          ...lookup.attendance,
+        ])
       : new Map<string, AttendanceRecord>();
   }, [lookup]);
   const yearOptions = useMemo(() => {
     return lookup
-      ? getLookupYearOptions(lookup.attendance, lookupFines, lookup.schoolYears, attendanceEventById, attendanceRecordById)
+      ? getLookupYearOptions(
+          lookup.attendance,
+          lookupFines,
+          lookup.schoolYears,
+          attendanceEventById,
+          attendanceRecordById,
+        )
       : schoolYears.map((schoolYear) => schoolYear.id);
-  }, [lookup, lookupFines, schoolYears, attendanceEventById, attendanceRecordById]);
-  const selectedYearLabel = getSchoolYearLabel(lookup?.schoolYears ?? schoolYears, resultYearFilter);
+  }, [
+    lookup,
+    lookupFines,
+    schoolYears,
+    attendanceEventById,
+    attendanceRecordById,
+  ]);
+  const selectedYearLabel = getSchoolYearLabel(
+    lookup?.schoolYears ?? schoolYears,
+    resultYearFilter,
+  );
 
   useEffect(() => {
-    if (resultYearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(resultYearFilter)) {
+    if (
+      resultYearFilter !== ALL_YEARS_VALUE &&
+      !yearOptions.includes(resultYearFilter)
+    ) {
       setResultYearFilter(ALL_YEARS_VALUE);
     }
   }, [resultYearFilter, yearOptions]);
@@ -1832,7 +2226,10 @@ export default function LandingPage() {
 
     return getUniqueDisplayAttendance(
       lookup.attendance.filter((record) =>
-        matchesSelectedYear(getAttendanceRecordYear(record, attendanceEventById), resultYearFilter),
+        matchesSelectedYear(
+          getAttendanceRecordYear(record, attendanceEventById),
+          resultYearFilter,
+        ),
       ),
     );
   }, [lookup, resultYearFilter, attendanceEventById]);
@@ -1841,51 +2238,80 @@ export default function LandingPage() {
     if (!lookup) return [];
 
     return lookup.attendanceRecords.filter((record) =>
-      matchesSelectedYear(getAttendanceRecordYear(record, attendanceEventById), resultYearFilter),
+      matchesSelectedYear(
+        getAttendanceRecordYear(record, attendanceEventById),
+        resultYearFilter,
+      ),
     );
   }, [lookup, resultYearFilter, attendanceEventById]);
 
   const allDisplayedFines = useMemo(() => {
     return getUniqueDisplayFines(
       lookupFines.filter((fine) =>
-        matchesSelectedYear(getFineRecordYear(fine, attendanceEventById, attendanceRecordById), resultYearFilter)
+        matchesSelectedYear(
+          getFineRecordYear(fine, attendanceEventById, attendanceRecordById),
+          resultYearFilter,
+        ),
       ),
     );
-  }, [lookupFines, resultYearFilter, attendanceEventById, attendanceRecordById]);
+  }, [
+    lookupFines,
+    resultYearFilter,
+    attendanceEventById,
+    attendanceRecordById,
+  ]);
 
   const collegeAttendanceScope = useMemo(() => {
-    return getCollegeLinkedAttendanceScope(displayedAttendance, displayedCollegeAttendanceRecords, lookup?.attendanceEvents ?? []);
+    return getCollegeLinkedAttendanceScope(
+      displayedAttendance,
+      displayedCollegeAttendanceRecords,
+      lookup?.attendanceEvents ?? [],
+    );
   }, [displayedAttendance, displayedCollegeAttendanceRecords, lookup]);
   const attendedEvents = useMemo(() => {
-    return getStudentAttendedEventSummaries(displayedAttendance, lookup?.attendanceEvents ?? []);
+    return getStudentAttendedEventSummaries(
+      displayedAttendance,
+      lookup?.attendanceEvents ?? [],
+    );
   }, [displayedAttendance, lookup]);
   const absentEvents = useMemo(() => {
     return getStudentAbsentEventSummaries(
       displayedAttendance,
       allDisplayedFines,
       lookup?.attendanceEvents ?? [],
-      displayedCollegeAttendanceRecords
+      displayedCollegeAttendanceRecords,
     );
-  }, [displayedAttendance, allDisplayedFines, displayedCollegeAttendanceRecords, lookup]);
+  }, [
+    displayedAttendance,
+    allDisplayedFines,
+    displayedCollegeAttendanceRecords,
+    lookup,
+  ]);
   const hasZeroAttendanceForDisplay = useMemo(() => {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
   const displayedFines = useMemo(() => {
     const visibleFines = mergeStudentFineRecords(
       allDisplayedFines.filter((fine) =>
-        shouldDisplayFine(fine, absentEvents, hasZeroAttendanceForDisplay, collegeAttendanceScope)
-      )
+        shouldDisplayFine(
+          fine,
+          absentEvents,
+          hasZeroAttendanceForDisplay,
+          collegeAttendanceScope,
+        ),
+      ),
     );
 
-    if (visibleFines.length || !lookup || !absentEvents.length) return visibleFines;
+    if (visibleFines.length || !lookup || !absentEvents.length)
+      return visibleFines;
 
     return [
       buildDisplayedAbsentEventFallbackFine({
         baseFine: lookup.fallbackFine,
         studentId: searchedId,
         attendance: displayedAttendance,
-        absentEvents
-      })
+        absentEvents,
+      }),
     ];
   }, [
     allDisplayedFines,
@@ -1894,7 +2320,7 @@ export default function LandingPage() {
     collegeAttendanceScope,
     lookup,
     searchedId,
-    displayedAttendance
+    displayedAttendance,
   ]);
   const fallbackFineActive = displayedFines.some(isFallbackFine);
   const totalAbsences = useMemo(() => {
@@ -1902,23 +2328,41 @@ export default function LandingPage() {
       attendance: displayedAttendance,
       fines: displayedFines,
       absentEvents,
-      hasCollegeAttendanceScope: collegeAttendanceScope.hasScope
+      hasCollegeAttendanceScope: collegeAttendanceScope.hasScope,
     });
-  }, [displayedAttendance, displayedFines, absentEvents, collegeAttendanceScope]);
+  }, [
+    displayedAttendance,
+    displayedFines,
+    absentEvents,
+    collegeAttendanceScope,
+  ]);
 
   const unpaidFines = useMemo(() => {
     return displayedFines.filter((fine) => fine.status === "unpaid").length;
   }, [displayedFines]);
 
   const studentDisplayName = useMemo(() => {
-    return lookup ? getStudentDisplayName(displayedAttendance, allDisplayedFines, searchedId) : searchedId;
+    return lookup
+      ? getStudentDisplayName(
+          displayedAttendance,
+          allDisplayedFines,
+          searchedId,
+        )
+      : searchedId;
   }, [lookup, displayedAttendance, allDisplayedFines, searchedId]);
   const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
   const resultClassification = useMemo(
-    () => getResultClassification({ lookup, displayedFines, totalAbsences, attendedEvents }),
-    [lookup, displayedFines, totalAbsences, attendedEvents]
+    () =>
+      getResultClassification({
+        lookup,
+        displayedFines,
+        totalAbsences,
+        attendedEvents,
+      }),
+    [lookup, displayedFines, totalAbsences, attendedEvents],
   );
-  const resultClassificationClassName = getClassificationStyle(resultClassification);
+  const resultClassificationClassName =
+    getClassificationStyle(resultClassification);
 
   function openZeroAttendanceRegistration(
     cleanStudentId: string,
@@ -1937,20 +2381,28 @@ export default function LandingPage() {
     setZeroAttendanceDialogOpen(true);
   }
 
-  function handleZeroAttendanceFieldChange(field: keyof ZeroAttendanceFormState, value: string) {
+  function handleZeroAttendanceFieldChange(
+    field: keyof ZeroAttendanceFormState,
+    value: string,
+  ) {
     setZeroAttendanceForm((current) => ({
       ...current,
       [field]: value,
-      ...(field === "college" ? { program: "" } : {})
+      ...(field === "college" ? { program: "" } : {}),
     }));
   }
 
-  async function handleZeroAttendanceSubmit(event: SyntheticEvent<HTMLFormElement>) {
+  async function handleZeroAttendanceSubmit(
+    event: SyntheticEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
     const payload: ManualAttendanceInput = {
       studentId: zeroAttendanceForm.studentId.trim(),
-      schoolYearId: zeroAttendanceForm.schoolYearId || getActiveSchoolYearId(schoolYears) || undefined,
+      schoolYearId:
+        zeroAttendanceForm.schoolYearId ||
+        getActiveSchoolYearId(schoolYears) ||
+        undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
       college: zeroAttendanceForm.college.trim(),
@@ -1958,7 +2410,7 @@ export default function LandingPage() {
       institution: zeroAttendanceForm.institution.trim(),
       noOfAbsences: 0,
       remarks: ZERO_ATTENDANCE_REMARK,
-      attendanceType: "zero_attendance"
+      attendanceType: "zero_attendance",
     };
 
     if (!payload.studentId) {
@@ -1986,7 +2438,7 @@ export default function LandingPage() {
         import_id: null,
         event_id: null,
         event_name: null,
-        remarks: result.record.remarks || ZERO_ATTENDANCE_REMARK
+        remarks: result.record.remarks || ZERO_ATTENDANCE_REMARK,
       } satisfies AttendanceRecord;
       const fine = normalizeManualAttendanceFineForDisplay(
         result.fine,
@@ -1996,25 +2448,33 @@ export default function LandingPage() {
         ...savedZeroAttendanceRecord,
         no_of_absences: Math.max(
           getRecordAbsenceCount(savedZeroAttendanceRecord),
-          fine ? getFineAbsenceCount(fine) : 0
-        )
+          fine ? getFineAbsenceCount(fine) : 0,
+        ),
       };
 
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
-      setResultYearFilter(attendanceRecord.school_year_id || payload.schoolYearId || ALL_YEARS_VALUE);
+      setResultYearFilter(
+        attendanceRecord.school_year_id ||
+          payload.schoolYearId ||
+          ALL_YEARS_VALUE,
+      );
       setLookup({
         attendance: [attendanceRecord],
         attendanceEvents: [],
         attendanceRecords: [attendanceRecord],
         schoolYears,
         fines: fine ? [fine] : [],
-        fallbackFine: null
+        fallbackFine: null,
       });
       setZeroAttendanceDialogOpen(false);
       setResultDialogOpen(true);
     } catch (saveError) {
-      setZeroAttendanceError(saveError instanceof Error ? saveError.message : "Unable to save zero attendance record.");
+      setZeroAttendanceError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to save zero attendance record.",
+      );
     } finally {
       setIsSavingZeroAttendance(false);
     }
@@ -2054,11 +2514,7 @@ export default function LandingPage() {
       detail: string,
     ) => {
       completedWeight = Math.min(100, completedWeight + weight);
-      updateProgress(
-        Math.min(96, 2 + completedWeight * 0.94),
-        message,
-        detail,
-      );
+      updateProgress(Math.min(96, 2 + completedWeight * 0.94), message, detail);
     };
 
     const updateAttendanceRecordsProgress = (
@@ -2097,17 +2553,17 @@ export default function LandingPage() {
     );
 
     try {
-      const attendancePromise = getStudentAttendanceRecords(cleanStudentId).then(
-        (attendance) => {
-          markProgressStepComplete(
-            25,
-            "Student attendance loaded...",
-            `${attendance.length.toLocaleString()} attendance record/s matched this Student ID.`,
-          );
+      const attendancePromise = getStudentAttendanceRecords(
+        cleanStudentId,
+      ).then((attendance) => {
+        markProgressStepComplete(
+          25,
+          "Student attendance loaded...",
+          `${attendance.length.toLocaleString()} attendance record/s matched this Student ID.`,
+        );
 
-          return attendance;
-        },
-      );
+        return attendance;
+      });
       const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
         markProgressStepComplete(
           20,
@@ -2184,14 +2640,19 @@ export default function LandingPage() {
           return [] as AttendanceRecord[];
         });
 
-      const [attendance, fines, schoolYearRows, attendanceEvents, attendanceRecords] =
-        await Promise.all([
-          attendancePromise,
-          finesPromise,
-          schoolYearsPromise,
-          attendanceEventsPromise,
-          attendanceRecordsPromise,
-        ]);
+      const [
+        attendance,
+        fines,
+        schoolYearRows,
+        attendanceEvents,
+        attendanceRecords,
+      ] = await Promise.all([
+        attendancePromise,
+        finesPromise,
+        schoolYearsPromise,
+        attendanceEventsPromise,
+        attendanceRecordsPromise,
+      ]);
 
       setSchoolYears(schoolYearRows);
 
@@ -2211,19 +2672,31 @@ export default function LandingPage() {
         return;
       }
 
-      const fallbackAbsenceCount = getFallbackAbsenceCount(attendance, attendanceRecords, attendanceEvents);
-      const shouldBuildFallbackFine = fines.length === 0 && fallbackAbsenceCount > 0;
+      const fallbackAbsenceCount = getFallbackAbsenceCount(
+        attendance,
+        attendanceRecords,
+        attendanceEvents,
+      );
+      const shouldBuildFallbackFine =
+        fines.length === 0 && fallbackAbsenceCount > 0;
       const fallbackFine = shouldBuildFallbackFine
         ? buildFallbackFine(
             cleanStudentId,
             attendance,
             fallbackAbsenceCount,
-            await resolveFallbackPenalty(fallbackAbsenceCount)
+            await resolveFallbackPenalty(fallbackAbsenceCount),
           )
         : null;
 
       setResultYearFilter(ALL_YEARS_VALUE);
-      setLookup({ attendance, attendanceEvents, attendanceRecords, schoolYears: schoolYearRows, fines, fallbackFine });
+      setLookup({
+        attendance,
+        attendanceEvents,
+        attendanceRecords,
+        schoolYears: schoolYearRows,
+        fines,
+        fallbackFine,
+      });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
       updateProgress(
@@ -2236,7 +2709,11 @@ export default function LandingPage() {
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
-      setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
+      setError(
+        searchError instanceof Error
+          ? searchError.message
+          : "Unable to search student records.",
+      );
     } finally {
       setIsSearching(false);
       setSearchProgress(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
@@ -2259,7 +2736,11 @@ export default function LandingPage() {
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
             </a>
-            <Button asChild variant="outline" className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold">
+            <Button
+              asChild
+              variant="outline"
+              className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold"
+            >
               <Link to="/login">SSG Login</Link>
             </Button>
           </header>
@@ -2269,11 +2750,14 @@ export default function LandingPage() {
               Attendance and fines lookup by school year for students
             </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Search your Student ID and view attendance records by school year instantly.
+              Search your Student ID and view attendance records by school year
+              instantly.
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">
-              Students can check perfect attendance, zero attendance, recorded absences, and penalty status without
-              logging in. Enter your Student ID to see attendance entries and related fines separated by school year.
+              Students can check perfect attendance, zero attendance, recorded
+              absences, and penalty status without logging in. Enter your
+              Student ID to see attendance entries and related fines separated
+              by school year.
             </p>
 
             <form
@@ -2290,7 +2774,11 @@ export default function LandingPage() {
                 placeholder="Enter Student ID"
                 className={`${textInputClassName} sm:flex-1`}
               />
-              <Button type="submit" disabled={isSearching} className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:w-auto">
+              <Button
+                type="submit"
+                disabled={isSearching}
+                className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:w-auto"
+              >
                 {isSearching ? "Searching..." : "Search Records"}
               </Button>
             </form>
@@ -2321,35 +2809,58 @@ export default function LandingPage() {
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">Fast lookup</p>
+                <p className="text-sm font-semibold text-muted-foreground">
+                  Fast lookup
+                </p>
                 <p className="mt-2 text-3xl font-black">Student ID</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">Segregated status</p>
+                <p className="text-sm font-semibold text-muted-foreground">
+                  Segregated status
+                </p>
                 <p className="mt-2 text-3xl font-black">Perfect / Zero</p>
               </div>
               <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">School-year records</p>
+                <p className="text-sm font-semibold text-muted-foreground">
+                  School-year records
+                </p>
                 <p className="mt-2 text-3xl font-black">Attendance</p>
               </div>
             </div>
 
             <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/80 p-4 text-left shadow-xl shadow-black/5 sm:p-6">
               <div className="flex flex-col gap-2 text-center sm:text-left">
-                <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Quick access services</p>
-                <h2 className="text-2xl font-black tracking-tight sm:text-3xl">Helpful links for officers, students, and researchers</h2>
+                <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                  Quick access services
+                </p>
+                <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
+                  Helpful links for officers, students, and researchers
+                </h2>
                 <p className="text-sm leading-7 text-muted-foreground sm:text-base">
-                  Access the scanner, generate student QR codes, or open the thesis survey and statistics service.
+                  Access the scanner, generate student QR codes, or open the
+                  thesis survey and statistics service.
                 </p>
               </div>
 
               <div className="mt-5 grid gap-4 md:grid-cols-3">
                 {LANDING_RESOURCE_LINKS.map((resource) => (
-                  <article key={resource.href} className="flex h-full flex-col rounded-2xl border bg-background p-5 shadow-sm">
-                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{resource.audience}</p>
-                    <h3 className="mt-2 text-lg font-black">{resource.title}</h3>
-                    <p className="mt-2 flex-1 text-sm leading-6 text-muted-foreground">{resource.description}</p>
-                    <Button asChild className="mt-5 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black">
+                  <article
+                    key={resource.href}
+                    className="flex h-full flex-col rounded-2xl border bg-background p-5 shadow-sm"
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      {resource.audience}
+                    </p>
+                    <h3 className="mt-2 text-lg font-black">
+                      {resource.title}
+                    </h3>
+                    <p className="mt-2 flex-1 text-sm leading-6 text-muted-foreground">
+                      {resource.description}
+                    </p>
+                    <Button
+                      asChild
+                      className="mt-5 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black"
+                    >
                       <a href={resource.href} target="_blank" rel="noreferrer">
                         {resource.cta}
                       </a>
@@ -2362,31 +2873,47 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <Dialog open={Boolean(lookup) && resultDialogOpen} onOpenChange={setResultDialogOpen}>
+      <Dialog
+        open={Boolean(lookup) && resultDialogOpen}
+        onOpenChange={setResultDialogOpen}
+      >
         <DialogContent
           onCloseAutoFocus={(event) => event.preventDefault()}
           className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
         >
           <DialogHeader>
-            <DialogTitle>Search result for Student ID: {searchedId}</DialogTitle>
+            <DialogTitle>
+              Search result for Student ID: {searchedId}
+            </DialogTitle>
           </DialogHeader>
 
           {lookup ? (
             <section className="space-y-6">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Search result / {selectedYearLabel}</p>
-                  <h2 className="text-2xl font-black sm:text-3xl">Student ID: {searchedId}</h2>
-                  <p className="mt-2 text-base font-semibold text-muted-foreground">Name: {studentDisplayName || "—"}</p>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    Search result / {selectedYearLabel}
+                  </p>
+                  <h2 className="text-2xl font-black sm:text-3xl">
+                    Student ID: {searchedId}
+                  </h2>
+                  <p className="mt-2 text-base font-semibold text-muted-foreground">
+                    Name: {studentDisplayName || "—"}
+                  </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-                  <label className="sr-only" htmlFor="student-result-year-filter">
+                  <label
+                    className="sr-only"
+                    htmlFor="student-result-year-filter"
+                  >
                     Year filter
                   </label>
                   <select
                     id="student-result-year-filter"
                     value={resultYearFilter}
-                    onChange={(event) => setResultYearFilter(event.target.value)}
+                    onChange={(event) =>
+                      setResultYearFilter(event.target.value)
+                    }
                     className="min-h-11 rounded-2xl border bg-background px-4 text-sm font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
                   >
                     <option value={ALL_YEARS_VALUE}>All school years</option>
@@ -2400,49 +2927,58 @@ export default function LandingPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:w-auto">
-                  <div className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}>
-                    <p className="text-xs font-bold uppercase">Classification</p>
-                    <p className="text-2xl font-black">{resultClassification}</p>
-                  </div>
-                  <div className="rounded-2xl border bg-card px-5 py-4">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">Total absences</p>
-                    <p className="text-2xl font-black">{totalAbsencesLabel}</p>
-                    {fallbackFineActive ? (
-                      <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                        Computed from the configured penalty table.
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="rounded-2xl border bg-card px-5 py-4">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">Unpaid fines</p>
-                    <p className="text-2xl font-black">{unpaidFines}</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={!attendedEvents.length}
-                    onClick={() => setEventsDialogOpen(true)}
-                    className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
-                  >
-                    View Attended Events
-                  </Button>
+                <div
+                  className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}
+                >
+                  <p className="text-xs font-bold uppercase">Classification</p>
+                  <p className="text-2xl font-black">{resultClassification}</p>
                 </div>
+                <div className="rounded-2xl border bg-card px-5 py-4">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    Total absences
+                  </p>
+                  <p className="text-2xl font-black">{totalAbsencesLabel}</p>
+                  {fallbackFineActive ? (
+                    <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                      Computed from the configured penalty table.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="rounded-2xl border bg-card px-5 py-4">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    Unpaid fines
+                  </p>
+                  <p className="text-2xl font-black">{unpaidFines}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!attendedEvents.length}
+                  onClick={() => setEventsDialogOpen(true)}
+                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                >
+                  View Attended Events
+                </Button>
+              </div>
 
               {resultClassification === "Perfect attendance" ? (
                 <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
-                  Perfect attendance record found. Use the attended events button to view the events this student attended.
+                  Perfect attendance record found. Use the attended events
+                  button to view the events this student attended.
                 </div>
               ) : null}
 
               {resultClassification === "Zero attendance" ? (
                 <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
-                  Zero attendance record found. This student has been recorded with no attended events and the related fine is shown below.
+                  Zero attendance record found. This student has been recorded
+                  with no attended events and the related fine is shown below.
                 </div>
               ) : null}
 
               {fallbackFineActive ? (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
-                  No saved fine record was returned. A computed unpaid fine is shown using the configured penalty table.
+                  No saved fine record was returned. A computed unpaid fine is
+                  shown using the configured penalty table.
                 </div>
               ) : null}
 
@@ -2458,13 +2994,18 @@ export default function LandingPage() {
                   {absentEvents.length ? (
                     <div className="space-y-3 lg:hidden">
                       {absentEvents.map((eventSummary, index) => (
-                        <article key={eventSummary.key} className="rounded-2xl border bg-background p-4">
+                        <article
+                          key={eventSummary.key}
+                          className="rounded-2xl border bg-background p-4"
+                        >
                           <div className="flex gap-3">
                             <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
                               {index + 1}
                             </span>
                             <div className="min-w-0">
-                              <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
+                              <p className="wrap-break-word font-black">
+                                {eventSummary.eventName}
+                              </p>
                             </div>
                           </div>
                         </article>
@@ -2483,9 +3024,16 @@ export default function LandingPage() {
                         </thead>
                         <tbody>
                           {absentEvents.map((eventSummary, index) => (
-                            <tr key={eventSummary.key} className="border-b last:border-b-0">
-                              <td className="px-3 py-3 font-black">{index + 1}</td>
-                              <td className="px-3 py-3 font-semibold">{eventSummary.eventName}</td>
+                            <tr
+                              key={eventSummary.key}
+                              className="border-b last:border-b-0"
+                            >
+                              <td className="px-3 py-3 font-black">
+                                {index + 1}
+                              </td>
+                              <td className="px-3 py-3 font-semibold">
+                                {eventSummary.eventName}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -2509,11 +3057,16 @@ export default function LandingPage() {
                   {displayedFines.length ? (
                     <div className="space-y-3">
                       {displayedFines.map((fine) => (
-                        <article key={fine.id} className="rounded-2xl border bg-background p-4">
+                        <article
+                          key={fine.id}
+                          className="rounded-2xl border bg-background p-4"
+                        >
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-black">{fine.prescribed_penalty}</p>
+                                <p className="text-sm font-black">
+                                  {fine.prescribed_penalty}
+                                </p>
                                 {isZeroAttendanceFine(fine) ? (
                                   <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
                                     Zero attendance
@@ -2521,11 +3074,17 @@ export default function LandingPage() {
                                 ) : null}
                               </div>
                               <p className="mt-1 text-xs text-muted-foreground">
-                                Total: {formatAbsenceCount(
-                                  getDisplayedFineAbsenceCount(fine, totalAbsences, hasZeroAttendanceForDisplay),
-                                  isFallbackFine(fine) && getFineAbsenceCount(fine) >= 10
-                                )} •{" "}
-                                {formatDate(fine.created_at)}
+                                Total:{" "}
+                                {formatAbsenceCount(
+                                  getDisplayedFineAbsenceCount(
+                                    fine,
+                                    totalAbsences,
+                                    hasZeroAttendanceForDisplay,
+                                  ),
+                                  isFallbackFine(fine) &&
+                                    getFineAbsenceCount(fine) >= 10,
+                                )}{" "}
+                                • {formatDate(fine.created_at)}
                                 {isFallbackFine(fine) ? " • computed" : ""}
                               </p>
                             </div>

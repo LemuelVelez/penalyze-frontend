@@ -8,7 +8,10 @@ import {
   saveAttendanceEvent,
   updateAttendanceEvent,
 } from "../../api/attendance";
-import type { AttendanceEvent, AttendanceEventInput } from "../../api/attendance";
+import type {
+  AttendanceEvent,
+  AttendanceEventInput,
+} from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
@@ -74,7 +77,9 @@ function toDateTimeLocalValue(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
-  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  const offsetDate = new Date(
+    date.getTime() - date.getTimezoneOffset() * 60_000,
+  );
   return offsetDate.toISOString().slice(0, 16);
 }
 
@@ -82,11 +87,17 @@ function fromDateTimeLocalValue(value: string) {
   return value ? new Date(value).toISOString() : undefined;
 }
 
-function buildEventForm(event: AttendanceEvent | null, fallbackSchoolYearId: string): EventFormState {
+function buildEventForm(
+  event: AttendanceEvent | null,
+  fallbackSchoolYearId: string,
+): EventFormState {
   if (!event) {
     return {
       ...emptyEventForm,
-      schoolYearId: fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE ? "" : fallbackSchoolYearId,
+      schoolYearId:
+        fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+          ? ""
+          : fallbackSchoolYearId,
     };
   }
 
@@ -111,10 +122,14 @@ function buildEventPayload(form: EventFormState): AttendanceEventInput {
 
 export default function EventsPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(ALL_SCHOOL_YEARS_VALUE);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(
+    ALL_SCHOOL_YEARS_VALUE,
+  );
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<AttendanceEvent | null>(null);
+  const [editingEvent, setEditingEvent] = useState<AttendanceEvent | null>(
+    null,
+  );
   const [form, setForm] = useState<EventFormState>(emptyEventForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -127,8 +142,13 @@ export default function EventsPage() {
   const summary = useMemo(() => {
     return {
       events: events.length,
-      attendees: events.reduce((total, event) => total + Number(event.attendees_count || 0), 0),
-      scheduled: events.filter((event) => event.event_start_at || event.event_end_at).length,
+      attendees: events.reduce(
+        (total, event) => total + Number(event.attendees_count || 0),
+        0,
+      ),
+      scheduled: events.filter(
+        (event) => event.event_start_at || event.event_end_at,
+      ).length,
     };
   }, [events]);
 
@@ -138,9 +158,14 @@ export default function EventsPage() {
     try {
       const schoolYearRows = await listSchoolYears();
       const fallbackSchoolYearId =
-        nextSchoolYearId || getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE;
+        nextSchoolYearId ||
+        getActiveSchoolYearId(schoolYearRows) ||
+        ALL_SCHOOL_YEARS_VALUE;
       const rows = await listAttendanceEvents({
-        schoolYearId: fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE ? undefined : fallbackSchoolYearId,
+        schoolYearId:
+          fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+            ? undefined
+            : fallbackSchoolYearId,
         limit: 500,
         offset: 0,
       });
@@ -149,7 +174,9 @@ export default function EventsPage() {
       setSelectedSchoolYearId(fallbackSchoolYearId);
       setEvents(rows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to load events.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to load events.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -202,7 +229,9 @@ export default function EventsPage() {
       setForm(emptyEventForm);
       await loadEvents(saved?.school_year_id || selectedSchoolYearId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save event.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to save event.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -216,7 +245,9 @@ export default function EventsPage() {
       toast.success("Event deleted.");
       await loadEvents(selectedSchoolYearId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to delete event.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete event.",
+      );
     } finally {
       setDeletingEventId("");
     }
@@ -235,17 +266,23 @@ export default function EventsPage() {
                 Attendance events
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Create, update, delete, and organize attendance events by school year.
+                Create, update, delete, and organize attendance events by school
+                year.
               </p>
             </div>
 
             <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row lg:items-center">
-              <Select value={selectedSchoolYearId} onValueChange={handleSchoolYearChange}>
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-xs rounded-2xl sm:w-56">
+              <Select
+                value={selectedSchoolYearId}
+                onValueChange={handleSchoolYearChange}
+              >
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl sm:w-64">
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent className="max-w-xs">
-                  <SelectItem value={ALL_SCHOOL_YEARS_VALUE}>All school years</SelectItem>
+                  <SelectItem value={ALL_SCHOOL_YEARS_VALUE}>
+                    All school years
+                  </SelectItem>
                   {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}
@@ -267,16 +304,26 @@ export default function EventsPage() {
 
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">School Year</p>
-            <p className="mt-2 text-2xl font-black">{selectedSchoolYearLabel}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              School Year
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {selectedSchoolYearLabel}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">Events</p>
-            <p className="mt-2 text-2xl font-black">{summary.events.toLocaleString()}</p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.events.toLocaleString()}
+            </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">Total Attendees</p>
-            <p className="mt-2 text-2xl font-black">{summary.attendees.toLocaleString()}</p>
+            <p className="text-sm font-bold text-muted-foreground">
+              Total Attendees
+            </p>
+            <p className="mt-2 text-2xl font-black">
+              {summary.attendees.toLocaleString()}
+            </p>
           </div>
         </section>
 
@@ -306,14 +353,23 @@ export default function EventsPage() {
                     <tr key={event.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
-                        <p className="text-xs text-muted-foreground">Updated {formatDateTime(event.updated_at)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Updated {formatDateTime(event.updated_at)}
+                        </p>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <p className="font-semibold">{formatDateTime(event.event_start_at)}</p>
-                        <p className="text-muted-foreground">to {formatDateTime(event.event_end_at)}</p>
+                        <p className="font-semibold">
+                          {formatDateTime(event.event_start_at)}
+                        </p>
+                        <p className="text-muted-foreground">
+                          to {formatDateTime(event.event_end_at)}
+                        </p>
                       </td>
                       <td className="px-4 py-3 align-top font-semibold">
-                        {getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}
+                        {getSchoolYearLabel(
+                          schoolYears,
+                          event.school_year_id ?? "",
+                        )}
                       </td>
                       <td className="px-4 py-3 align-top font-bold">
                         {Number(event.attendees_count || 0).toLocaleString()}
@@ -340,19 +396,26 @@ export default function EventsPage() {
                                 disabled={deletingEventId === event.id}
                                 className="min-h-10 rounded-xl px-4 text-xs font-black"
                               >
-                                {deletingEventId === event.id ? "Deleting..." : "Delete"}
+                                {deletingEventId === event.id
+                                  ? "Deleting..."
+                                  : "Delete"}
                               </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent className="rounded-3xl">
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete this event?</AlertDialogTitle>
+                                <AlertDialogTitle>
+                                  Delete this event?
+                                </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will delete the selected attendance event record.
+                                  This will delete the selected attendance event
+                                  record.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDeleteEvent(event)}>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteEvent(event)}
+                                >
                                   Delete Event
                                 </AlertDialogAction>
                               </AlertDialogFooter>
@@ -364,7 +427,10 @@ export default function EventsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground">
+                    <td
+                      colSpan={6}
+                      className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
+                    >
                       {isLoading ? "Loading events..." : "No events found."}
                     </td>
                   </tr>
@@ -378,7 +444,9 @@ export default function EventsPage() {
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
         <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingEvent ? "Edit event" : "Create event"}</DialogTitle>
+            <DialogTitle>
+              {editingEvent ? "Edit event" : "Create event"}
+            </DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleSaveEvent} className="space-y-5">
@@ -386,7 +454,9 @@ export default function EventsPage() {
               <span>Event name</span>
               <Input
                 value={form.name}
-                onChange={(event) => handleFieldChange("name", event.target.value)}
+                onChange={(event) =>
+                  handleFieldChange("name", event.target.value)
+                }
                 placeholder="Event name"
                 className="min-h-12 rounded-2xl"
               />
@@ -398,7 +468,9 @@ export default function EventsPage() {
                 <Input
                   type="datetime-local"
                   value={form.eventStartAt}
-                  onChange={(event) => handleFieldChange("eventStartAt", event.target.value)}
+                  onChange={(event) =>
+                    handleFieldChange("eventStartAt", event.target.value)
+                  }
                   className="min-h-12 rounded-2xl"
                 />
               </label>
@@ -407,7 +479,9 @@ export default function EventsPage() {
                 <Input
                   type="datetime-local"
                   value={form.eventEndAt}
-                  onChange={(event) => handleFieldChange("eventEndAt", event.target.value)}
+                  onChange={(event) =>
+                    handleFieldChange("eventEndAt", event.target.value)
+                  }
                   className="min-h-12 rounded-2xl"
                 />
               </label>
@@ -415,8 +489,13 @@ export default function EventsPage() {
 
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>School year</span>
-              <Select value={form.schoolYearId} onValueChange={(value) => handleFieldChange("schoolYearId", value)}>
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-xs overflow-hidden rounded-2xl">
+              <Select
+                value={form.schoolYearId}
+                onValueChange={(value) =>
+                  handleFieldChange("schoolYearId", value)
+                }
+              >
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 overflow-hidden rounded-2xl">
                   <SelectValue placeholder="Select school year" />
                 </SelectTrigger>
                 <SelectContent className="max-w-xs">
@@ -433,7 +512,9 @@ export default function EventsPage() {
               <span>Description</span>
               <textarea
                 value={form.description}
-                onChange={(event) => handleFieldChange("description", event.target.value)}
+                onChange={(event) =>
+                  handleFieldChange("description", event.target.value)
+                }
                 placeholder="Optional event description"
                 className="min-h-28 w-full rounded-2xl border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
               />
@@ -449,8 +530,16 @@ export default function EventsPage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSaving} className="min-h-12 rounded-2xl px-6 font-black">
-                {isSaving ? "Saving..." : editingEvent ? "Update Event" : "Save Event"}
+              <Button
+                type="submit"
+                disabled={isSaving}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                {isSaving
+                  ? "Saving..."
+                  : editingEvent
+                    ? "Update Event"
+                    : "Save Event"}
               </Button>
             </div>
           </form>
