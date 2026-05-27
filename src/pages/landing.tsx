@@ -168,6 +168,7 @@ const LANDING_RESOURCE_LINKS = [
       "Download the scanner for checking student QR codes during attendance and monitoring.",
     href: "https://drive.google.com/uc?export=download&id=19vu1IvWgpmASxRWUVDjIpe9ql6kbqrPw",
     cta: "Download Scanner",
+    download: true,
   },
   {
     audience: "Students",
@@ -176,6 +177,7 @@ const LANDING_RESOURCE_LINKS = [
       "Create your QR code using your student details before presenting it for scanning.",
     href: "https://ssg-qrcode-generator.vercel.app/",
     cta: "Generate QR Code",
+    download: false,
   },
   {
     audience: "Researchers",
@@ -184,6 +186,7 @@ const LANDING_RESOURCE_LINKS = [
       "Access external services for thesis Chapter IV survey and statistics needs.",
     href: "https://surveystat.jrmsu-tc.online/",
     cta: "Visit SurveyStat",
+    download: false,
   },
 ] as const;
 
@@ -2863,7 +2866,12 @@ export default function LandingPage() {
                       asChild
                       className="mt-5 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black"
                     >
-                      <a href={resource.href} target="_blank" rel="noreferrer">
+                      <a
+                        href={resource.href}
+                        target={resource.download ? undefined : "_blank"}
+                        rel={resource.download ? undefined : "noreferrer"}
+                        download={resource.download ? true : undefined}
+                      >
                         {resource.cta}
                       </a>
                     </Button>
