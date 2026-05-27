@@ -242,7 +242,7 @@ export async function listPenaltyResults(options: ListFineOptions = {}) {
   return response.data ?? [];
 }
 
-export async function refreshPenaltyResults(options: { schoolYearId?: string } = {}) {
+export async function refreshPenaltyResults(options: { schoolYearId?: string; importIds?: string[] } = {}) {
   const response = await apiRequest<PenaltyResultRecord[]>("/api/fines/penalty-results/refresh", {
     method: "POST",
     body: JSON.stringify(options)

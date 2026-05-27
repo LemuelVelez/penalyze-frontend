@@ -4,16 +4,20 @@ import { toast } from "sonner";
 
 import {
   listAllAttendanceRecords,
+  listAttendanceImports,
+  listCalculationResults,
   listManualAttendanceRecords,
-  refreshAttendanceFinalResults,
+  refreshCalculationResults,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
+  AttendanceImportRecord,
   AttendanceRecord,
-  ManualAttendanceRecord,
+  CalculationResultRecord,
   ManualAttendanceInput,
+  ManualAttendanceRecord,
 } from "../../api/attendance";
-import { listPenalties, refreshPenaltyResults } from "../../api/fines";
+import { listPenalties } from "../../api/fines";
 import type { PenaltyRecord } from "../../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -40,7 +44,10 @@ import {
 
 type CalculationRow = {
   key: string;
+  resultId?: string;
   schoolYearId: string | null;
+  calculationScopeKey?: string;
+  importIds: string[];
   studentId: string;
   name: string;
   yearLevel: string | null;
@@ -52,34 +59,31 @@ type CalculationRow = {
   manualAbsences: number;
   totalAbsences: number;
   attendanceStatus: string;
+  prescribedPenalty: string | null;
   penalty: PenaltyRecord | null;
   sourceRecordCount: number;
   attendanceRecords: AttendanceRecord[];
   manualRecords: ManualAttendanceRecord[];
+  calculatedAt?: string;
+  isSavedResult: boolean;
 };
 
-type CalculationEditFormState = {
+type SourceRecordEditFormState = {
+  recordId: string;
+  recordType: "imported" | "manual";
+  schoolYearId: string;
+  eventId: string;
+  eventName: string;
+  attendanceType?: ManualAttendanceRecord["attendance_type"];
+  scannedAt: string;
   studentId: string;
   name: string;
   yearLevel: string;
   college: string;
   program: string;
   institution: string;
-  importedAbsences: string;
-  manualAbsences: string;
+  noOfAbsences: string;
   remarks: string;
-};
-
-const emptyEditForm: CalculationEditFormState = {
-  studentId: "",
-  name: "",
-  yearLevel: "",
-  college: "",
-  program: "",
-  institution: "",
-  importedAbsences: "0",
-  manualAbsences: "0",
-  remarks: "",
 };
 
 function normalizeValue(value: unknown) {
@@ -158,6 +162,12 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+function formatImportLabel(importRecord: AttendanceImportRecord) {
+  const fileName = importRecord.file_name || "Imported file";
+  const eventName = importRecord.event_name || "No event";
+  return `${fileName} • ${eventName} • ${formatDateTime(importRecord.created_at)}`;
+}
+
 function toAbsenceInputValue(value: number) {
   return String(Math.max(0, Number(value || 0)));
 }
@@ -170,47 +180,61 @@ function parseAbsenceInput(value: string) {
   return Math.max(0, Math.trunc(parsedValue));
 }
 
-function buildEditForm(row: CalculationRow): CalculationEditFormState {
-  const representativeRecord = getBestStudentRecord(
-    row.attendanceRecords,
-    row.manualRecords,
-  );
-
+function toSourceRecordEditForm(
+  record: AttendanceRecord | ManualAttendanceRecord,
+  recordType: SourceRecordEditFormState["recordType"],
+): SourceRecordEditFormState {
   return {
-    studentId: row.studentId,
-    name: row.name,
-    yearLevel: row.yearLevel ?? "",
-    college: row.college ?? "",
-    program: row.program ?? "",
-    institution: row.institution ?? "",
-    importedAbsences: toAbsenceInputValue(row.importedAbsences),
-    manualAbsences: toAbsenceInputValue(row.manualAbsences),
-    remarks: representativeRecord?.remarks ?? "",
+    recordId: record.id,
+    recordType,
+    schoolYearId: record.school_year_id ?? "",
+    eventId: record.event_id ?? "",
+    eventName: record.event_name ?? "",
+    attendanceType:
+      recordType === "manual"
+        ? (record as ManualAttendanceRecord).attendance_type
+        : undefined,
+    scannedAt: record.scanned_at ?? "",
+    studentId: record.student_id ?? "",
+    name: record.name ?? "",
+    yearLevel: record.year_level ?? "",
+    college: record.college ?? "",
+    program: record.program ?? "",
+    institution: record.institution ?? "",
+    noOfAbsences: toAbsenceInputValue(record.no_of_absences),
+    remarks: record.remarks ?? "",
   };
 }
 
-function buildAttendanceInput(props: {
-  form: CalculationEditFormState;
-  record: AttendanceRecord | ManualAttendanceRecord;
-  noOfAbsences: number;
-}): ManualAttendanceInput {
+function buildRecordEditForms(row: CalculationRow) {
+  return [
+    ...row.attendanceRecords.map((record) =>
+      toSourceRecordEditForm(record, "imported"),
+    ),
+    ...row.manualRecords.map((record) =>
+      toSourceRecordEditForm(record, "manual"),
+    ),
+  ];
+}
+
+function buildAttendanceInput(form: SourceRecordEditFormState): ManualAttendanceInput {
   const input: ManualAttendanceInput = {
-    schoolYearId: props.record.school_year_id ?? undefined,
-    eventId: props.record.event_id ?? undefined,
-    eventName: props.record.event_name ?? undefined,
-    scannedAt: props.record.scanned_at ?? undefined,
-    studentId: props.form.studentId.trim(),
-    name: props.form.name.trim(),
-    yearLevel: props.form.yearLevel.trim(),
-    college: props.form.college.trim(),
-    program: props.form.program.trim(),
-    institution: props.form.institution.trim(),
-    noOfAbsences: props.noOfAbsences,
-    remarks: props.form.remarks.trim(),
+    schoolYearId: form.schoolYearId || undefined,
+    eventId: form.eventId || undefined,
+    eventName: form.eventName || undefined,
+    scannedAt: form.scannedAt || undefined,
+    studentId: form.studentId.trim(),
+    name: form.name.trim(),
+    yearLevel: form.yearLevel.trim(),
+    college: form.college.trim(),
+    program: form.program.trim(),
+    institution: form.institution.trim(),
+    noOfAbsences: parseAbsenceInput(form.noOfAbsences) ?? 0,
+    remarks: form.remarks.trim(),
   };
 
-  if ("attendance_type" in props.record) {
-    input.attendanceType = props.record.attendance_type;
+  if (form.recordType === "manual" && form.attendanceType) {
+    input.attendanceType = form.attendanceType;
   }
 
   return input;
@@ -241,10 +265,15 @@ function buildCalculationRows(props: {
   attendanceRecords: AttendanceRecord[];
   manualRecords: ManualAttendanceRecord[];
   penalties: PenaltyRecord[];
+  importIds: string[];
 }) {
-  const importedRecords = props.attendanceRecords.filter(
-    (record) => record.import_id,
-  );
+  const selectedImportIds = new Set(props.importIds);
+  const importedRecords = props.attendanceRecords.filter((record) => {
+    if (!record.import_id) return false;
+    if (!selectedImportIds.size) return true;
+
+    return selectedImportIds.has(record.import_id);
+  });
   const groupedRecords = new Map<string, AttendanceRecord[]>();
   const groupedManualRecords = new Map<string, ManualAttendanceRecord[]>();
 
@@ -293,8 +322,12 @@ function buildCalculationRows(props: {
       const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
 
       return {
-        key: `${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
+        key: `preview-${props.importIds.join("-") || "all"}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
         schoolYearId: bestRecord?.school_year_id ?? null,
+        calculationScopeKey: props.importIds.length
+          ? [...props.importIds].sort().join(":")
+          : "all_imports",
+        importIds: [...props.importIds],
         studentId: bestRecord?.student_id ?? studentKey,
         name: getBestTextValue(bestRecord?.name, studentKey),
         yearLevel: getBestTextValue(bestRecord?.year_level) || null,
@@ -307,10 +340,17 @@ function buildCalculationRows(props: {
         totalAbsences,
         attendanceStatus:
           totalAbsences > 0 ? "with_absences" : "perfect_attendance",
+        prescribedPenalty:
+          totalAbsences > 0
+            ? penalty?.prescribed_penalty ??
+              "No prescribed penalty configured."
+            : null,
         penalty,
         sourceRecordCount: attendanceGroup.length + manualGroup.length,
         attendanceRecords: attendanceGroup,
         manualRecords: manualGroup,
+        calculatedAt: new Date().toISOString(),
+        isSavedResult: false,
       } satisfies CalculationRow;
     })
     .sort((leftRow, rightRow) => {
@@ -324,24 +364,67 @@ function buildCalculationRows(props: {
     });
 }
 
+function calculationResultToRow(result: CalculationResultRecord) {
+  return {
+    key: `saved-${result.id}`,
+    resultId: result.id,
+    schoolYearId: result.school_year_id,
+    calculationScopeKey: result.calculation_scope_key,
+    importIds: result.import_ids ?? [],
+    studentId: result.student_id,
+    name: result.name,
+    yearLevel: result.year_level,
+    college: result.college,
+    program: result.program,
+    institution: result.institution,
+    attendedEvents: Number(result.attended_events || 0),
+    importedAbsences: Number(result.imported_absences || 0),
+    manualAbsences: Number(result.manual_absences || 0),
+    totalAbsences: Number(result.total_absences || 0),
+    attendanceStatus: result.attendance_status,
+    prescribedPenalty: result.prescribed_penalty,
+    penalty:
+      result.penalty_id || result.prescribed_penalty
+        ? {
+            id: result.penalty_id ?? result.id,
+            no_of_absences: Number(result.total_absences || 0),
+            prescribed_penalty:
+              result.prescribed_penalty ??
+              "No prescribed penalty configured.",
+            created_at: result.created_at,
+            updated_at: result.updated_at,
+          }
+        : null,
+    sourceRecordCount: Number(result.source_record_count || 0),
+    attendanceRecords: [],
+    manualRecords: [],
+    calculatedAt: result.calculated_at,
+    isSavedResult: true,
+  } satisfies CalculationRow;
+}
+
 export default function CalculatePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(
     ALL_SCHOOL_YEARS_VALUE,
   );
-  const [attendanceRecords, setAttendanceRecords] = useState<
-    AttendanceRecord[]
+  const [attendanceImports, setAttendanceImports] = useState<
+    AttendanceImportRecord[]
   >([]);
-  const [manualRecords, setManualRecords] = useState<ManualAttendanceRecord[]>(
-    [],
-  );
+  const [selectedImportIds, setSelectedImportIds] = useState<string[]>([]);
+  const [calculationRows, setCalculationRows] = useState<CalculationRow[]>([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [searchText, setSearchText] = useState("");
   const [lastCalculatedAt, setLastCalculatedAt] = useState("");
+  const [calculationMode, setCalculationMode] = useState<"saved" | "preview">(
+    "saved",
+  );
   const [editingRow, setEditingRow] = useState<CalculationRow | null>(null);
-  const [editForm, setEditForm] =
-    useState<CalculationEditFormState>(emptyEditForm);
+  const [recordEditForms, setRecordEditForms] = useState<
+    SourceRecordEditFormState[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSavingResults, setIsSavingResults] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -349,13 +432,12 @@ export default function CalculatePage() {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
 
-  const calculationRows = useMemo(() => {
-    return buildCalculationRows({
-      attendanceRecords,
-      manualRecords,
-      penalties,
-    });
-  }, [attendanceRecords, manualRecords, penalties]);
+  const selectedImportLabels = useMemo(() => {
+    const selectedIds = new Set(selectedImportIds);
+    return attendanceImports
+      .filter((importRecord) => selectedIds.has(importRecord.id))
+      .map(formatImportLabel);
+  }, [attendanceImports, selectedImportIds]);
 
   const filteredRows = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -368,7 +450,7 @@ export default function CalculatePage() {
         row.college,
         row.program,
         row.yearLevel,
-        row.penalty?.prescribed_penalty,
+        row.prescribedPenalty,
       ]
         .join(" ")
         .toLowerCase()
@@ -384,11 +466,17 @@ export default function CalculatePage() {
         0,
       ),
       withFines: calculationRows.filter((row) => row.totalAbsences > 0).length,
-      sourceRecords: attendanceRecords.length + manualRecords.length,
+      sourceRecords: calculationRows.reduce(
+        (total, row) => total + row.sourceRecordCount,
+        0,
+      ),
     };
-  }, [attendanceRecords.length, calculationRows, manualRecords.length]);
+  }, [calculationRows]);
 
-  async function loadCalculation(nextSchoolYearId = selectedSchoolYearId) {
+  async function loadSavedResults(
+    nextSchoolYearId = selectedSchoolYearId,
+    nextImportIds = selectedImportIds,
+  ) {
     setIsLoading(true);
 
     try {
@@ -404,76 +492,185 @@ export default function CalculatePage() {
         fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
           : fallbackSchoolYearId;
-      const [attendanceRows, manualRows] = await Promise.all([
-        listAllAttendanceRecords({
+      const [importRows, resultRows] = await Promise.all([
+        listAttendanceImports({
           schoolYearId: requestSchoolYearId,
-          pageSize: 500,
-          maxPages: 100,
+          limit: 500,
+          offset: 0,
         }),
-        listAllManualAttendanceRecords({
+        listCalculationResults({
           schoolYearId: requestSchoolYearId,
+          importIds: nextImportIds,
+          limit: 1000,
+          offset: 0,
         }),
       ]);
+      const savedRows = resultRows.map(calculationResultToRow);
+      const calculatedDates = savedRows
+        .map((row) => row.calculatedAt)
+        .filter(Boolean)
+        .sort();
+      const latestCalculatedAt =
+        calculatedDates[calculatedDates.length - 1] ?? "";
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
+      setAttendanceImports(importRows);
       setPenalties(penaltyRows);
-      setAttendanceRecords(attendanceRows);
-      setManualRecords(manualRows);
-      setLastCalculatedAt(new Date().toISOString());
+      setCalculationRows(savedRows);
+      setLastCalculatedAt(latestCalculatedAt ?? "");
+      setCalculationMode("saved");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to calculate attendance records.",
+          : "Unable to load saved calculation results.",
       );
     } finally {
       setIsLoading(false);
     }
   }
 
+  async function loadPreviewRows(
+    nextSchoolYearId = selectedSchoolYearId,
+    nextImportIds = selectedImportIds,
+  ) {
+    const requestSchoolYearId =
+      nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+        ? undefined
+        : nextSchoolYearId;
+    const [attendanceRows, manualRows] = await Promise.all([
+      listAllAttendanceRecords({
+        schoolYearId: requestSchoolYearId,
+        pageSize: 500,
+        maxPages: 100,
+      }),
+      listAllManualAttendanceRecords({
+        schoolYearId: requestSchoolYearId,
+      }),
+    ]);
+    const nextRows = buildCalculationRows({
+      attendanceRecords: attendanceRows,
+      manualRecords: manualRows,
+      penalties,
+      importIds: nextImportIds,
+    });
+
+    setCalculationRows(nextRows);
+    setLastCalculatedAt(new Date().toISOString());
+    setCalculationMode("preview");
+
+    return nextRows;
+  }
+
   useEffect(() => {
-    void loadCalculation();
+    void loadSavedResults();
   }, []);
 
   async function handleSchoolYearChange(value: string) {
     setSelectedSchoolYearId(value);
-    await loadCalculation(value);
+    setSelectedImportIds([]);
+    await loadSavedResults(value, []);
   }
 
-  function handleEditFieldChange(
-    field: keyof CalculationEditFormState,
+  function handleImportToggle(importId: string) {
+    setSelectedImportIds((current) => {
+      const next = current.includes(importId)
+        ? current.filter((id) => id !== importId)
+        : [...current, importId];
+
+      return next.sort((left, right) => left.localeCompare(right));
+    });
+  }
+
+  function handleSelectAllImports() {
+    setSelectedImportIds(
+      attendanceImports
+        .map((importRecord) => importRecord.id)
+        .sort((left, right) => left.localeCompare(right)),
+    );
+  }
+
+  async function handleLoadSavedResults() {
+    await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+  }
+
+  async function handlePreviewCalculation() {
+    if (!selectedImportIds.length) {
+      toast.error("Choose at least one imported file to calculate.");
+      return;
+    }
+
+    setIsPreviewing(true);
+
+    try {
+      const rows = await loadPreviewRows(selectedSchoolYearId, selectedImportIds);
+
+      toast.success(
+        rows.length
+          ? "Calculation preview updated."
+          : "No rows found for the selected imported files.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to preview calculation.",
+      );
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
+  function handleRecordEditFieldChange(
+    index: number,
+    field: keyof SourceRecordEditFormState,
     value: string,
   ) {
-    setEditForm((current) => ({ ...current, [field]: value }));
+    setRecordEditForms((current) =>
+      current.map((form, formIndex) =>
+        formIndex === index
+          ? ({ ...form, [field]: value } as SourceRecordEditFormState)
+          : form,
+      ),
+    );
   }
 
   function handleOpenEditRow(row: CalculationRow) {
+    const forms = buildRecordEditForms(row);
+
+    if (!forms.length) {
+      toast.error(
+        "Load a preview for the selected imported files before editing source records.",
+      );
+      return;
+    }
+
     setEditingRow(row);
-    setEditForm(buildEditForm(row));
-  }
-
-  async function refreshCalculatedOutputs() {
-    const requestSchoolYearId =
-      selectedSchoolYearId === ALL_SCHOOL_YEARS_VALUE
-        ? undefined
-        : selectedSchoolYearId;
-
-    await refreshAttendanceFinalResults({
-      schoolYearId: requestSchoolYearId,
-    });
-    await refreshPenaltyResults({
-      schoolYearId: requestSchoolYearId,
-    });
+    setRecordEditForms(forms);
   }
 
   async function handleSaveResults() {
+    if (!selectedImportIds.length) {
+      toast.error("Choose at least one imported file before saving results.");
+      return;
+    }
+
     setIsSavingResults(true);
 
     try {
-      await refreshCalculatedOutputs();
-      toast.success("Calculated final attendance and fine results saved.");
-      await loadCalculation(selectedSchoolYearId);
+      const requestSchoolYearId =
+        selectedSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+          ? undefined
+          : selectedSchoolYearId;
+
+      await refreshCalculationResults({
+        schoolYearId: requestSchoolYearId,
+        importIds: selectedImportIds,
+      });
+
+      toast.success("Calculation results saved.");
+      await loadSavedResults(selectedSchoolYearId, selectedImportIds);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -489,71 +686,35 @@ export default function CalculatePage() {
     event.preventDefault();
 
     if (!editingRow) return;
-    if (!editForm.studentId.trim() || !editForm.name.trim()) {
-      toast.error("Student ID and name are required.");
-      return;
-    }
-
-    const importedAbsences = parseAbsenceInput(editForm.importedAbsences);
-    const manualAbsences = parseAbsenceInput(editForm.manualAbsences);
-
-    if (importedAbsences === null || manualAbsences === null) {
-      toast.error("Absences must be valid whole numbers.");
-      return;
-    }
-
-    if (
-      !editingRow.attendanceRecords.length &&
-      !editingRow.manualRecords.length
-    ) {
+    if (!recordEditForms.length) {
       toast.error("No source records found for this calculation row.");
+      return;
+    }
+
+    const hasInvalidForm = recordEditForms.some((form) => {
+      return (
+        !form.studentId.trim() ||
+        !form.name.trim() ||
+        parseAbsenceInput(form.noOfAbsences) === null
+      );
+    });
+
+    if (hasInvalidForm) {
+      toast.error("Student ID, name, and valid absences are required.");
       return;
     }
 
     setIsSavingEdit(true);
 
     try {
-      for (const record of editingRow.attendanceRecords) {
-        await updateAttendanceRecord(
-          record.id,
-          buildAttendanceInput({
-            form: editForm,
-            record,
-            noOfAbsences: importedAbsences,
-          }),
-        );
+      for (const form of recordEditForms) {
+        await updateAttendanceRecord(form.recordId, buildAttendanceInput(form));
       }
 
-      const [primaryManualRecord, ...secondaryManualRecords] =
-        editingRow.manualRecords;
-
-      for (const record of secondaryManualRecords) {
-        await updateAttendanceRecord(
-          record.id,
-          buildAttendanceInput({
-            form: editForm,
-            record,
-            noOfAbsences: 0,
-          }),
-        );
-      }
-
-      if (primaryManualRecord) {
-        await updateAttendanceRecord(
-          primaryManualRecord.id,
-          buildAttendanceInput({
-            form: editForm,
-            record: primaryManualRecord,
-            noOfAbsences: manualAbsences,
-          }),
-        );
-      }
-
-      await refreshCalculatedOutputs();
-      toast.success("Calculation row records updated.");
+      toast.success("Source records updated.");
       setEditingRow(null);
-      setEditForm(emptyEditForm);
-      await loadCalculation(selectedSchoolYearId);
+      setRecordEditForms([]);
+      await loadPreviewRows(selectedSchoolYearId, selectedImportIds);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -578,13 +739,13 @@ export default function CalculatePage() {
                 Attendance and fine calculation
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Merge attendance records by Student ID, preview total absences
-                and penalties, edit row records, then save the final result only
-                when ready.
+                Load saved calculation results, choose imported files, preview
+                selected records, edit source rows, then save the final
+                calculated result only when ready.
               </p>
             </div>
 
-            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row lg:items-center">
+            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto lg:items-end">
               <Select
                 value={selectedSchoolYearId}
                 onValueChange={handleSchoolYearChange}
@@ -604,26 +765,41 @@ export default function CalculatePage() {
                 </SelectContent>
               </Select>
 
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => loadCalculation(selectedSchoolYearId)}
-                disabled={isLoading}
-                className="min-h-12 rounded-2xl px-6 font-black"
-              >
-                {isLoading ? "Calculating..." : "Recalculate"}
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleLoadSavedResults}
+                  disabled={isLoading}
+                  className="min-h-12 rounded-2xl px-6 font-black"
+                >
+                  {isLoading ? "Loading..." : "Load Saved Results"}
+                </Button>
 
-              <Button
-                type="button"
-                onClick={handleSaveResults}
-                disabled={
-                  isSavingResults || isLoading || !calculationRows.length
-                }
-                className="min-h-12 rounded-2xl px-6 font-black"
-              >
-                {isSavingResults ? "Saving..." : "Save Results"}
-              </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePreviewCalculation}
+                  disabled={isPreviewing || isLoading || !selectedImportIds.length}
+                  className="min-h-12 rounded-2xl px-6 font-black"
+                >
+                  {isPreviewing ? "Calculating..." : "Preview Selected Files"}
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={handleSaveResults}
+                  disabled={
+                    isSavingResults ||
+                    isLoading ||
+                    !calculationRows.length ||
+                    !selectedImportIds.length
+                  }
+                  className="min-h-12 rounded-2xl px-6 font-black"
+                >
+                  {isSavingResults ? "Saving..." : "Save Results"}
+                </Button>
+              </div>
             </div>
           </div>
         </section>
@@ -639,7 +815,7 @@ export default function CalculatePage() {
           </div>
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
-              Merged Students
+              Students
             </p>
             <p className="mt-2 text-2xl font-black">
               {summary.students.toLocaleString()}
@@ -664,12 +840,88 @@ export default function CalculatePage() {
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Imported files to calculate</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Choose one or more imported files before previewing and saving
+                calculation results.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSelectAllImports}
+                disabled={!attendanceImports.length}
+                className="min-h-10 rounded-xl px-4 text-xs font-black"
+              >
+                Select All
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSelectedImportIds([])}
+                disabled={!selectedImportIds.length}
+                className="min-h-10 rounded-xl px-4 text-xs font-black"
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {attendanceImports.length ? (
+              attendanceImports.map((importRecord) => (
+                <label
+                  key={importRecord.id}
+                  className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedImportIds.includes(importRecord.id)}
+                    onChange={() => handleImportToggle(importRecord.id)}
+                    className="mt-1 size-4"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-black">
+                      {importRecord.file_name}
+                    </span>
+                    <span className="mt-1 block text-muted-foreground">
+                      {importRecord.event_name || "No linked event"} •{" "}
+                      {formatDateTime(importRecord.created_at)}
+                    </span>
+                    <span className="mt-1 block text-xs font-bold text-muted-foreground">
+                      Valid rows: {Number(importRecord.rows_valid || 0).toLocaleString()} /{" "}
+                      {Number(importRecord.rows_total || 0).toLocaleString()}
+                    </span>
+                  </span>
+                </label>
+              ))
+            ) : (
+              <div className="rounded-2xl border bg-background p-6 text-sm font-semibold text-muted-foreground">
+                No imported files found for the selected school year.
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+            Selected files:{" "}
+            {selectedImportLabels.length
+              ? selectedImportLabels.join(" | ")
+              : "None"}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Calculation preview</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Source records: {summary.sourceRecords.toLocaleString()} • Last
-                calculated: {formatDateTime(lastCalculatedAt)}
+                Mode: {calculationMode === "saved" ? "Saved results" : "Preview"}{" "}
+                • Source records: {summary.sourceRecords.toLocaleString()} •
+                Last calculated: {formatDateTime(lastCalculatedAt)}
               </p>
             </div>
             <Input
@@ -730,7 +982,8 @@ export default function CalculatePage() {
                       <td className="px-4 py-3 align-top">
                         {row.totalAbsences > 0 ? (
                           <p className="font-semibold">
-                            {row.penalty?.prescribed_penalty ??
+                            {row.prescribedPenalty ??
+                              row.penalty?.prescribed_penalty ??
                               "No prescribed penalty configured."}
                           </p>
                         ) : (
@@ -755,6 +1008,7 @@ export default function CalculatePage() {
                           type="button"
                           variant="outline"
                           onClick={() => handleOpenEditRow(row)}
+                          disabled={row.isSavedResult}
                           className="min-h-10 rounded-xl px-4 text-xs font-black"
                         >
                           Edit
@@ -768,8 +1022,8 @@ export default function CalculatePage() {
                       colSpan={9}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
-                      {isLoading
-                        ? "Calculating attendance records..."
+                      {isLoading || isPreviewing
+                        ? "Loading calculation records..."
                         : "No calculation rows found."}
                     </td>
                   </tr>
@@ -782,122 +1036,160 @@ export default function CalculatePage() {
 
       <Dialog
         open={Boolean(editingRow)}
-        onOpenChange={(open) => !open && setEditingRow(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingRow(null);
+            setRecordEditForms([]);
+          }
+        }}
       >
-        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Edit calculation row records</DialogTitle>
+            <DialogTitle>Edit source records for calculation row</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleSaveEditedRow} className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm font-bold">
-                <span>Student ID</span>
-                <Input
-                  value={editForm.studentId}
-                  onChange={(event) =>
-                    handleEditFieldChange("studentId", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Name</span>
-                <Input
-                  value={editForm.name}
-                  onChange={(event) =>
-                    handleEditFieldChange("name", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Year Level</span>
-                <Input
-                  value={editForm.yearLevel}
-                  onChange={(event) =>
-                    handleEditFieldChange("yearLevel", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>College</span>
-                <Input
-                  value={editForm.college}
-                  onChange={(event) =>
-                    handleEditFieldChange("college", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Program</span>
-                <Input
-                  value={editForm.program}
-                  onChange={(event) =>
-                    handleEditFieldChange("program", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Institution</span>
-                <Input
-                  value={editForm.institution}
-                  onChange={(event) =>
-                    handleEditFieldChange("institution", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Imported Absences</span>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={editForm.importedAbsences}
-                  onChange={(event) =>
-                    handleEditFieldChange(
-                      "importedAbsences",
-                      event.target.value,
-                    )
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold">
-                <span>Manual Absences</span>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={editForm.manualAbsences}
-                  onChange={(event) =>
-                    handleEditFieldChange("manualAbsences", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
-              <label className="space-y-2 text-sm font-bold sm:col-span-2">
-                <span>Remarks</span>
-                <Input
-                  value={editForm.remarks}
-                  onChange={(event) =>
-                    handleEditFieldChange("remarks", event.target.value)
-                  }
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
+            <div className="space-y-4">
+              {recordEditForms.map((form, index) => (
+                <div
+                  key={`${form.recordType}-${form.recordId}`}
+                  className="rounded-2xl border bg-background p-4"
+                >
+                  <div className="mb-4 flex flex-col gap-1">
+                    <p className="text-sm font-black uppercase tracking-wide">
+                      {form.recordType === "imported"
+                        ? "Imported record"
+                        : "Manual record"}
+                    </p>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      Event: {form.eventName || "—"}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>Student ID</span>
+                      <Input
+                        value={form.studentId}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "studentId",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>Name</span>
+                      <Input
+                        value={form.name}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "name",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>No. of Absences</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={form.noOfAbsences}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "noOfAbsences",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>Year Level</span>
+                      <Input
+                        value={form.yearLevel}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "yearLevel",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>College</span>
+                      <Input
+                        value={form.college}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "college",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>Program</span>
+                      <Input
+                        value={form.program}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "program",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold">
+                      <span>Institution</span>
+                      <Input
+                        value={form.institution}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "institution",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-bold lg:col-span-2">
+                      <span>Remarks</span>
+                      <Input
+                        value={form.remarks}
+                        onChange={(event) =>
+                          handleRecordEditFieldChange(
+                            index,
+                            "remarks",
+                            event.target.value,
+                          )
+                        }
+                        className="min-h-12 rounded-2xl"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
-              Source records:{" "}
-              {(editingRow?.attendanceRecords.length ?? 0).toLocaleString()}{" "}
-              imported and{" "}
-              {(editingRow?.manualRecords.length ?? 0).toLocaleString()} manual
-              record/s.
+              Editing {(recordEditForms.length || 0).toLocaleString()} specific
+              source record/s for this calculation row.
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -905,7 +1197,10 @@ export default function CalculatePage() {
                 type="button"
                 variant="outline"
                 disabled={isSavingEdit}
-                onClick={() => setEditingRow(null)}
+                onClick={() => {
+                  setEditingRow(null);
+                  setRecordEditForms([]);
+                }}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
                 Cancel
@@ -915,7 +1210,7 @@ export default function CalculatePage() {
                 disabled={isSavingEdit}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
-                {isSavingEdit ? "Saving..." : "Save Row Records"}
+                {isSavingEdit ? "Saving..." : "Save Source Records"}
               </Button>
             </div>
           </form>

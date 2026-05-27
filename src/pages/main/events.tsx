@@ -339,6 +339,7 @@ export default function EventsPage() {
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Event</th>
                   <th className="px-4 py-3">Schedule</th>
                   <th className="px-4 py-3">School Year</th>
@@ -349,8 +350,11 @@ export default function EventsPage() {
               </thead>
               <tbody>
                 {events.length ? (
-                  events.map((event) => (
+                  events.map((event, index) => (
                     <tr key={event.id} className="border-t">
+                      <td className="px-4 py-3 align-top text-base font-black">
+                        {(event.event_order || index + 1).toLocaleString()}
+                      </td>
                       <td className="px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -428,7 +432,7 @@ export default function EventsPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading ? "Loading events..." : "No events found."}

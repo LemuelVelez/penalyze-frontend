@@ -16,6 +16,7 @@ export type AttendanceEvent = {
   event_end_at: string | null;
   description: string | null;
   attendees_count: number;
+  event_order: number;
   created_at: string;
   updated_at: string;
 };
@@ -75,6 +76,32 @@ export type AttendanceFinalResultRecord = {
   attendance_status: string;
   latest_scanned_at: string | null;
   source_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CalculationResultRecord = {
+  id: string;
+  school_year_id: string | null;
+  calculation_scope_key: string;
+  import_ids: string[];
+  student_id: string;
+  name: string;
+  year_level: string | null;
+  college: string | null;
+  program: string | null;
+  institution: string | null;
+  attended_events: number;
+  imported_absences: number;
+  manual_absences: number;
+  total_absences: number;
+  attendance_status: string;
+  penalty_id: string | null;
+  prescribed_penalty: string | null;
+  source_record_count: number;
+  latest_scanned_at: string | null;
+  source_updated_at: string | null;
+  calculated_at: string;
   created_at: string;
   updated_at: string;
 };
@@ -202,6 +229,7 @@ type ListOptions = {
   schoolYearId?: string;
   studentId?: string;
   eventId?: string;
+  importIds?: string[];
   college?: string;
   limit?: number;
   offset?: number;
@@ -649,6 +677,37 @@ export async function refreshAttendanceFinalResults(options: {
 } = {}) {
   const response = await apiRequest<AttendanceFinalResultRecord[]>(
     "/api/attendance/final-results/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify(options),
+    },
+  );
+
+  return response.data ?? [];
+}
+
+export async function listCalculationResults(options: ListOptions = {}) {
+  const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
+    importIds: options.importIds?.join(","),
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0,
+    studentId: options.studentId,
+    college: options.college,
+  });
+
+  const response = await apiRequest<CalculationResultRecord[]>(
+    `/api/attendance/calculation-results${query}`,
+  );
+  return response.data ?? [];
+}
+
+export async function refreshCalculationResults(options: {
+  schoolYearId?: string;
+  importIds?: string[];
+} = {}) {
+  const response = await apiRequest<CalculationResultRecord[]>(
+    "/api/attendance/calculation-results/refresh",
     {
       method: "POST",
       body: JSON.stringify(options),
