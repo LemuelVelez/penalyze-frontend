@@ -53,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { Switch } from "../../components/ui/switch";
 
 type SchoolYearFormState = {
   name: string;
@@ -172,7 +173,7 @@ export default function HistoryPage() {
   const [isTransferring, setIsTransferring] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingSchoolYear, setIsDeletingSchoolYear] = useState(false);
-  const [isUpdatingSchoolYearStatus, setIsUpdatingSchoolYearStatus] =
+  const [isUpdatingSchoolYearActive, setIsUpdatingSchoolYearActive] =
     useState(false);
 
   const selectedSchoolYear = useMemo(() => {
@@ -439,38 +440,34 @@ export default function HistoryPage() {
     }
   }
 
-  async function handleToggleActiveSchoolYear() {
+  async function handleToggleSelectedSchoolYearActive(checked: boolean) {
     if (!selectedSchoolYear) {
       toast.error("Please select a school year.");
       return;
     }
 
-    const nextIsActive = !selectedSchoolYear.is_active;
-
-    setIsUpdatingSchoolYearStatus(true);
+    setIsUpdatingSchoolYearActive(true);
 
     try {
-      await updateSchoolYear(selectedSchoolYear.id, {
+      const saved = await updateSchoolYear(selectedSchoolYear.id, {
         name: selectedSchoolYear.name,
         startsAt: toDateInputValue(selectedSchoolYear.starts_at),
         endsAt: toDateInputValue(selectedSchoolYear.ends_at),
-        isActive: nextIsActive,
+        isActive: checked,
       });
 
       toast.success(
-        nextIsActive
-          ? "School year marked as active."
-          : "School year marked as inactive.",
+        checked ? "School year activated." : "School year deactivated.",
       );
-      await loadHistory(selectedSchoolYear.id);
+      await loadHistory(saved?.id ?? selectedSchoolYear.id);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to update school-year status.",
+          : "Unable to update school year status.",
       );
     } finally {
-      setIsUpdatingSchoolYearStatus(false);
+      setIsUpdatingSchoolYearActive(false);
     }
   }
 
@@ -624,42 +621,11 @@ export default function HistoryPage() {
             selected school-year data.
           </p>
 
-          <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-stretch">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={Boolean(selectedSchoolYear?.is_active)}
-              onClick={handleToggleActiveSchoolYear}
-              disabled={!selectedSchoolYearId || isUpdatingSchoolYearStatus}
-              className="flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border bg-background px-4 py-3 text-left transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 lg:flex-1"
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-black">
-                  Active School Year
-                </span>
-                <span className="block truncate text-xs font-semibold text-muted-foreground">
-                  {isUpdatingSchoolYearStatus
-                    ? "Updating status..."
-                    : selectedSchoolYear?.is_active
-                      ? "Currently active"
-                      : "Currently inactive"}
-                </span>
-              </span>
-              <span
-                className={`flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition ${
-                  selectedSchoolYear?.is_active
-                    ? "justify-end bg-primary"
-                    : "justify-start bg-muted-foreground/30"
-                }`}
-              >
-                <span className="h-5 w-5 rounded-full bg-background shadow-sm" />
-              </span>
-            </button>
-
+          <div className="mt-5 grid gap-3 lg:grid-cols-3">
             <Button
               type="button"
               onClick={handleOpenCreateSchoolYearDialog}
-              className="min-h-12 w-full rounded-2xl px-6 font-black lg:flex-1"
+              className="min-h-12 w-full rounded-2xl px-6 font-black"
             >
               Create School Year
             </Button>
@@ -669,17 +635,32 @@ export default function HistoryPage() {
               variant="outline"
               onClick={handleStartEditSchoolYear}
               disabled={!selectedSchoolYearId}
-              className="min-h-12 w-full rounded-2xl px-6 font-black lg:flex-1"
+              className="min-h-12 w-full rounded-2xl px-6 font-black"
             >
               Edit Selected School Year
             </Button>
+
+            <div className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border bg-background px-4 py-3">
+              <div>
+                <p className="text-sm font-black">Active School Year</p>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {selectedSchoolYear?.is_active ? "Active" : "Inactive"}
+                </p>
+              </div>
+              <Switch
+                checked={Boolean(selectedSchoolYear?.is_active)}
+                onCheckedChange={handleToggleSelectedSchoolYearActive}
+                disabled={!selectedSchoolYearId || isUpdatingSchoolYearActive}
+                aria-label="Toggle active school year"
+              />
+            </div>
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
                   type="button"
                   disabled={isAssigning || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black lg:flex-1"
+                  className="min-h-12 w-full rounded-2xl px-6 font-black"
                 >
                   {isAssigning ? "Assigning..." : "Assign Current Records"}
                 </Button>
@@ -708,7 +689,7 @@ export default function HistoryPage() {
                   type="button"
                   variant="destructive"
                   disabled={isDeleting || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black lg:flex-1"
+                  className="min-h-12 w-full rounded-2xl px-6 font-black"
                 >
                   {isDeleting ? "Deleting..." : "Delete Records by School Year"}
                 </Button>
@@ -739,7 +720,7 @@ export default function HistoryPage() {
                   type="button"
                   variant="destructive"
                   disabled={isDeletingSchoolYear || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black lg:flex-1"
+                  className="min-h-12 w-full rounded-2xl px-6 font-black"
                 >
                   {isDeletingSchoolYear ? "Deleting..." : "Delete School Year"}
                 </Button>
