@@ -162,6 +162,23 @@ function getSelectionCheckboxState(selectedIds: string[], recordIds: string[]) {
   return "indeterminate" as const;
 }
 
+function normalizeRecordSearchValue(value?: string | number | null) {
+  return String(value ?? "").toLowerCase();
+}
+
+function recordMatchesSearch(
+  query: string,
+  values: Array<string | number | null | undefined>,
+) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) return true;
+
+  return values.some((value) =>
+    normalizeRecordSearchValue(value).includes(normalizedQuery),
+  );
+}
+
 export default function HistoryPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
@@ -182,6 +199,7 @@ export default function HistoryPage() {
   const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
   const [activeRecordsDialog, setActiveRecordsDialog] =
     useState<FilteredRecordGroupKey | null>(null);
+  const [recordDialogSearch, setRecordDialogSearch] = useState("");
   const [selectedRecords, setSelectedRecords] =
     useState<SelectedRecordState>(emptySelectedRecords);
   const [isLoading, setIsLoading] = useState(true);
@@ -290,6 +308,54 @@ export default function HistoryPage() {
     return "indeterminate" as const;
   }, [allFilteredRecordCount, selectedRecordCount]);
 
+  const filteredImports = useMemo(() => {
+    return imports.filter((item) =>
+      recordMatchesSearch(recordDialogSearch, [
+        item.id,
+        item.file_name,
+        item.rows_valid,
+        item.created_at,
+        formatDate(item.created_at),
+      ]),
+    );
+  }, [imports, recordDialogSearch]);
+
+  const filteredPenaltyResults = useMemo(() => {
+    return penaltyResults.filter((item) =>
+      recordMatchesSearch(recordDialogSearch, [
+        item.id,
+        item.student_id,
+        item.name,
+        item.no_of_absences,
+        item.prescribed_penalty,
+      ]),
+    );
+  }, [penaltyResults, recordDialogSearch]);
+
+  const filteredFinalResults = useMemo(() => {
+    return finalResults.filter((item) =>
+      recordMatchesSearch(recordDialogSearch, [
+        item.id,
+        item.student_id,
+        item.name,
+        item.total_absences,
+        item.attended_events,
+      ]),
+    );
+  }, [finalResults, recordDialogSearch]);
+
+  const filteredManualRecords = useMemo(() => {
+    return manualRecords.filter((item) =>
+      recordMatchesSearch(recordDialogSearch, [
+        item.id,
+        item.student_id,
+        item.name,
+        item.attendance_type,
+        item.college,
+      ]),
+    );
+  }, [manualRecords, recordDialogSearch]);
+
   async function loadHistory(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
 
@@ -350,6 +416,7 @@ export default function HistoryPage() {
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
       setSelectedRecords(emptySelectedRecords);
+      setRecordDialogSearch("");
       setActiveRecordsDialog(null);
     } catch (error) {
       toast.error(
@@ -369,8 +436,19 @@ export default function HistoryPage() {
   async function handleSchoolYearChange(value: string) {
     setSelectedSchoolYearId(value);
     setSelectedRecords(emptySelectedRecords);
+    setRecordDialogSearch("");
     setActiveRecordsDialog(null);
     await loadHistory(value);
+  }
+
+  function handleOpenRecordsDialog(groupKey: FilteredRecordGroupKey) {
+    setRecordDialogSearch("");
+    setActiveRecordsDialog(groupKey);
+  }
+
+  function handleCloseRecordsDialog() {
+    setRecordDialogSearch("");
+    setActiveRecordsDialog(null);
   }
 
   function handleNameChange(value: string) {
@@ -646,6 +724,21 @@ export default function HistoryPage() {
     );
   }
 
+  function renderDialogSearchInput(title: string) {
+    return (
+      <div className="mt-4">
+        <Input
+          type="search"
+          value={recordDialogSearch}
+          onChange={(event) => setRecordDialogSearch(event.target.value)}
+          placeholder={`Search ${title}`}
+          aria-label={`Search ${title}`}
+          className="min-h-12 rounded-2xl"
+        />
+      </div>
+    );
+  }
+
   function renderDialogSelectAll(
     title: string,
     selectionKey: SelectedRecordKey,
@@ -682,17 +775,19 @@ export default function HistoryPage() {
   function renderActiveRecordsDialogContent() {
     switch (activeRecordsDialog) {
       case "uploadedFiles": {
-        const ids = imports.map((item) => item.id);
+        const ids = filteredImports.map((item) => item.id);
 
         return (
           <>
             <DialogHeader>
               <DialogTitle>Uploaded files</DialogTitle>
             </DialogHeader>
+            {renderDialogSearchInput("uploaded files")}
             {renderDialogSelectAll("uploaded files", "importIds", ids)}
             <div className="mt-4 space-y-3">
-              {imports.length
-                ? imports.map((item) => (
+              {imports.length ? (
+                filteredImports.length ? (
+                  filteredImports.map((item) => (
                     <article
                       key={item.id}
                       className="flex gap-3 rounded-xl border bg-card p-3"
@@ -718,26 +813,31 @@ export default function HistoryPage() {
                       </div>
                     </article>
                   ))
-                : renderEmptyRecordState(
-                    "No uploaded files for this school year.",
-                  )}
+                ) : (
+                  renderEmptyRecordState("No uploaded files match your search.")
+                )
+              ) : (
+                renderEmptyRecordState("No uploaded files for this school year.")
+              )}
             </div>
           </>
         );
       }
 
       case "penaltyResults": {
-        const ids = penaltyResults.map((item) => item.id);
+        const ids = filteredPenaltyResults.map((item) => item.id);
 
         return (
           <>
             <DialogHeader>
               <DialogTitle>Penalty results</DialogTitle>
             </DialogHeader>
+            {renderDialogSearchInput("penalty results")}
             {renderDialogSelectAll("penalty results", "penaltyResultIds", ids)}
             <div className="mt-4 space-y-3">
-              {penaltyResults.length
-                ? penaltyResults.map((item) => (
+              {penaltyResults.length ? (
+                filteredPenaltyResults.length ? (
+                  filteredPenaltyResults.map((item) => (
                     <article
                       key={item.id}
                       className="flex gap-3 rounded-xl border bg-card p-3"
@@ -767,30 +867,35 @@ export default function HistoryPage() {
                       </div>
                     </article>
                   ))
-                : renderEmptyRecordState(
-                    "No penalty results for this school year.",
-                  )}
+                ) : (
+                  renderEmptyRecordState("No penalty results match your search.")
+                )
+              ) : (
+                renderEmptyRecordState("No penalty results for this school year.")
+              )}
             </div>
           </>
         );
       }
 
       case "finalAttendanceResults": {
-        const ids = finalResults.map((item) => item.id);
+        const ids = filteredFinalResults.map((item) => item.id);
 
         return (
           <>
             <DialogHeader>
               <DialogTitle>Final attendance results</DialogTitle>
             </DialogHeader>
+            {renderDialogSearchInput("final attendance results")}
             {renderDialogSelectAll(
               "final attendance results",
               "finalResultIds",
               ids,
             )}
             <div className="mt-4 space-y-3">
-              {finalResults.length
-                ? finalResults.map((item) => (
+              {finalResults.length ? (
+                filteredFinalResults.length ? (
+                  filteredFinalResults.map((item) => (
                     <article
                       key={item.id}
                       className="flex gap-3 rounded-xl border bg-card p-3"
@@ -820,30 +925,39 @@ export default function HistoryPage() {
                       </div>
                     </article>
                   ))
-                : renderEmptyRecordState(
-                    "No final attendance results for this school year.",
-                  )}
+                ) : (
+                  renderEmptyRecordState(
+                    "No final attendance results match your search.",
+                  )
+                )
+              ) : (
+                renderEmptyRecordState(
+                  "No final attendance results for this school year.",
+                )
+              )}
             </div>
           </>
         );
       }
 
       case "manualAttendanceRecords": {
-        const ids = manualRecords.map((item) => item.id);
+        const ids = filteredManualRecords.map((item) => item.id);
 
         return (
           <>
             <DialogHeader>
               <DialogTitle>Manual attendance records</DialogTitle>
             </DialogHeader>
+            {renderDialogSearchInput("manual attendance records")}
             {renderDialogSelectAll(
               "manual attendance records",
               "manualRecordIds",
               ids,
             )}
             <div className="mt-4 space-y-3">
-              {manualRecords.length
-                ? manualRecords.map((item) => (
+              {manualRecords.length ? (
+                filteredManualRecords.length ? (
+                  filteredManualRecords.map((item) => (
                     <article
                       key={item.id}
                       className="flex gap-3 rounded-xl border bg-card p-3"
@@ -875,9 +989,12 @@ export default function HistoryPage() {
                       </div>
                     </article>
                   ))
-                : renderEmptyRecordState(
-                    "No manual records for this school year.",
-                  )}
+                ) : (
+                  renderEmptyRecordState("No manual records match your search.")
+                )
+              ) : (
+                renderEmptyRecordState("No manual records for this school year.")
+              )}
             </div>
           </>
         );
@@ -1304,7 +1421,7 @@ export default function HistoryPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setActiveRecordsDialog(group.key)}
+                  onClick={() => handleOpenRecordsDialog(group.key)}
                   className="min-h-11 w-full rounded-2xl px-5 font-black"
                 >
                   View Records
@@ -1316,7 +1433,7 @@ export default function HistoryPage() {
           <Dialog
             open={Boolean(activeRecordsDialog)}
             onOpenChange={(open) => {
-              if (!open) setActiveRecordsDialog(null);
+              if (!open) handleCloseRecordsDialog();
             }}
           >
             <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
