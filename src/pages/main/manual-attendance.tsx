@@ -88,6 +88,151 @@ function getEventLabel(event: AttendanceEvent) {
   return event.name || `Event ${event.id}`;
 }
 
+function normalizeEventIdentity(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+}
+
+function getPositiveIntegerValue(value: unknown) {
+  const numericValue = Number(value ?? 0);
+
+  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
+
+  return numericValue;
+}
+
+function getTimestamp(value?: string | null) {
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getAttendanceEventOrder(event?: AttendanceEvent | null) {
+  if (!event) return null;
+
+  const eventData = event as Record<string, unknown>;
+
+  return getPositiveIntegerValue(
+    eventData.event_order ?? eventData.eventOrder ?? eventData.order,
+  );
+}
+
+function getAttendanceEventDateTimestamp(event?: AttendanceEvent | null) {
+  return getTimestamp(event?.event_start_at ?? event?.event_end_at ?? null);
+}
+
+function compareAttendanceEventsByOrder(
+  leftEvent: AttendanceEvent,
+  rightEvent: AttendanceEvent,
+) {
+  const leftOrder = getAttendanceEventOrder(leftEvent);
+  const rightOrder = getAttendanceEventOrder(rightEvent);
+
+  if (leftOrder !== null || rightOrder !== null) {
+    if (leftOrder === null) return 1;
+    if (rightOrder === null) return -1;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  }
+
+  const dateDifference =
+    getAttendanceEventDateTimestamp(leftEvent) -
+    getAttendanceEventDateTimestamp(rightEvent);
+  if (dateDifference !== 0) return dateDifference;
+
+  return getEventLabel(leftEvent).localeCompare(getEventLabel(rightEvent), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function sortAttendanceEventsByOrder(events: AttendanceEvent[]) {
+  return [...events].sort(compareAttendanceEventsByOrder);
+}
+
+function buildAttendanceEventLookup(events: AttendanceEvent[]) {
+  const eventsById = new Map<string, AttendanceEvent>();
+  const eventsByName = new Map<string, AttendanceEvent>();
+
+  events.forEach((event) => {
+    const eventId = String(event.id ?? "").trim();
+    const eventName = normalizeEventIdentity(event.name);
+
+    if (eventId) eventsById.set(eventId, event);
+    if (eventName) eventsByName.set(eventName, event);
+  });
+
+  return { eventsById, eventsByName };
+}
+
+function getManualRecordEventId(record: ManualAttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+
+  return String(
+    recordData.event_id ?? recordData.attendance_event_id ?? "",
+  ).trim();
+}
+
+function getManualRecordEventName(record: ManualAttendanceRecord) {
+  return String(record.event_name ?? "").trim();
+}
+
+function getManualRecordEventOrder(
+  record: ManualAttendanceRecord,
+  lookup: ReturnType<typeof buildAttendanceEventLookup>,
+) {
+  const recordData = record as Record<string, unknown>;
+  const linkedEvent =
+    lookup.eventsById.get(getManualRecordEventId(record)) ??
+    lookup.eventsByName.get(normalizeEventIdentity(getManualRecordEventName(record))) ??
+    null;
+
+  return (
+    getAttendanceEventOrder(linkedEvent) ??
+    getPositiveIntegerValue(
+      recordData.event_order ??
+        recordData.eventOrder ??
+        recordData.attendance_event_order ??
+        recordData.attendanceEventOrder,
+    )
+  );
+}
+
+function compareManualAttendanceRecordsByEventOrder(
+  leftRecord: ManualAttendanceRecord,
+  rightRecord: ManualAttendanceRecord,
+  lookup: ReturnType<typeof buildAttendanceEventLookup>,
+) {
+  const leftOrder = getManualRecordEventOrder(leftRecord, lookup);
+  const rightOrder = getManualRecordEventOrder(rightRecord, lookup);
+
+  if (leftOrder !== null || rightOrder !== null) {
+    if (leftOrder === null) return 1;
+    if (rightOrder === null) return -1;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  }
+
+  const eventNameDifference = getManualRecordEventName(leftRecord).localeCompare(
+    getManualRecordEventName(rightRecord),
+    undefined,
+    { numeric: true, sensitivity: "base" },
+  );
+
+  if (eventNameDifference !== 0) return eventNameDifference;
+
+  const timeDifference =
+    getTimestamp(leftRecord.scanned_at ?? leftRecord.created_at) -
+    getTimestamp(rightRecord.scanned_at ?? rightRecord.created_at);
+  if (timeDifference !== 0) return timeDifference;
+
+  return String(leftRecord.student_id ?? "").localeCompare(
+    String(rightRecord.student_id ?? ""),
+    undefined,
+    { numeric: true, sensitivity: "base" },
+  );
+}
+
 export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
@@ -104,6 +249,10 @@ export default function ManualAttendancePage() {
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
 
+  const attendanceEventLookup = useMemo(() => {
+    return buildAttendanceEventLookup(events);
+  }, [events]);
+
   const collegeOptions = useMemo<string[]>(() => {
     const colleges = records
       .map((record) => String(record.college ?? "").trim())
@@ -117,15 +266,23 @@ export default function ManualAttendancePage() {
   const filteredRecords = useMemo(() => {
     const targetCollege = collegeFilter.trim().toLowerCase();
 
-    return records.filter((record) => {
-      if (!targetCollege) return true;
-      return (
-        String(record.college ?? "")
-          .trim()
-          .toLowerCase() === targetCollege
+    return records
+      .filter((record) => {
+        if (!targetCollege) return true;
+        return (
+          String(record.college ?? "")
+            .trim()
+            .toLowerCase() === targetCollege
+        );
+      })
+      .sort((leftRecord, rightRecord) =>
+        compareManualAttendanceRecordsByEventOrder(
+          leftRecord,
+          rightRecord,
+          attendanceEventLookup,
+        ),
       );
-    });
-  }, [records, collegeFilter]);
+  }, [records, collegeFilter, attendanceEventLookup]);
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -156,7 +313,7 @@ export default function ManualAttendancePage() {
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
-      setEvents(eventRows);
+      setEvents(sortAttendanceEventsByOrder(eventRows));
       setRecords(manualRows);
       setForm((current) => ({
         ...current,

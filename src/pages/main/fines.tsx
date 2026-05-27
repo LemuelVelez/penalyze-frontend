@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
+import { listAttendanceEvents } from "../../api/attendance";
+import type { AttendanceEvent } from "../../api/attendance";
 import {
   createPenalty,
   deletePenalty,
@@ -107,6 +109,167 @@ function getPenaltyResultCollege(result: PenaltyResultRecord) {
   return String((result as { college?: string | null }).college ?? "").trim();
 }
 
+function normalizeEventIdentity(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+}
+
+function getPositiveIntegerValue(value: unknown) {
+  const numericValue = Number(value ?? 0);
+
+  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
+
+  return numericValue;
+}
+
+function getTimestamp(value?: string | null) {
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getAttendanceEventOrder(event?: AttendanceEvent | null) {
+  if (!event) return null;
+
+  const eventData = event as Record<string, unknown>;
+
+  return getPositiveIntegerValue(
+    eventData.event_order ?? eventData.eventOrder ?? eventData.order,
+  );
+}
+
+function getAttendanceEventDateTimestamp(event?: AttendanceEvent | null) {
+  return getTimestamp(event?.event_start_at ?? event?.event_end_at ?? null);
+}
+
+function compareAttendanceEventsByOrder(
+  leftEvent: AttendanceEvent,
+  rightEvent: AttendanceEvent,
+) {
+  const leftOrder = getAttendanceEventOrder(leftEvent);
+  const rightOrder = getAttendanceEventOrder(rightEvent);
+
+  if (leftOrder !== null || rightOrder !== null) {
+    if (leftOrder === null) return 1;
+    if (rightOrder === null) return -1;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  }
+
+  const dateDifference =
+    getAttendanceEventDateTimestamp(leftEvent) -
+    getAttendanceEventDateTimestamp(rightEvent);
+  if (dateDifference !== 0) return dateDifference;
+
+  return String(leftEvent.name ?? "").localeCompare(
+    String(rightEvent.name ?? ""),
+    undefined,
+    { numeric: true, sensitivity: "base" },
+  );
+}
+
+function sortAttendanceEventsByOrder(events: AttendanceEvent[]) {
+  return [...events].sort(compareAttendanceEventsByOrder);
+}
+
+function buildAttendanceEventLookup(events: AttendanceEvent[]) {
+  const eventsById = new Map<string, AttendanceEvent>();
+  const eventsByName = new Map<string, AttendanceEvent>();
+
+  events.forEach((event) => {
+    const eventId = String(event.id ?? "").trim();
+    const eventName = normalizeEventIdentity(event.name);
+
+    if (eventId) eventsById.set(eventId, event);
+    if (eventName) eventsByName.set(eventName, event);
+  });
+
+  return { eventsById, eventsByName };
+}
+
+function getPenaltyResultEventId(result: PenaltyResultRecord) {
+  const resultData = result as Record<string, unknown>;
+
+  return String(
+    resultData.event_id ??
+      resultData.attendance_event_id ??
+      resultData.latest_event_id ??
+      "",
+  ).trim();
+}
+
+function getPenaltyResultEventName(result: PenaltyResultRecord) {
+  const resultData = result as Record<string, unknown>;
+
+  return String(
+    resultData.event_name ??
+      resultData.attendance_event_name ??
+      resultData.latest_event_name ??
+      "",
+  ).trim();
+}
+
+function getPenaltyResultEventOrder(
+  result: PenaltyResultRecord,
+  lookup: ReturnType<typeof buildAttendanceEventLookup>,
+) {
+  const resultData = result as Record<string, unknown>;
+  const linkedEvent =
+    lookup.eventsById.get(getPenaltyResultEventId(result)) ??
+    lookup.eventsByName.get(normalizeEventIdentity(getPenaltyResultEventName(result))) ??
+    null;
+
+  return (
+    getAttendanceEventOrder(linkedEvent) ??
+    getPositiveIntegerValue(
+      resultData.event_order ??
+        resultData.eventOrder ??
+        resultData.attendance_event_order ??
+        resultData.attendanceEventOrder ??
+        resultData.latest_event_order ??
+        resultData.latestEventOrder,
+    )
+  );
+}
+
+function comparePenaltyResultsByEventOrder(
+  leftResult: PenaltyResultRecord,
+  rightResult: PenaltyResultRecord,
+  lookup: ReturnType<typeof buildAttendanceEventLookup>,
+) {
+  const leftOrder = getPenaltyResultEventOrder(leftResult, lookup);
+  const rightOrder = getPenaltyResultEventOrder(rightResult, lookup);
+
+  if (leftOrder !== null || rightOrder !== null) {
+    if (leftOrder === null) return 1;
+    if (rightOrder === null) return -1;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  }
+
+  const updatedDifference =
+    getTimestamp(rightResult.updated_at ?? rightResult.created_at) -
+    getTimestamp(leftResult.updated_at ?? leftResult.created_at);
+  if (updatedDifference !== 0) return updatedDifference;
+
+  return String(leftResult.student_id ?? "").localeCompare(
+    String(rightResult.student_id ?? ""),
+    undefined,
+    { numeric: true, sensitivity: "base" },
+  );
+}
+
+function sortPenaltyResultsByEventOrder(
+  results: PenaltyResultRecord[],
+  events: AttendanceEvent[],
+) {
+  const lookup = buildAttendanceEventLookup(events);
+
+  return [...results].sort((leftResult, rightResult) =>
+    comparePenaltyResultsByEventOrder(leftResult, rightResult, lookup),
+  );
+}
+
 export default function FinesPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
@@ -116,6 +279,7 @@ export default function FinesPage() {
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
+  const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [penaltyForm, setPenaltyForm] =
     useState<PenaltyFormState>(emptyPenaltyForm);
@@ -139,17 +303,29 @@ export default function FinesPage() {
     );
   }, [penaltyResults]);
 
-  const filteredPenaltyResults = useMemo(() => {
-    return penaltyResults.filter((result) => {
-      const matchesStatus =
-        statusFilter === "all" || result.status === statusFilter;
-      const matchesCollege =
-        collegeFilter === "__all_colleges__" ||
-        getPenaltyResultCollege(result) === collegeFilter;
+  const attendanceEventLookup = useMemo(() => {
+    return buildAttendanceEventLookup(attendanceEvents);
+  }, [attendanceEvents]);
 
-      return matchesStatus && matchesCollege;
-    });
-  }, [penaltyResults, statusFilter, collegeFilter]);
+  const filteredPenaltyResults = useMemo(() => {
+    return penaltyResults
+      .filter((result) => {
+        const matchesStatus =
+          statusFilter === "all" || result.status === statusFilter;
+        const matchesCollege =
+          collegeFilter === "__all_colleges__" ||
+          getPenaltyResultCollege(result) === collegeFilter;
+
+        return matchesStatus && matchesCollege;
+      })
+      .sort((leftResult, rightResult) =>
+        comparePenaltyResultsByEventOrder(
+          leftResult,
+          rightResult,
+          attendanceEventLookup,
+        ),
+      );
+  }, [penaltyResults, statusFilter, collegeFilter, attendanceEventLookup]);
 
   const summary = useMemo(() => {
     return {
@@ -183,18 +359,26 @@ export default function FinesPage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : schoolYearRows[0]?.id ?? "";
-      const penaltyResultRows = fallbackSchoolYearId
-        ? await listPenaltyResults({
-            schoolYearId: fallbackSchoolYearId,
-            limit: 500,
-            offset: 0,
-          })
-        : [];
+      const [eventRows, penaltyResultRows] = fallbackSchoolYearId
+        ? await Promise.all([
+            listAttendanceEvents({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+            listPenaltyResults({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+          ])
+        : [[], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
+      setAttendanceEvents(sortAttendanceEventsByOrder(eventRows));
       setPenalties(penaltyRows);
-      setPenaltyResults(penaltyResultRows);
+      setPenaltyResults(sortPenaltyResultsByEventOrder(penaltyResultRows, eventRows));
     } catch (error) {
       toast.error(
         error instanceof Error
