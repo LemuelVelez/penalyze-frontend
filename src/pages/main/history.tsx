@@ -3,6 +3,7 @@ import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAttendanceImport,
   listAttendanceFinalResults,
   listAttendanceImports,
   listManualAttendanceRecords,
@@ -208,6 +209,8 @@ export default function HistoryPage() {
   const [isTransferring, setIsTransferring] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingSchoolYear, setIsDeletingSchoolYear] = useState(false);
+  const [isDeletingUploadedFiles, setIsDeletingUploadedFiles] =
+    useState(false);
   const [isUpdatingSchoolYearActive, setIsUpdatingSchoolYearActive] =
     useState(false);
 
@@ -677,6 +680,61 @@ export default function HistoryPage() {
     );
   }
 
+  async function deleteUploadedFilesByIds(
+    importIds: string[],
+    successMessage: string,
+  ) {
+    const uniqueImportIds = Array.from(new Set(importIds.filter(Boolean)));
+
+    if (!uniqueImportIds.length) {
+      toast.error("Please select at least one uploaded file to delete.");
+      return;
+    }
+
+    setIsDeletingUploadedFiles(true);
+
+    try {
+      await Promise.all(
+        uniqueImportIds.map((importId) => deleteAttendanceImport(importId)),
+      );
+      toast.success(successMessage);
+      setSelectedRecords((current) => ({
+        ...current,
+        importIds: current.importIds.filter(
+          (importId) => !uniqueImportIds.includes(importId),
+        ),
+      }));
+      await loadHistory(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete uploaded files.",
+      );
+    } finally {
+      setIsDeletingUploadedFiles(false);
+    }
+  }
+
+  async function handleDeleteSelectedUploadedFiles() {
+    const existingImportIds = new Set(imports.map((item) => item.id));
+    const selectedImportIds = selectedRecords.importIds.filter((importId) =>
+      existingImportIds.has(importId),
+    );
+
+    await deleteUploadedFilesByIds(
+      selectedImportIds,
+      "Selected uploaded files deleted.",
+    );
+  }
+
+  async function handleDeleteAllUploadedFiles() {
+    await deleteUploadedFilesByIds(
+      imports.map((item) => item.id),
+      "All uploaded files deleted.",
+    );
+  }
+
   async function handleTransferSelectedRecords() {
     if (!transferTargetSchoolYearId) {
       toast.error("Please select a target school year.");
@@ -784,6 +842,73 @@ export default function HistoryPage() {
             </DialogHeader>
             {renderDialogSearchInput("uploaded files")}
             {renderDialogSelectAll("uploaded files", "importIds", ids)}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      isDeletingUploadedFiles || !selectedRecords.importIds.length
+                    }
+                    className="min-h-11 rounded-2xl px-5 font-black"
+                  >
+                    {isDeletingUploadedFiles
+                      ? "Deleting..."
+                      : "Delete Selected"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete selected uploads?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete the selected uploaded file records and
+                      their linked attendance data.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteSelectedUploadedFiles}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete Selected
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={isDeletingUploadedFiles || !imports.length}
+                    className="min-h-11 rounded-2xl px-5 font-black"
+                  >
+                    {isDeletingUploadedFiles ? "Deleting..." : "Delete All"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all uploads?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all uploaded files for the selected school
+                      year and their linked attendance data.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteAllUploadedFiles}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
             <div className="mt-4 space-y-3">
               {imports.length ? (
                 filteredImports.length ? (
