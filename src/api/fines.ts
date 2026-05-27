@@ -28,6 +28,21 @@ export type PenaltyRecord = {
   updated_at: string;
 };
 
+export type PenaltyResultRecord = {
+  id: string;
+  school_year_id: string | null;
+  student_id: string;
+  name: string;
+  no_of_absences: number;
+  penalty_id: string | null;
+  prescribed_penalty: string;
+  status: FineStatus;
+  source_table: string | null;
+  source_record_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ZeroAttendanceFinePayload = {
   schoolYearId?: string;
   studentId: string;
@@ -176,12 +191,73 @@ export async function listFines(options: ListFineOptions = {}) {
   return response.data ?? [];
 }
 
+function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
+  return {
+    id: result.id,
+    school_year_id: result.school_year_id,
+    attendance_record_id: result.source_table === "attendance_records" ? result.source_record_id : null,
+    penalty_id: result.penalty_id,
+    student_id: result.student_id,
+    name: result.name,
+    no_of_absences: result.no_of_absences,
+    prescribed_penalty: result.prescribed_penalty,
+    status: result.status,
+    attendance_event_id: null,
+    attendance_remarks: result.source_table === "manual_attendance_records" ? "Manual attendance result" : "Final attendance result",
+    created_at: result.created_at,
+    updated_at: result.updated_at
+  };
+}
+
 export async function getStudentFines(studentId: string) {
-  return listFines({
-    studentId,
-    limit: 1000,
-    offset: 0
+  const [fines, penaltyResults] = await Promise.all([
+    listFines({
+      studentId,
+      limit: 1000,
+      offset: 0
+    }),
+    listPenaltyResults({
+      studentId,
+      limit: 1000,
+      offset: 0
+    }).catch(() => [] as PenaltyResultRecord[])
+  ]);
+
+  return [
+    ...fines,
+    ...penaltyResults.map(penaltyResultToFineRecord)
+  ];
+}
+
+export async function listPenaltyResults(options: ListFineOptions = {}) {
+  const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
+    status: options.status || undefined,
+    studentId: options.studentId,
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0
   });
+
+  const response = await apiRequest<PenaltyResultRecord[]>(`/api/fines/penalty-results${query}`);
+  return response.data ?? [];
+}
+
+export async function refreshPenaltyResults(options: { schoolYearId?: string } = {}) {
+  const response = await apiRequest<PenaltyResultRecord[]>("/api/fines/penalty-results/refresh", {
+    method: "POST",
+    body: JSON.stringify(options)
+  });
+
+  return response.data ?? [];
+}
+
+export async function updatePenaltyResultStatus(id: string, status: FineStatus) {
+  const response = await apiRequest<PenaltyResultRecord>(`/api/fines/penalty-results/${encodeURIComponent(id)}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+
+  return response.data;
 }
 
 export async function getFineSummary() {

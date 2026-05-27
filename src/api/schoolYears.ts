@@ -31,6 +31,27 @@ export type TransferSchoolYearRecordsResult = {
   importsUpdated: number;
   attendanceRecordsUpdated: number;
   finesUpdated: number;
+  finalResultsUpdated?: number;
+  manualRecordsUpdated?: number;
+  penaltyResultsUpdated?: number;
+};
+
+export type SchoolYearRecordActionResult = {
+  schoolYear: SchoolYearRecord;
+  eventsUpdated?: number;
+  importsUpdated?: number;
+  attendanceRecordsUpdated?: number;
+  finesUpdated?: number;
+  finalResultsUpdated?: number;
+  manualRecordsUpdated?: number;
+  penaltyResultsUpdated?: number;
+  eventsDeleted?: number;
+  importsDeleted?: number;
+  attendanceRecordsDeleted?: number;
+  finesDeleted?: number;
+  finalResultsDeleted?: number;
+  manualRecordsDeleted?: number;
+  penaltyResultsDeleted?: number;
 };
 
 type ApiEnvelope<T> = {
@@ -175,6 +196,28 @@ export async function transferSchoolYearRecords(payload: TransferSchoolYearRecor
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+
+  return response.data;
+}
+
+export async function assignCurrentRecordsToSchoolYear(id: string) {
+  const response = await apiRequest<SchoolYearRecordActionResult>(
+    `/api/school-years/${encodeURIComponent(id)}/assign-current`,
+    {
+      method: "PATCH",
+    },
+  );
+
+  return response.data;
+}
+
+export async function deleteSchoolYearRecords(id: string) {
+  const response = await apiRequest<SchoolYearRecordActionResult>(
+    `/api/school-years/${encodeURIComponent(id)}/records`,
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }

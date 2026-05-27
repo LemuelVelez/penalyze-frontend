@@ -1,27 +1,25 @@
+
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
-import { listAttendanceRecords } from "../../api/attendance";
+import {
+  createPenalty,
+  deletePenalty,
+  listPenalties,
+  listPenaltyResults,
+  refreshPenaltyResults,
+  seedDefaultPenalties,
+  updatePenalty,
+  updatePenaltyResultStatus,
+} from "../../api/fines";
+import type { FineStatus, PenaltyRecord, PenaltyResultRecord } from "../../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
   listSchoolYears,
-  saveSchoolYear,
-  transferSchoolYearRecords,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import type { AttendanceRecord } from "../../api/attendance";
-import {
-  createPenalty,
-  deletePenalty,
-  listFines,
-  listPenalties,
-  seedDefaultPenalties,
-  updateFineStatus,
-  updatePenalty,
-} from "../../api/fines";
-import type { FineRecord, FineStatus, PenaltyRecord } from "../../api/fines";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,17 +31,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
-import ExportReport from "../../components/exportReport";
 import { Button } from "../../components/ui/button";
-import { Checkbox } from "../../components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Select,
@@ -52,337 +40,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-
-type StatusFilter = FineStatus | "all";
+import { Textarea } from "../../components/ui/textarea";
 
 type PenaltyFormState = {
+  id: string;
   noOfAbsences: string;
   prescribedPenalty: string;
 };
 
-type SchoolYearFormState = {
-  name: string;
-  startsAt: string;
-  endsAt: string;
-  isActive: boolean;
-};
-
-type DisplayFineRecord = FineRecord & {
-  merged_fine_ids?: string[];
-  merged_record_count?: number;
-};
-
-const statusOptions: Array<{ value: StatusFilter; label: string }> = [
-  { value: "all", label: "ALL STATUS" },
-  { value: "unpaid", label: "UNPAID" },
-  { value: "paid", label: "PAID" },
-  { value: "waived", label: "WAIVED" },
-];
-
-const fineStatusOptions: Array<{ value: FineStatus; label: string }> = [
-  { value: "unpaid", label: "UNPAID" },
-  { value: "paid", label: "PAID" },
-  { value: "waived", label: "WAIVED" },
-];
+type StatusFilter = FineStatus | "all";
 
 const emptyPenaltyForm: PenaltyFormState = {
+  id: "",
   noOfAbsences: "",
   prescribedPenalty: "",
 };
 
-const emptySchoolYearForm: SchoolYearFormState = {
-  name: "",
-  startsAt: "",
-  endsAt: "",
-  isActive: false,
-};
+const statusOptions: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All status" },
+  { value: "unpaid", label: "Unpaid" },
+  { value: "paid", label: "Paid" },
+  { value: "waived", label: "Waived" },
+];
+
+const fineStatusOptions: Array<{ value: FineStatus; label: string }> = [
+  { value: "unpaid", label: "Unpaid" },
+  { value: "paid", label: "Paid" },
+  { value: "waived", label: "Waived" },
+];
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
-
-function getDateYear(value?: string | null) {
-  if (!value) return "";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return String(date.getFullYear());
-}
-
-function getAttendanceRecordYear(record: AttendanceRecord) {
-  return record.school_year_id || getDateYear(record.scanned_at ?? record.created_at ?? null);
-}
-
-function getAttendanceRecordById(records: AttendanceRecord[]) {
-  const recordById = new Map<string, AttendanceRecord>();
-
-  records.forEach((record) => {
-    if (record.id) recordById.set(String(record.id), record);
-  });
-
-  return recordById;
-}
-
-function getFineRecordYear(
-  fine: FineRecord,
-  attendanceRecordById?: Map<string, AttendanceRecord>,
-) {
-  const linkedRecord = attendanceRecordById?.get(getFineAttendanceRecordId(fine)) ?? null;
-
-  return (
-    fine.school_year_id ||
-    linkedRecord?.school_year_id ||
-    getDateYear(linkedRecord?.scanned_at ?? linkedRecord?.created_at ?? null) ||
-    getDateYear(fine.created_at ?? null)
-  );
-}
-
-function getYearOptions(
-  attendanceRecords: AttendanceRecord[],
-  fines: FineRecord[],
-  schoolYears: SchoolYearRecord[],
-) {
-  const attendanceRecordById = getAttendanceRecordById(attendanceRecords);
-
-  return Array.from(
-    new Set(
-      [
-        ...schoolYears.map((schoolYear) => schoolYear.id),
-        ...attendanceRecords.map(getAttendanceRecordYear),
-        ...fines.map((fine) => getFineRecordYear(fine, attendanceRecordById)),
-      ].filter(Boolean),
-    ),
-  );
-}
-
-function matchesSelectedYear(recordYear: string, selectedYear: string) {
-  return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
-}
-
-function normalizeDisplayValue(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function getCollegeScopeKey(value: unknown) {
-  return normalizeDisplayValue(value) || "__no_college__";
-}
-
-function getRecordCollegeScopeKey(record: AttendanceRecord) {
-  return getCollegeScopeKey(record.college);
-}
-
-function getFineAttendanceRecordId(fine: FineRecord) {
-  return String(fine.attendance_record_id ?? "").trim();
-}
-
-function getFineAttendanceEventId(fine: FineRecord) {
-  return String(fine.attendance_event_id ?? "").trim();
-}
-
-function getAttendanceRecordAbsenceCount(record?: AttendanceRecord | null) {
-  const numericValue = Number(record?.no_of_absences ?? 0);
-
-  if (!Number.isFinite(numericValue)) return 0;
-
-  return Math.max(0, numericValue);
-}
-
-function getFineStoredAbsenceCount(fine: FineRecord) {
-  const numericValue = Number(fine.no_of_absences ?? 0);
-
-  if (!Number.isFinite(numericValue)) return 0;
-
-  return Math.max(0, numericValue);
-}
-
-function getFineLinkedAttendanceRecord(
-  fine: FineRecord,
-  attendanceRecords: AttendanceRecord[],
-) {
-  const fineAttendanceRecordId = getFineAttendanceRecordId(fine);
-  const fineAttendanceEventId = getFineAttendanceEventId(fine);
-  const cleanStudentId = normalizeDisplayValue(fine.student_id);
-
-  if (fineAttendanceRecordId) {
-    const linkedRecord = attendanceRecords.find(
-      (record) => String(record.id ?? "").trim() === fineAttendanceRecordId,
-    );
-
-    if (linkedRecord) return linkedRecord;
-  }
-
-  if (!fineAttendanceEventId || !cleanStudentId) return null;
-
-  return (
-    attendanceRecords.find(
-      (record) =>
-        String(record.event_id ?? "").trim() === fineAttendanceEventId &&
-        normalizeDisplayValue(record.student_id) === cleanStudentId,
-    ) ?? null
-  );
-}
-
-function getFineBaseAbsenceCount(
-  fine: FineRecord,
-  attendanceRecords: AttendanceRecord[],
-) {
-  const linkedAttendanceRecord = getFineLinkedAttendanceRecord(
-    fine,
-    attendanceRecords,
-  );
-
-  if (linkedAttendanceRecord) {
-    return getAttendanceRecordAbsenceCount(linkedAttendanceRecord);
-  }
-
-  return getFineStoredAbsenceCount(fine);
-}
-
-function isZeroAttendanceRecord(record: AttendanceRecord) {
-  return (
-    !record.event_id &&
-    normalizeDisplayValue(record.remarks).includes("zero attendance")
-  );
-}
-
-function isExplicitAbsentAttendanceRecord(record: AttendanceRecord) {
-  const recordData = record as Record<string, unknown>;
-  const statusValues = [
-    recordData.status,
-    recordData.attendance_status,
-    recordData.classification,
-    recordData.result,
-    record.remarks,
-  ]
-    .map(normalizeDisplayValue)
-    .filter(Boolean);
-
-  return statusValues.some((value) =>
-    /(^|\s)(absent|absence|missed|not attended|unattended|no show)(\s|$)/.test(
-      value,
-    ),
-  );
-}
-
-function getRecordEventIdentityKey(record: AttendanceRecord) {
-  const eventId = String(record.event_id ?? "").trim();
-  const eventName = normalizeDisplayValue(
-    (record as { event_name?: string | null }).event_name,
-  );
-  const importId = normalizeDisplayValue(
-    (record as { import_id?: string | null }).import_id,
-  );
-
-  if (eventId) return `event-id:${eventId}`;
-  if (eventName) return `event-name:${eventName}`;
-  if (importId) return `import:${importId}`;
-
-  return "";
-}
-
-function getRecordCollegeLinkedEventKey(record: AttendanceRecord) {
-  const eventKey = getRecordEventIdentityKey(record);
-  if (!eventKey) return "";
-
-  return `${eventKey}:college:${getRecordCollegeScopeKey(record)}`;
-}
-
-function recordMatchesSelectedYear(
-  record: AttendanceRecord,
-  selectedYear: string,
-) {
-  return matchesSelectedYear(getAttendanceRecordYear(record), selectedYear);
-}
-
-function getStudentMissingCollegeLinkedEventCount(props: {
-  studentId: string;
-  attendanceRecords: AttendanceRecord[];
-  selectedYear: string;
-}) {
-  const cleanStudentId = normalizeDisplayValue(props.studentId);
-
-  if (!cleanStudentId || !props.attendanceRecords.length) return null;
-
-  const yearRecords = props.attendanceRecords.filter((record) =>
-    recordMatchesSelectedYear(record, props.selectedYear),
-  );
-  const studentRecords = yearRecords.filter(
-    (record) => normalizeDisplayValue(record.student_id) === cleanStudentId,
-  );
-  const studentCollegeKeys = new Set(
-    studentRecords
-      .map(getRecordCollegeScopeKey)
-      .filter((collegeKey) => collegeKey !== "__no_college__"),
-  );
-
-  if (!studentCollegeKeys.size) return null;
-
-  const collegeLinkedEventKeys = new Set<string>();
-  const attendedEventKeys = new Set<string>();
-
-  yearRecords.forEach((record) => {
-    const collegeKey = getRecordCollegeScopeKey(record);
-    const eventKey = getRecordCollegeLinkedEventKey(record);
-
-    if (
-      !studentCollegeKeys.has(collegeKey) ||
-      !eventKey ||
-      isZeroAttendanceRecord(record)
-    ) {
-      return;
-    }
-
-    collegeLinkedEventKeys.add(eventKey);
-  });
-
-  if (!collegeLinkedEventKeys.size) return null;
-
-  studentRecords.forEach((record) => {
-    const collegeKey = getRecordCollegeScopeKey(record);
-    const eventKey = getRecordCollegeLinkedEventKey(record);
-
-    if (
-      !studentCollegeKeys.has(collegeKey) ||
-      !eventKey ||
-      isZeroAttendanceRecord(record) ||
-      isExplicitAbsentAttendanceRecord(record)
-    ) {
-      return;
-    }
-
-    attendedEventKeys.add(eventKey);
-  });
-
-  return Array.from(collegeLinkedEventKeys).filter(
-    (eventKey) => !attendedEventKeys.has(eventKey),
-  ).length;
-}
-
-function getDisplayedFineAbsenceCount(
-  fine: FineRecord,
-  attendanceRecords: AttendanceRecord[],
-  selectedYear: string,
-) {
-  const fineAbsenceCount = getFineBaseAbsenceCount(
-    fine,
-    attendanceRecords,
-  );
-  const collegeLinkedAbsenceCount = getStudentMissingCollegeLinkedEventCount({
-    studentId: fine.student_id,
-    attendanceRecords,
-    selectedYear,
-  });
-
-  if (collegeLinkedAbsenceCount !== null) {
-    return collegeLinkedAbsenceCount > 0
-      ? Math.min(Math.max(1, fineAbsenceCount), collegeLinkedAbsenceCount)
-      : 0;
-  }
-
-  return fineAbsenceCount;
-}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -397,1426 +84,320 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
-function statusClass(status: FineStatus) {
-  if (status === "paid")
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "waived") return "border-blue-200 bg-blue-50 text-blue-700";
-  return "border-red-200 bg-red-50 text-red-700";
+function getStatusBadgeClassName(status: FineStatus) {
+  const styles: Record<FineStatus, string> = {
+    unpaid: "border-red-200 bg-red-50 text-red-700",
+    paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    waived: "border-blue-200 bg-blue-50 text-blue-700",
+  };
+
+  return styles[status];
 }
 
-function getFineStatusLabel(status: FineStatus) {
-  return (
-    fineStatusOptions.find((item) => item.value === status)?.label ??
-    status.toUpperCase()
-  );
-}
+export default function FinesPage() {
+  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState(ALL_YEARS_VALUE);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>([]);
+  const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
+  const [penaltyForm, setPenaltyForm] = useState<PenaltyFormState>(emptyPenaltyForm);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingResults, setIsRefreshingResults] = useState(false);
+  const [isSavingPenalty, setIsSavingPenalty] = useState(false);
+  const [updatingStatusId, setUpdatingStatusId] = useState("");
 
-function isZeroAttendanceFine(fine: FineRecord) {
-  return (
-    !fine.attendance_event_id &&
-    String(fine.attendance_remarks ?? "")
-      .toLowerCase()
-      .includes("zero attendance")
-  );
-}
+  const selectedSchoolYearLabel = useMemo(() => {
+    return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
+  }, [schoolYears, selectedSchoolYearId]);
 
-function normalizeFineDisplayValue(value: unknown) {
-  return normalizeDisplayValue(value);
-}
-
-function getFineDisplayKey(fine: FineRecord) {
-  return [
-    normalizeFineDisplayValue(fine.student_id),
-    normalizeFineDisplayValue(fine.attendance_event_id),
-    normalizeFineDisplayValue(fine.attendance_record_id),
-    getFineStoredAbsenceCount(fine),
-    normalizeFineDisplayValue(fine.prescribed_penalty),
-    normalizeFineDisplayValue(fine.created_at),
-    normalizeFineDisplayValue(fine.status),
-  ].join("::");
-}
-
-function getUniqueDisplayFines(fines: FineRecord[]) {
-  const uniqueFines = new Map<string, FineRecord>();
-
-  fines.forEach((fine) => {
-    const key = getFineDisplayKey(fine);
-
-    if (!uniqueFines.has(key)) {
-      uniqueFines.set(key, fine);
-    }
-  });
-
-  return Array.from(uniqueFines.values());
-}
-
-function getFineTimestamp(fine: FineRecord) {
-  const value = fine.created_at ?? fine.updated_at;
-  const time = value ? new Date(value).getTime() : 0;
-
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function getMergedFineStatus(fines: FineRecord[]): FineStatus {
-  if (fines.some((fine) => fine.status === "unpaid")) return "unpaid";
-  if (fines.length && fines.every((fine) => fine.status === "paid"))
-    return "paid";
-  if (fines.length && fines.every((fine) => fine.status === "waived"))
-    return "waived";
-
-  return fines[0]?.status ?? "unpaid";
-}
-
-function getStudentMergedFineKey(fine: FineRecord) {
-  const cleanStudentId = normalizeFineDisplayValue(fine.student_id);
-
-  return cleanStudentId || getFineDisplayKey(fine);
-}
-
-function getMergedFineIds(fines: FineRecord[]) {
-  return Array.from(new Set(fines.map((fine) => fine.id).filter(Boolean)));
-}
-
-function mergeStudentFineRecords(
-  fines: FineRecord[],
-  attendanceRecords: AttendanceRecord[],
-  selectedYear: string,
-): DisplayFineRecord[] {
-  const fineGroups = new Map<string, FineRecord[]>();
-
-  fines.forEach((fine) => {
-    const key = getStudentMergedFineKey(fine);
-    const currentGroup = fineGroups.get(key) ?? [];
-
-    currentGroup.push(fine);
-    fineGroups.set(key, currentGroup);
-  });
-
-  return Array.from(fineGroups.values()).map((group) => {
-    if (group.length === 1) {
-      return {
-        ...group[0],
-        merged_fine_ids: getMergedFineIds(group),
-        merged_record_count: 1,
-      };
-    }
-
-    const sortedGroup = [...group].sort((leftFine, rightFine) => {
-      const absenceDifference =
-        getDisplayedFineAbsenceCount(
-          rightFine,
-          attendanceRecords,
-          selectedYear,
-        ) -
-        getDisplayedFineAbsenceCount(leftFine, attendanceRecords, selectedYear);
-
-      if (absenceDifference !== 0) return absenceDifference;
-
-      return getFineTimestamp(rightFine) - getFineTimestamp(leftFine);
+  const filteredPenaltyResults = useMemo(() => {
+    return penaltyResults.filter((result) => {
+      return statusFilter === "all" || result.status === statusFilter;
     });
-    const baseFine = sortedGroup[0];
-    const mergedAbsenceCount = group.reduce((highestCount, fine) => {
-      return Math.max(
-        highestCount,
-        getDisplayedFineAbsenceCount(fine, attendanceRecords, selectedYear),
-      );
-    }, 0);
+  }, [penaltyResults, statusFilter]);
 
+  const summary = useMemo(() => {
     return {
-      ...baseFine,
-      no_of_absences: mergedAbsenceCount,
-      status: getMergedFineStatus(group),
-      merged_fine_ids: getMergedFineIds(group),
-      merged_record_count: group.length,
+      total: filteredPenaltyResults.length,
+      unpaid: filteredPenaltyResults.filter((result) => result.status === "unpaid").length,
+      paid: filteredPenaltyResults.filter((result) => result.status === "paid").length,
+      waived: filteredPenaltyResults.filter((result) => result.status === "waived").length,
+      absences: filteredPenaltyResults.reduce((total, result) => total + Number(result.no_of_absences || 0), 0),
     };
-  });
-}
+  }, [filteredPenaltyResults]);
 
-function getFineUpdateIds(fine: DisplayFineRecord) {
-  const mergedFineIds = fine.merged_fine_ids?.filter(Boolean) ?? [];
+  async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
+    setIsLoading(true);
 
-  return mergedFineIds.length ? mergedFineIds : [fine.id];
-}
+    try {
+      const [schoolYearRows, penaltyRows, penaltyResultRows] = await Promise.all([
+        listSchoolYears(),
+        listPenalties(),
+        listPenaltyResults({
+          schoolYearId: nextSchoolYearId === ALL_YEARS_VALUE ? undefined : nextSchoolYearId,
+          limit: 500,
+          offset: 0,
+        }),
+      ]);
 
-function getStudentCollegeScopeKeys(
-  studentId: string,
-  attendanceRecords: AttendanceRecord[],
-) {
-  const cleanStudentId = normalizeDisplayValue(studentId);
-  const collegeKeys = new Set<string>();
+      setSchoolYears(schoolYearRows);
+      setPenalties(penaltyRows);
+      setPenaltyResults(penaltyResultRows);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load penalty results.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
-  if (!cleanStudentId) return collegeKeys;
+  useEffect(() => {
+    void loadPageData();
+  }, []);
 
-  attendanceRecords.forEach((record) => {
-    if (normalizeDisplayValue(record.student_id) !== cleanStudentId) return;
+  async function handleSchoolYearChange(value: string) {
+    setSelectedSchoolYearId(value);
+    await loadPageData(value);
+  }
 
-    const collegeKey = getRecordCollegeScopeKey(record);
-    if (collegeKey !== "__no_college__") collegeKeys.add(collegeKey);
-  });
+  async function handleRefreshPenaltyResults() {
+    setIsRefreshingResults(true);
 
-  if (!collegeKeys.size) {
-    attendanceRecords.forEach((record) => {
-      if (normalizeDisplayValue(record.student_id) !== cleanStudentId) return;
-      collegeKeys.add(getRecordCollegeScopeKey(record));
+    try {
+      await refreshPenaltyResults({
+        schoolYearId: selectedSchoolYearId === ALL_YEARS_VALUE ? undefined : selectedSchoolYearId,
+      });
+      await loadPageData(selectedSchoolYearId);
+      toast.success("Penalty results refreshed from final absences.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to refresh penalty results.");
+    } finally {
+      setIsRefreshingResults(false);
+    }
+  }
+
+  async function handleSavePenalty(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const noOfAbsences = Number(penaltyForm.noOfAbsences);
+    const prescribedPenalty = penaltyForm.prescribedPenalty.trim();
+
+    if (!Number.isInteger(noOfAbsences) || noOfAbsences <= 0) {
+      toast.error("No. of absences must be a positive whole number.");
+      return;
+    }
+
+    if (!prescribedPenalty) {
+      toast.error("Prescribed penalty is required.");
+      return;
+    }
+
+    setIsSavingPenalty(true);
+
+    try {
+      if (penaltyForm.id) {
+        await updatePenalty(penaltyForm.id, noOfAbsences, prescribedPenalty);
+        toast.success("Penalty rule updated.");
+      } else {
+        await createPenalty(noOfAbsences, prescribedPenalty);
+        toast.success("Penalty rule saved.");
+      }
+
+      setPenaltyForm(emptyPenaltyForm);
+      await loadPageData(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to save penalty rule.");
+    } finally {
+      setIsSavingPenalty(false);
+    }
+  }
+
+  async function handleSeedDefaultPenalties() {
+    setIsSavingPenalty(true);
+
+    try {
+      await seedDefaultPenalties();
+      await loadPageData(selectedSchoolYearId);
+      toast.success("Default penalty rules loaded.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to seed penalty rules.");
+    } finally {
+      setIsSavingPenalty(false);
+    }
+  }
+
+  async function handleDeletePenalty(penalty: PenaltyRecord) {
+    setIsSavingPenalty(true);
+
+    try {
+      await deletePenalty(penalty.id);
+      await loadPageData(selectedSchoolYearId);
+      toast.success("Penalty rule deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete penalty rule.");
+    } finally {
+      setIsSavingPenalty(false);
+    }
+  }
+
+  async function handleStatusChange(result: PenaltyResultRecord, status: FineStatus) {
+    setUpdatingStatusId(result.id);
+
+    try {
+      const updated = await updatePenaltyResultStatus(result.id, status);
+      setPenaltyResults((current) =>
+        current.map((item) => (item.id === result.id && updated ? updated : item)),
+      );
+      toast.success("Penalty status updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update penalty status.");
+    } finally {
+      setUpdatingStatusId("");
+    }
+  }
+
+  function handleEditPenalty(penalty: PenaltyRecord) {
+    setPenaltyForm({
+      id: penalty.id,
+      noOfAbsences: String(penalty.no_of_absences),
+      prescribedPenalty: penalty.prescribed_penalty,
     });
   }
 
-  return collegeKeys;
-}
-
-function isFineLinkedToAttendeeCollege(props: {
-  fine: FineRecord;
-  attendanceRecords: AttendanceRecord[];
-  selectedYear: string;
-}) {
-  if (isZeroAttendanceFine(props.fine)) return true;
-  if (!props.attendanceRecords.length) return true;
-
-  const collegeLinkedAbsenceCount = getStudentMissingCollegeLinkedEventCount({
-    studentId: props.fine.student_id,
-    attendanceRecords: props.attendanceRecords,
-    selectedYear: props.selectedYear,
-  });
-
-  if (collegeLinkedAbsenceCount !== null && collegeLinkedAbsenceCount <= 0) {
-    return false;
-  }
-
-  const fineEventId = getFineAttendanceEventId(props.fine);
-  const fineAttendanceRecordId = getFineAttendanceRecordId(props.fine);
-
-  if (!fineEventId && !fineAttendanceRecordId) {
-    return collegeLinkedAbsenceCount === null || collegeLinkedAbsenceCount > 0;
-  }
-
-  const linkedAttendanceRecord = fineAttendanceRecordId
-    ? props.attendanceRecords.find(
-        (record) => String(record.id ?? "") === fineAttendanceRecordId,
-      )
-    : null;
-
-  if (linkedAttendanceRecord) {
-    return matchesSelectedYear(
-      getAttendanceRecordYear(linkedAttendanceRecord),
-      props.selectedYear,
-    );
-  }
-
-  if (!fineEventId)
-    return collegeLinkedAbsenceCount === null || collegeLinkedAbsenceCount > 0;
-
-  const studentCollegeKeys = getStudentCollegeScopeKeys(
-    props.fine.student_id,
-    props.attendanceRecords,
-  );
-  if (!studentCollegeKeys.size) return true;
-
-  return props.attendanceRecords.some((record) => {
-    if (String(record.event_id ?? "").trim() !== fineEventId) return false;
-    if (!studentCollegeKeys.has(getRecordCollegeScopeKey(record))) return false;
-
-    return matchesSelectedYear(
-      getAttendanceRecordYear(record),
-      props.selectedYear,
-    );
-  });
-}
-
-function getSelectedFineTransferIds(
-  fines: DisplayFineRecord[],
-  selectedFineIds: string[],
-) {
-  const selectedFineIdSet = new Set(selectedFineIds);
-
-  return Array.from(
-    new Set(
-      fines.flatMap((fine) => {
-        if (!selectedFineIdSet.has(fine.id)) return [];
-        return fine.merged_fine_ids?.length ? fine.merged_fine_ids : [fine.id];
-      }),
-    ),
-  );
-}
-
-function SchoolYearManagerDialog(props: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  schoolYears: SchoolYearRecord[];
-  form: SchoolYearFormState;
-  targetSchoolYearId: string;
-  selectedFineCount: number;
-  isSaving: boolean;
-  isTransferring: boolean;
-  error: string;
-  onFormChange: <K extends keyof SchoolYearFormState>(key: K, value: SchoolYearFormState[K]) => void;
-  onCreate: (event: SyntheticEvent<HTMLFormElement>) => void;
-  onTargetChange: (value: string) => void;
-  onTransferSelected: () => void | Promise<void>;
-}) {
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" variant="outline" className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black">
-          School Years
-        </Button>
-      </DialogTrigger>
-      <DialogContent
-        onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
-      >
-        <DialogHeader>
-          <DialogTitle>School Years</DialogTitle>
-          <DialogDescription className="sr-only">
-            Create school years and link selected fine records to a school year.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="rounded-3xl border bg-card p-4">
-            <h3 className="text-sm font-black uppercase tracking-wide">Existing school years</h3>
-            <p className="text-xs font-semibold text-muted-foreground">
-              {props.schoolYears.length} school year/s saved
-            </p>
-            <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-              {props.schoolYears.length ? (
-                props.schoolYears.map((schoolYear) => (
-                  <div key={schoolYear.id} className="rounded-2xl border bg-background p-3">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="wrap-break-word text-sm font-black">{schoolYear.name}</p>
-                        <p className="mt-1 wrap-break-word text-xs font-semibold text-muted-foreground">
-                          {formatDate(schoolYear.starts_at)} - {formatDate(schoolYear.ends_at)}
-                        </p>
-                      </div>
-                      {schoolYear.is_active ? (
-                        <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
-                          Active
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-4 text-center text-sm font-semibold text-muted-foreground">
-                  No school years yet.
-                </div>
-              )}
-            </div>
-          </section>
-
-          <div className="space-y-4">
-            <form onSubmit={props.onCreate} className="rounded-3xl border bg-card p-4">
-              <h3 className="text-sm font-black uppercase tracking-wide">Create school year</h3>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="space-y-2 text-sm font-bold sm:col-span-2">
-                  <span>Name</span>
-                  <Input
-                    value={props.form.name}
-                    onChange={(event) => props.onFormChange("name", event.target.value)}
-                    placeholder="2025-2026"
-                    className="min-h-10 rounded-2xl"
-                    required
-                  />
-                </label>
-                <label className="space-y-2 text-sm font-bold">
-                  <span>Starts at</span>
-                  <Input
-                    type="date"
-                    value={props.form.startsAt}
-                    onChange={(event) => props.onFormChange("startsAt", event.target.value)}
-                    className="min-h-10 rounded-2xl"
-                  />
-                </label>
-                <label className="space-y-2 text-sm font-bold">
-                  <span>Ends at</span>
-                  <Input
-                    type="date"
-                    value={props.form.endsAt}
-                    onChange={(event) => props.onFormChange("endsAt", event.target.value)}
-                    className="min-h-10 rounded-2xl"
-                  />
-                </label>
-                <label className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 text-sm font-bold sm:col-span-2">
-                  <Checkbox
-                    checked={props.form.isActive}
-                    onCheckedChange={(checked) => props.onFormChange("isActive", checked === true)}
-                  />
-                  <span>Set as active school year</span>
-                </label>
-              </div>
-              <Button
-                type="submit"
-                disabled={props.isSaving}
-                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-              >
-                {props.isSaving ? "Saving..." : "Create School Year"}
-              </Button>
-            </form>
-
-            <section className="rounded-3xl border bg-card p-4">
-              <h3 className="text-sm font-black uppercase tracking-wide">Link selected fines</h3>
-              <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                {props.selectedFineCount} fine record/s selected.
+    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                Fines
               </p>
-              <Select value={props.targetSchoolYearId} onValueChange={props.onTargetChange}>
-                <SelectTrigger className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black">
-                  <SelectValue placeholder="Target school year" />
+              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+                Penalties based on absences
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                This page renders the saved penalty result table. Results are refreshed from final attendance absences and matched to the configured penalty rules.
+              </p>
+            </div>
+
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
+              <Select value={selectedSchoolYearId} onValueChange={handleSchoolYearChange}>
+                <SelectTrigger className="min-h-12 rounded-2xl lg:w-72">
+                  <SelectValue placeholder="School year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {props.schoolYears.map((schoolYear) => (
+                  <SelectItem value={ALL_YEARS_VALUE}>All school years</SelectItem>
+                  {schoolYears.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
                       {schoolYear.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!props.selectedFineCount || !props.targetSchoolYearId || props.isTransferring}
-                onClick={() => {
-                  void props.onTransferSelected();
-                }}
-                className="mt-3 min-h-10 w-full rounded-2xl px-4 py-2 text-xs font-black"
-              >
-                {props.isTransferring ? "Linking..." : "Link Selected to School Year"}
-              </Button>
-            </section>
-          </div>
-        </div>
 
-        {props.error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {props.error}
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DeletePenaltyConfirmation(props: {
-  penalty: PenaltyRecord;
-  isDeleting: boolean;
-  onConfirm: (id: string) => void;
-  className?: string;
-}) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          type="button"
-          variant="destructiveOutline"
-          disabled={props.isDeleting}
-          className={props.className}
-        >
-          {props.isDeleting ? "Deleting..." : "Delete"}
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete penalty rule?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will permanently delete the penalty rule for{" "}
-            {props.penalty.no_of_absences} absence/s. This action cannot be
-            undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => props.onConfirm(props.penalty.id)}
-            className="bg-destructive text-destructive-foreground hover:opacity-90"
-          >
-            Delete Penalty
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-function DeletePenaltiesConfirmation(props: {
-  label: string;
-  title: string;
-  description: string;
-  isDeleting: boolean;
-  disabled: boolean;
-  onConfirm: () => void | Promise<void>;
-  className?: string;
-}) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          type="button"
-          variant="destructiveOutline"
-          disabled={props.disabled || props.isDeleting}
-          className={props.className}
-        >
-          {props.isDeleting ? "Deleting..." : props.label}
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{props.title}</AlertDialogTitle>
-          <AlertDialogDescription>{props.description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={props.isDeleting}
-            onClick={() => {
-              void props.onConfirm();
-            }}
-            className="bg-destructive text-destructive-foreground hover:opacity-90"
-          >
-            Confirm Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-export default function FinesPage() {
-  const [fines, setFines] = useState<FineRecord[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<
-    AttendanceRecord[]
-  >([]);
-  const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
-  const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
-  const [selectedPenaltyIds, setSelectedPenaltyIds] = useState<string[]>([]);
-  const [selectedFineIds, setSelectedFineIds] = useState<string[]>([]);
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [yearFilter, setYearFilter] = useState(ALL_YEARS_VALUE);
-  const [studentId, setStudentId] = useState("");
-  const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
-  const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
-  const [schoolYearForm, setSchoolYearForm] = useState<SchoolYearFormState>(emptySchoolYearForm);
-  const [isSavingSchoolYear, setIsSavingSchoolYear] = useState(false);
-  const [schoolYearError, setSchoolYearError] = useState("");
-  const [isLoadingFines, setIsLoadingFines] = useState(true);
-  const [isLoadingAttendanceRecords, setIsLoadingAttendanceRecords] =
-    useState(true);
-  const [isLoadingPenalties, setIsLoadingPenalties] = useState(true);
-  const [isTransferringFines, setIsTransferringFines] = useState(false);
-  const [updatingId, setUpdatingId] = useState("");
-  const [savingPenalty, setSavingPenalty] = useState(false);
-  const [seedingPenalties, setSeedingPenalties] = useState(false);
-  const [deletingPenaltyId, setDeletingPenaltyId] = useState("");
-  const [isDeletingPenaltyBulk, setIsDeletingPenaltyBulk] = useState(false);
-  const [editingPenaltyId, setEditingPenaltyId] = useState("");
-  const [penaltyForm, setPenaltyForm] =
-    useState<PenaltyFormState>(emptyPenaltyForm);
-  const [error, setError] = useState("");
-  const [penaltyError, setPenaltyError] = useState("");
-
-  const attendanceRecordById = useMemo(
-    () => getAttendanceRecordById(attendanceRecords),
-    [attendanceRecords],
-  );
-  const yearOptions = useMemo(
-    () => getYearOptions(attendanceRecords, fines, schoolYears),
-    [attendanceRecords, fines, schoolYears],
-  );
-  const yearFilteredFines = useMemo(() => {
-    const filteredFines = fines.filter((fine) => {
-      const matchesYear = matchesSelectedYear(
-        getFineRecordYear(fine, attendanceRecordById),
-        yearFilter,
-      );
-      const matchesCollegeScope = isFineLinkedToAttendeeCollege({
-        fine,
-        attendanceRecords,
-        selectedYear: yearFilter,
-      });
-
-      return matchesYear && matchesCollegeScope;
-    });
-
-    return mergeStudentFineRecords(filteredFines, attendanceRecords, yearFilter);
-  }, [fines, attendanceRecords, attendanceRecordById, yearFilter]);
-  const reportYearLabel = getSchoolYearLabel(schoolYears, yearFilter);
-  const totalFines = yearFilteredFines.length;
-  const unpaidFines = useMemo(
-    () => yearFilteredFines.filter((fine) => fine.status === "unpaid").length,
-    [yearFilteredFines],
-  );
-  const zeroAttendanceFines = useMemo(
-    () => yearFilteredFines.filter(isZeroAttendanceFine).length,
-    [yearFilteredFines],
-  );
-  const selectedPenaltyIdsSet = useMemo(
-    () => new Set(selectedPenaltyIds),
-    [selectedPenaltyIds],
-  );
-  const selectedFineIdsSet = useMemo(
-    () => new Set(selectedFineIds),
-    [selectedFineIds],
-  );
-  const selectedPenaltyCount = selectedPenaltyIds.length;
-  const selectedFineCount = selectedFineIds.length;
-  const allPenaltiesSelected =
-    penalties.length > 0 && selectedPenaltyCount === penalties.length;
-  const allVisibleFinesSelected =
-    yearFilteredFines.length > 0 && selectedFineCount === yearFilteredFines.length;
-  const penaltyHeaderChecked = allPenaltiesSelected
-    ? true
-    : selectedPenaltyCount > 0
-      ? "indeterminate"
-      : false;
-  const fineHeaderChecked = allVisibleFinesSelected
-    ? true
-    : selectedFineCount > 0
-      ? "indeterminate"
-      : false;
-  const reportAttendanceRecords = useMemo(() => {
-    const cleanStudentId = studentId.trim().toLowerCase();
-
-    return attendanceRecords.filter((record) => {
-      const matchesStudentId =
-        !cleanStudentId ||
-        String(record.student_id ?? "")
-          .toLowerCase()
-          .includes(cleanStudentId);
-      const matchesYear = matchesSelectedYear(
-        getAttendanceRecordYear(record),
-        yearFilter,
-      );
-
-      return matchesStudentId && matchesYear;
-    });
-  }, [attendanceRecords, studentId, yearFilter]);
-
-  function handleToggleFineSelected(
-    id: string,
-    checked: boolean | "indeterminate",
-  ) {
-    setSelectedFineIds((current) => {
-      if (checked === true) {
-        return current.includes(id) ? current : [...current, id];
-      }
-
-      return current.filter((fineId) => fineId !== id);
-    });
-  }
-
-  function handleToggleAllFines(checked: boolean | "indeterminate") {
-    setSelectedFineIds(
-      checked === true ? yearFilteredFines.map((fine) => fine.id) : [],
-    );
-  }
-
-  async function handleTransferSelectedFines() {
-    const fineIdsToTransfer = getSelectedFineTransferIds(yearFilteredFines, selectedFineIds);
-
-    if (!fineIdsToTransfer.length) {
-      toast.error("Please select fine record/s to transfer.");
-      return;
-    }
-
-    if (!transferTargetSchoolYearId) {
-      toast.error("Please select a target school year.");
-      return;
-    }
-
-    setIsTransferringFines(true);
-    setError("");
-    setSchoolYearError("");
-
-    try {
-      await transferSchoolYearRecords({
-        targetSchoolYearId: transferTargetSchoolYearId,
-        fineIds: fineIdsToTransfer,
-      });
-      setSelectedFineIds([]);
-      setSchoolYearDialogOpen(false);
-      await Promise.all([loadFines(), loadAttendanceRecords()]);
-      toast.success("Selected fine record/s linked to school year successfully.");
-    } catch (transferError) {
-      const message =
-        transferError instanceof Error
-          ? transferError.message
-          : "Unable to transfer fine records.";
-      setError(message);
-      setSchoolYearError(message);
-      toast.error(message);
-    } finally {
-      setIsTransferringFines(false);
-    }
-  }
-
-  function updateSchoolYearForm<K extends keyof SchoolYearFormState>(
-    key: K,
-    value: SchoolYearFormState[K],
-  ) {
-    setSchoolYearForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function handleCreateSchoolYear(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const name = schoolYearForm.name.trim();
-
-    if (!name) {
-      setSchoolYearError("School year name is required.");
-      toast.error("School year name is required.");
-      return;
-    }
-
-    setIsSavingSchoolYear(true);
-    setSchoolYearError("");
-
-    try {
-      const savedSchoolYear = await saveSchoolYear({
-        name,
-        startsAt: schoolYearForm.startsAt || undefined,
-        endsAt: schoolYearForm.endsAt || undefined,
-        isActive: schoolYearForm.isActive,
-      });
-
-      const refreshedSchoolYears = await listSchoolYears();
-      setSchoolYears(refreshedSchoolYears);
-      setTransferTargetSchoolYearId(savedSchoolYear?.id ?? refreshedSchoolYears[0]?.id ?? "");
-      setSchoolYearForm(emptySchoolYearForm);
-      toast.success("School year saved successfully.");
-    } catch (schoolYearSaveError) {
-      const message =
-        schoolYearSaveError instanceof Error
-          ? schoolYearSaveError.message
-          : "Unable to save school year.";
-      setSchoolYearError(message);
-      toast.error(message);
-    } finally {
-      setIsSavingSchoolYear(false);
-    }
-  }
-
-  function handleTogglePenaltySelected(
-    id: string,
-    checked: boolean | "indeterminate",
-  ) {
-    setSelectedPenaltyIds((current) => {
-      if (checked === true) {
-        return current.includes(id) ? current : [...current, id];
-      }
-
-      return current.filter((penaltyId) => penaltyId !== id);
-    });
-  }
-
-  function handleToggleAllPenalties(checked: boolean | "indeterminate") {
-    setSelectedPenaltyIds(
-      checked === true ? penalties.map((penalty) => penalty.id) : [],
-    );
-  }
-
-  async function loadFines() {
-    setIsLoadingFines(true);
-    setError("");
-
-    try {
-      const rows = await listFines({
-        status: status === "all" ? "" : status,
-        studentId: studentId.trim() || undefined,
-        limit: 5000,
-        offset: 0,
-      });
-
-      setFines(getUniqueDisplayFines(rows));
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load fines.";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setIsLoadingFines(false);
-    }
-  }
-
-  async function loadAttendanceRecords() {
-    setIsLoadingAttendanceRecords(true);
-
-    try {
-      const rows = await listAttendanceRecords({ limit: 5000, offset: 0 });
-      setAttendanceRecords(rows);
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load attendance records for report.";
-      toast.error(message);
-    } finally {
-      setIsLoadingAttendanceRecords(false);
-    }
-  }
-
-  async function loadPenalties() {
-    setIsLoadingPenalties(true);
-    setPenaltyError("");
-
-    try {
-      const rows = await listPenalties();
-      const rowIds = new Set(rows.map((penalty) => penalty.id));
-
-      setPenalties(rows);
-      setSelectedPenaltyIds((current) =>
-        current.filter((id) => rowIds.has(id)),
-      );
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load penalties.";
-      setPenaltyError(message);
-      toast.error(message);
-    } finally {
-      setIsLoadingPenalties(false);
-    }
-  }
-
-  async function loadSchoolYears() {
-    try {
-      const rows = await listSchoolYears();
-      setSchoolYears(rows);
-      setTransferTargetSchoolYearId((current) => current || rows[0]?.id || "");
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load school years.";
-      toast.error(message);
-    }
-  }
-
-  async function loadPageData() {
-    await Promise.all([
-      loadFines(),
-      loadAttendanceRecords(),
-      loadPenalties(),
-      loadSchoolYears(),
-    ]);
-  }
-
-  async function handleFilter(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await loadFines();
-  }
-
-  async function handleResetFilters() {
-    setStatus("all");
-    setYearFilter(ALL_YEARS_VALUE);
-    setStudentId("");
-    setIsLoadingFines(true);
-    setError("");
-
-    try {
-      const rows = await listFines({
-        limit: 5000,
-        offset: 0,
-      });
-      setFines(getUniqueDisplayFines(rows));
-      await loadAttendanceRecords();
-    } catch (loadError) {
-      const message =
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load fines.";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setIsLoadingFines(false);
-    }
-  }
-
-  async function handleStatusChange(
-    fineRecord: DisplayFineRecord,
-    nextStatus: FineStatus,
-  ) {
-    const idsToUpdate = getFineUpdateIds(fineRecord);
-
-    setUpdatingId(fineRecord.id);
-    setError("");
-
-    try {
-      const updatedRows = await Promise.all(
-        idsToUpdate.map((id) => updateFineStatus(id, nextStatus)),
-      );
-      const updatedById = new Map(
-        updatedRows
-          .filter((row): row is FineRecord => Boolean(row))
-          .map((row) => [row.id, row]),
-      );
-
-      if (updatedById.size) {
-        setFines((current) =>
-          getUniqueDisplayFines(
-            current.map((fine) => updatedById.get(fine.id) ?? fine),
-          ),
-        );
-        toast.success("Fine status updated successfully.");
-      }
-    } catch (updateError) {
-      const message =
-        updateError instanceof Error
-          ? updateError.message
-          : "Unable to update fine status.";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setUpdatingId("");
-    }
-  }
-
-  async function handlePenaltySubmit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingPenalty(true);
-    setPenaltyError("");
-
-    const noOfAbsences = Number(penaltyForm.noOfAbsences);
-    const prescribedPenalty = penaltyForm.prescribedPenalty.trim();
-
-    if (!Number.isInteger(noOfAbsences) || noOfAbsences <= 0) {
-      setPenaltyError("No. of Absences must be a positive whole number.");
-      toast.error("No. of Absences must be a positive whole number.");
-      setSavingPenalty(false);
-      return;
-    }
-
-    if (!prescribedPenalty) {
-      setPenaltyError("Prescribed penalty is required.");
-      toast.error("Prescribed penalty is required.");
-      setSavingPenalty(false);
-      return;
-    }
-
-    const successMessage = editingPenaltyId
-      ? "Penalty rule updated successfully."
-      : "Penalty rule created successfully.";
-
-    try {
-      const saved = editingPenaltyId
-        ? await updatePenalty(editingPenaltyId, noOfAbsences, prescribedPenalty)
-        : await createPenalty(noOfAbsences, prescribedPenalty);
-
-      if (saved) {
-        setPenalties((current) => {
-          const exists = current.some((penalty) => penalty.id === saved.id);
-          const next = exists
-            ? current.map((penalty) =>
-                penalty.id === saved.id ? saved : penalty,
-              )
-            : [...current, saved];
-
-          return next.sort(
-            (first, second) => first.no_of_absences - second.no_of_absences,
-          );
-        });
-      }
-
-      setEditingPenaltyId("");
-      setPenaltyForm(emptyPenaltyForm);
-      await loadFines();
-      toast.success(successMessage);
-    } catch (saveError) {
-      const message =
-        saveError instanceof Error
-          ? saveError.message
-          : "Unable to save penalty.";
-      setPenaltyError(message);
-      toast.error(message);
-    } finally {
-      setSavingPenalty(false);
-    }
-  }
-
-  function handleEditPenalty(penalty: PenaltyRecord) {
-    setEditingPenaltyId(penalty.id);
-    setPenaltyForm({
-      noOfAbsences: String(penalty.no_of_absences),
-      prescribedPenalty: penalty.prescribed_penalty,
-    });
-    setPenaltyError("");
-  }
-
-  function handleCancelPenaltyEdit() {
-    setEditingPenaltyId("");
-    setPenaltyForm(emptyPenaltyForm);
-    setPenaltyError("");
-  }
-
-  async function handleDeletePenalty(id: string) {
-    setDeletingPenaltyId(id);
-    setPenaltyError("");
-
-    try {
-      await deletePenalty(id);
-      setPenalties((current) => current.filter((penalty) => penalty.id !== id));
-      setSelectedPenaltyIds((current) =>
-        current.filter((penaltyId) => penaltyId !== id),
-      );
-
-      if (editingPenaltyId === id) {
-        handleCancelPenaltyEdit();
-      }
-
-      await loadFines();
-      toast.success("Penalty rule deleted successfully.");
-    } catch (deleteError) {
-      const message =
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Unable to delete penalty.";
-      setPenaltyError(message);
-      toast.error(message);
-    } finally {
-      setDeletingPenaltyId("");
-    }
-  }
-
-  async function handleDeletePenalties(ids: string[]) {
-    const idsToDelete = Array.from(new Set(ids)).filter(Boolean);
-
-    if (!idsToDelete.length) {
-      toast.error("Please select penalty rule/s to delete.");
-      return;
-    }
-
-    setIsDeletingPenaltyBulk(true);
-    setPenaltyError("");
-
-    try {
-      await Promise.all(idsToDelete.map((id) => deletePenalty(id)));
-      setPenalties((current) =>
-        current.filter((penalty) => !idsToDelete.includes(penalty.id)),
-      );
-      setSelectedPenaltyIds((current) =>
-        current.filter((id) => !idsToDelete.includes(id)),
-      );
-
-      if (editingPenaltyId && idsToDelete.includes(editingPenaltyId)) {
-        handleCancelPenaltyEdit();
-      }
-
-      await loadFines();
-      toast.success(
-        `${idsToDelete.length} penalty rule/s deleted successfully.`,
-      );
-    } catch (deleteError) {
-      const message =
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Unable to delete penalty rules.";
-      setPenaltyError(message);
-      toast.error(message);
-      await loadPenalties();
-      await loadFines();
-    } finally {
-      setIsDeletingPenaltyBulk(false);
-    }
-  }
-
-  async function handleSeedPenalties() {
-    setSeedingPenalties(true);
-    setPenaltyError("");
-
-    try {
-      const rows = await seedDefaultPenalties();
-      setPenalties(
-        rows.sort(
-          (first, second) => first.no_of_absences - second.no_of_absences,
-        ),
-      );
-      setSelectedPenaltyIds([]);
-      await loadFines();
-      toast.success("Default penalty rules seeded successfully.");
-    } catch (seedError) {
-      const message =
-        seedError instanceof Error
-          ? seedError.message
-          : "Unable to seed default penalties.";
-      setPenaltyError(message);
-      toast.error(message);
-    } finally {
-      setSeedingPenalties(false);
-    }
-  }
-
-  useEffect(() => {
-    if (yearFilter !== ALL_YEARS_VALUE && !yearOptions.includes(yearFilter)) {
-      setYearFilter(ALL_YEARS_VALUE);
-    }
-  }, [yearFilter, yearOptions]);
-
-  useEffect(() => {
-    void loadPageData();
-  }, []);
-
-  return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl space-y-6">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
-            Penalty records
-          </p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-            Fines
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Display existing student fines, filter records, update fine
-            statuses, and manage penalty rules.
-          </p>
-        </div>
-
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-3xl border bg-card p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Displayed fines
-            </p>
-            <p className="mt-2 text-3xl font-black">
-              {isLoadingFines ? "—" : totalFines}
-            </p>
-          </div>
-          <div className="rounded-3xl border bg-card p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Displayed unpaid
-            </p>
-            <p className="mt-2 text-3xl font-black">
-              {isLoadingFines ? "—" : unpaidFines}
-            </p>
-          </div>
-          <div className="rounded-3xl border bg-card p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Penalty rules
-            </p>
-            <p className="mt-2 text-3xl font-black">
-              {isLoadingPenalties ? "—" : penalties.length}
-            </p>
-          </div>
-          <div className="rounded-3xl border bg-card p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Zero attendance
-            </p>
-            <p className="mt-2 text-3xl font-black">
-              {isLoadingFines ? "—" : zeroAttendanceFines}
-            </p>
-          </div>
-          <div className="rounded-3xl border bg-card p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Current filter
-            </p>
-            <p className="mt-2 text-lg font-black uppercase">
-              {status === "all" ? "All" : status} / {reportYearLabel}
-            </p>
+              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+                <SelectTrigger className="min-h-12 rounded-2xl lg:w-56">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </section>
 
-        <form
-          onSubmit={handleFilter}
-          className="flex flex-col gap-3 rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row"
-        >
-          <Input
-            value={studentId}
-            onChange={(event) => setStudentId(event.target.value)}
-            placeholder="Search by Student ID"
-            className="min-h-12 rounded-2xl border bg-background px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:flex-1"
-          />
-
-          <Select
-            value={status}
-            onValueChange={(value) => setStatus(value as StatusFilter)}
-          >
-            <SelectTrigger className="min-h-12 rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:w-56">
-              <SelectValue placeholder="ALL STATUS" />
-            </SelectTrigger>
-            <SelectContent>
-              {statusOptions.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={yearFilter} onValueChange={setYearFilter}>
-            <SelectTrigger className="min-h-12 rounded-2xl border bg-background px-4 text-sm font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:w-44">
-              <SelectValue placeholder="ALL YEARS" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_YEARS_VALUE}>ALL SCHOOL YEARS</SelectItem>
-              {yearOptions.map((year) => (
-                <SelectItem key={year} value={year}>
-                  {getSchoolYearLabel(schoolYears, year)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div className="flex flex-col gap-3 sm:flex-row lg:w-auto">
-            <Button
-              type="submit"
-              disabled={isLoadingFines}
-              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
-            >
-              {isLoadingFines ? "Loading..." : "Apply Filter"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isLoadingFines}
-              onClick={handleResetFilters}
-              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
-            >
-              Reset
-            </Button>
+        <section className="grid gap-4 md:grid-cols-5">
+          <div className="rounded-3xl border bg-card p-5 md:col-span-2">
+            <p className="text-sm font-bold text-muted-foreground">School Year</p>
+            <p className="mt-2 text-2xl font-black">{selectedSchoolYearLabel}</p>
           </div>
-        </form>
-
-        {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
+          <div className="rounded-3xl border bg-card p-5">
+            <p className="text-sm font-bold text-muted-foreground">Results</p>
+            <p className="mt-2 text-2xl font-black">{summary.total.toLocaleString()}</p>
           </div>
-        ) : null}
+          <div className="rounded-3xl border bg-card p-5">
+            <p className="text-sm font-bold text-muted-foreground">Unpaid</p>
+            <p className="mt-2 text-2xl font-black">{summary.unpaid.toLocaleString()}</p>
+          </div>
+          <div className="rounded-3xl border bg-card p-5">
+            <p className="text-sm font-bold text-muted-foreground">Absences</p>
+            <p className="mt-2 text-2xl font-black">{summary.absences.toLocaleString()}</p>
+          </div>
+        </section>
 
-        <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black tracking-tight">
-                Existing Fines
-              </h2>
+              <h2 className="text-xl font-black">Penalty results</h2>
               <p className="text-sm text-muted-foreground">
-                Fines are loaded from saved fine records and separated by
-                selected year.
+                Saved final penalty records generated from absence counts.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-              <SchoolYearManagerDialog
-                open={schoolYearDialogOpen}
-                onOpenChange={setSchoolYearDialogOpen}
-                schoolYears={schoolYears}
-                form={schoolYearForm}
-                targetSchoolYearId={transferTargetSchoolYearId}
-                selectedFineCount={selectedFineCount}
-                isSaving={isSavingSchoolYear}
-                isTransferring={isTransferringFines}
-                error={schoolYearError}
-                onFormChange={updateSchoolYearForm}
-                onCreate={handleCreateSchoolYear}
-                onTargetChange={setTransferTargetSchoolYearId}
-                onTransferSelected={handleTransferSelectedFines}
-              />
-              <ExportReport
-                attendanceRecords={reportAttendanceRecords}
-                fines={yearFilteredFines}
-                isLoading={isLoadingFines || isLoadingAttendanceRecords}
-                yearLabel={reportYearLabel}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isLoadingFines || isLoadingAttendanceRecords}
-                onClick={() => {
-                  void Promise.all([loadFines(), loadAttendanceRecords()]);
-                }}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-              >
-                {isLoadingFines || isLoadingAttendanceRecords
-                  ? "Loading..."
-                  : "Refresh Fines"}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              onClick={handleRefreshPenaltyResults}
+              disabled={isRefreshingResults}
+              className="min-h-12 rounded-2xl px-6 font-black"
+            >
+              {isRefreshingResults ? "Refreshing..." : "Refresh Penalty Results"}
+            </Button>
           </div>
 
-          <div className="space-y-3 lg:hidden">
-            {yearFilteredFines.length ? (
-              yearFilteredFines.map((fine) => (
-                <article
-                  key={fine.id}
-                  className="rounded-2xl border bg-background p-4"
-                >
-                  <div className="mb-3 flex items-center gap-2">
-                    <Checkbox
-                      checked={selectedFineIdsSet.has(fine.id)}
-                      onCheckedChange={(checked) =>
-                        handleToggleFineSelected(fine.id, checked)
-                      }
-                      aria-label={`Select fine record for ${fine.student_id}`}
-                    />
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                      Select fine
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="wrap-break-word font-black">{fine.name}</p>
-                      <p className="break-all text-sm text-muted-foreground">
-                        {fine.student_id}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {isZeroAttendanceFine(fine) ? (
-                        <span className="w-fit rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
-                          Zero attendance
-                        </span>
-                      ) : null}
-                      <span
-                        className={`w-fit rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(fine.status)}`}
-                      >
-                        {fine.status}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="mt-3 wrap-break-word text-sm text-muted-foreground">
-                    {fine.prescribed_penalty}
-                  </p>
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm font-bold">
-                      {getDisplayedFineAbsenceCount(
-                        fine,
-                        attendanceRecords,
-                        yearFilter,
-                      )}{" "}
-                      absence/s • {formatDate(fine.created_at)}
-                    </p>
-                    <Select
-                      value={fine.status}
-                      disabled={updatingId === fine.id}
-                      onValueChange={(value) =>
-                        handleStatusChange(fine, value as FineStatus)
-                      }
-                    >
-                      <SelectTrigger className="min-h-10 rounded-xl border bg-card px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 sm:w-40">
-                        <SelectValue
-                          placeholder={getFineStatusLabel(fine.status)}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fineStatusOptions.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                {isLoadingFines
-                  ? "Loading fine records..."
-                  : "No fine records found."}
-              </div>
-            )}
-          </div>
-
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-max text-left text-sm">
-              <thead className="border-b text-xs uppercase text-muted-foreground">
+          <div className="mt-5 overflow-x-auto rounded-2xl border bg-background">
+            <table className="w-full min-w-full text-left text-sm">
+              <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-3">
-                    <Checkbox
-                      checked={fineHeaderChecked}
-                      onCheckedChange={handleToggleAllFines}
-                      aria-label="Select all visible fine records"
-                    />
-                  </th>
-                  <th className="px-3 py-3">Date</th>
-                  <th className="px-3 py-3">Student ID</th>
-                  <th className="px-3 py-3">Name</th>
-                  <th className="px-3 py-3">Absences</th>
-                  <th className="px-3 py-3">Penalty</th>
-                  <th className="px-3 py-3">Category</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Action</th>
+                  <th className="px-4 py-3">Student ID</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Absences</th>
+                  <th className="px-4 py-3">Prescribed Penalty</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Updated</th>
                 </tr>
               </thead>
               <tbody>
-                {yearFilteredFines.length ? (
-                  yearFilteredFines.map((fine) => (
-                    <tr key={fine.id} className="border-b last:border-b-0">
-                      <td className="px-3 py-3">
-                        <Checkbox
-                          checked={selectedFineIdsSet.has(fine.id)}
-                          onCheckedChange={(checked) =>
-                            handleToggleFineSelected(fine.id, checked)
-                          }
-                          aria-label={`Select fine record for ${fine.student_id}`}
-                        />
-                      </td>
-                      <td className="px-3 py-3 font-semibold">
-                        {formatDate(fine.created_at)}
-                      </td>
-                      <td className="max-w-40 break-all px-3 py-3">
-                        {fine.student_id}
-                      </td>
-                      <td className="max-w-56 wrap-break-word px-3 py-3">
-                        {fine.name}
-                      </td>
-                      <td className="px-3 py-3">
-                        {getDisplayedFineAbsenceCount(
-                          fine,
-                          attendanceRecords,
-                          yearFilter,
-                        )}
-                      </td>
-                      <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">
-                        {fine.prescribed_penalty}
-                      </td>
-                      <td className="px-3 py-3">
-                        {isZeroAttendanceFine(fine) ? (
-                          <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
-                            Zero attendance
+                {filteredPenaltyResults.length ? (
+                  filteredPenaltyResults.map((result) => (
+                    <tr key={result.id} className="border-t">
+                      <td className="px-4 py-3 font-black">{result.student_id}</td>
+                      <td className="px-4 py-3 font-semibold">{result.name}</td>
+                      <td className="px-4 py-3 font-black">{result.no_of_absences}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{result.prescribed_penalty}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>
+                            {result.status}
                           </span>
-                        ) : (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold uppercase text-emerald-700">
-                            Attendance record
-                          </span>
-                        )}
+                          <Select
+                            value={result.status}
+                            onValueChange={(value) => handleStatusChange(result, value as FineStatus)}
+                            disabled={updatingStatusId === result.id}
+                          >
+                            <SelectTrigger className="h-9 w-32 rounded-xl text-xs font-bold">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {fineStatusOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(fine.status)}`}
-                        >
-                          {fine.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Select
-                          value={fine.status}
-                          disabled={updatingId === fine.id}
-                          onValueChange={(value) =>
-                            handleStatusChange(fine, value as FineStatus)
-                          }
-                        >
-                          <SelectTrigger className="min-h-10 rounded-xl border bg-background px-3 text-xs font-bold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60 lg:w-36">
-                            <SelectValue
-                              placeholder={getFineStatusLabel(fine.status)}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {fineStatusOptions.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{formatDate(result.updated_at)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td
-                      colSpan={9}
-                      className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground"
-                    >
-                      {isLoadingFines
-                        ? "Loading fine records..."
-                        : "No fine records found."}
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground">
+                      {isLoading ? "Loading penalty results..." : "No penalty results found."}
                     </td>
                   </tr>
                 )}
@@ -1825,254 +406,114 @@ export default function FinesPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <h2 className="text-xl font-black tracking-tight">
-                Penalty Rules
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Create, read, update, and delete penalty rules used when fines
-                are generated.
-              </p>
+        <section className="grid gap-6 lg:grid-cols-2">
+          <form onSubmit={handleSavePenalty} className="rounded-3xl border bg-card p-5 shadow-sm">
+            <h2 className="text-xl font-black">{penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}</h2>
+
+            <div className="mt-5 grid gap-4">
+              <label className="space-y-2">
+                <span className="text-sm font-bold">No. of absences</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={penaltyForm.noOfAbsences}
+                  onChange={(event) => setPenaltyForm((current) => ({ ...current, noOfAbsences: event.target.value }))}
+                  placeholder="Example: 3"
+                  className="min-h-12 rounded-2xl"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold">Prescribed penalty</span>
+                <Textarea
+                  value={penaltyForm.prescribedPenalty}
+                  onChange={(event) => setPenaltyForm((current) => ({ ...current, prescribedPenalty: event.target.value }))}
+                  placeholder="Penalty description"
+                  className="min-h-28 rounded-2xl"
+                />
+              </label>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-              {selectedPenaltyCount ? (
-                <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                  {selectedPenaltyCount} selected
-                </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button type="submit" disabled={isSavingPenalty} className="min-h-12 rounded-2xl px-6 font-black">
+                {isSavingPenalty ? "Saving..." : penaltyForm.id ? "Update Rule" : "Save Rule"}
+              </Button>
+              {penaltyForm.id ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isSavingPenalty}
+                  onClick={() => setPenaltyForm(emptyPenaltyForm)}
+                  className="min-h-12 rounded-2xl px-6 font-black"
+                >
+                  Cancel Edit
+                </Button>
               ) : null}
-              <DeletePenaltiesConfirmation
-                label="Delete Selected"
-                title="Delete selected penalty rules?"
-                description={`This will permanently delete ${selectedPenaltyCount} selected penalty rule/s. This action cannot be undone.`}
-                isDeleting={isDeletingPenaltyBulk}
-                disabled={!selectedPenaltyCount}
-                onConfirm={() => handleDeletePenalties(selectedPenaltyIds)}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-              />
-              <DeletePenaltiesConfirmation
-                label="Delete All"
-                title="Delete all penalty rules?"
-                description={`This will permanently delete all ${penalties.length} loaded penalty rule/s. This action cannot be undone.`}
-                isDeleting={isDeletingPenaltyBulk}
-                disabled={!penalties.length}
-                onConfirm={() =>
-                  handleDeletePenalties(penalties.map((penalty) => penalty.id))
-                }
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
-              />
               <Button
                 type="button"
                 variant="outline"
-                disabled={seedingPenalties || isDeletingPenaltyBulk}
-                onClick={handleSeedPenalties}
-                className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+                disabled={isSavingPenalty}
+                onClick={handleSeedDefaultPenalties}
+                className="min-h-12 rounded-2xl px-6 font-black"
               >
-                {seedingPenalties ? "Seeding..." : "Seed Default Penalties"}
+                Seed Defaults
               </Button>
             </div>
-          </div>
-
-          <form
-            onSubmit={handlePenaltySubmit}
-            className="mb-5 grid gap-3 rounded-2xl border bg-background p-4 lg:grid-cols-12"
-          >
-            <Input
-              type="number"
-              min="1"
-              value={penaltyForm.noOfAbsences}
-              onChange={(event) =>
-                setPenaltyForm((current) => ({
-                  ...current,
-                  noOfAbsences: event.target.value,
-                }))
-              }
-              placeholder="No. of Absences"
-              className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-3"
-            />
-            <Input
-              value={penaltyForm.prescribedPenalty}
-              onChange={(event) =>
-                setPenaltyForm((current) => ({
-                  ...current,
-                  prescribedPenalty: event.target.value,
-                }))
-              }
-              placeholder="Prescribed penalty"
-              className="min-h-12 rounded-2xl border bg-card px-4 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 lg:col-span-6"
-            />
-            <Button
-              type="submit"
-              disabled={savingPenalty}
-              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black lg:col-span-2"
-            >
-              {savingPenalty
-                ? "Saving..."
-                : editingPenaltyId
-                  ? "Update"
-                  : "Create"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleCancelPenaltyEdit}
-              disabled={savingPenalty && !editingPenaltyId}
-              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black lg:col-span-1"
-            >
-              Clear
-            </Button>
           </form>
 
-          {penaltyError ? (
-            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              {penaltyError}
-            </div>
-          ) : null}
-
-          <div className="space-y-3 lg:hidden">
-            {penalties.length ? (
-              penalties.map((penalty) => (
-                <article
-                  key={penalty.id}
-                  className="rounded-2xl border bg-background p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      checked={selectedPenaltyIdsSet.has(penalty.id)}
-                      onCheckedChange={(checked) =>
-                        handleTogglePenaltySelected(penalty.id, checked)
-                      }
-                      aria-label={`Select penalty rule for ${penalty.no_of_absences} absence/s`}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-sm font-bold text-muted-foreground">
-                            {penalty.no_of_absences} absence/s
-                          </p>
-                          <p className="mt-1 wrap-break-word font-black">
-                            {penalty.prescribed_penalty}
-                          </p>
-                        </div>
-                        <p className="text-xs font-semibold text-muted-foreground">
-                          {formatDate(penalty.updated_at)}
-                        </p>
+          <section className="rounded-3xl border bg-card p-5 shadow-sm">
+            <h2 className="text-xl font-black">Penalty rules</h2>
+            <div className="mt-5 space-y-3">
+              {penalties.length ? (
+                penalties.map((penalty) => (
+                  <article key={penalty.id} className="rounded-2xl border bg-background p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-black">{penalty.no_of_absences} absence/s</p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">{penalty.prescribed_penalty}</p>
                       </div>
-                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                      <div className="flex gap-2">
                         <Button
                           type="button"
                           variant="outline"
                           onClick={() => handleEditPenalty(penalty)}
-                          className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
+                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                         >
                           Edit
                         </Button>
-                        <DeletePenaltyConfirmation
-                          penalty={penalty}
-                          isDeleting={
-                            deletingPenaltyId === penalty.id ||
-                            isDeletingPenaltyBulk
-                          }
-                          onConfirm={handleDeletePenalty}
-                          className="min-h-10 flex-1 rounded-xl px-4 py-2 text-xs font-black"
-                        />
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button type="button" variant="destructive" className="min-h-10 rounded-xl px-4 py-2 text-xs font-black">
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="rounded-3xl">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete penalty rule?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This removes the selected rule. Existing penalty results keep their saved prescribed penalty text until refreshed.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeletePenalty(penalty)}>
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                {isLoadingPenalties
-                  ? "Loading penalty records..."
-                  : "No penalty records found."}
-              </div>
-            )}
-          </div>
-
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-max text-left text-sm">
-              <thead className="border-b text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-3">
-                    <Checkbox
-                      checked={penaltyHeaderChecked}
-                      onCheckedChange={handleToggleAllPenalties}
-                      aria-label="Select all penalty rules"
-                    />
-                  </th>
-                  <th className="px-3 py-3">Absences</th>
-                  <th className="px-3 py-3">Prescribed Penalty</th>
-                  <th className="px-3 py-3">Created</th>
-                  <th className="px-3 py-3">Updated</th>
-                  <th className="px-3 py-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {penalties.length ? (
-                  penalties.map((penalty) => (
-                    <tr key={penalty.id} className="border-b last:border-b-0">
-                      <td className="px-3 py-3">
-                        <Checkbox
-                          checked={selectedPenaltyIdsSet.has(penalty.id)}
-                          onCheckedChange={(checked) =>
-                            handleTogglePenaltySelected(penalty.id, checked)
-                          }
-                          aria-label={`Select penalty rule for ${penalty.no_of_absences} absence/s`}
-                        />
-                      </td>
-                      <td className="px-3 py-3 font-black">
-                        {penalty.no_of_absences}
-                      </td>
-                      <td className="max-w-xl wrap-break-word px-3 py-3 text-muted-foreground">
-                        {penalty.prescribed_penalty}
-                      </td>
-                      <td className="px-3 py-3 font-semibold">
-                        {formatDate(penalty.created_at)}
-                      </td>
-                      <td className="px-3 py-3 font-semibold">
-                        {formatDate(penalty.updated_at)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => handleEditPenalty(penalty)}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                          >
-                            Edit
-                          </Button>
-                          <DeletePenaltyConfirmation
-                            penalty={penalty}
-                            isDeleting={
-                              deletingPenaltyId === penalty.id ||
-                              isDeletingPenaltyBulk
-                            }
-                            onConfirm={handleDeletePenalty}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground"
-                    >
-                      {isLoadingPenalties
-                        ? "Loading penalty records..."
-                        : "No penalty records found."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No penalty rules found.
+                </div>
+              )}
+            </div>
+          </section>
         </section>
       </div>
     </main>

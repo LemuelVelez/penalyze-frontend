@@ -39,6 +39,46 @@ export type AttendanceRecord = {
   updated_at: string;
 };
 
+export type ManualAttendanceType = "manual" | "zero_attendance";
+
+export type ManualAttendanceRecord = {
+  id: string;
+  school_year_id: string | null;
+  event_id: string | null;
+  event_name?: string | null;
+  attendance_type: ManualAttendanceType;
+  student_id: string;
+  name: string;
+  year_level: string | null;
+  college: string | null;
+  program: string | null;
+  institution: string | null;
+  no_of_absences: number;
+  remarks: string | null;
+  scanned_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AttendanceFinalResultRecord = {
+  id: string;
+  school_year_id: string | null;
+  import_id: string | null;
+  student_id: string;
+  name: string;
+  year_level: string | null;
+  college: string | null;
+  program: string | null;
+  institution: string | null;
+  attended_events: number;
+  total_absences: number;
+  attendance_status: string;
+  latest_scanned_at: string | null;
+  source_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AttendanceImportRecord = {
   id: string;
   school_year_id: string | null;
@@ -73,6 +113,7 @@ export type AttendanceImportInput = {
   institution?: string;
   noOfAbsences?: number;
   remarks?: string;
+  attendanceType?: ManualAttendanceType;
 };
 
 export type ManualAttendanceInput = AttendanceImportInput;
@@ -140,6 +181,7 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
 export type ManualAttendanceSaveResult = {
   event: AttendanceEvent | null;
   record: AttendanceRecord;
+  manualRecord?: ManualAttendanceRecord;
   records?: AttendanceRecord[];
   fine: SavedAttendanceImportResult["createdFines"][number] | null;
 };
@@ -584,6 +626,52 @@ export async function getStudentAttendanceRecords(studentId: string) {
   return listAllAttendanceRecords({
     studentId,
   });
+}
+
+export async function listAttendanceFinalResults(options: ListOptions = {}) {
+  const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0,
+    studentId: options.studentId,
+    college: options.college,
+  });
+
+  const response = await apiRequest<AttendanceFinalResultRecord[]>(
+    `/api/attendance/final-results${query}`,
+  );
+  return response.data ?? [];
+}
+
+export async function refreshAttendanceFinalResults(options: {
+  schoolYearId?: string;
+  importId?: string;
+} = {}) {
+  const response = await apiRequest<AttendanceFinalResultRecord[]>(
+    "/api/attendance/final-results/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify(options),
+    },
+  );
+
+  return response.data ?? [];
+}
+
+export async function listManualAttendanceRecords(options: ListOptions = {}) {
+  const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0,
+    studentId: options.studentId,
+    eventId: options.eventId,
+    college: options.college,
+  });
+
+  const response = await apiRequest<ManualAttendanceRecord[]>(
+    `/api/attendance/manual-records${query}`,
+  );
+  return response.data ?? [];
 }
 
 export async function listAttendanceImports(

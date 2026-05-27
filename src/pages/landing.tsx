@@ -5,10 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   getStudentAttendanceRecords,
   listAttendanceEvents,
-  listAttendanceRecords,
+  listAttendanceFinalResults,
   saveManualAttendanceRecord
 } from "../api/attendance";
-import type { AttendanceEvent, AttendanceRecord, ManualAttendanceInput } from "../api/attendance";
+import type { AttendanceEvent, AttendanceFinalResultRecord, AttendanceRecord, ManualAttendanceInput } from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
 import {
@@ -1713,27 +1713,42 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
+function finalResultToAttendanceRecord(row: AttendanceFinalResultRecord): AttendanceRecord {
+  return {
+    id: row.id,
+    school_year_id: row.school_year_id,
+    import_id: row.import_id,
+    event_id: null,
+    event_name: "Final attendance result",
+    student_id: row.student_id,
+    name: row.name,
+    year_level: row.year_level,
+    college: row.college,
+    program: row.program,
+    institution: row.institution,
+    no_of_absences: row.total_absences,
+    remarks: row.attendance_status,
+    scanned_at: row.latest_scanned_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 async function listLandingAttendanceRecords(
   onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
 ) {
-  const limit = 5000;
-  const maxRows = 50000;
-  const rows: AttendanceRecord[] = [];
+  const rows = await listAttendanceFinalResults({
+    limit: 5000,
+    offset: 0,
+  });
 
-  for (let offset = 0; offset < maxRows; offset += limit) {
-    const page = await listAttendanceRecords({ limit, offset });
-    rows.push(...page);
+  onProgress?.({
+    loadedRows: rows.length,
+    pageCount: 1,
+    isComplete: true,
+  });
 
-    onProgress?.({
-      loadedRows: rows.length,
-      pageCount: Math.floor(offset / limit) + 1,
-      isComplete: page.length < limit,
-    });
-
-    if (page.length < limit) break;
-  }
-
-  return rows;
+  return rows.map(finalResultToAttendanceRecord);
 }
 
 export default function LandingPage() {
@@ -1942,7 +1957,8 @@ export default function LandingPage() {
       program: zeroAttendanceForm.program.trim(),
       institution: zeroAttendanceForm.institution.trim(),
       noOfAbsences: 0,
-      remarks: ZERO_ATTENDANCE_REMARK
+      remarks: ZERO_ATTENDANCE_REMARK,
+      attendanceType: "zero_attendance"
     };
 
     if (!payload.studentId) {

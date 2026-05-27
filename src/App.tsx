@@ -17,6 +17,8 @@ import Loading from "./components/loading";
 import { Toaster } from "./components/ui/sonner";
 import LoginPage from "./pages/auth/login";
 import AttendancePage from "./pages/main/attendance";
+import HistoryPage from "./pages/main/history";
+import ManualAttendancePage from "./pages/main/manual-attendance";
 import DashboardPage from "./pages/main/dashboard";
 import FinesPage from "./pages/main/fines";
 import UsersPage from "./pages/main/users";
@@ -83,6 +85,8 @@ function AppRoutes() {
     () => [
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/attendance", element: <AttendancePage /> },
+      { path: "/manual-attendance", element: <ManualAttendancePage /> },
+      { path: "/history", element: <HistoryPage /> },
       { path: "/fines", element: <FinesPage /> },
       { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },
     ],

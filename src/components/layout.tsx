@@ -89,6 +89,8 @@ export default function AppLayout(props: LayoutProps) {
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard" },
     { path: "/attendance", label: "Attendance" },
+    { path: "/manual-attendance", label: "Manual Attendance" },
+    { path: "/history", label: "History" },
     { path: "/fines", label: "Fines" },
     { path: "/users", label: "Users", adminOnly: true },
   ];
