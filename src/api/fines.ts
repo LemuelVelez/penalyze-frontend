@@ -45,6 +45,11 @@ export type PenaltyResultRecord = {
   updated_at: string;
 };
 
+export type DeletedPenaltyResultsResult = {
+  deletedCount: number;
+  deletedRecords: PenaltyResultRecord[];
+};
+
 
 export type PenaltyResultUpdateInput = {
   studentId?: string;
@@ -278,6 +283,30 @@ export async function updatePenaltyResult(id: string, input: PenaltyResultUpdate
   });
 
   return response.data;
+}
+
+export async function deletePenaltyResultsByIds(penaltyResultIds: string[]) {
+  const response = await apiRequest<DeletedPenaltyResultsResult>(
+    "/api/fines/penalty-results",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ ids: penaltyResultIds }),
+    },
+  );
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
+}
+
+export async function deletePenaltyResultsBySchoolYear(schoolYearId: string) {
+  const response = await apiRequest<DeletedPenaltyResultsResult>(
+    "/api/fines/penalty-results",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ schoolYearId }),
+    },
+  );
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
 export async function getFineSummary() {

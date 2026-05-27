@@ -3,7 +3,12 @@ import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
-  deleteAttendanceImport,
+  deleteAllAttendanceImports,
+  deleteAttendanceFinalResultsByIds,
+  deleteAttendanceFinalResultsBySchoolYear,
+  deleteAttendanceImportsByIds,
+  deleteManualAttendanceRecordsByIds,
+  deleteManualAttendanceRecordsBySchoolYear,
   listAttendanceFinalResults,
   listAttendanceImports,
   listManualAttendanceRecords,
@@ -25,7 +30,11 @@ import {
   updateSchoolYear,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import { listPenaltyResults } from "../../api/fines";
+import {
+  deletePenaltyResultsByIds,
+  deletePenaltyResultsBySchoolYear,
+  listPenaltyResults,
+} from "../../api/fines";
 import type { PenaltyResultRecord } from "../../api/fines";
 import {
   AlertDialog,
@@ -209,8 +218,8 @@ export default function HistoryPage() {
   const [isTransferring, setIsTransferring] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeletingSchoolYear, setIsDeletingSchoolYear] = useState(false);
-  const [isDeletingUploadedFiles, setIsDeletingUploadedFiles] =
-    useState(false);
+  const [deletingRecordGroup, setDeletingRecordGroup] =
+    useState<FilteredRecordGroupKey | null>(null);
   const [isUpdatingSchoolYearActive, setIsUpdatingSchoolYearActive] =
     useState(false);
 
@@ -235,6 +244,13 @@ export default function HistoryPage() {
   const selectedRecordCount = useMemo(() => {
     return getSelectedCount(selectedRecords);
   }, [selectedRecords]);
+
+  const isDeletingUploadedFiles = deletingRecordGroup === "uploadedFiles";
+  const isDeletingPenaltyResults = deletingRecordGroup === "penaltyResults";
+  const isDeletingFinalResults =
+    deletingRecordGroup === "finalAttendanceResults";
+  const isDeletingManualRecords =
+    deletingRecordGroup === "manualAttendanceRecords";
 
   const summary = useMemo(() => {
     return {
@@ -680,39 +696,59 @@ export default function HistoryPage() {
     );
   }
 
-  async function deleteUploadedFilesByIds(
-    importIds: string[],
-    successMessage: string,
-  ) {
-    const uniqueImportIds = Array.from(new Set(importIds.filter(Boolean)));
-
-    if (!uniqueImportIds.length) {
-      toast.error("Please select at least one uploaded file to delete.");
+  async function deleteRecordGroup(args: {
+    groupKey: FilteredRecordGroupKey;
+    count: number;
+    emptyMessage: string;
+    successMessage: string;
+    deleteRecords: () => Promise<unknown>;
+  }) {
+    if (!args.count) {
+      toast.error(args.emptyMessage);
       return;
     }
 
-    setIsDeletingUploadedFiles(true);
+    setDeletingRecordGroup(args.groupKey);
 
     try {
-      await Promise.all(
-        uniqueImportIds.map((importId) => deleteAttendanceImport(importId)),
-      );
-      toast.success(successMessage);
-      setSelectedRecords((current) => ({
-        ...current,
-        importIds: current.importIds.filter(
-          (importId) => !uniqueImportIds.includes(importId),
-        ),
-      }));
+      await args.deleteRecords();
+      toast.success(args.successMessage);
       await loadHistory(selectedSchoolYearId);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete uploaded files.",
+        error instanceof Error ? error.message : "Unable to delete records.",
       );
     } finally {
-      setIsDeletingUploadedFiles(false);
+      setDeletingRecordGroup(null);
+    }
+  }
+
+  async function deleteRecordGroupByIds(args: {
+    groupKey: FilteredRecordGroupKey;
+    ids: string[];
+    emptyMessage: string;
+    successMessage: string;
+    deleteRecords: (ids: string[]) => Promise<unknown>;
+  }) {
+    const uniqueIds = Array.from(new Set(args.ids.filter(Boolean)));
+
+    if (!uniqueIds.length) {
+      toast.error(args.emptyMessage);
+      return;
+    }
+
+    setDeletingRecordGroup(args.groupKey);
+
+    try {
+      await args.deleteRecords(uniqueIds);
+      toast.success(args.successMessage);
+      await loadHistory(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete records.",
+      );
+    } finally {
+      setDeletingRecordGroup(null);
     }
   }
 
@@ -722,17 +758,111 @@ export default function HistoryPage() {
       existingImportIds.has(importId),
     );
 
-    await deleteUploadedFilesByIds(
-      selectedImportIds,
-      "Selected uploaded files deleted.",
-    );
+    await deleteRecordGroupByIds({
+      groupKey: "uploadedFiles",
+      ids: selectedImportIds,
+      emptyMessage: "Please select at least one uploaded file to delete.",
+      successMessage: "Selected uploaded files deleted.",
+      deleteRecords: deleteAttendanceImportsByIds,
+    });
   }
 
   async function handleDeleteAllUploadedFiles() {
-    await deleteUploadedFilesByIds(
-      imports.map((item) => item.id),
-      "All uploaded files deleted.",
+    await deleteRecordGroup({
+      groupKey: "uploadedFiles",
+      count: imports.length,
+      emptyMessage: "No uploaded files to delete.",
+      successMessage: "All uploaded files deleted.",
+      deleteRecords: () =>
+        selectedSchoolYearId
+          ? deleteAllAttendanceImports(selectedSchoolYearId)
+          : deleteAttendanceImportsByIds(imports.map((item) => item.id)),
+    });
+  }
+
+  async function handleDeleteSelectedPenaltyResults() {
+    const existingIds = new Set(penaltyResults.map((item) => item.id));
+    const selectedIds = selectedRecords.penaltyResultIds.filter((id) =>
+      existingIds.has(id),
     );
+
+    await deleteRecordGroupByIds({
+      groupKey: "penaltyResults",
+      ids: selectedIds,
+      emptyMessage: "Please select at least one penalty result to delete.",
+      successMessage: "Selected penalty results deleted.",
+      deleteRecords: deletePenaltyResultsByIds,
+    });
+  }
+
+  async function handleDeleteAllPenaltyResults() {
+    await deleteRecordGroup({
+      groupKey: "penaltyResults",
+      count: penaltyResults.length,
+      emptyMessage: "No penalty results to delete.",
+      successMessage: "All penalty results deleted.",
+      deleteRecords: () =>
+        selectedSchoolYearId
+          ? deletePenaltyResultsBySchoolYear(selectedSchoolYearId)
+          : deletePenaltyResultsByIds(penaltyResults.map((item) => item.id)),
+    });
+  }
+
+  async function handleDeleteSelectedFinalResults() {
+    const existingIds = new Set(finalResults.map((item) => item.id));
+    const selectedIds = selectedRecords.finalResultIds.filter((id) =>
+      existingIds.has(id),
+    );
+
+    await deleteRecordGroupByIds({
+      groupKey: "finalAttendanceResults",
+      ids: selectedIds,
+      emptyMessage:
+        "Please select at least one final attendance result to delete.",
+      successMessage: "Selected final attendance results deleted.",
+      deleteRecords: deleteAttendanceFinalResultsByIds,
+    });
+  }
+
+  async function handleDeleteAllFinalResults() {
+    await deleteRecordGroup({
+      groupKey: "finalAttendanceResults",
+      count: finalResults.length,
+      emptyMessage: "No final attendance results to delete.",
+      successMessage: "All final attendance results deleted.",
+      deleteRecords: () =>
+        selectedSchoolYearId
+          ? deleteAttendanceFinalResultsBySchoolYear(selectedSchoolYearId)
+          : deleteAttendanceFinalResultsByIds(finalResults.map((item) => item.id)),
+    });
+  }
+
+  async function handleDeleteSelectedManualRecords() {
+    const existingIds = new Set(manualRecords.map((item) => item.id));
+    const selectedIds = selectedRecords.manualRecordIds.filter((id) =>
+      existingIds.has(id),
+    );
+
+    await deleteRecordGroupByIds({
+      groupKey: "manualAttendanceRecords",
+      ids: selectedIds,
+      emptyMessage: "Please select at least one manual record to delete.",
+      successMessage: "Selected manual attendance records deleted.",
+      deleteRecords: deleteManualAttendanceRecordsByIds,
+    });
+  }
+
+  async function handleDeleteAllManualRecords() {
+    await deleteRecordGroup({
+      groupKey: "manualAttendanceRecords",
+      count: manualRecords.length,
+      emptyMessage: "No manual attendance records to delete.",
+      successMessage: "All manual attendance records deleted.",
+      deleteRecords: () =>
+        selectedSchoolYearId
+          ? deleteManualAttendanceRecordsBySchoolYear(selectedSchoolYearId)
+          : deleteManualAttendanceRecordsByIds(manualRecords.map((item) => item.id)),
+    });
   }
 
   async function handleTransferSelectedRecords() {
@@ -830,6 +960,82 @@ export default function HistoryPage() {
     );
   }
 
+  function renderDialogDeleteActions(args: {
+    isDeleting: boolean;
+    selectedCount: number;
+    totalCount: number;
+    selectedTitle: string;
+    selectedDescription: string;
+    allTitle: string;
+    allDescription: string;
+    onDeleteSelected: () => void | Promise<void>;
+    onDeleteAll: () => void | Promise<void>;
+  }) {
+    return (
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={args.isDeleting || !args.selectedCount}
+              className="min-h-11 rounded-2xl px-5 font-black"
+            >
+              {args.isDeleting ? "Deleting..." : "Delete Selected"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="rounded-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{args.selectedTitle}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {args.selectedDescription}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={args.onDeleteSelected}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Selected
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={args.isDeleting || !args.totalCount}
+              className="min-h-11 rounded-2xl px-5 font-black"
+            >
+              {args.isDeleting ? "Deleting..." : "Delete All"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="rounded-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{args.allTitle}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {args.allDescription}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={args.onDeleteAll}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete All
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
+
   function renderActiveRecordsDialogContent() {
     switch (activeRecordsDialog) {
       case "uploadedFiles": {
@@ -842,73 +1048,19 @@ export default function HistoryPage() {
             </DialogHeader>
             {renderDialogSearchInput("uploaded files")}
             {renderDialogSelectAll("uploaded files", "importIds", ids)}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    disabled={
-                      isDeletingUploadedFiles || !selectedRecords.importIds.length
-                    }
-                    className="min-h-11 rounded-2xl px-5 font-black"
-                  >
-                    {isDeletingUploadedFiles
-                      ? "Deleting..."
-                      : "Delete Selected"}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected uploads?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will delete the selected uploaded file records and
-                      their linked attendance data.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteSelectedUploadedFiles}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      Delete Selected
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    disabled={isDeletingUploadedFiles || !imports.length}
-                    className="min-h-11 rounded-2xl px-5 font-black"
-                  >
-                    {isDeletingUploadedFiles ? "Deleting..." : "Delete All"}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all uploads?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will delete all uploaded files for the selected school
-                      year and their linked attendance data.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteAllUploadedFiles}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      Delete All
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
+            {renderDialogDeleteActions({
+              isDeleting: isDeletingUploadedFiles,
+              selectedCount: selectedRecords.importIds.length,
+              totalCount: imports.length,
+              selectedTitle: "Delete selected uploads?",
+              selectedDescription:
+                "This will delete the selected uploaded file records and their linked attendance data.",
+              allTitle: "Delete all uploads?",
+              allDescription:
+                "This will delete all uploaded files for the selected school year and their linked attendance data.",
+              onDeleteSelected: handleDeleteSelectedUploadedFiles,
+              onDeleteAll: handleDeleteAllUploadedFiles,
+            })}
             <div className="mt-4 space-y-3">
               {imports.length ? (
                 filteredImports.length ? (
@@ -959,6 +1111,19 @@ export default function HistoryPage() {
             </DialogHeader>
             {renderDialogSearchInput("penalty results")}
             {renderDialogSelectAll("penalty results", "penaltyResultIds", ids)}
+            {renderDialogDeleteActions({
+              isDeleting: isDeletingPenaltyResults,
+              selectedCount: selectedRecords.penaltyResultIds.length,
+              totalCount: penaltyResults.length,
+              selectedTitle: "Delete selected penalty results?",
+              selectedDescription:
+                "This will delete the selected penalty result records.",
+              allTitle: "Delete all penalty results?",
+              allDescription:
+                "This will delete all penalty results for the selected school year.",
+              onDeleteSelected: handleDeleteSelectedPenaltyResults,
+              onDeleteAll: handleDeleteAllPenaltyResults,
+            })}
             <div className="mt-4 space-y-3">
               {penaltyResults.length ? (
                 filteredPenaltyResults.length ? (
@@ -1017,6 +1182,19 @@ export default function HistoryPage() {
               "finalResultIds",
               ids,
             )}
+            {renderDialogDeleteActions({
+              isDeleting: isDeletingFinalResults,
+              selectedCount: selectedRecords.finalResultIds.length,
+              totalCount: finalResults.length,
+              selectedTitle: "Delete selected final attendance results?",
+              selectedDescription:
+                "This will delete the selected final attendance result records.",
+              allTitle: "Delete all final attendance results?",
+              allDescription:
+                "This will delete all final attendance results for the selected school year.",
+              onDeleteSelected: handleDeleteSelectedFinalResults,
+              onDeleteAll: handleDeleteAllFinalResults,
+            })}
             <div className="mt-4 space-y-3">
               {finalResults.length ? (
                 filteredFinalResults.length ? (
@@ -1079,6 +1257,19 @@ export default function HistoryPage() {
               "manualRecordIds",
               ids,
             )}
+            {renderDialogDeleteActions({
+              isDeleting: isDeletingManualRecords,
+              selectedCount: selectedRecords.manualRecordIds.length,
+              totalCount: manualRecords.length,
+              selectedTitle: "Delete selected manual attendance records?",
+              selectedDescription:
+                "This will delete the selected manual attendance records.",
+              allTitle: "Delete all manual attendance records?",
+              allDescription:
+                "This will delete all manual attendance records for the selected school year.",
+              onDeleteSelected: handleDeleteSelectedManualRecords,
+              onDeleteAll: handleDeleteAllManualRecords,
+            })}
             <div className="mt-4 space-y-3">
               {manualRecords.length ? (
                 filteredManualRecords.length ? (

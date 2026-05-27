@@ -125,6 +125,11 @@ export type DeletedAttendanceImportsResult = {
   deletedImports: AttendanceImportRecord[];
 };
 
+export type DeletedAttendanceRecordsResult<TRecord> = {
+  deletedCount: number;
+  deletedRecords: TRecord[];
+};
+
 export type AttendanceImportInput = {
   schoolYearId?: string;
   eventId?: string;
@@ -769,15 +774,80 @@ export async function deleteAttendanceImport(importId: string) {
   return response.data;
 }
 
-export async function deleteAllAttendanceImports() {
+export async function deleteAttendanceImportsByIds(importIds: string[]) {
   const response = await apiRequest<DeletedAttendanceImportsResult>(
     "/api/attendance/imports",
     {
       method: "DELETE",
+      body: JSON.stringify({ ids: importIds }),
     },
   );
 
-  return response.data;
+  return response.data ?? { deletedCount: 0, deletedImports: [] };
+}
+
+export async function deleteAllAttendanceImports(schoolYearId?: string) {
+  const response = await apiRequest<DeletedAttendanceImportsResult>(
+    "/api/attendance/imports",
+    {
+      method: "DELETE",
+      body: schoolYearId ? JSON.stringify({ schoolYearId }) : undefined,
+    },
+  );
+
+  return response.data ?? { deletedCount: 0, deletedImports: [] };
+}
+
+export async function deleteAttendanceFinalResultsByIds(
+  finalResultIds: string[],
+) {
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<AttendanceFinalResultRecord>
+  >("/api/attendance/final-results", {
+    method: "DELETE",
+    body: JSON.stringify({ ids: finalResultIds }),
+  });
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
+}
+
+export async function deleteAttendanceFinalResultsBySchoolYear(
+  schoolYearId: string,
+) {
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<AttendanceFinalResultRecord>
+  >("/api/attendance/final-results", {
+    method: "DELETE",
+    body: JSON.stringify({ schoolYearId }),
+  });
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
+}
+
+export async function deleteManualAttendanceRecordsByIds(
+  manualRecordIds: string[],
+) {
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<ManualAttendanceRecord>
+  >("/api/attendance/manual-records", {
+    method: "DELETE",
+    body: JSON.stringify({ ids: manualRecordIds }),
+  });
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
+}
+
+export async function deleteManualAttendanceRecordsBySchoolYear(
+  schoolYearId: string,
+) {
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<ManualAttendanceRecord>
+  >("/api/attendance/manual-records", {
+    method: "DELETE",
+    body: JSON.stringify({ schoolYearId }),
+  });
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
 export async function previewAttendanceFile(file: File) {

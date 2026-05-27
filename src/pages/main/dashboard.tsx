@@ -162,8 +162,11 @@ export default function DashboardPage() {
     setError("");
 
     try {
-      const schoolYearRows = await listSchoolYears({ activeOnly: true });
-      const activeSchoolYearId = schoolYearRows[0]?.id ?? "";
+      const schoolYearRows = await listSchoolYears();
+      const activeSchoolYearId =
+        schoolYearRows.find((schoolYear) => schoolYear.is_active)?.id ??
+        schoolYearRows[0]?.id ??
+        "";
       const [fineRows, attendanceRows, importRows] = activeSchoolYearId
         ? await Promise.all([
             listFines({ schoolYearId: activeSchoolYearId, limit: 5000, offset: 0 }),
