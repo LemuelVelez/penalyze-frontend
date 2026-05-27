@@ -4,14 +4,12 @@ import { toast } from "sonner";
 
 import {
   getAcceptedAttendanceFileTypes,
-  listAttendanceEvents,
   listAttendanceFinalResults,
   listAttendanceImports,
   refreshAttendanceFinalResults,
   saveAttendanceFile,
 } from "../../api/attendance";
 import type {
-  AttendanceEvent,
   AttendanceFinalResultRecord,
   AttendanceImportProgress,
   AttendanceImportRecord,
@@ -44,7 +42,6 @@ const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
 type UploadFormState = {
   schoolYearId: string;
-  eventOrder: string;
   eventName: string;
   eventStartAt: string;
   eventEndAt: string;
@@ -52,7 +49,6 @@ type UploadFormState = {
 
 const emptyUploadForm: UploadFormState = {
   schoolYearId: "",
-  eventOrder: "",
   eventName: "",
   eventStartAt: "",
   eventEndAt: "",
@@ -87,154 +83,63 @@ function getResultLabel(result: AttendanceFinalResultRecord) {
   return `${result.total_absences} absence${result.total_absences === 1 ? "" : "s"}`;
 }
 
-function normalizeEventIdentity(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ");
+type BackendEventOrderedRecord = {
+  id?: string | null;
+  event_order?: number | string | null;
+  event_start_at?: string | null;
+  event_end_at?: string | null;
+  latest_scanned_at?: string | null;
+  created_at?: string | null;
+  event_name?: string | null;
+  file_name?: string | null;
+};
+
+const eventOrderCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function getBackendEventOrder(record: BackendEventOrderedRecord) {
+  const numericValue = Number(record.event_order ?? 0);
+
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : Number.MAX_SAFE_INTEGER;
 }
 
-function getPositiveIntegerValue(value: unknown) {
-  const numericValue = Number(value ?? 0);
-
-  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
-
-  return numericValue;
-}
-
-function getTimestamp(value?: string | null) {
+function getBackendEventTime(record: BackendEventOrderedRecord) {
+  const value =
+    record.event_start_at ??
+    record.event_end_at ??
+    record.latest_scanned_at ??
+    record.created_at;
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
 }
 
-function getAttendanceEventOrder(event?: AttendanceEvent | null) {
-  if (!event) return null;
-
-  const eventData = event as Record<string, unknown>;
-
-  return getPositiveIntegerValue(
-    eventData.event_order ?? eventData.eventOrder ?? eventData.order,
-  );
-}
-
-function getAttendanceEventDateTimestamp(event?: AttendanceEvent | null) {
-  return getTimestamp(event?.event_start_at ?? event?.event_end_at ?? null);
-}
-
-function compareAttendanceEventsByOrder(
-  leftEvent: AttendanceEvent,
-  rightEvent: AttendanceEvent,
+function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
+  leftRecord: T,
+  rightRecord: T,
 ) {
-  const leftOrder = getAttendanceEventOrder(leftEvent);
-  const rightOrder = getAttendanceEventOrder(rightEvent);
+  const orderDifference =
+    getBackendEventOrder(leftRecord) - getBackendEventOrder(rightRecord);
+  if (orderDifference !== 0) return orderDifference;
 
-  if (leftOrder !== null || rightOrder !== null) {
-    if (leftOrder === null) return 1;
-    if (rightOrder === null) return -1;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-  }
+  const timeDifference =
+    getBackendEventTime(leftRecord) - getBackendEventTime(rightRecord);
+  if (timeDifference !== 0) return timeDifference;
 
-  const dateDifference =
-    getAttendanceEventDateTimestamp(leftEvent) -
-    getAttendanceEventDateTimestamp(rightEvent);
-  if (dateDifference !== 0) return dateDifference;
-
-  return String(leftEvent.name ?? "").localeCompare(
-    String(rightEvent.name ?? ""),
-    undefined,
-    { numeric: true, sensitivity: "base" },
+  return eventOrderCollator.compare(
+    leftRecord.event_name ?? leftRecord.file_name ?? leftRecord.id ?? "",
+    rightRecord.event_name ?? rightRecord.file_name ?? rightRecord.id ?? "",
   );
 }
 
-function sortAttendanceEventsByOrder(events: AttendanceEvent[]) {
-  return [...events].sort(compareAttendanceEventsByOrder);
-}
-
-function buildAttendanceEventLookup(events: AttendanceEvent[]) {
-  const eventsById = new Map<string, AttendanceEvent>();
-  const eventsByName = new Map<string, AttendanceEvent>();
-
-  events.forEach((event) => {
-    const eventId = String(event.id ?? "").trim();
-    const eventName = normalizeEventIdentity(event.name);
-
-    if (eventId) eventsById.set(eventId, event);
-    if (eventName) eventsByName.set(eventName, event);
-  });
-
-  return { eventsById, eventsByName };
-}
-
-function getAttendanceImportEventId(importRecord: AttendanceImportRecord) {
-  const importData = importRecord as Record<string, unknown>;
-
-  return String(
-    importData.event_id ?? importData.attendance_event_id ?? "",
-  ).trim();
-}
-
-function getAttendanceImportEventName(importRecord: AttendanceImportRecord) {
-  return String(importRecord.event_name ?? "").trim();
-}
-
-function getAttendanceImportOrder(
-  importRecord: AttendanceImportRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
+function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
+  records: T[],
 ) {
-  const importData = importRecord as Record<string, unknown>;
-  const linkedEvent =
-    lookup.eventsById.get(getAttendanceImportEventId(importRecord)) ??
-    lookup.eventsByName.get(normalizeEventIdentity(getAttendanceImportEventName(importRecord))) ??
-    null;
-
-  return (
-    getAttendanceEventOrder(linkedEvent) ??
-    getPositiveIntegerValue(
-      importData.event_order ??
-        importData.eventOrder ??
-        importData.attendance_event_order ??
-        importData.attendanceEventOrder,
-    )
-  );
-}
-
-function compareAttendanceImportsByEventOrder(
-  leftImport: AttendanceImportRecord,
-  rightImport: AttendanceImportRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const leftOrder = getAttendanceImportOrder(leftImport, lookup);
-  const rightOrder = getAttendanceImportOrder(rightImport, lookup);
-
-  if (leftOrder !== null || rightOrder !== null) {
-    if (leftOrder === null) return 1;
-    if (rightOrder === null) return -1;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-  }
-
-  const leftEventName = getAttendanceImportEventName(leftImport);
-  const rightEventName = getAttendanceImportEventName(rightImport);
-  const eventNameDifference = leftEventName.localeCompare(
-    rightEventName,
-    undefined,
-    { numeric: true, sensitivity: "base" },
-  );
-
-  if (eventNameDifference !== 0) return eventNameDifference;
-
-  return getTimestamp(rightImport.created_at) - getTimestamp(leftImport.created_at);
-}
-
-function sortAttendanceImportsByEventOrder(
-  imports: AttendanceImportRecord[],
-  events: AttendanceEvent[],
-) {
-  const lookup = buildAttendanceEventLookup(events);
-
-  return [...imports].sort((leftImport, rightImport) =>
-    compareAttendanceImportsByEventOrder(leftImport, rightImport, lookup),
-  );
+  return [...records].sort(compareByBackendEventOrder);
 }
 
 export default function AttendancePage() {
@@ -247,7 +152,6 @@ export default function AttendancePage() {
     useState<UploadFormState>(emptyUploadForm);
   const [file, setFile] = useState<File | null>(null);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
-  const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>([]);
   const [finalResults, setFinalResults] = useState<
     AttendanceFinalResultRecord[]
   >([]);
@@ -273,16 +177,14 @@ export default function AttendancePage() {
   }, [finalResults]);
 
   const displayedFinalResults = useMemo(() => {
-    if (collegeFilter === "__all_colleges__") return finalResults;
+    const rows = sortByBackendEventOrder(finalResults);
 
-    return finalResults.filter(
+    if (collegeFilter === "__all_colleges__") return rows;
+
+    return rows.filter(
       (row) => String(row.college ?? "").trim() === collegeFilter,
     );
   }, [finalResults, collegeFilter]);
-
-  const displayedImports = useMemo(() => {
-    return sortAttendanceImportsByEventOrder(imports, attendanceEvents);
-  }, [imports, attendanceEvents]);
 
   const summary = useMemo(() => {
     const totalStudents = displayedFinalResults.length;
@@ -315,13 +217,8 @@ export default function AttendancePage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : activeSchoolYearId;
-      const [eventRows, importRows, resultRows] = fallbackSchoolYearId
+      const [importRows, resultRows] = fallbackSchoolYearId
         ? await Promise.all([
-            listAttendanceEvents({
-              schoolYearId: fallbackSchoolYearId,
-              limit: 500,
-              offset: 0,
-            }),
             listAttendanceImports({
               schoolYearId: fallbackSchoolYearId,
               limit: 50,
@@ -333,13 +230,12 @@ export default function AttendancePage() {
               offset: 0,
             }),
           ])
-        : [[], [], []];
+        : [[], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
-      setAttendanceEvents(sortAttendanceEventsByOrder(eventRows));
-      setImports(importRows);
-      setFinalResults(resultRows);
+      setImports(sortByBackendEventOrder(importRows));
+      setFinalResults(sortByBackendEventOrder(resultRows));
       setUploadForm((current) => ({
         ...current,
         schoolYearId:
@@ -395,15 +291,6 @@ export default function AttendancePage() {
       return;
     }
 
-    if (uploadForm.eventOrder) {
-      const eventOrder = Number(uploadForm.eventOrder);
-
-      if (!Number.isInteger(eventOrder) || eventOrder < 1) {
-        toast.error("Event order must be a positive whole number.");
-        return;
-      }
-    }
-
     setIsSaving(true);
     setProgress({
       stage: "preparing",
@@ -416,19 +303,13 @@ export default function AttendancePage() {
     });
 
     try {
-      const eventOrder = Number(uploadForm.eventOrder);
-      const uploadOptions = {
+      const result = await saveAttendanceFile(file, {
         schoolYearId: uploadForm.schoolYearId || undefined,
         eventName: uploadForm.eventName.trim(),
         eventStartAt: uploadForm.eventStartAt || undefined,
         eventEndAt: uploadForm.eventEndAt || undefined,
         onProgress: setProgress,
-        eventOrder:
-          Number.isInteger(eventOrder) && eventOrder > 0
-            ? eventOrder
-            : undefined,
-      };
-      const result = await saveAttendanceFile(file, uploadOptions);
+      });
 
       await refreshAttendanceFinalResults({
         schoolYearId: uploadForm.schoolYearId || undefined,
@@ -439,10 +320,9 @@ export default function AttendancePage() {
       setFile(null);
       setUploadForm((current) => ({
         ...current,
-        eventOrder: "",
         eventName: "",
         eventStartAt: "",
-        eventEndAt: ""
+        eventEndAt: "",
       }));
       setUploadDialogOpen(false);
       await loadPageData(selectedSchoolYearId);
@@ -603,7 +483,7 @@ export default function AttendancePage() {
             <DialogHeader>
               <DialogTitle>Upload attendance file</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-6">
+            <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
               <label className="space-y-2 lg:col-span-2">
                 <span className="text-sm font-bold">Attendance file</span>
                 <Input
@@ -635,22 +515,6 @@ export default function AttendancePage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-bold">Event order</span>
-                <Input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={uploadForm.eventOrder}
-                  onChange={(event) =>
-                    handleUploadFieldChange("eventOrder", event.target.value)
-                  }
-                  placeholder="1"
-                  disabled={isSaving}
-                  className="min-h-12 rounded-2xl"
-                />
               </label>
 
               <label className="space-y-2">
@@ -795,8 +659,8 @@ export default function AttendancePage() {
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <h2 className="text-xl font-black">Recent uploaded files</h2>
           <div className="mt-4 grid gap-3">
-            {displayedImports.length ? (
-              displayedImports.map((item) => (
+            {imports.length ? (
+              imports.map((item) => (
                 <article
                   key={item.id}
                   className="rounded-2xl border bg-background p-4"

@@ -124,8 +124,9 @@ type CollegeLinkedAttendanceScope = {
 type StudentAttendedEventSummary = {
   key: string;
   eventName: string;
-  eventOrder: number | null;
   latestScannedAt: string | null;
+  eventOrder?: number | null;
+  eventDate?: string | null;
   records: AttendanceRecord[];
   totalAbsences: number;
 };
@@ -133,8 +134,9 @@ type StudentAttendedEventSummary = {
 type StudentAbsentEventSummary = {
   key: string;
   eventName: string;
-  eventOrder: number | null;
   latestScannedAt: string | null;
+  eventOrder?: number | null;
+  eventDate?: string | null;
   records: AttendanceRecord[];
   remarks: string[];
   totalAbsences: number;
@@ -406,6 +408,41 @@ function getRecordTimestamp(record: AttendanceRecord) {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function getAttendanceRecordBackendEventTime(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+  const value =
+    (recordData.event_start_at as string | null | undefined) ??
+    (recordData.event_end_at as string | null | undefined) ??
+    record.scanned_at ??
+    record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function compareAttendanceRecordsByBackendEventOrder(
+  leftRecord: AttendanceRecord,
+  rightRecord: AttendanceRecord,
+) {
+  const leftOrder =
+    getAttendanceRecordEventOrderValue(leftRecord) ?? Number.MAX_SAFE_INTEGER;
+  const rightOrder =
+    getAttendanceRecordEventOrderValue(rightRecord) ?? Number.MAX_SAFE_INTEGER;
+  const orderDifference = leftOrder - rightOrder;
+
+  if (orderDifference !== 0) return orderDifference;
+
+  const timeDifference =
+    getAttendanceRecordBackendEventTime(leftRecord) -
+    getAttendanceRecordBackendEventTime(rightRecord);
+  if (timeDifference !== 0) return timeDifference;
+
+  return eventNameCollator.compare(
+    getRecordEventName(leftRecord),
+    getRecordEventName(rightRecord),
+  );
+}
+
 function getDateYear(value?: string | null) {
   if (!value) return "";
 
@@ -434,6 +471,57 @@ function getAttendanceEventById(attendanceEvents: AttendanceEvent[]) {
   return new Map(attendanceEvents.map((event) => [String(event.id), event]));
 }
 
+function getPositiveEventOrder(value: unknown) {
+  const numericValue = Number(value ?? 0);
+
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : null;
+}
+
+function getAttendanceEventOrderValue(event?: AttendanceEvent | null) {
+  return getPositiveEventOrder(
+    event ? (event as Record<string, unknown>).event_order : null,
+  );
+}
+
+function getAttendanceRecordEventOrderValue(
+  record: AttendanceRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
+  const directOrder = getPositiveEventOrder(
+    (record as Record<string, unknown>).event_order,
+  );
+  if (directOrder !== null) return directOrder;
+
+  const eventId = String(record.event_id ?? "").trim();
+  const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
+
+  return getAttendanceEventOrderValue(linkedEvent);
+}
+
+function getFineEventOrderValue(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
+  const directOrder = getPositiveEventOrder(
+    (fine as Record<string, unknown>).attendance_event_order ??
+      (fine as Record<string, unknown>).event_order,
+  );
+  if (directOrder !== null) return directOrder;
+
+  const eventId = getFineAttendanceEventId(fine);
+  const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
+
+  return getAttendanceEventOrderValue(linkedEvent);
+}
+
+function getBackendEventSortTime(value?: string | null) {
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
 function getAttendanceEventDateValue(event?: AttendanceEvent | null) {
   return event?.event_start_at ?? event?.event_end_at ?? null;
 }
@@ -441,61 +529,6 @@ function getAttendanceEventDateValue(event?: AttendanceEvent | null) {
 function getAttendanceEventYear(event?: AttendanceEvent | null) {
   return (
     event?.school_year_id || getDateYear(getAttendanceEventDateValue(event))
-  );
-}
-
-function getPositiveIntegerValue(value: unknown) {
-  const numericValue = Number(value ?? 0);
-
-  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
-
-  return numericValue;
-}
-
-function getAttendanceEventOrder(event?: AttendanceEvent | null) {
-  if (!event) return null;
-
-  const eventData = event as Record<string, unknown>;
-
-  return getPositiveIntegerValue(
-    eventData.event_order ?? eventData.eventOrder ?? eventData.order,
-  );
-}
-
-function getAttendanceRecordEventOrder(
-  record: AttendanceRecord,
-  eventById?: Map<string, AttendanceEvent>,
-) {
-  const eventId = String(record.event_id ?? "").trim();
-  const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
-  const recordData = record as Record<string, unknown>;
-
-  return (
-    getAttendanceEventOrder(linkedEvent) ??
-    getPositiveIntegerValue(
-      recordData.event_order ??
-        recordData.eventOrder ??
-        recordData.attendance_event_order ??
-        recordData.attendanceEventOrder,
-    )
-  );
-}
-
-function getFineAttendanceEventOrder(
-  fine: FineRecord,
-  eventById?: Map<string, AttendanceEvent>,
-) {
-  const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
-  const fineData = fine as Record<string, unknown>;
-
-  return (
-    getAttendanceEventOrder(linkedEvent) ??
-    getPositiveIntegerValue(
-      fineData.event_order ??
-        fineData.eventOrder ??
-        fineData.attendance_event_order ??
-        fineData.attendanceEventOrder,
-    )
   );
 }
 
@@ -509,6 +542,16 @@ function getFineAttendanceRecordDateValue(
   return linkedRecord?.scanned_at ?? linkedRecord?.created_at ?? null;
 }
 
+function getFineAttendanceEventDateValue(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+) {
+  const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
+
+  return getAttendanceEventDateValue(linkedEvent);
+}
+
+
 function getFineRecordYear(
   fine: FineRecord,
   eventById?: Map<string, AttendanceEvent>,
@@ -519,6 +562,7 @@ function getFineRecordYear(
   return (
     fine.school_year_id ||
     getAttendanceEventYear(linkedEvent) ||
+    getDateYear(getFineAttendanceEventDateValue(fine, eventById)) ||
     getDateYear(getFineAttendanceRecordDateValue(fine, attendanceRecordById)) ||
     getDateYear(fine.created_at ?? null)
   );
@@ -600,8 +644,8 @@ function getAttendanceEventSequence(
   record: AttendanceRecord,
   eventById?: Map<string, AttendanceEvent>,
 ) {
-  const eventOrder = getAttendanceRecordEventOrder(record, eventById);
-  if (eventOrder !== null) return eventOrder;
+  const backendEventOrder = getAttendanceRecordEventOrderValue(record, eventById);
+  if (backendEventOrder !== null) return backendEventOrder;
 
   const candidates = [
     record.event_name,
@@ -619,7 +663,7 @@ function getAttendanceEventSequence(
 }
 
 function getSummaryEventSequence(summary: StudentAttendedEventSummary) {
-  if (summary.eventOrder !== null) return summary.eventOrder;
+  if (summary.eventOrder && summary.eventOrder > 0) return summary.eventOrder;
 
   const directSequence =
     parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
@@ -634,6 +678,9 @@ function getSummaryEventSequence(summary: StudentAttendedEventSummary) {
 }
 
 function getSummaryEarliestTime(summary: StudentAttendedEventSummary) {
+  const eventTime = getBackendEventSortTime(summary.eventDate);
+  if (eventTime > 0) return eventTime;
+
   const validTimes = summary.records
     .map(getRecordTimestamp)
     .filter((time) => time > 0);
@@ -753,9 +800,7 @@ function getUniqueDisplayAttendance(attendance: AttendanceRecord[]) {
   });
 
   return Array.from(uniqueAttendance.values()).sort(
-    (leftRecord, rightRecord) => {
-      return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-    },
+    compareAttendanceRecordsByBackendEventOrder,
   );
 }
 
@@ -855,11 +900,14 @@ function getCollegeLinkedEventSummaryMap(
 
       if (!key) return;
 
+      const eventDate = getAttendanceEventSummaryDateValue(record, eventById);
+
       addAbsentEventSummary(summaries, {
         key,
         eventName,
-        eventOrder: getAttendanceRecordEventOrder(record, eventById),
-        latestScannedAt: getAttendanceEventSummaryDateValue(record, eventById),
+        latestScannedAt: eventDate,
+        eventOrder: getAttendanceRecordEventOrderValue(record, eventById),
+        eventDate,
         remarks: ["No attendance record found for this college-linked event."],
         totalAbsences: 1,
       });
@@ -892,9 +940,9 @@ function getCollegeLinkedAbsentEventSummaries(
     .map((summary) => ({
       ...summary,
       remarks: Array.from(new Set(summary.remarks)),
-      records: [...summary.records].sort((leftRecord, rightRecord) => {
-        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      }),
+      records: [...summary.records].sort(
+        compareAttendanceRecordsByBackendEventOrder,
+      ),
     }))
     .sort(compareStudentAbsentEventSummaries);
 }
@@ -959,14 +1007,16 @@ function getStudentAttendedEventSummaries(
         `attendance-event-${record.id}`;
       const currentSummary = summaries.get(key);
       const recordTime = getRecordTimestamp(record);
-      const eventOrder = getAttendanceRecordEventOrder(record, eventById);
 
       if (!currentSummary) {
+        const eventDate = getAttendanceEventSummaryDateValue(record, eventById);
+
         summaries.set(key, {
           key,
           eventName,
-          eventOrder,
           latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+          eventOrder: getAttendanceRecordEventOrderValue(record, eventById),
+          eventDate,
           records: [record],
           totalAbsences: 0,
         });
@@ -978,14 +1028,12 @@ function getStudentAttendedEventSummaries(
         : 0;
 
       currentSummary.records.push(record);
-
-      if (
-        eventOrder !== null &&
-        (currentSummary.eventOrder === null ||
-          eventOrder < currentSummary.eventOrder)
-      ) {
-        currentSummary.eventOrder = eventOrder;
-      }
+      currentSummary.eventOrder =
+        currentSummary.eventOrder ??
+        getAttendanceRecordEventOrderValue(record, eventById);
+      currentSummary.eventDate =
+        currentSummary.eventDate ??
+        getAttendanceEventSummaryDateValue(record, eventById);
 
       if (recordTime > (Number.isNaN(latestTime) ? 0 : latestTime)) {
         currentSummary.latestScannedAt =
@@ -998,9 +1046,9 @@ function getStudentAttendedEventSummaries(
   return Array.from(summaries.values())
     .map((summary) => ({
       ...summary,
-      records: [...summary.records].sort((leftRecord, rightRecord) => {
-        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      }),
+      records: [...summary.records].sort(
+        compareAttendanceRecordsByBackendEventOrder,
+      ),
     }))
     .sort(compareStudentAttendedEventSummaries);
 }
@@ -1067,9 +1115,14 @@ function getFineAbsentEventName(
   fine: FineRecord,
   eventById?: Map<string, AttendanceEvent>,
 ) {
+  const fineData = fine as Record<string, unknown>;
+  const backendEventName = String(
+    fineData.attendance_event_name ?? fineData.event_name ?? "",
+  ).trim();
   const eventId = getFineAttendanceEventId(fine);
   const linkedEvent = eventId ? (eventById?.get(eventId) ?? null) : null;
 
+  if (backendEventName) return backendEventName;
   if (linkedEvent?.name) return linkedEvent.name;
   if (eventId) return `Event ${eventId}`;
 
@@ -1080,9 +1133,12 @@ function getFineAbsentEventDateValue(
   fine: FineRecord,
   eventById?: Map<string, AttendanceEvent>,
 ) {
+  const fineData = fine as Record<string, unknown>;
   const linkedEvent = eventById?.get(getFineAttendanceEventId(fine)) ?? null;
 
   return (
+    (fineData.attendance_event_start_at as string | null | undefined) ??
+    (fineData.attendance_event_end_at as string | null | undefined) ??
     getAttendanceEventDateValue(linkedEvent) ??
     fine.created_at ??
     fine.updated_at ??
@@ -1094,25 +1150,19 @@ function hasFineLinkedAttendanceEvent(fine: FineRecord) {
   return Boolean(getFineAttendanceEventId(fine));
 }
 
-function getPositiveAttendanceEventSequence(
-  record: AttendanceRecord,
-  eventById?: Map<string, AttendanceEvent>,
-) {
-  const sequence = getAttendanceEventSequence(record, eventById);
+function getPositiveAttendanceEventSequence(record: AttendanceRecord) {
+  const sequence = getAttendanceEventSequence(record);
 
   return sequence !== null && sequence > 0 ? sequence : null;
 }
 
-function getAttendanceEventSequenceSet(
-  attendance: AttendanceRecord[],
-  eventById?: Map<string, AttendanceEvent>,
-) {
+function getAttendanceEventSequenceSet(attendance: AttendanceRecord[]) {
   const sequenceSet = new Set<number>();
 
   attendance.forEach((record) => {
     if (isZeroAttendanceRecord(record)) return;
 
-    const sequence = getPositiveAttendanceEventSequence(record, eventById);
+    const sequence = getPositiveAttendanceEventSequence(record);
     if (sequence !== null) sequenceSet.add(sequence);
   });
 
@@ -1122,9 +1172,8 @@ function getAttendanceEventSequenceSet(
 function getInferredMissingAttendanceSequences(
   attendance: AttendanceRecord[],
   totalAbsences: number,
-  eventById?: Map<string, AttendanceEvent>,
 ) {
-  const sequenceSet = getAttendanceEventSequenceSet(attendance, eventById);
+  const sequenceSet = getAttendanceEventSequenceSet(attendance);
   const sequences = Array.from(sequenceSet).sort(
     (leftSequence, rightSequence) => leftSequence - rightSequence,
   );
@@ -1170,7 +1219,7 @@ function getFineAbsentEventRemarks(fine: FineRecord) {
 }
 
 function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
-  if (summary.eventOrder !== null) return summary.eventOrder;
+  if (summary.eventOrder && summary.eventOrder > 0) return summary.eventOrder;
 
   const directSequence =
     parseEventSequence(summary.eventName) ?? parseEventSequence(summary.key);
@@ -1185,6 +1234,9 @@ function getAbsentEventSequence(summary: StudentAbsentEventSummary) {
 }
 
 function getAbsentSummaryEarliestTime(summary: StudentAbsentEventSummary) {
+  const eventTime = getBackendEventSortTime(summary.eventDate);
+  if (eventTime > 0) return eventTime;
+
   const recordTimes = summary.records
     .map(getRecordTimestamp)
     .filter((time) => time > 0);
@@ -1227,8 +1279,9 @@ function addAbsentEventSummary(
   props: {
     key: string;
     eventName: string;
-    eventOrder?: number | null;
     latestScannedAt: string | null;
+    eventOrder?: number | null;
+    eventDate?: string | null;
     records?: AttendanceRecord[];
     remarks?: string[];
     totalAbsences?: number;
@@ -1249,8 +1302,9 @@ function addAbsentEventSummary(
     summaries.set(props.key, {
       key: props.key,
       eventName: props.eventName,
-      eventOrder: props.eventOrder ?? null,
       latestScannedAt: props.latestScannedAt,
+      eventOrder: props.eventOrder ?? null,
+      eventDate: props.eventDate ?? props.latestScannedAt,
       records: nextRecords,
       remarks: nextRemarks,
       totalAbsences: nextTotalAbsences,
@@ -1264,20 +1318,14 @@ function addAbsentEventSummary(
 
   currentSummary.records.push(...nextRecords);
   currentSummary.remarks.push(...nextRemarks);
+  currentSummary.eventOrder =
+    currentSummary.eventOrder ?? props.eventOrder ?? null;
+  currentSummary.eventDate =
+    currentSummary.eventDate ?? props.eventDate ?? props.latestScannedAt;
   currentSummary.totalAbsences = Math.max(
     currentSummary.totalAbsences,
     nextTotalAbsences,
   );
-
-  const nextEventOrder = props.eventOrder ?? null;
-
-  if (
-    nextEventOrder !== null &&
-    (currentSummary.eventOrder === null ||
-      nextEventOrder < currentSummary.eventOrder)
-  ) {
-    currentSummary.eventOrder = nextEventOrder;
-  }
 
   if (nextTime > (Number.isNaN(currentTime) ? 0 : currentTime)) {
     currentSummary.latestScannedAt =
@@ -1332,14 +1380,21 @@ function getStudentAbsentEventSummaries(
         getAttendanceEventSummaryKey(record, eventById) ||
         `absent-event-${record.id}`;
 
+      const eventDate =
+        getAttendanceEventSummaryDateValue(record, eventById) ??
+        getFineAbsentEventDateValue(fine, eventById);
+
       addAbsentEventSummary(summaries, {
         key,
         eventName,
-        eventOrder: getAttendanceRecordEventOrder(record, eventById),
         latestScannedAt:
           record.scanned_at ??
           record.created_at ??
           getFineAbsentEventDateValue(fine, eventById),
+        eventOrder:
+          getAttendanceRecordEventOrderValue(record, eventById) ??
+          getFineEventOrderValue(fine, eventById),
+        eventDate,
         records: [record],
         remarks: remarks ? [remarks] : [],
         totalAbsences: 1,
@@ -1347,11 +1402,14 @@ function getStudentAbsentEventSummaries(
     });
 
     if (!matchingRecords.length && fineEventId) {
+      const eventDate = getFineAbsentEventDateValue(fine, eventById);
+
       addAbsentEventSummary(summaries, {
         key: `fine-absent-event-${fineEventId}`,
         eventName: getFineAbsentEventName(fine, eventById),
-        eventOrder: getFineAttendanceEventOrder(fine, eventById),
-        latestScannedAt: getFineAbsentEventDateValue(fine, eventById),
+        latestScannedAt: eventDate,
+        eventOrder: getFineEventOrderValue(fine, eventById),
+        eventDate,
         remarks: remarks ? [remarks] : [],
         totalAbsences: 1,
       });
@@ -1366,11 +1424,14 @@ function getStudentAbsentEventSummaries(
         getAttendanceEventSummaryKey(record, eventById) ||
         `absent-event-${record.id}`;
 
+      const eventDate = getAttendanceEventSummaryDateValue(record, eventById);
+
       addAbsentEventSummary(summaries, {
         key,
         eventName,
-        eventOrder: getAttendanceRecordEventOrder(record, eventById),
         latestScannedAt: record.scanned_at ?? record.created_at ?? null,
+        eventOrder: getAttendanceRecordEventOrderValue(record, eventById),
+        eventDate,
         records: [record],
         totalAbsences: 1,
       });
@@ -1380,7 +1441,6 @@ function getStudentAbsentEventSummaries(
     getInferredMissingAttendanceSequences(
       uniqueAttendance,
       verifiedAbsenceCount,
-      eventById,
     ).forEach((sequence) => {
       if (getAbsentSummariesAbsenceCount(summaries) >= verifiedAbsenceCount)
         return;
@@ -1389,8 +1449,8 @@ function getStudentAbsentEventSummaries(
       addAbsentEventSummary(summaries, {
         key: `inferred-absent-event-${sequence}`,
         eventName: `Event ${sequence}`,
-        eventOrder: sequence,
         latestScannedAt: null,
+        eventOrder: sequence,
         remarks: ["No attendance record found for this event sequence."],
         totalAbsences: 1,
       });
@@ -1405,14 +1465,20 @@ function getStudentAbsentEventSummaries(
         ? getFineAbsentEventRemarks(representativeFine)
         : "";
 
+      const eventDate = representativeFine
+        ? getFineAbsentEventDateValue(representativeFine, eventById)
+        : null;
+
       addAbsentEventSummary(summaries, {
         key: `unresolved-absent-event-${representativeFine?.id ?? "attendance-record"}`,
         eventName: representativeFine
           ? getFineAbsentEventName(representativeFine, eventById)
           : "Absence record",
-        latestScannedAt: representativeFine
-          ? getFineAbsentEventDateValue(representativeFine, eventById)
+        latestScannedAt: eventDate,
+        eventOrder: representativeFine
+          ? getFineEventOrderValue(representativeFine, eventById)
           : null,
+        eventDate,
         remarks: remarks ? [remarks] : [],
         totalAbsences: unresolvedAbsenceCount,
       });
@@ -1423,9 +1489,9 @@ function getStudentAbsentEventSummaries(
     .map((summary) => ({
       ...summary,
       remarks: Array.from(new Set(summary.remarks)),
-      records: [...summary.records].sort((leftRecord, rightRecord) => {
-        return getRecordTimestamp(leftRecord) - getRecordTimestamp(rightRecord);
-      }),
+      records: [...summary.records].sort(
+        compareAttendanceRecordsByBackendEventOrder,
+      ),
     }))
     .sort(compareStudentAbsentEventSummaries);
 }
@@ -1650,6 +1716,78 @@ function getFineTimestamp(fine: FineRecord) {
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
+}
+
+function getFineLinkedAttendanceRecord(
+  fine: FineRecord,
+  attendanceRecordById?: Map<string, AttendanceRecord>,
+) {
+  const attendanceRecordId = getFineAttendanceRecordId(fine);
+
+  return attendanceRecordId
+    ? (attendanceRecordById?.get(attendanceRecordId) ?? null)
+    : null;
+}
+
+function getFineBackendEventOrder(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+  attendanceRecordById?: Map<string, AttendanceRecord>,
+) {
+  return (
+    getFineEventOrderValue(fine, eventById) ??
+    (getFineLinkedAttendanceRecord(fine, attendanceRecordById)
+      ? getAttendanceRecordEventOrderValue(
+          getFineLinkedAttendanceRecord(fine, attendanceRecordById)!,
+          eventById,
+        )
+      : null)
+  );
+}
+
+function getFineBackendEventTime(
+  fine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+  attendanceRecordById?: Map<string, AttendanceRecord>,
+) {
+  const linkedRecord = getFineLinkedAttendanceRecord(fine, attendanceRecordById);
+  const value =
+    getFineAbsentEventDateValue(fine, eventById) ??
+    (linkedRecord
+      ? getAttendanceEventSummaryDateValue(linkedRecord, eventById)
+      : null) ??
+    fine.created_at ??
+    fine.updated_at ??
+    null;
+
+  return getBackendEventSortTime(value);
+}
+
+function compareFineRecordsByBackendEventOrder(
+  leftFine: FineRecord,
+  rightFine: FineRecord,
+  eventById?: Map<string, AttendanceEvent>,
+  attendanceRecordById?: Map<string, AttendanceRecord>,
+) {
+  const leftOrder =
+    getFineBackendEventOrder(leftFine, eventById, attendanceRecordById) ??
+    Number.MAX_SAFE_INTEGER;
+  const rightOrder =
+    getFineBackendEventOrder(rightFine, eventById, attendanceRecordById) ??
+    Number.MAX_SAFE_INTEGER;
+  const orderDifference = leftOrder - rightOrder;
+
+  if (orderDifference !== 0) return orderDifference;
+
+  const timeDifference =
+    getFineBackendEventTime(leftFine, eventById, attendanceRecordById) -
+    getFineBackendEventTime(rightFine, eventById, attendanceRecordById);
+  if (timeDifference !== 0) return timeDifference;
+
+  return eventNameCollator.compare(
+    getFineAbsentEventName(leftFine, eventById),
+    getFineAbsentEventName(rightFine, eventById),
+  );
 }
 
 function getMergedFineStatus(fines: FineRecord[]): FineRecord["status"] {
@@ -2189,12 +2327,16 @@ function ZeroAttendanceRegistrationDialog(props: {
 function finalResultToAttendanceRecord(
   row: AttendanceFinalResultRecord,
 ): AttendanceRecord {
+  const rowData = row as AttendanceFinalResultRecord & Record<string, unknown>;
+  const eventId = String(rowData.event_id ?? "").trim();
+  const eventName = String(rowData.event_name ?? "").trim();
+
   return {
     id: row.id,
     school_year_id: row.school_year_id,
     import_id: row.import_id,
-    event_id: null,
-    event_name: "Final attendance result",
+    event_id: eventId || null,
+    event_name: eventName || "Final attendance result",
     student_id: row.student_id,
     name: row.name,
     year_level: row.year_level,
@@ -2206,7 +2348,10 @@ function finalResultToAttendanceRecord(
     scanned_at: row.latest_scanned_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
-  };
+    event_order: rowData.event_order ?? null,
+    event_start_at: rowData.event_start_at ?? null,
+    event_end_at: rowData.event_end_at ?? null,
+  } as AttendanceRecord;
 }
 
 async function listLandingAttendanceRecords(
@@ -2344,12 +2489,14 @@ export default function LandingPage() {
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
 
-    return lookup.attendanceRecords.filter((record) =>
-      matchesSelectedYear(
-        getAttendanceRecordYear(record, attendanceEventById),
-        resultYearFilter,
-      ),
-    );
+    return lookup.attendanceRecords
+      .filter((record) =>
+        matchesSelectedYear(
+          getAttendanceRecordYear(record, attendanceEventById),
+          resultYearFilter,
+        ),
+      )
+      .sort(compareAttendanceRecordsByBackendEventOrder);
   }, [lookup, resultYearFilter, attendanceEventById]);
 
   const allDisplayedFines = useMemo(() => {
@@ -2359,6 +2506,13 @@ export default function LandingPage() {
           getFineRecordYear(fine, attendanceEventById, attendanceRecordById),
           resultYearFilter,
         ),
+      ),
+    ).sort((leftFine, rightFine) =>
+      compareFineRecordsByBackendEventOrder(
+        leftFine,
+        rightFine,
+        attendanceEventById,
+        attendanceRecordById,
       ),
     );
   }, [

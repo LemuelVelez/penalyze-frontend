@@ -4,7 +4,6 @@ import { toast } from "sonner";
 
 import {
   listAllAttendanceRecords,
-  listAttendanceEvents,
   listAttendanceImports,
   listCalculationResults,
   listManualAttendanceRecords,
@@ -12,7 +11,6 @@ import {
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
-  AttendanceEvent,
   AttendanceImportRecord,
   AttendanceRecord,
   CalculationResultRecord,
@@ -103,6 +101,65 @@ function getRecordTimestamp(record: AttendanceRecord | ManualAttendanceRecord) {
   return Number.isNaN(time) ? 0 : time;
 }
 
+type BackendEventOrderedRecord = {
+  id?: string | null;
+  event_order?: number | string | null;
+  event_start_at?: string | null;
+  event_end_at?: string | null;
+  scanned_at?: string | null;
+  created_at?: string | null;
+  event_name?: string | null;
+  file_name?: string | null;
+};
+
+const eventOrderCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function getBackendEventOrder(record: BackendEventOrderedRecord) {
+  const numericValue = Number(record.event_order ?? 0);
+
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : Number.MAX_SAFE_INTEGER;
+}
+
+function getBackendEventTime(record: BackendEventOrderedRecord) {
+  const value =
+    record.event_start_at ??
+    record.event_end_at ??
+    record.scanned_at ??
+    record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
+  leftRecord: T,
+  rightRecord: T,
+) {
+  const orderDifference =
+    getBackendEventOrder(leftRecord) - getBackendEventOrder(rightRecord);
+  if (orderDifference !== 0) return orderDifference;
+
+  const timeDifference =
+    getBackendEventTime(leftRecord) - getBackendEventTime(rightRecord);
+  if (timeDifference !== 0) return timeDifference;
+
+  return eventOrderCollator.compare(
+    leftRecord.event_name ?? leftRecord.file_name ?? leftRecord.id ?? "",
+    rightRecord.event_name ?? rightRecord.file_name ?? rightRecord.id ?? "",
+  );
+}
+
+function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
+  records: T[],
+) {
+  return [...records].sort(compareByBackendEventOrder);
+}
+
 function getAbsenceCount(value: unknown) {
   const numericValue = Number(value ?? 0);
 
@@ -117,241 +174,6 @@ function getEventKey(record: AttendanceRecord) {
   );
 }
 
-function normalizeEventIdentity(value: unknown) {
-  return normalizeValue(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ");
-}
-
-function getPositiveIntegerValue(value: unknown) {
-  const numericValue = Number(value ?? 0);
-
-  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
-
-  return numericValue;
-}
-
-function getTimestamp(value?: string | null) {
-  const time = value ? new Date(value).getTime() : 0;
-
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function getAttendanceEventOrder(event?: AttendanceEvent | null) {
-  if (!event) return null;
-
-  const eventData = event as Record<string, unknown>;
-
-  return getPositiveIntegerValue(
-    eventData.event_order ?? eventData.eventOrder ?? eventData.order,
-  );
-}
-
-function getAttendanceEventDateTimestamp(event?: AttendanceEvent | null) {
-  return getTimestamp(event?.event_start_at ?? event?.event_end_at ?? null);
-}
-
-function buildAttendanceEventLookup(events: AttendanceEvent[]) {
-  const eventsById = new Map<string, AttendanceEvent>();
-  const eventsByName = new Map<string, AttendanceEvent>();
-
-  events.forEach((event) => {
-    const eventId = normalizeValue(event.id);
-    const eventName = normalizeEventIdentity(event.name);
-
-    if (eventId) eventsById.set(eventId, event);
-    if (eventName) eventsByName.set(eventName, event);
-  });
-
-  return { eventsById, eventsByName };
-}
-
-function getSourceRecordEventId(
-  record: AttendanceRecord | ManualAttendanceRecord,
-) {
-  const recordData = record as Record<string, unknown>;
-
-  return normalizeValue(recordData.event_id ?? recordData.attendance_event_id);
-}
-
-function getSourceRecordEventName(
-  record: AttendanceRecord | ManualAttendanceRecord,
-) {
-  return normalizeValue(record.event_name);
-}
-
-function getSourceRecordLinkedEvent(
-  record: AttendanceRecord | ManualAttendanceRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  return (
-    lookup.eventsById.get(getSourceRecordEventId(record)) ??
-    lookup.eventsByName.get(normalizeEventIdentity(getSourceRecordEventName(record))) ??
-    null
-  );
-}
-
-function getSourceRecordEventOrder(
-  record: AttendanceRecord | ManualAttendanceRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const recordData = record as Record<string, unknown>;
-
-  return (
-    getAttendanceEventOrder(getSourceRecordLinkedEvent(record, lookup)) ??
-    getPositiveIntegerValue(
-      recordData.event_order ??
-        recordData.eventOrder ??
-        recordData.attendance_event_order ??
-        recordData.attendanceEventOrder,
-    )
-  );
-}
-
-function getSourceRecordEventDateTimestamp(
-  record: AttendanceRecord | ManualAttendanceRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const linkedEvent = getSourceRecordLinkedEvent(record, lookup);
-
-  return (
-    getAttendanceEventDateTimestamp(linkedEvent) ||
-    getTimestamp(record.scanned_at ?? record.created_at)
-  );
-}
-
-function compareSourceRecordsByEventOrder(
-  leftRecord: AttendanceRecord | ManualAttendanceRecord,
-  rightRecord: AttendanceRecord | ManualAttendanceRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const leftOrder = getSourceRecordEventOrder(leftRecord, lookup);
-  const rightOrder = getSourceRecordEventOrder(rightRecord, lookup);
-
-  if (leftOrder !== null || rightOrder !== null) {
-    if (leftOrder === null) return 1;
-    if (rightOrder === null) return -1;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-  }
-
-  const dateDifference =
-    getSourceRecordEventDateTimestamp(leftRecord, lookup) -
-    getSourceRecordEventDateTimestamp(rightRecord, lookup);
-  if (dateDifference !== 0) return dateDifference;
-
-  return getSourceRecordEventName(leftRecord).localeCompare(
-    getSourceRecordEventName(rightRecord),
-    undefined,
-    { numeric: true, sensitivity: "base" },
-  );
-}
-
-function sortSourceRecordsByEventOrder<T extends AttendanceRecord | ManualAttendanceRecord>(
-  records: T[],
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  return [...records].sort((leftRecord, rightRecord) =>
-    compareSourceRecordsByEventOrder(leftRecord, rightRecord, lookup),
-  );
-}
-
-function getLatestOrderedSourceRecord<T extends AttendanceRecord | ManualAttendanceRecord>(
-  records: T[],
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const sortedRecords = sortSourceRecordsByEventOrder(records, lookup);
-
-  return sortedRecords[sortedRecords.length - 1] ?? null;
-}
-
-function getAttendanceImportEventId(importRecord: AttendanceImportRecord) {
-  const importData = importRecord as Record<string, unknown>;
-
-  return normalizeValue(importData.event_id ?? importData.attendance_event_id);
-}
-
-function getAttendanceImportEventName(importRecord: AttendanceImportRecord) {
-  return normalizeValue(importRecord.event_name);
-}
-
-function getAttendanceImportOrder(
-  importRecord: AttendanceImportRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const importData = importRecord as Record<string, unknown>;
-  const linkedEvent =
-    lookup.eventsById.get(getAttendanceImportEventId(importRecord)) ??
-    lookup.eventsByName.get(normalizeEventIdentity(getAttendanceImportEventName(importRecord))) ??
-    null;
-
-  return (
-    getAttendanceEventOrder(linkedEvent) ??
-    getPositiveIntegerValue(
-      importData.event_order ??
-        importData.eventOrder ??
-        importData.attendance_event_order ??
-        importData.attendanceEventOrder,
-    )
-  );
-}
-
-function compareAttendanceImportsByEventOrder(
-  leftImport: AttendanceImportRecord,
-  rightImport: AttendanceImportRecord,
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
-) {
-  const leftOrder = getAttendanceImportOrder(leftImport, lookup);
-  const rightOrder = getAttendanceImportOrder(rightImport, lookup);
-
-  if (leftOrder !== null || rightOrder !== null) {
-    if (leftOrder === null) return 1;
-    if (rightOrder === null) return -1;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-  }
-
-  const eventNameDifference = getAttendanceImportEventName(leftImport).localeCompare(
-    getAttendanceImportEventName(rightImport),
-    undefined,
-    { numeric: true, sensitivity: "base" },
-  );
-
-  if (eventNameDifference !== 0) return eventNameDifference;
-
-  return getTimestamp(leftImport.created_at) - getTimestamp(rightImport.created_at);
-}
-
-function sortAttendanceImportsByEventOrder(
-  imports: AttendanceImportRecord[],
-  events: AttendanceEvent[],
-) {
-  const lookup = buildAttendanceEventLookup(events);
-
-  return [...imports].sort((leftImport, rightImport) =>
-    compareAttendanceImportsByEventOrder(leftImport, rightImport, lookup),
-  );
-}
-
-function sortImportIdsByEventOrder(
-  importIds: string[],
-  imports: AttendanceImportRecord[],
-) {
-  const importOrderById = new Map(
-    imports.map((importRecord, index) => [importRecord.id, index]),
-  );
-
-  return [...importIds].sort((leftId, rightId) => {
-    const leftIndex = importOrderById.get(leftId) ?? Number.MAX_SAFE_INTEGER;
-    const rightIndex = importOrderById.get(rightId) ?? Number.MAX_SAFE_INTEGER;
-
-    if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-
-    return leftId.localeCompare(rightId, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-  });
-}
-
 function getBestTextValue(...values: Array<string | null | undefined>) {
   return values.map(normalizeValue).find(Boolean) ?? "";
 }
@@ -359,15 +181,7 @@ function getBestTextValue(...values: Array<string | null | undefined>) {
 function getBestStudentRecord(
   records: AttendanceRecord[],
   manualRecords: ManualAttendanceRecord[],
-  lookup: ReturnType<typeof buildAttendanceEventLookup>,
 ) {
-  const latestOrderedRecord = getLatestOrderedSourceRecord(
-    [...records, ...manualRecords],
-    lookup,
-  );
-
-  if (latestOrderedRecord) return latestOrderedRecord;
-
   const combined = [...records, ...manualRecords].sort(
     (leftRecord, rightRecord) => {
       return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
@@ -453,13 +267,19 @@ function toSourceRecordEditForm(
 
 function buildRecordEditForms(row: CalculationRow) {
   return [
-    ...row.attendanceRecords.map((record) =>
-      toSourceRecordEditForm(record, "imported"),
-    ),
-    ...row.manualRecords.map((record) =>
-      toSourceRecordEditForm(record, "manual"),
-    ),
-  ];
+    ...row.attendanceRecords.map((record) => ({
+      record,
+      recordType: "imported" as const,
+    })),
+    ...row.manualRecords.map((record) => ({
+      record,
+      recordType: "manual" as const,
+    })),
+  ]
+    .sort((leftRecord, rightRecord) =>
+      compareByBackendEventOrder(leftRecord.record, rightRecord.record),
+    )
+    .map((item) => toSourceRecordEditForm(item.record, item.recordType));
 }
 
 function buildAttendanceInput(form: SourceRecordEditFormState): ManualAttendanceInput {
@@ -509,12 +329,10 @@ async function listAllManualAttendanceRecords(
 function buildCalculationRows(props: {
   attendanceRecords: AttendanceRecord[];
   manualRecords: ManualAttendanceRecord[];
-  attendanceEvents: AttendanceEvent[];
   penalties: PenaltyRecord[];
   importIds: string[];
 }) {
   const selectedImportIds = new Set(props.importIds);
-  const attendanceEventLookup = buildAttendanceEventLookup(props.attendanceEvents);
   const importedRecords = props.attendanceRecords.filter((record) => {
     if (!record.import_id) return false;
     if (!selectedImportIds.size) return true;
@@ -550,35 +368,22 @@ function buildCalculationRows(props: {
 
   return studentKeys
     .map((studentKey) => {
-      const attendanceGroup = sortSourceRecordsByEventOrder(
+      const attendanceGroup = sortByBackendEventOrder(
         groupedRecords.get(studentKey) ?? [],
-        attendanceEventLookup,
       );
-      const manualGroup = sortSourceRecordsByEventOrder(
+      const manualGroup = sortByBackendEventOrder(
         groupedManualRecords.get(studentKey) ?? [],
-        attendanceEventLookup,
       );
-      const bestRecord = getBestStudentRecord(
-        attendanceGroup,
-        manualGroup,
-        attendanceEventLookup,
-      );
+      const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
       const eventKeys = new Set(
         attendanceGroup.map(getEventKey).filter(Boolean),
       );
-      const latestImportedRecord = getLatestOrderedSourceRecord(
-        attendanceGroup,
-        attendanceEventLookup,
+      const importedAbsences = attendanceGroup.reduce(
+        (highestCount, record) => {
+          return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
+        },
+        0,
       );
-      const importedAbsences =
-        latestImportedRecord !== null
-          ? getAbsenceCount(latestImportedRecord.no_of_absences)
-          : attendanceGroup.reduce((highestCount, record) => {
-              return Math.max(
-                highestCount,
-                getAbsenceCount(record.no_of_absences),
-              );
-            }, 0);
       const manualAbsences = manualGroup.reduce((total, record) => {
         return total + getAbsenceCount(record.no_of_absences);
       }, 0);
@@ -755,12 +560,7 @@ export default function CalculatePage() {
           ? nextSchoolYearId
           : getActiveSchoolYearId(schoolYearRows);
       const requestSchoolYearId = fallbackSchoolYearId || undefined;
-      const [eventRows, importRows, resultRows] = await Promise.all([
-        listAttendanceEvents({
-          schoolYearId: requestSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
+      const [importRows, resultRows] = await Promise.all([
         listAttendanceImports({
           schoolYearId: requestSchoolYearId,
           limit: 500,
@@ -783,7 +583,7 @@ export default function CalculatePage() {
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
-      setAttendanceImports(sortAttendanceImportsByEventOrder(importRows, eventRows));
+      setAttendanceImports(sortByBackendEventOrder(importRows));
       setPenalties(penaltyRows);
       setCalculationRows(savedRows);
       setLastCalculatedAt(latestCalculatedAt ?? "");
@@ -807,12 +607,7 @@ export default function CalculatePage() {
       nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
         ? undefined
         : nextSchoolYearId;
-    const [eventRows, attendanceRows, manualRows] = await Promise.all([
-      listAttendanceEvents({
-        schoolYearId: requestSchoolYearId,
-        limit: 500,
-        offset: 0,
-      }),
+    const [attendanceRows, manualRows] = await Promise.all([
       listAllAttendanceRecords({
         schoolYearId: requestSchoolYearId,
         pageSize: 500,
@@ -825,14 +620,10 @@ export default function CalculatePage() {
     const nextRows = buildCalculationRows({
       attendanceRecords: attendanceRows,
       manualRecords: manualRows,
-      attendanceEvents: eventRows,
       penalties,
       importIds: nextImportIds,
     });
 
-    setAttendanceImports((current) =>
-      sortAttendanceImportsByEventOrder(current, eventRows),
-    );
     setCalculationRows(nextRows);
     setLastCalculatedAt(new Date().toISOString());
     setCalculationMode("preview");
@@ -850,22 +641,34 @@ export default function CalculatePage() {
     await loadSavedResults(value, []);
   }
 
+  function sortImportIdsByBackendEventOrder(importIds: string[]) {
+    const importOrder = new Map(
+      attendanceImports.map((importRecord, index) => [importRecord.id, index]),
+    );
+
+    return [...importIds].sort((leftId, rightId) => {
+      const leftIndex = importOrder.get(leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = importOrder.get(rightId) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+
+      return leftId.localeCompare(rightId);
+    });
+  }
+
   function handleImportToggle(importId: string) {
     setSelectedImportIds((current) => {
       const next = current.includes(importId)
         ? current.filter((id) => id !== importId)
         : [...current, importId];
 
-      return sortImportIdsByEventOrder(next, attendanceImports);
+      return sortImportIdsByBackendEventOrder(next);
     });
   }
 
   function handleSelectAllImports() {
     setSelectedImportIds(
-      sortImportIdsByEventOrder(
-        attendanceImports.map((importRecord) => importRecord.id),
-        attendanceImports,
-      ),
+      attendanceImports.map((importRecord) => importRecord.id),
     );
   }
 
