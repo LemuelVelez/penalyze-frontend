@@ -90,6 +90,7 @@ export default function AppLayout(props: LayoutProps) {
     { path: "/dashboard", label: "Dashboard" },
     { path: "/attendance", label: "Attendance" },
     { path: "/manual-attendance", label: "Manual Attendance" },
+    { path: "/events", label: "Events" },
     { path: "/history", label: "History" },
     { path: "/calculate", label: "Calculate" },
     { path: "/fines", label: "Fines" },

@@ -422,7 +422,7 @@ export default function HistoryPage() {
             </div>
 
             <Select value={selectedSchoolYearId} onValueChange={handleSchoolYearChange}>
-              <SelectTrigger className="min-h-12 rounded-2xl lg:w-80">
+              <SelectTrigger className="min-h-12 w-full min-w-0 max-w-xs rounded-2xl lg:w-56">
                 <SelectValue placeholder="Select school year" />
               </SelectTrigger>
               <SelectContent>
@@ -541,14 +541,31 @@ export default function HistoryPage() {
                 Edit Selected School Year
               </Button>
 
-              <Button
-                type="button"
-                onClick={handleAssignCurrentRecords}
-                disabled={isAssigning || !selectedSchoolYearId}
-                className="min-h-12 rounded-2xl px-6 font-black"
-              >
-                {isAssigning ? "Assigning..." : "Assign Current Records"}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    disabled={isAssigning || !selectedSchoolYearId}
+                    className="min-h-12 rounded-2xl px-6 font-black"
+                  >
+                    {isAssigning ? "Assigning..." : "Assign Current Records"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Assign current records?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will assign unassigned attendance, manual attendance, fine, and penalty result records to the selected school year.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleAssignCurrentRecords}>
+                      Assign Records
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -617,7 +634,7 @@ export default function HistoryPage() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Select value={transferTargetSchoolYearId} onValueChange={setTransferTargetSchoolYearId}>
-                <SelectTrigger className="min-h-12 rounded-2xl sm:w-72">
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-xs rounded-2xl sm:w-56">
                   <SelectValue placeholder="Target school year" />
                 </SelectTrigger>
                 <SelectContent>

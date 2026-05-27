@@ -20,6 +20,7 @@ import AttendancePage from "./pages/main/attendance";
 import HistoryPage from "./pages/main/history";
 import ManualAttendancePage from "./pages/main/manual-attendance";
 import CalculatePage from "./pages/main/calculate";
+import EventsPage from "./pages/main/events";
 import DashboardPage from "./pages/main/dashboard";
 import FinesPage from "./pages/main/fines";
 import UsersPage from "./pages/main/users";
@@ -87,6 +88,7 @@ function AppRoutes() {
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/attendance", element: <AttendancePage /> },
       { path: "/manual-attendance", element: <ManualAttendancePage /> },
+      { path: "/events", element: <EventsPage /> },
       { path: "/history", element: <HistoryPage /> },
       { path: "/calculate", element: <CalculatePage /> },
       { path: "/fines", element: <FinesPage /> },
