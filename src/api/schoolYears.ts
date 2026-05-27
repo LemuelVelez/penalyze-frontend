@@ -22,7 +22,10 @@ export type TransferSchoolYearRecordsPayload = {
   eventIds?: string[];
   importIds?: string[];
   attendanceRecordIds?: string[];
+  finalResultIds?: string[];
+  manualRecordIds?: string[];
   fineIds?: string[];
+  penaltyResultIds?: string[];
 };
 
 export type TransferSchoolYearRecordsResult = {
@@ -178,6 +181,23 @@ export async function saveSchoolYear(input: SchoolYearInput) {
   const response = await apiRequest<SchoolYearRecord>("/api/school-years", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+
+  return response.data;
+}
+
+export async function updateSchoolYear(id: string, input: SchoolYearInput) {
+  const response = await apiRequest<SchoolYearRecord>(`/api/school-years/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+
+  return response.data;
+}
+
+export async function deleteSchoolYear(id: string) {
+  const response = await apiRequest<SchoolYearRecordActionResult>(`/api/school-years/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 
   return response.data;

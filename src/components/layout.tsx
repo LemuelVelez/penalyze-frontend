@@ -91,6 +91,7 @@ export default function AppLayout(props: LayoutProps) {
     { path: "/attendance", label: "Attendance" },
     { path: "/manual-attendance", label: "Manual Attendance" },
     { path: "/history", label: "History" },
+    { path: "/calculate", label: "Calculate" },
     { path: "/fines", label: "Fines" },
     { path: "/users", label: "Users", adminOnly: true },
   ];

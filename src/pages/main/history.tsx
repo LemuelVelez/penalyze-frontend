@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -15,11 +14,14 @@ import type {
 } from "../../api/attendance";
 import {
   assignCurrentRecordsToSchoolYear,
+  deleteSchoolYear,
   deleteSchoolYearRecords,
   getActiveSchoolYearId,
   getSchoolYearLabel,
   listSchoolYears,
   saveSchoolYear,
+  transferSchoolYearRecords,
+  updateSchoolYear,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { listPenaltyResults } from "../../api/fines";
@@ -53,11 +55,27 @@ type SchoolYearFormState = {
   isActive: boolean;
 };
 
+type SelectedRecordState = {
+  importIds: string[];
+  finalResultIds: string[];
+  manualRecordIds: string[];
+  penaltyResultIds: string[];
+};
+
+type SelectedRecordKey = keyof SelectedRecordState;
+
 const emptyForm: SchoolYearFormState = {
   name: "",
   startsAt: "",
   endsAt: "",
   isActive: false,
+};
+
+const emptySelectedRecords: SelectedRecordState = {
+  importIds: [],
+  finalResultIds: [],
+  manualRecordIds: [],
+  penaltyResultIds: [],
 };
 
 function formatDate(value?: string | null) {
@@ -71,6 +89,15 @@ function formatDate(value?: string | null) {
     month: "short",
     day: "2-digit",
   }).format(date);
+}
+
+function toDateInputValue(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().slice(0, 10);
 }
 
 function getDefaultSchoolYearName() {
@@ -97,28 +124,39 @@ function getDefaultSchoolYearDates(name: string) {
   };
 }
 
+function createDefaultForm() {
+  const name = getDefaultSchoolYearName();
+  const dates = getDefaultSchoolYearDates(name);
+
+  return {
+    ...emptyForm,
+    name,
+    startsAt: dates.startsAt,
+    endsAt: dates.endsAt,
+  };
+}
+
+function getSelectedCount(records: SelectedRecordState) {
+  return Object.values(records).reduce((total, ids) => total + ids.length, 0);
+}
+
 export default function HistoryPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
+  const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] = useState("");
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [finalResults, setFinalResults] = useState<AttendanceFinalResultRecord[]>([]);
   const [manualRecords, setManualRecords] = useState<ManualAttendanceRecord[]>([]);
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>([]);
-  const [form, setForm] = useState<SchoolYearFormState>(() => {
-    const name = getDefaultSchoolYearName();
-    const dates = getDefaultSchoolYearDates(name);
-
-    return {
-      ...emptyForm,
-      name,
-      startsAt: dates.startsAt,
-      endsAt: dates.endsAt,
-    };
-  });
+  const [form, setForm] = useState<SchoolYearFormState>(createDefaultForm);
+  const [editingSchoolYearId, setEditingSchoolYearId] = useState("");
+  const [selectedRecords, setSelectedRecords] = useState<SelectedRecordState>(emptySelectedRecords);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSchoolYear, setIsSavingSchoolYear] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeletingSchoolYear, setIsDeletingSchoolYear] = useState(false);
 
   const selectedSchoolYear = useMemo(() => {
     return schoolYears.find((schoolYear) => schoolYear.id === selectedSchoolYearId) ?? null;
@@ -127,6 +165,14 @@ export default function HistoryPage() {
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
+
+  const transferTargetOptions = useMemo(() => {
+    return schoolYears.filter((schoolYear) => schoolYear.id !== selectedSchoolYearId);
+  }, [schoolYears, selectedSchoolYearId]);
+
+  const selectedRecordCount = useMemo(() => {
+    return getSelectedCount(selectedRecords);
+  }, [selectedRecords]);
 
   const summary = useMemo(() => {
     return {
@@ -143,7 +189,10 @@ export default function HistoryPage() {
 
     try {
       const schoolYearRows = await listSchoolYears();
-      const fallbackSchoolYearId = nextSchoolYearId || getActiveSchoolYearId(schoolYearRows) || schoolYearRows[0]?.id || "";
+      const fallbackSchoolYearId =
+        nextSchoolYearId && schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+          ? nextSchoolYearId
+          : getActiveSchoolYearId(schoolYearRows) || schoolYearRows[0]?.id || "";
       const [importRows, finalRows, manualRows, penaltyRows] = fallbackSchoolYearId
         ? await Promise.all([
             listAttendanceImports({ schoolYearId: fallbackSchoolYearId, limit: 100, offset: 0 }),
@@ -155,10 +204,18 @@ export default function HistoryPage() {
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
+      setTransferTargetSchoolYearId((current) => {
+        if (current && current !== fallbackSchoolYearId && schoolYearRows.some((schoolYear) => schoolYear.id === current)) {
+          return current;
+        }
+
+        return schoolYearRows.find((schoolYear) => schoolYear.id !== fallbackSchoolYearId)?.id ?? "";
+      });
       setImports(importRows);
       setFinalResults(finalRows);
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
+      setSelectedRecords(emptySelectedRecords);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load history records.");
     } finally {
@@ -172,6 +229,7 @@ export default function HistoryPage() {
 
   async function handleSchoolYearChange(value: string) {
     setSelectedSchoolYearId(value);
+    setSelectedRecords(emptySelectedRecords);
     await loadHistory(value);
   }
 
@@ -186,6 +244,26 @@ export default function HistoryPage() {
     }));
   }
 
+  function handleStartEditSchoolYear() {
+    if (!selectedSchoolYear) {
+      toast.error("Please select a school year to edit.");
+      return;
+    }
+
+    setEditingSchoolYearId(selectedSchoolYear.id);
+    setForm({
+      name: selectedSchoolYear.name,
+      startsAt: toDateInputValue(selectedSchoolYear.starts_at),
+      endsAt: toDateInputValue(selectedSchoolYear.ends_at),
+      isActive: selectedSchoolYear.is_active,
+    });
+  }
+
+  function handleCancelEditSchoolYear() {
+    setEditingSchoolYearId("");
+    setForm(createDefaultForm());
+  }
+
   async function handleCreateSchoolYear(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -197,15 +275,20 @@ export default function HistoryPage() {
     setIsSavingSchoolYear(true);
 
     try {
-      const saved = await saveSchoolYear({
+      const payload = {
         name: form.name.trim(),
         startsAt: form.startsAt,
         endsAt: form.endsAt,
         isActive: form.isActive,
-      });
+      };
+      const saved = editingSchoolYearId
+        ? await updateSchoolYear(editingSchoolYearId, payload)
+        : await saveSchoolYear(payload);
 
-      toast.success("School year saved.");
+      toast.success(editingSchoolYearId ? "School year updated." : "School year saved.");
       setSelectedSchoolYearId(saved?.id ?? selectedSchoolYearId);
+      setEditingSchoolYearId("");
+      setForm(createDefaultForm());
       await loadHistory(saved?.id ?? selectedSchoolYearId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save school year.");
@@ -252,6 +335,75 @@ export default function HistoryPage() {
     }
   }
 
+  async function handleDeleteSchoolYear() {
+    if (!selectedSchoolYearId) {
+      toast.error("Please select a school year.");
+      return;
+    }
+
+    setIsDeletingSchoolYear(true);
+
+    try {
+      await deleteSchoolYear(selectedSchoolYearId);
+      toast.success("School year deleted.");
+      setEditingSchoolYearId("");
+      setForm(createDefaultForm());
+      await loadHistory("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete school year.");
+    } finally {
+      setIsDeletingSchoolYear(false);
+    }
+  }
+
+  function toggleRecordSelection(key: SelectedRecordKey, id: string, checked: boolean) {
+    setSelectedRecords((current) => {
+      const currentIds = current[key];
+
+      return {
+        ...current,
+        [key]: checked
+          ? Array.from(new Set([...currentIds, id]))
+          : currentIds.filter((item) => item !== id),
+      };
+    });
+  }
+
+  async function handleTransferSelectedRecords() {
+    if (!transferTargetSchoolYearId) {
+      toast.error("Please select a target school year.");
+      return;
+    }
+
+    if (transferTargetSchoolYearId === selectedSchoolYearId) {
+      toast.error("Please choose a different target school year.");
+      return;
+    }
+
+    if (!selectedRecordCount) {
+      toast.error("Please select at least one record to transfer.");
+      return;
+    }
+
+    setIsTransferring(true);
+
+    try {
+      await transferSchoolYearRecords({
+        targetSchoolYearId: transferTargetSchoolYearId,
+        importIds: selectedRecords.importIds,
+        finalResultIds: selectedRecords.finalResultIds,
+        manualRecordIds: selectedRecords.manualRecordIds,
+        penaltyResultIds: selectedRecords.penaltyResultIds,
+      });
+      toast.success("Selected records transferred.");
+      await loadHistory(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to transfer selected records.");
+    } finally {
+      setIsTransferring(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -265,7 +417,7 @@ export default function HistoryPage() {
                 School-year record history
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Create school years, assign current records, filter records by school year, and delete records that belong to a selected school year.
+                Create, edit, delete, transfer, assign, and filter records by school year.
               </p>
             </div>
 
@@ -308,7 +460,24 @@ export default function HistoryPage() {
 
         <section className="grid gap-6 lg:grid-cols-2">
           <form onSubmit={handleCreateSchoolYear} className="rounded-3xl border bg-card p-5 shadow-sm">
-            <h2 className="text-xl font-black">Create school year</h2>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-black">{editingSchoolYearId ? "Edit school year" : "Create school year"}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {editingSchoolYearId ? "Update the selected school year details." : "Add a new school year for records."}
+                </p>
+              </div>
+              {editingSchoolYearId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCancelEditSchoolYear}
+                  className="min-h-10 rounded-xl px-4 font-bold"
+                >
+                  Cancel Edit
+                </Button>
+              ) : null}
+            </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 sm:col-span-2">
@@ -351,17 +520,27 @@ export default function HistoryPage() {
             </div>
 
             <Button type="submit" disabled={isSavingSchoolYear} className="mt-5 min-h-12 rounded-2xl px-6 font-black">
-              {isSavingSchoolYear ? "Saving..." : "Save School Year"}
+              {isSavingSchoolYear ? "Saving..." : editingSchoolYearId ? "Update School Year" : "Save School Year"}
             </Button>
           </form>
 
           <div className="rounded-3xl border bg-card p-5 shadow-sm">
             <h2 className="text-xl font-black">School-year actions</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Assign current unassigned records to the selected school year, or delete all records under the selected school year.
+              Edit the selected school year, assign unassigned records, or delete selected school-year data.
             </p>
 
             <div className="mt-5 flex flex-col gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleStartEditSchoolYear}
+                disabled={!selectedSchoolYearId}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                Edit Selected School Year
+              </Button>
+
               <Button
                 type="button"
                 onClick={handleAssignCurrentRecords}
@@ -397,6 +576,75 @@ export default function HistoryPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={isDeletingSchoolYear || !selectedSchoolYearId}
+                    className="min-h-12 rounded-2xl px-6 font-black"
+                  >
+                    {isDeletingSchoolYear ? "Deleting..." : "Delete School Year"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this school year?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This deletes the school year and all linked attendance, final result, manual, fine, and penalty result records under it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteSchoolYear}>
+                      Delete School Year
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Transfer selected records</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Selected records: {selectedRecordCount.toLocaleString()} from {selectedSchoolYearLabel}.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Select value={transferTargetSchoolYearId} onValueChange={setTransferTargetSchoolYearId}>
+                <SelectTrigger className="min-h-12 rounded-2xl sm:w-72">
+                  <SelectValue placeholder="Target school year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {transferTargetOptions.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                      {schoolYear.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSelectedRecords(emptySelectedRecords)}
+                disabled={!selectedRecordCount}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                onClick={handleTransferSelectedRecords}
+                disabled={isTransferring || !selectedRecordCount || !transferTargetSchoolYearId}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                {isTransferring ? "Transferring..." : "Transfer Selected"}
+              </Button>
             </div>
           </div>
         </section>
@@ -415,11 +663,19 @@ export default function HistoryPage() {
               <div className="mt-3 space-y-3">
                 {imports.length ? (
                   imports.map((item) => (
-                    <article key={item.id} className="rounded-xl border bg-card p-3">
-                      <p className="font-bold">{item.file_name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {item.rows_valid} valid row/s • {formatDate(item.created_at)}
-                      </p>
+                    <article key={item.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                      <Checkbox
+                        checked={selectedRecords.importIds.includes(item.id)}
+                        onCheckedChange={(value) => toggleRecordSelection("importIds", item.id, Boolean(value))}
+                        aria-label={`Select uploaded file ${item.file_name}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">{item.file_name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.rows_valid} valid row/s • {formatDate(item.created_at)}
+                        </p>
+                      </div>
                     </article>
                   ))
                 ) : (
@@ -434,12 +690,20 @@ export default function HistoryPage() {
               <h3 className="font-black">Penalty results</h3>
               <div className="mt-3 space-y-3">
                 {penaltyResults.length ? (
-                  penaltyResults.slice(0, 10).map((item) => (
-                    <article key={item.id} className="rounded-xl border bg-card p-3">
-                      <p className="font-bold">{item.student_id} • {item.name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {item.no_of_absences} absence/s • {item.prescribed_penalty}
-                      </p>
+                  penaltyResults.map((item) => (
+                    <article key={item.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                      <Checkbox
+                        checked={selectedRecords.penaltyResultIds.includes(item.id)}
+                        onCheckedChange={(value) => toggleRecordSelection("penaltyResultIds", item.id, Boolean(value))}
+                        aria-label={`Select penalty result for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">{item.student_id} • {item.name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.no_of_absences} absence/s • {item.prescribed_penalty}
+                        </p>
+                      </div>
                     </article>
                   ))
                 ) : (
@@ -454,12 +718,20 @@ export default function HistoryPage() {
               <h3 className="font-black">Final attendance results</h3>
               <div className="mt-3 space-y-3">
                 {finalResults.length ? (
-                  finalResults.slice(0, 10).map((item) => (
-                    <article key={item.id} className="rounded-xl border bg-card p-3">
-                      <p className="font-bold">{item.student_id} • {item.name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {item.total_absences} absence/s • {item.attended_events} attended event/s
-                      </p>
+                  finalResults.map((item) => (
+                    <article key={item.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                      <Checkbox
+                        checked={selectedRecords.finalResultIds.includes(item.id)}
+                        onCheckedChange={(value) => toggleRecordSelection("finalResultIds", item.id, Boolean(value))}
+                        aria-label={`Select final result for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">{item.student_id} • {item.name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.total_absences} absence/s • {item.attended_events} attended event/s
+                        </p>
+                      </div>
                     </article>
                   ))
                 ) : (
@@ -474,12 +746,20 @@ export default function HistoryPage() {
               <h3 className="font-black">Manual attendance records</h3>
               <div className="mt-3 space-y-3">
                 {manualRecords.length ? (
-                  manualRecords.slice(0, 10).map((item) => (
-                    <article key={item.id} className="rounded-xl border bg-card p-3">
-                      <p className="font-bold">{item.student_id} • {item.name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {item.attendance_type === "zero_attendance" ? "Zero attendance" : "Manual attendance"} • {item.college || "No college"}
-                      </p>
+                  manualRecords.map((item) => (
+                    <article key={item.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                      <Checkbox
+                        checked={selectedRecords.manualRecordIds.includes(item.id)}
+                        onCheckedChange={(value) => toggleRecordSelection("manualRecordIds", item.id, Boolean(value))}
+                        aria-label={`Select manual record for ${item.student_id}`}
+                        className="mt-1"
+                      />
+                      <div>
+                        <p className="font-bold">{item.student_id} • {item.name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.attendance_type === "zero_attendance" ? "Zero attendance" : "Manual attendance"} • {item.college || "No college"}
+                        </p>
+                      </div>
                     </article>
                   ))
                 ) : (
