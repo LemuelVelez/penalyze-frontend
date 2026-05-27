@@ -132,6 +132,36 @@ type BackendEventOrderedResult = PenaltyResultRecord & {
   event_end_at?: string | null;
 };
 
+function mergePenaltyResultUpdate(
+  current: PenaltyResultRecord,
+  updated?: PenaltyResultRecord | null,
+) {
+  if (!updated) return current;
+
+  const currentBackendFields = current as BackendEventOrderedResult;
+  const updatedBackendFields = updated as BackendEventOrderedResult;
+  const currentCollege = getPenaltyResultCollege(current);
+  const updatedCollege = getPenaltyResultCollege(updated);
+
+  return {
+    ...current,
+    ...updated,
+    ...(currentCollege && !updatedCollege ? { college: currentCollege } : {}),
+    ...(currentBackendFields.event_order != null &&
+    updatedBackendFields.event_order == null
+      ? { event_order: currentBackendFields.event_order }
+      : {}),
+    ...(currentBackendFields.event_start_at != null &&
+    updatedBackendFields.event_start_at == null
+      ? { event_start_at: currentBackendFields.event_start_at }
+      : {}),
+    ...(currentBackendFields.event_end_at != null &&
+    updatedBackendFields.event_end_at == null
+      ? { event_end_at: currentBackendFields.event_end_at }
+      : {}),
+  } as PenaltyResultRecord;
+}
+
 const eventOrderCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",
@@ -397,7 +427,9 @@ export default function FinesPage() {
       setPenaltyResults((current) =>
         sortPenaltyResultsByBackendEventOrder(
           current.map((item) =>
-            item.id === result.id && updated ? updated : item,
+            item.id === result.id && updated
+              ? mergePenaltyResultUpdate(item, updated)
+              : item,
           ),
         ),
       );
@@ -451,21 +483,34 @@ export default function FinesPage() {
       return;
     }
 
+    const currentPenaltyResult = penaltyResults.find(
+      (item) => item.id === penaltyResultForm.id,
+    );
+    const currentCollege = currentPenaltyResult
+      ? getPenaltyResultCollege(currentPenaltyResult)
+      : "";
+
     setIsSavingPenaltyResult(true);
 
     try {
-      const updated = await updatePenaltyResult(penaltyResultForm.id, {
-        studentId: penaltyResultForm.studentId.trim(),
-        name: penaltyResultForm.name.trim(),
-        noOfAbsences,
-        prescribedPenalty: penaltyResultForm.prescribedPenalty.trim(),
-        status: penaltyResultForm.status,
-      });
+      const updated = await updatePenaltyResult(
+        penaltyResultForm.id,
+        {
+          studentId: penaltyResultForm.studentId.trim(),
+          name: penaltyResultForm.name.trim(),
+          noOfAbsences,
+          prescribedPenalty: penaltyResultForm.prescribedPenalty.trim(),
+          status: penaltyResultForm.status,
+          ...(currentCollege ? { college: currentCollege } : {}),
+        } as Parameters<typeof updatePenaltyResult>[1],
+      );
 
       setPenaltyResults((current) =>
         sortPenaltyResultsByBackendEventOrder(
           current.map((item) =>
-            item.id === penaltyResultForm.id && updated ? updated : item,
+            item.id === penaltyResultForm.id && updated
+              ? mergePenaltyResultUpdate(item, updated)
+              : item,
           ),
         ),
       );
