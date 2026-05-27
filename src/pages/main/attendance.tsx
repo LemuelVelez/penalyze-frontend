@@ -139,6 +139,20 @@ function formatDateTimeInputValue(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
+function handleDateTimePickerClick(event: SyntheticEvent<HTMLInputElement>) {
+  const input = event.currentTarget as HTMLInputElement & {
+    showPicker?: () => void;
+  };
+
+  input.focus();
+
+  try {
+    input.showPicker?.();
+  } catch {
+    return;
+  }
+}
+
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
 function cleanAttendanceMetadataValue(value: unknown) {
@@ -373,7 +387,6 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
     </span>
   );
 }
-
 
 function formatNumber(value: number | string | null | undefined) {
   const numberValue = Number(value ?? 0);
@@ -1115,14 +1128,14 @@ export default function AttendancePage() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
+                className={`flex min-h-40 min-w-0 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
                   isDraggingFile ? "border-primary bg-primary/10" : ""
                 }`}
               >
-                <span className="text-base font-black">
+                <span className="max-w-full break-all text-base font-black">
                   {file ? file.name : "Drop attendance file here"}
                 </span>
-                <span className="mt-2 text-sm font-semibold text-muted-foreground">
+                <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
                   TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, and ODS are supported.
                 </span>
                 <Input
@@ -1134,7 +1147,7 @@ export default function AttendancePage() {
                 />
               </label>
 
-              <label className="space-y-2">
+              <label className="space-y-2 lg:col-span-2">
                 <span className="text-sm font-bold">School year</span>
                 <SchoolYearBadge
                   label={uploadSchoolYearLabel}
@@ -1142,7 +1155,7 @@ export default function AttendancePage() {
                 />
               </label>
 
-              <label className="space-y-2">
+              <label className="space-y-2 lg:col-span-3">
                 <span className="text-sm font-bold">Event name</span>
                 <Input
                   value={uploadForm.eventName}
@@ -1155,33 +1168,35 @@ export default function AttendancePage() {
                 />
               </label>
 
-              <label className="space-y-2">
+              <label className="space-y-2 lg:col-span-5">
                 <span className="text-sm font-bold">Start date/time</span>
                 <Input
                   type="datetime-local"
                   value={uploadForm.eventStartAt}
+                  onClick={handleDateTimePickerClick}
                   onChange={(event) =>
                     handleUploadFieldChange("eventStartAt", event.target.value)
                   }
                   disabled={isSaving}
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-12 w-full min-w-0 rounded-2xl"
                 />
               </label>
 
-              <label className="space-y-2">
+              <label className="space-y-2 lg:col-span-5">
                 <span className="text-sm font-bold">End date/time</span>
                 <Input
                   type="datetime-local"
                   value={uploadForm.eventEndAt}
+                  onClick={handleDateTimePickerClick}
                   onChange={(event) =>
                     handleUploadFieldChange("eventEndAt", event.target.value)
                   }
                   disabled={isSaving}
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-12 w-full min-w-0 rounded-2xl"
                 />
               </label>
 
-              <div className="flex items-end">
+              <div className="flex items-end lg:col-span-5">
                 <Button
                   type="submit"
                   disabled={isSaving}
@@ -1218,8 +1233,8 @@ export default function AttendancePage() {
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
                         {index + 1}
                       </span>
-                      <div>
-                        <p className="font-black">{eventSummary.eventName}</p>
+                      <div className="min-w-0">
+                        <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           {eventSummary.source} •{" "}
                           {formatDateTime(eventSummary.scannedAt)}
@@ -1330,13 +1345,14 @@ export default function AttendancePage() {
                 <Input
                   type="datetime-local"
                   value={finalResultForm.latestScannedAt}
+                  onClick={handleDateTimePickerClick}
                   onChange={(event) =>
                     handleFinalResultFieldChange(
                       "latestScannedAt",
                       event.target.value,
                     )
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-12 w-full min-w-0 rounded-2xl"
                 />
               </label>
 
@@ -1440,16 +1456,16 @@ export default function AttendancePage() {
 
                     return (
                       <tr key={result.id} className="border-t">
-                        <td className="px-4 py-3 font-black">
+                        <td className="px-4 py-3 wrap-break-word font-black">
                           {result.student_id}
                         </td>
-                        <td className="px-4 py-3 font-semibold">
+                        <td className="px-4 py-3 wrap-break-word font-semibold">
                           {result.name}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">
+                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
                           {result.college || "—"}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">
+                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
                           {result.program || "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -1511,15 +1527,15 @@ export default function AttendancePage() {
                   key={item.id}
                   className="rounded-2xl border bg-background p-4"
                 >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-black">{item.file_name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-all font-black">{item.file_name}</p>
+                      <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
                         {formatDate(item.created_at)}
                       </p>
                     </div>
-                    <p className="text-sm font-bold text-muted-foreground">
+                    <p className="shrink-0 text-sm font-bold text-muted-foreground">
                       {formatNumber(item.rows_valid)} valid /{" "}
                       {formatNumber(item.rows_total)} total
                     </p>
