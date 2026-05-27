@@ -166,7 +166,7 @@ const LANDING_RESOURCE_LINKS = [
     title: "Download QR Scanner",
     description:
       "Download the scanner for checking student QR codes during attendance and monitoring.",
-    href: "https://drive.google.com/file/d/19vu1IvWgpmASxRWUVDjIpe9ql6kbqrPw/view?usp=sharing",
+    href: "https://drive.google.com/uc?export=download&id=19vu1IvWgpmASxRWUVDjIpe9ql6kbqrPw",
     cta: "Download Scanner",
   },
   {
