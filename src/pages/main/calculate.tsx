@@ -2,14 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
-import {
-  listAllAttendanceRecords,
-  listAttendanceImports,
-  listCalculationResults,
-  listManualAttendanceRecords,
-  refreshCalculationResults,
-  updateAttendanceRecord,
-} from "../../api/attendance";
+import * as attendanceApi from "../../api/attendance";
 import type {
   AttendanceImportRecord,
   AttendanceRecord,
@@ -87,7 +80,6 @@ type SourceRecordEditFormState = {
   remarks: string;
 };
 
-
 type CalculationProgressState = {
   id: string;
   label: string;
@@ -107,6 +99,14 @@ type CalculationProgressPatch = Partial<
   >
 >;
 
+type ImportedAttendanceLoadProgress = {
+  loadedRecords: number;
+  selectedRecords: number;
+  page: number;
+  pageSize: number;
+  isComplete: boolean;
+};
+
 type ManualAttendanceLoadProgress = {
   loadedRecords: number;
   page: number;
@@ -124,6 +124,16 @@ type SelectedImportProgressSummary = {
   selectedImports: AttendanceImportRecord[];
   expectedImportedRecords: number;
 };
+
+type PaginatedAttendanceApi = typeof attendanceApi & {
+  listAttendanceRecords?: (options: {
+    schoolYearId?: string;
+    limit?: number;
+    offset?: number;
+  }) => Promise<AttendanceRecord[]>;
+};
+
+const attendanceApiWithPagination = attendanceApi as PaginatedAttendanceApi;
 
 const CALCULATION_PROGRESS_STORAGE_KEY = "penalyze.calculate.progress";
 const CALCULATION_PROGRESS_STALE_MS = 1000 * 60 * 60;
@@ -450,7 +460,9 @@ function buildRecordEditForms(row: CalculationRow) {
     .map((item) => toSourceRecordEditForm(item.record, item.recordType));
 }
 
-function buildAttendanceInput(form: SourceRecordEditFormState): ManualAttendanceInput {
+function buildAttendanceInput(
+  form: SourceRecordEditFormState,
+): ManualAttendanceInput {
   const input: ManualAttendanceInput = {
     schoolYearId: form.schoolYearId || undefined,
     eventId: form.eventId || undefined,
@@ -473,6 +485,87 @@ function buildAttendanceInput(form: SourceRecordEditFormState): ManualAttendance
   return input;
 }
 
+async function listSelectedImportedAttendanceRecords(
+  options: { schoolYearId?: string; importIds: string[] } = { importIds: [] },
+  onProgress?: (progress: ImportedAttendanceLoadProgress) => void,
+) {
+  const pageSize = 500;
+  const maxPages = 100;
+  const selectedImportIds = new Set(options.importIds);
+  const rows: AttendanceRecord[] = [];
+  let loadedRecords = 0;
+
+  const appendSelectedRows = (pageRows: AttendanceRecord[]) => {
+    pageRows.forEach((record) => {
+      if (!record.import_id) return;
+      if (selectedImportIds.size && !selectedImportIds.has(record.import_id)) {
+        return;
+      }
+
+      rows.push(record);
+    });
+  };
+
+  const emitProgress = (pageRows: AttendanceRecord[], page: number) => {
+    loadedRecords += pageRows.length;
+
+    const isComplete = pageRows.length < pageSize || page >= maxPages;
+
+    onProgress?.({
+      loadedRecords,
+      selectedRecords: rows.length,
+      page,
+      pageSize,
+      isComplete,
+    });
+
+    return isComplete;
+  };
+
+  const paginatedListAttendanceRecords =
+    attendanceApiWithPagination.listAttendanceRecords;
+
+  if (!paginatedListAttendanceRecords) {
+    const allRows = await attendanceApi.listAllAttendanceRecords({
+      schoolYearId: options.schoolYearId,
+      pageSize,
+      maxPages,
+    });
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const pageRows = allRows.slice(page * pageSize, (page + 1) * pageSize);
+
+      appendSelectedRows(pageRows);
+
+      const isComplete = emitProgress(pageRows, page + 1);
+
+      await yieldCalculationProgressFrame();
+
+      if (isComplete) break;
+    }
+
+    return rows;
+  }
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const pageRows = await paginatedListAttendanceRecords({
+      schoolYearId: options.schoolYearId,
+      limit: pageSize,
+      offset: page * pageSize,
+    });
+
+    appendSelectedRows(pageRows);
+
+    const isComplete = emitProgress(pageRows, page + 1);
+
+    await yieldCalculationProgressFrame();
+
+    if (isComplete) break;
+  }
+
+  return rows;
+}
+
 async function listAllManualAttendanceRecords(
   options: { schoolYearId?: string } = {},
   onProgress?: (progress: ManualAttendanceLoadProgress) => void,
@@ -481,7 +574,7 @@ async function listAllManualAttendanceRecords(
   const rows: ManualAttendanceRecord[] = [];
 
   for (let page = 0; page < 100; page += 1) {
-    const pageRows = await listManualAttendanceRecords({
+    const pageRows = await attendanceApi.listManualAttendanceRecords({
       schoolYearId: options.schoolYearId,
       limit: pageSize,
       offset: page * pageSize,
@@ -497,6 +590,8 @@ async function listAllManualAttendanceRecords(
       pageSize,
       isComplete,
     });
+
+    await yieldCalculationProgressFrame();
 
     if (isComplete) break;
   }
@@ -548,7 +643,6 @@ async function buildCalculationRows(
   );
   const totalStudents = studentKeys.length;
   const sourceRecords = importedRecords.length + props.manualRecords.length;
-  const progressInterval = Math.max(1, Math.floor(totalStudents / 100));
   const rows: CalculationRow[] = [];
 
   if (!totalStudents) {
@@ -571,12 +665,9 @@ async function buildCalculationRows(
     );
     const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
     const eventKeys = new Set(attendanceGroup.map(getEventKey).filter(Boolean));
-    const importedAbsences = attendanceGroup.reduce(
-      (highestCount, record) => {
-        return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
-      },
-      0,
-    );
+    const importedAbsences = attendanceGroup.reduce((highestCount, record) => {
+      return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
+    }, 0);
     const manualAbsences = manualGroup.reduce((total, record) => {
       return total + getAbsenceCount(record.no_of_absences);
     }, 0);
@@ -600,10 +691,11 @@ async function buildCalculationRows(
       importedAbsences,
       manualAbsences,
       totalAbsences,
-      attendanceStatus: totalAbsences > 0 ? "with_absences" : "perfect_attendance",
+      attendanceStatus:
+        totalAbsences > 0 ? "with_absences" : "perfect_attendance",
       prescribedPenalty:
         totalAbsences > 0
-          ? penalty?.prescribed_penalty ?? "No prescribed penalty configured."
+          ? (penalty?.prescribed_penalty ?? "No prescribed penalty configured.")
           : null,
       penalty,
       sourceRecordCount: attendanceGroup.length + manualGroup.length,
@@ -615,18 +707,13 @@ async function buildCalculationRows(
 
     const processedStudents = index + 1;
 
-    if (
-      processedStudents % progressInterval === 0 ||
-      processedStudents === totalStudents
-    ) {
-      onProgress?.({
-        processedStudents,
-        totalStudents,
-        sourceRecords,
-      });
+    onProgress?.({
+      processedStudents,
+      totalStudents,
+      sourceRecords,
+    });
 
-      await yieldCalculationProgressFrame();
-    }
+    await yieldCalculationProgressFrame();
   }
 
   return rows.sort((leftRow, rightRow) => {
@@ -665,8 +752,7 @@ function calculationResultToRow(result: CalculationResultRecord) {
             id: result.penalty_id ?? result.id,
             no_of_absences: Number(result.total_absences || 0),
             prescribed_penalty:
-              result.prescribed_penalty ??
-              "No prescribed penalty configured.",
+              result.prescribed_penalty ?? "No prescribed penalty configured.",
             created_at: result.created_at,
             updated_at: result.updated_at,
           }
@@ -909,12 +995,12 @@ export default function CalculatePage() {
       await yieldCalculationProgressFrame();
 
       const [importRows, resultRows] = await Promise.all([
-        listAttendanceImports({
+        attendanceApi.listAttendanceImports({
           schoolYearId: requestSchoolYearId,
           limit: 500,
           offset: 0,
         }),
-        listCalculationResults({
+        attendanceApi.listCalculationResults({
           schoolYearId: requestSchoolYearId,
           importIds: nextImportIds,
           limit: 1000,
@@ -978,10 +1064,8 @@ export default function CalculatePage() {
       nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
         ? undefined
         : nextSchoolYearId;
-    const {
-      selectedImports,
-      expectedImportedRecords,
-    } = getSelectedImportProgressSummary(attendanceImports, nextImportIds);
+    const { selectedImports, expectedImportedRecords } =
+      getSelectedImportProgressSummary(attendanceImports, nextImportIds);
     const selectedImportCount = selectedImports.length || nextImportIds.length;
     const importedStartPercent = progressTaskId ? 58 : 8;
     const importedRequestPercent = progressTaskId ? 62 : 18;
@@ -1013,30 +1097,49 @@ export default function CalculatePage() {
     await yieldCalculationProgressFrame();
 
     try {
-      const attendanceRows = await listAllAttendanceRecords({
-        schoolYearId: requestSchoolYearId,
-        pageSize: 500,
-        maxPages: 100,
-      });
-      const selectedImportIdSet = new Set(nextImportIds);
-      const selectedAttendanceRows = attendanceRows.filter((record) => {
-        if (!record.import_id) return false;
-        if (!selectedImportIdSet.size) return true;
+      const selectedAttendanceRows =
+        await listSelectedImportedAttendanceRecords(
+          {
+            schoolYearId: requestSchoolYearId,
+            importIds: nextImportIds,
+          },
+          (progress) => {
+            const importedProgressTotal =
+              expectedImportedRecords ||
+              Math.max(
+                progress.selectedRecords,
+                progress.page * progress.pageSize,
+              );
+            const pagePercent = Math.min(
+              importedEndPercent,
+              importedRequestPercent + progress.page * 2,
+            );
+            const rowPercent = getProgressRangePercent(
+              progress.selectedRecords,
+              importedProgressTotal,
+              importedRequestPercent,
+              importedEndPercent,
+            );
 
-        return selectedImportIdSet.has(record.import_id);
-      });
+            updateCalculationProgress(taskId, {
+              detail: progress.isComplete
+                ? `Loaded ${progress.selectedRecords.toLocaleString()} selected imported attendance record/s from ${progress.page.toLocaleString()} page/s`
+                : `Loaded page ${progress.page.toLocaleString()} with ${progress.selectedRecords.toLocaleString()} selected imported row/s from ${progress.loadedRecords.toLocaleString()} fetched row/s`,
+              percent: progress.isComplete
+                ? importedEndPercent
+                : Math.max(pagePercent, rowPercent),
+              processed: progress.selectedRecords,
+              total: expectedImportedRecords || importedProgressTotal,
+            });
+          },
+        );
       const selectedImportedRecordCount = selectedAttendanceRows.length;
       const importedRecordProgressTotal =
         expectedImportedRecords || selectedImportedRecordCount;
 
       updateCalculationProgress(taskId, {
         detail: `Loaded ${selectedImportedRecordCount.toLocaleString()} imported attendance record/s`,
-        percent: getProgressRangePercent(
-          selectedImportedRecordCount,
-          importedRecordProgressTotal,
-          importedRequestPercent,
-          importedEndPercent,
-        ),
+        percent: importedEndPercent,
         processed: selectedImportedRecordCount,
         total: importedRecordProgressTotal,
       });
@@ -1070,7 +1173,8 @@ export default function CalculatePage() {
           });
         },
       );
-      const totalSourceRecords = selectedImportedRecordCount + manualRows.length;
+      const totalSourceRecords =
+        selectedImportedRecordCount + manualRows.length;
 
       updateCalculationProgress(taskId, {
         detail: `Calculating ${totalSourceRecords.toLocaleString()} source record/s`,
@@ -1120,7 +1224,9 @@ export default function CalculatePage() {
     } catch (error) {
       failCalculationProgress(
         taskId,
-        error instanceof Error ? error.message : "Unable to preview calculation.",
+        error instanceof Error
+          ? error.message
+          : "Unable to preview calculation.",
       );
 
       throw error;
@@ -1166,10 +1272,7 @@ export default function CalculatePage() {
 
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
     const importOrder = new Map<string, number>(
-      attendanceImports.map((importRecord, index) => [
-        importRecord.id,
-        index,
-      ]),
+      attendanceImports.map((importRecord, index) => [importRecord.id, index]),
     );
 
     return [...importIds].sort((leftId, rightId) => {
@@ -1211,7 +1314,10 @@ export default function CalculatePage() {
     setIsPreviewing(true);
 
     try {
-      const rows = await loadPreviewRows(selectedSchoolYearId, selectedImportIds);
+      const rows = await loadPreviewRows(
+        selectedSchoolYearId,
+        selectedImportIds,
+      );
 
       toast.success(
         rows.length
@@ -1283,7 +1389,7 @@ export default function CalculatePage() {
           ? undefined
           : selectedSchoolYearId;
 
-      await refreshCalculationResults({
+      await attendanceApi.refreshCalculationResults({
         schoolYearId: requestSchoolYearId,
         importIds: selectedImportIds,
       });
@@ -1359,7 +1465,10 @@ export default function CalculatePage() {
       for (let index = 0; index < recordEditForms.length; index += 1) {
         const form = recordEditForms[index];
 
-        await updateAttendanceRecord(form.recordId, buildAttendanceInput(form));
+        await attendanceApi.updateAttendanceRecord(
+          form.recordId,
+          buildAttendanceInput(form),
+        );
 
         updateCalculationProgress(progressTaskId, {
           detail: `Saved ${index + 1} of ${recordEditForms.length} source record/s`,
@@ -1378,11 +1487,17 @@ export default function CalculatePage() {
       toast.success("Source records updated.");
       setEditingRow(null);
       setRecordEditForms([]);
-      await loadPreviewRows(selectedSchoolYearId, selectedImportIds, progressTaskId);
+      await loadPreviewRows(
+        selectedSchoolYearId,
+        selectedImportIds,
+        progressTaskId,
+      );
     } catch (error) {
       failCalculationProgress(
         progressTaskId,
-        error instanceof Error ? error.message : "Unable to update calculation row.",
+        error instanceof Error
+          ? error.message
+          : "Unable to update calculation row.",
       );
       toast.error(
         error instanceof Error
@@ -1445,7 +1560,9 @@ export default function CalculatePage() {
                   type="button"
                   variant="outline"
                   onClick={handlePreviewCalculation}
-                  disabled={isPreviewing || isLoading || !selectedImportIds.length}
+                  disabled={
+                    isPreviewing || isLoading || !selectedImportIds.length
+                  }
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
                   {isPreviewing ? "Calculating..." : "Preview Selected Files"}
@@ -1507,9 +1624,7 @@ export default function CalculatePage() {
             </p>
           </div>
           <div className="rounded-3xl border bg-card p-5">
-            <p className="text-sm font-bold text-muted-foreground">
-              Students
-            </p>
+            <p className="text-sm font-bold text-muted-foreground">Students</p>
             <p className="mt-2 text-2xl font-black">
               {summary.students.toLocaleString()}
             </p>
@@ -1535,7 +1650,9 @@ export default function CalculatePage() {
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 className="text-xl font-black">Imported files to calculate</h2>
+              <h2 className="text-xl font-black">
+                Imported files to calculate
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Choose one or more imported files before previewing and saving
                 calculation results.
@@ -1586,7 +1703,8 @@ export default function CalculatePage() {
                       {formatDateTime(importRecord.created_at)}
                     </span>
                     <span className="mt-1 block text-xs font-bold text-muted-foreground">
-                      Valid rows: {Number(importRecord.rows_valid || 0).toLocaleString()} /{" "}
+                      Valid rows:{" "}
+                      {Number(importRecord.rows_valid || 0).toLocaleString()} /{" "}
                       {Number(importRecord.rows_total || 0).toLocaleString()}
                     </span>
                   </span>
@@ -1612,9 +1730,10 @@ export default function CalculatePage() {
             <div>
               <h2 className="text-xl font-black">Calculation preview</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Mode: {calculationMode === "saved" ? "Saved results" : "Preview"}{" "}
-                • Source records: {summary.sourceRecords.toLocaleString()} •
-                Last calculated: {formatDateTime(lastCalculatedAt)}
+                Mode:{" "}
+                {calculationMode === "saved" ? "Saved results" : "Preview"} •
+                Source records: {summary.sourceRecords.toLocaleString()} • Last
+                calculated: {formatDateTime(lastCalculatedAt)}
               </p>
             </div>
             <Input
