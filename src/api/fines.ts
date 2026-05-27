@@ -39,8 +39,19 @@ export type PenaltyResultRecord = {
   status: FineStatus;
   source_table: string | null;
   source_record_id: string | null;
+  college?: string | null;
+  program?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+
+export type PenaltyResultUpdateInput = {
+  studentId?: string;
+  name?: string;
+  noOfAbsences: number;
+  prescribedPenalty: string;
+  status: FineStatus;
 };
 
 export type ZeroAttendanceFinePayload = {
@@ -255,6 +266,15 @@ export async function updatePenaltyResultStatus(id: string, status: FineStatus) 
   const response = await apiRequest<PenaltyResultRecord>(`/api/fines/penalty-results/${encodeURIComponent(id)}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status })
+  });
+
+  return response.data;
+}
+
+export async function updatePenaltyResult(id: string, input: PenaltyResultUpdateInput) {
+  const response = await apiRequest<PenaltyResultRecord>(`/api/fines/penalty-results/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
   });
 
   return response.data;

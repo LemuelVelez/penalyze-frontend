@@ -263,7 +263,7 @@ export type AttendanceRowsSaveInput = {
   signal?: AbortSignal;
 };
 
-const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.csv,.txt,.docx,.doc";
+const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.ods,.csv,.txt";
 const LOCAL_API_BASE_URL = "http://localhost:3000";
 
 function normalizeBaseUrl(value: unknown) {

@@ -3,9 +3,11 @@ import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAttendanceRecord,
   listAttendanceEvents,
   listManualAttendanceRecords,
   saveManualAttendanceRecord,
+  updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
@@ -18,6 +20,17 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -37,7 +50,7 @@ import { Textarea } from "../../components/ui/textarea";
 
 type ManualAttendanceFormState = {
   schoolYearId: string;
-  eventId: string;
+  eventIds: string[];
   scannedAt: string;
   studentId: string;
   name: string;
@@ -48,9 +61,24 @@ type ManualAttendanceFormState = {
   remarks: string;
 };
 
+type ManualAttendanceStudentGroup = {
+  key: string;
+  studentId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  remarks: string;
+  latestScannedAt: string | null;
+  attendanceType: ManualAttendanceRecord["attendance_type"];
+  records: ManualAttendanceRecord[];
+  events: ManualAttendanceRecord[];
+};
+
 const emptyForm: ManualAttendanceFormState = {
   schoolYearId: "",
-  eventId: "",
+  eventIds: [],
   scannedAt: "",
   studentId: "",
   name: "",
@@ -82,6 +110,12 @@ function formatDateTimeInputValue(value = new Date()) {
   const offset = value.getTimezoneOffset();
   const localDate = new Date(value.getTime() - offset * 60 * 1000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function normalizeStudentId(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 type BackendEventOrderedRecord = {
@@ -143,6 +177,20 @@ function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   return [...records].sort(compareByBackendEventOrder);
 }
 
+function getRecordTimestamp(record: ManualAttendanceRecord) {
+  const value = record.scanned_at ?? record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getLatestRecord(records: ManualAttendanceRecord[]) {
+  return [...records].sort(
+    (leftRecord, rightRecord) =>
+      getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord),
+  )[0];
+}
+
 function getEventLabel(event: AttendanceEvent) {
   const eventOrder = getBackendEventOrder(event);
 
@@ -153,6 +201,69 @@ function getEventLabel(event: AttendanceEvent) {
   return event.name || `Event ${event.id}`;
 }
 
+function getRecordEventLabel(record: ManualAttendanceRecord) {
+  if (record.event_name) return record.event_name;
+  if (record.event_id) return `Event ${record.event_id}`;
+  return "No event assigned";
+}
+
+function mergeManualAttendanceByStudent(
+  records: ManualAttendanceRecord[],
+): ManualAttendanceStudentGroup[] {
+  const groups = new Map<string, ManualAttendanceRecord[]>();
+
+  records.forEach((record) => {
+    const key = normalizeStudentId(record.student_id) || record.id;
+    const current = groups.get(key) ?? [];
+
+    current.push(record);
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, groupRecords]) => {
+      const sortedRecords = sortByBackendEventOrder(groupRecords);
+      const latestRecord = getLatestRecord(groupRecords) ?? sortedRecords[0];
+      const eventRecords = sortedRecords.filter((record) => record.event_id);
+
+      return {
+        key,
+        studentId: latestRecord?.student_id ?? key,
+        name: latestRecord?.name ?? key,
+        yearLevel: latestRecord?.year_level ?? "",
+        college: latestRecord?.college ?? "",
+        program: latestRecord?.program ?? "",
+        institution: latestRecord?.institution ?? "",
+        remarks: latestRecord?.remarks ?? "",
+        latestScannedAt:
+          latestRecord?.scanned_at ?? latestRecord?.created_at ?? null,
+        attendanceType: groupRecords.some(
+          (record) => record.attendance_type === "manual",
+        )
+          ? "manual"
+          : "zero_attendance",
+        records: sortedRecords,
+        events: eventRecords,
+      } satisfies ManualAttendanceStudentGroup;
+    })
+    .sort((leftGroup, rightGroup) => {
+      const collegeCompare = leftGroup.college.localeCompare(rightGroup.college);
+      if (collegeCompare !== 0) return collegeCompare;
+      return leftGroup.studentId.localeCompare(rightGroup.studentId);
+    });
+}
+
+function getSelectedEventRecords(
+  records: ManualAttendanceRecord[],
+  eventIds: string[],
+) {
+  const selectedEventIds = new Set(eventIds);
+
+  return records.filter((record) =>
+    record.event_id ? selectedEventIds.has(record.event_id) : false,
+  );
+}
+
 export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
@@ -161,6 +272,7 @@ export default function ManualAttendancePage() {
     ...emptyForm,
     scannedAt: formatDateTimeInputValue(),
   });
+  const [editingGroupKey, setEditingGroupKey] = useState("");
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
   const [collegeFilter, setCollegeFilter] = useState("");
@@ -168,29 +280,37 @@ export default function ManualAttendancePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
+  const [eventsDialogGroup, setEventsDialogGroup] =
+    useState<ManualAttendanceStudentGroup | null>(null);
+
+  const studentGroups = useMemo(
+    () => mergeManualAttendanceByStudent(records),
+    [records],
+  );
 
   const collegeOptions = useMemo<string[]>(() => {
-    const colleges = records
-      .map((record) => String(record.college ?? "").trim())
+    const colleges = studentGroups
+      .map((group) => String(group.college ?? "").trim())
       .filter(Boolean);
 
     return Array.from(new Set<string>(colleges)).sort((left, right) =>
       left.localeCompare(right),
     );
-  }, [records]);
+  }, [studentGroups]);
 
-  const filteredRecords = useMemo(() => {
+  const filteredGroups = useMemo(() => {
     const targetCollege = collegeFilter.trim().toLowerCase();
 
-    return sortByBackendEventOrder(records).filter((record) => {
+    return studentGroups.filter((group) => {
       if (!targetCollege) return true;
-      return (
-        String(record.college ?? "")
-          .trim()
-          .toLowerCase() === targetCollege
-      );
+      return group.college.trim().toLowerCase() === targetCollege;
     });
-  }, [records, collegeFilter]);
+  }, [studentGroups, collegeFilter]);
+
+  const selectedEventRecords = useMemo(
+    () => getSelectedEventRecords(records, form.eventIds),
+    [records, form.eventIds],
+  );
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -213,7 +333,7 @@ export default function ManualAttendancePage() {
             }),
             listManualAttendanceRecords({
               schoolYearId: fallbackSchoolYearId,
-              limit: 500,
+              limit: 1000,
               offset: 0,
             }),
           ])
@@ -227,7 +347,9 @@ export default function ManualAttendancePage() {
         ...current,
         schoolYearId:
           current.schoolYearId &&
-          schoolYearRows.some((schoolYear) => schoolYear.id === current.schoolYearId)
+          schoolYearRows.some(
+            (schoolYear) => schoolYear.id === current.schoolYearId,
+          )
             ? current.schoolYearId
             : activeSchoolYearId,
       }));
@@ -252,7 +374,7 @@ export default function ManualAttendancePage() {
   }
 
   function handleFieldChange(
-    field: keyof ManualAttendanceFormState,
+    field: Exclude<keyof ManualAttendanceFormState, "eventIds">,
     value: string,
   ) {
     setForm((current) => ({
@@ -261,28 +383,79 @@ export default function ManualAttendancePage() {
     }));
   }
 
-  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleEventToggle(eventId: string) {
+    setForm((current) => {
+      const isSelected = current.eventIds.includes(eventId);
 
-    if (!form.schoolYearId) {
-      toast.error("Active school year is required.");
-      return;
+      return {
+        ...current,
+        eventIds: isSelected
+          ? current.eventIds.filter((id) => id !== eventId)
+          : [...current.eventIds, eventId],
+      };
+    });
+  }
+
+  function handleOpenCreateDialog() {
+    setEditingGroupKey("");
+    setForm((current) => ({
+      ...emptyForm,
+      schoolYearId:
+        current.schoolYearId ||
+        (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId),
+      scannedAt: formatDateTimeInputValue(),
+    }));
+    setManualAttendanceDialogOpen(true);
+  }
+
+  function handleEditGroup(group: ManualAttendanceStudentGroup) {
+    const latestRecord = getLatestRecord(group.records);
+
+    setEditingGroupKey(group.key);
+    setForm({
+      schoolYearId:
+        latestRecord?.school_year_id ||
+        (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId),
+      eventIds: group.events
+        .map((record) => record.event_id)
+        .filter(Boolean) as string[],
+      scannedAt: formatDateTimeInputValue(
+        latestRecord?.scanned_at
+          ? new Date(latestRecord.scanned_at)
+          : new Date(),
+      ),
+      studentId: group.studentId,
+      name: group.name,
+      yearLevel: group.yearLevel,
+      college: group.college,
+      program: group.program,
+      institution: group.institution,
+      remarks: group.remarks,
+    });
+    setManualAttendanceDialogOpen(true);
+  }
+
+  function handleDialogOpenChange(open: boolean) {
+    setManualAttendanceDialogOpen(open);
+
+    if (!open) {
+      setEditingGroupKey("");
+      setForm((current) => ({
+        ...emptyForm,
+        schoolYearId: current.schoolYearId,
+        scannedAt: formatDateTimeInputValue(),
+      }));
     }
+  }
 
-    if (!form.eventId) {
-      toast.error("Please select an existing event.");
-      return;
-    }
+  function buildManualPayload(eventId?: string): ManualAttendanceInput {
+    const event = events.find((item) => item.id === eventId) ?? null;
 
-    if (!form.studentId.trim() || !form.name.trim()) {
-      toast.error("Student ID and name are required.");
-      return;
-    }
-
-    const payload: ManualAttendanceInput = {
-      attendanceType: "manual",
+    return {
+      attendanceType: eventId ? "manual" : "zero_attendance",
       schoolYearId: form.schoolYearId || undefined,
-      eventId: form.eventId,
+      eventId,
+      eventName: event?.name,
       scannedAt: form.scannedAt || undefined,
       studentId: form.studentId.trim(),
       name: form.name.trim(),
@@ -293,24 +466,102 @@ export default function ManualAttendancePage() {
       noOfAbsences: 0,
       remarks: form.remarks.trim(),
     };
+  }
+
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!form.schoolYearId) {
+      toast.error("Active school year is required.");
+      return;
+    }
+
+    if (!form.studentId.trim() || !form.name.trim()) {
+      toast.error("Student ID and name are required.");
+      return;
+    }
 
     setIsSaving(true);
 
     try {
-      await saveManualAttendanceRecord(payload);
-      toast.success("Manual attendance saved.");
-      setForm((current) => ({
-        ...emptyForm,
-        schoolYearId: current.schoolYearId,
-        scannedAt: formatDateTimeInputValue(),
-      }));
-      setManualAttendanceDialogOpen(false);
+      const selectedEventIds = Array.from(new Set(form.eventIds));
+      const editingGroup = editingGroupKey
+        ? studentGroups.find((group) => group.key === editingGroupKey)
+        : null;
+
+      if (editingGroup) {
+        const existingRecords = editingGroup.records;
+        const existingByEventId = new Map(
+          existingRecords
+            .filter((record) => record.event_id)
+            .map((record) => [record.event_id as string, record]),
+        );
+        const selectedEventIdSet = new Set(selectedEventIds);
+        const recordsToDelete = existingRecords.filter(
+          (record) => !record.event_id || !selectedEventIdSet.has(record.event_id),
+        );
+
+        await Promise.all(
+          recordsToDelete.map((record) => deleteAttendanceRecord(record.id)),
+        );
+
+        await Promise.all(
+          selectedEventIds.map((eventId) => {
+            const existingRecord = existingByEventId.get(eventId);
+            const payload = buildManualPayload(eventId);
+
+            return existingRecord
+              ? updateAttendanceRecord(existingRecord.id, payload)
+              : saveManualAttendanceRecord(payload);
+          }),
+        );
+
+        if (!selectedEventIds.length) {
+          await saveManualAttendanceRecord(buildManualPayload());
+        }
+
+        toast.success("Manual attendance updated.");
+      } else {
+        if (!selectedEventIds.length) {
+          toast.error("Please select at least one event.");
+          return;
+        }
+
+        await Promise.all(
+          selectedEventIds.map((eventId) =>
+            saveManualAttendanceRecord(buildManualPayload(eventId)),
+          ),
+        );
+        toast.success("Manual attendance saved.");
+      }
+
+      handleDialogOpenChange(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : "Unable to save manual attendance.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteGroup(group: ManualAttendanceStudentGroup) {
+    setIsSaving(true);
+
+    try {
+      await Promise.all(
+        group.records.map((record) => deleteAttendanceRecord(record.id)),
+      );
+      await loadPageData(selectedSchoolYearId);
+      toast.success("Manual attendance deleted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete manual attendance.",
       );
     } finally {
       setIsSaving(false);
@@ -330,9 +581,8 @@ export default function ManualAttendancePage() {
                 College-based manual attendance
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Manual attendance is stored in its own table and uses existing
-                events. The main attendance page stays focused on uploaded files
-                only.
+                Manual attendance is merged by Student ID and can store multiple
+                attended events for each attendee.
               </p>
             </div>
 
@@ -380,12 +630,13 @@ export default function ManualAttendancePage() {
             <div>
               <h2 className="text-xl font-black">Add manual attendance</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Open the form in a dialog to create a manual attendance record.
+                Create one attendee row and select all events attended by that
+                student.
               </p>
             </div>
             <Button
               type="button"
-              onClick={() => setManualAttendanceDialogOpen(true)}
+              onClick={handleOpenCreateDialog}
               className="min-h-12 rounded-2xl px-6 font-black"
             >
               Add Manual Attendance
@@ -393,13 +644,12 @@ export default function ManualAttendancePage() {
           </div>
         </section>
 
-        <Dialog
-          open={manualAttendanceDialogOpen}
-          onOpenChange={setManualAttendanceDialogOpen}
-        >
+        <Dialog open={manualAttendanceDialogOpen} onOpenChange={handleDialogOpenChange}>
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Add manual attendance</DialogTitle>
+              <DialogTitle>
+                {editingGroupKey ? "Edit manual attendance" : "Add manual attendance"}
+              </DialogTitle>
             </DialogHeader>
             <form
               onSubmit={handleSubmit}
@@ -420,29 +670,6 @@ export default function ManualAttendancePage() {
                     {schoolYears.map((schoolYear) => (
                       <SelectItem key={schoolYear.id} value={schoolYear.id}>
                         {schoolYear.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-
-              <label className="space-y-2 lg:col-span-2">
-                <span className="text-sm font-bold">Existing event</span>
-                <Select
-                  value={form.eventId}
-                  onValueChange={(value) => handleFieldChange("eventId", value)}
-                >
-                  <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                    <SelectValue
-                      placeholder={
-                        events.length ? "Select event" : "No events available"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {events.map((eventItem) => (
-                      <SelectItem key={eventItem.id} value={eventItem.id}>
-                        {getEventLabel(eventItem)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -533,6 +760,41 @@ export default function ManualAttendancePage() {
                 />
               </label>
 
+              <div className="space-y-2 lg:col-span-4">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-sm font-bold">Events attended</span>
+                  <span className="text-xs font-bold text-muted-foreground">
+                    {form.eventIds.length} selected
+                  </span>
+                </div>
+                <div className="grid max-h-80 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2">
+                  {events.length ? (
+                    events.map((eventItem) => {
+                      const isSelected = form.eventIds.includes(eventItem.id);
+
+                      return (
+                        <button
+                          key={eventItem.id}
+                          type="button"
+                          onClick={() => handleEventToggle(eventItem.id)}
+                          className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${
+                            isSelected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "bg-card hover:bg-muted"
+                          }`}
+                        >
+                          {getEventLabel(eventItem)}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed bg-card p-5 text-center text-sm font-semibold text-muted-foreground sm:col-span-2">
+                      No events available.
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <label className="space-y-2 lg:col-span-4">
                 <span className="text-sm font-bold">Remarks</span>
                 <Textarea
@@ -545,24 +807,103 @@ export default function ManualAttendancePage() {
                 />
               </label>
 
-              <div className="lg:col-span-4">
+              {selectedEventRecords.length ? (
+                <div className="rounded-2xl border bg-background p-4 text-sm lg:col-span-4">
+                  <p className="font-black">Currently selected existing records</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedEventRecords.map((record) => (
+                      <span
+                        key={record.id}
+                        className="rounded-full border bg-muted px-3 py-1 text-xs font-black"
+                      >
+                        {getRecordEventLabel(record)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-3 lg:col-span-4">
                 <Button
                   type="submit"
                   disabled={isSaving}
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
-                  {isSaving ? "Saving..." : "Save Manual Attendance"}
+                  {isSaving
+                    ? "Saving..."
+                    : editingGroupKey
+                      ? "Update Manual Attendance"
+                      : "Save Manual Attendance"}
                 </Button>
+                {editingGroupKey ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSaving}
+                    onClick={() => handleDialogOpenChange(false)}
+                    className="min-h-12 rounded-2xl px-6 font-black"
+                  >
+                    Cancel Edit
+                  </Button>
+                ) : null}
               </div>
             </form>
           </DialogContent>
         </Dialog>
+
+        <Dialog
+          open={Boolean(eventsDialogGroup)}
+          onOpenChange={(open) => {
+            if (!open) setEventsDialogGroup(null);
+          }}
+        >
+          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>
+                Events attended by{" "}
+                {eventsDialogGroup?.name || eventsDialogGroup?.studentId}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {eventsDialogGroup?.events.length ? (
+                eventsDialogGroup.events.map((record, index) => (
+                  <article
+                    key={record.id}
+                    className="rounded-2xl border bg-background p-4"
+                  >
+                    <div className="flex gap-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-black">{getRecordEventLabel(record)}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {formatDateTime(record.scanned_at ?? record.created_at)}
+                        </p>
+                        {record.remarks ? (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {record.remarks}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No attended events selected.
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black">Manual attendance records</h2>
               <p className="text-sm text-muted-foreground">
-                {filteredRecords.length.toLocaleString()} record/s shown
+                {filteredGroups.length.toLocaleString()} attendee/s shown
               </p>
             </div>
           </div>
@@ -573,46 +914,96 @@ export default function ManualAttendancePage() {
                 <tr>
                   <th className="px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Event</th>
+                  <th className="px-4 py-3">Events</th>
                   <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Program</th>
                   <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Scanned At</th>
+                  <th className="px-4 py-3">Latest Scan</th>
+                  <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRecords.length ? (
-                  filteredRecords.map((record) => (
-                    <tr key={record.id} className="border-t">
+                {filteredGroups.length ? (
+                  filteredGroups.map((group) => (
+                    <tr key={group.key} className="border-t">
                       <td className="px-4 py-3 font-black">
-                        {record.student_id}
+                        {group.studentId}
                       </td>
-                      <td className="px-4 py-3 font-semibold">{record.name}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {record.event_name || "—"}
+                      <td className="px-4 py-3 font-semibold">{group.name}</td>
+                      <td className="px-4 py-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setEventsDialogGroup(group)}
+                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                        >
+                          Events ({group.events.length})
+                        </Button>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {record.college || "—"}
+                        {group.college || "—"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {record.program || "—"}
+                        {group.program || "—"}
                       </td>
                       <td className="px-4 py-3">
                         <span className="rounded-full border bg-muted px-3 py-1 text-xs font-black">
-                          {record.attendance_type === "zero_attendance"
+                          {group.attendanceType === "zero_attendance"
                             ? "Zero attendance"
                             : "Manual"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {formatDateTime(record.scanned_at ?? record.created_at)}
+                        {formatDateTime(group.latestScannedAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleEditGroup(group)}
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                          >
+                            Edit
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                              >
+                                Delete
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="rounded-3xl">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Delete manual attendance?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This removes all manual attendance records for
+                                  the selected Student ID.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteGroup(group)}
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading
