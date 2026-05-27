@@ -139,6 +139,242 @@ function formatDateTimeInputValue(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
+type AttendanceFileMetadata = Partial<UploadFormState>;
+
+function cleanAttendanceMetadataValue(value: unknown) {
+  return String(value ?? "")
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .trim();
+}
+
+function splitAttendanceMetadataRow(line: string) {
+  return line
+    .split(/\t|,|;/)
+    .map(cleanAttendanceMetadataValue)
+    .filter((cell) => cell.length > 0);
+}
+
+function getAttendanceMetadataKey(value: string) {
+  const key = value
+    .toLowerCase()
+    .replace(/["']/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/^(s\.?\s*y\.?|school year|schoolyear|academic year)$/.test(key)) {
+    return "schoolYear";
+  }
+
+  if (/^(event|event name|activity|activity name)$/.test(key)) {
+    return "event";
+  }
+
+  if (
+    /^(start date\/time|start datetime|start date time|event start|event start date|event start date time|start date|date start)$/.test(
+      key,
+    )
+  ) {
+    return "start";
+  }
+
+  if (
+    /^(end date\/time|end datetime|end date time|event end|event end date|event end date time|end date|date end)$/.test(
+      key,
+    )
+  ) {
+    return "end";
+  }
+
+  return "";
+}
+
+function parseAttendanceMetadataDateTime(value: string) {
+  const cleanValue = cleanAttendanceMetadataValue(value);
+  if (!cleanValue) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(cleanValue)) {
+    return cleanValue.slice(0, 16);
+  }
+
+  const normalizedValue = cleanValue.replace(
+    /^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/,
+    "$1T$2",
+  );
+  const parsedDate = new Date(normalizedValue);
+
+  if (Number.isNaN(parsedDate.getTime())) return "";
+
+  return formatDateTimeInputValue(parsedDate.toISOString());
+}
+
+function resolveAttendanceMetadataSchoolYearId(
+  value: string,
+  schoolYears: SchoolYearRecord[],
+) {
+  const cleanValue = cleanAttendanceMetadataValue(value);
+  if (!cleanValue) return "";
+
+  const normalizedValue = cleanValue.toLowerCase();
+
+  const exactMatch = schoolYears.find((schoolYear) => {
+    return (
+      schoolYear.id.toLowerCase() === normalizedValue ||
+      schoolYear.name.toLowerCase() === normalizedValue
+    );
+  });
+
+  if (exactMatch) return exactMatch.id;
+
+  const years = cleanValue.match(/\d{4}/g) ?? [];
+
+  if (years.length) {
+    const yearMatch = schoolYears.find((schoolYear) => {
+      const normalizedName = schoolYear.name.toLowerCase();
+      return years.every((year) => normalizedName.includes(year));
+    });
+
+    if (yearMatch) return yearMatch.id;
+  }
+
+  return "";
+}
+
+function assignAttendanceMetadataValue(
+  metadata: AttendanceFileMetadata,
+  key: string,
+  value: string,
+  schoolYears: SchoolYearRecord[],
+) {
+  const cleanValue = cleanAttendanceMetadataValue(value);
+  if (!key || !cleanValue) return;
+
+  if (key === "schoolYear") {
+    const schoolYearId = resolveAttendanceMetadataSchoolYearId(
+      cleanValue,
+      schoolYears,
+    );
+    if (schoolYearId) metadata.schoolYearId = schoolYearId;
+    return;
+  }
+
+  if (key === "event") {
+    metadata.eventName = cleanValue;
+    return;
+  }
+
+  if (key === "start") {
+    const startValue = parseAttendanceMetadataDateTime(cleanValue);
+    if (startValue) metadata.eventStartAt = startValue;
+    return;
+  }
+
+  if (key === "end") {
+    const endValue = parseAttendanceMetadataDateTime(cleanValue);
+    if (endValue) metadata.eventEndAt = endValue;
+  }
+}
+
+function extractAttendanceFileMetadata(
+  fileText: string,
+  schoolYears: SchoolYearRecord[],
+) {
+  const metadata: AttendanceFileMetadata = {};
+  const rows = fileText
+    .replace(/\u0000/g, "")
+    .split(/\r?\n/)
+    .slice(0, 80)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  rows.forEach((line, rowIndex) => {
+    const cells = splitAttendanceMetadataRow(line);
+
+    cells.forEach((cell, cellIndex) => {
+      const keyValueMatch = cell.match(/^([^:=]+)\s*[:=]\s*(.+)$/);
+
+      if (keyValueMatch) {
+        assignAttendanceMetadataValue(
+          metadata,
+          getAttendanceMetadataKey(keyValueMatch[1]),
+          keyValueMatch[2],
+          schoolYears,
+        );
+        return;
+      }
+
+      const key = getAttendanceMetadataKey(cell);
+
+      if (key && cells[cellIndex + 1]) {
+        assignAttendanceMetadataValue(
+          metadata,
+          key,
+          cells[cellIndex + 1],
+          schoolYears,
+        );
+      }
+    });
+
+    const headerKeys = cells.map(getAttendanceMetadataKey);
+    const recognizedHeaderCount = headerKeys.filter(Boolean).length;
+    const nextCells = rows[rowIndex + 1]
+      ? splitAttendanceMetadataRow(rows[rowIndex + 1])
+      : [];
+
+    if (recognizedHeaderCount >= 2 && nextCells.length) {
+      headerKeys.forEach((key, cellIndex) => {
+        assignAttendanceMetadataValue(
+          metadata,
+          key,
+          nextCells[cellIndex] ?? "",
+          schoolYears,
+        );
+      });
+    }
+  });
+
+  return metadata;
+}
+
+async function getAttendanceFileMetadata(
+  file: File,
+  schoolYears: SchoolYearRecord[],
+) {
+  const previewBuffer = await file.arrayBuffer();
+  const decodedText = new TextDecoder("utf-8", { fatal: false })
+    .decode(previewBuffer)
+    .slice(0, 120_000);
+
+  return extractAttendanceFileMetadata(decodedText, schoolYears);
+}
+
+function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {
+  return Boolean(
+    metadata.schoolYearId ||
+      metadata.eventName ||
+      metadata.eventStartAt ||
+      metadata.eventEndAt,
+  );
+}
+
+function getSchoolYearBadgeLabel(
+  schoolYears: SchoolYearRecord[],
+  schoolYearId: string,
+) {
+  return getSchoolYearLabel(schoolYears, schoolYearId) || "No school year";
+}
+
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
+
 function formatNumber(value: number | string | null | undefined) {
   const numberValue = Number(value ?? 0);
   return Number.isFinite(numberValue) ? numberValue.toLocaleString() : "0";
@@ -367,6 +603,13 @@ export default function AttendancePage() {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
 
+  const uploadSchoolYearLabel = useMemo(() => {
+    return getSchoolYearBadgeLabel(
+      schoolYears,
+      uploadForm.schoolYearId || selectedSchoolYearId,
+    );
+  }, [schoolYears, uploadForm.schoolYearId, selectedSchoolYearId]);
+
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
       .map((row) => String(row.college ?? "").trim())
@@ -485,12 +728,7 @@ export default function AttendancePage() {
     void loadPageData();
   }, []);
 
-  async function handleSchoolYearChange(value: string) {
-    setSelectedSchoolYearId(value);
-    await loadPageData(value);
-  }
-
-  function selectAttendanceFile(nextFile: File | null) {
+  async function selectAttendanceFile(nextFile: File | null) {
     if (!nextFile) {
       setFile(null);
       return;
@@ -502,10 +740,28 @@ export default function AttendancePage() {
     }
 
     setFile(nextFile);
+
+    try {
+      const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
+
+      if (hasAttendanceFileMetadata(metadata)) {
+        setUploadForm((current) => ({
+          ...current,
+          ...metadata,
+          schoolYearId:
+            metadata.schoolYearId ||
+            current.schoolYearId ||
+            selectedSchoolYearId,
+        }));
+        toast.success("Attendance file details detected. Review before saving.");
+      }
+    } catch {
+      return;
+    }
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    selectAttendanceFile(event.target.files?.[0] ?? null);
+    void selectAttendanceFile(event.target.files?.[0] ?? null);
   }
 
   function handleDragOver(event: DragEvent<HTMLLabelElement>) {
@@ -521,7 +777,7 @@ export default function AttendancePage() {
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     setIsDraggingFile(false);
-    selectAttendanceFile(event.dataTransfer.files?.[0] ?? null);
+    void selectAttendanceFile(event.dataTransfer.files?.[0] ?? null);
   }
 
   function handleUploadFieldChange(
@@ -763,22 +1019,11 @@ export default function AttendancePage() {
               </p>
             </div>
 
-            <div className="w-full max-w-64">
-              <Select
-                value={selectedSchoolYearId}
-                onValueChange={handleSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                  <SelectValue placeholder="Select school year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="w-full max-w-64 lg:text-right">
+              <SchoolYearBadge
+                label={selectedSchoolYearLabel}
+                className="w-full justify-center lg:w-auto"
+              />
             </div>
           </div>
         </section>
@@ -891,24 +1136,10 @@ export default function AttendancePage() {
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">School year</span>
-                <Select
-                  value={uploadForm.schoolYearId}
-                  onValueChange={(value) =>
-                    handleUploadFieldChange("schoolYearId", value)
-                  }
-                  disabled={isSaving}
-                >
-                  <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                    <SelectValue placeholder="School year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schoolYears.map((schoolYear) => (
-                      <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                        {schoolYear.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SchoolYearBadge
+                  label={uploadSchoolYearLabel}
+                  className="w-full justify-center"
+                />
               </label>
 
               <label className="space-y-2">

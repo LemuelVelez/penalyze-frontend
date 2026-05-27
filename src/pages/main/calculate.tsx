@@ -28,13 +28,6 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Progress } from "../../components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 
 type CalculationRow = {
   key: string;
@@ -727,6 +720,16 @@ async function buildCalculationRows(
   });
 }
 
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 function calculationResultToRow(result: CalculationResultRecord) {
   return {
     key: `saved-${result.id}`,
@@ -1264,12 +1267,6 @@ export default function CalculatePage() {
     void loadSavedResults();
   }, []);
 
-  async function handleSchoolYearChange(value: string) {
-    setSelectedSchoolYearId(value);
-    setSelectedImportIds([]);
-    await loadSavedResults(value, []);
-  }
-
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
     const importOrder = new Map<string, number>(
       attendanceImports.map((importRecord, index) => [importRecord.id, index]),
@@ -1529,21 +1526,10 @@ export default function CalculatePage() {
             </div>
 
             <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto lg:items-end">
-              <Select
-                value={selectedSchoolYearId}
-                onValueChange={handleSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl sm:w-64">
-                  <SelectValue placeholder="Select school year" />
-                </SelectTrigger>
-                <SelectContent className="max-w-xs">
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={selectedSchoolYearLabel}
+                className="w-full justify-center sm:w-auto"
+              />
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button

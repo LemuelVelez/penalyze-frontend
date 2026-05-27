@@ -38,13 +38,6 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 
 const emptyEventForm = {
   schoolYearId: "",
@@ -126,6 +119,16 @@ function buildEventPayload(form: EventFormState): AttendanceEventInput {
   };
 }
 
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 export default function EventsPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
@@ -142,6 +145,13 @@ export default function EventsPage() {
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
+
+  const formSchoolYearLabel = useMemo(() => {
+    return getSchoolYearLabel(
+      schoolYears,
+      form.schoolYearId || selectedSchoolYearId,
+    );
+  }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
   const summary = useMemo(() => {
     return {
@@ -189,11 +199,6 @@ export default function EventsPage() {
   useEffect(() => {
     void loadEvents();
   }, []);
-
-  async function handleSchoolYearChange(value: string) {
-    setSelectedSchoolYearId(value);
-    await loadEvents(value);
-  }
 
   function handleOpenCreateDialog() {
     setEditingEvent(null);
@@ -290,21 +295,10 @@ export default function EventsPage() {
             </div>
 
             <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row lg:items-center">
-              <Select
-                value={selectedSchoolYearId}
-                onValueChange={handleSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl sm:w-64">
-                  <SelectValue placeholder="Select school year" />
-                </SelectTrigger>
-                <SelectContent className="max-w-xs">
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={selectedSchoolYearLabel}
+                className="w-full justify-center sm:w-auto"
+              />
 
               <Button
                 type="button"
@@ -524,23 +518,10 @@ export default function EventsPage() {
 
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>School year</span>
-              <Select
-                value={form.schoolYearId}
-                onValueChange={(value) =>
-                  handleFieldChange("schoolYearId", value)
-                }
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 overflow-hidden rounded-2xl">
-                  <SelectValue placeholder="Select school year" />
-                </SelectTrigger>
-                <SelectContent className="max-w-xs">
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={formSchoolYearLabel}
+                className="w-full justify-center"
+              />
             </div>
 
             <label className="space-y-2 text-sm font-bold">

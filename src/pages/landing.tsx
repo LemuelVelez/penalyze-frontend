@@ -2045,6 +2045,16 @@ function StudentAttendedEventsDialog(props: {
   );
 }
 
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-11 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 function ZeroAttendanceRegistrationDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -2056,7 +2066,9 @@ function ZeroAttendanceRegistrationDialog(props: {
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   const programOptions = getStudentProgramOptions(props.form.college);
-  const schoolYearOptions = getSelectableSchoolYears(props.schoolYears);
+  const schoolYearLabel =
+    getSchoolYearLabel(props.schoolYears, props.form.schoolYearId) ||
+    "Current school year";
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -2106,35 +2118,10 @@ function ZeroAttendanceRegistrationDialog(props: {
             </label>
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>School Year</span>
-              <Select
-                value={props.form.schoolYearId}
-                onValueChange={(value) =>
-                  props.onFieldChange("schoolYearId", value)
-                }
-                disabled={!schoolYearOptions.length}
-              >
-                <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue
-                    placeholder={
-                      schoolYearOptions.length
-                        ? "Select active school year"
-                        : "Current school year"
-                    }
-                    className="truncate"
-                  />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
-                  {schoolYearOptions.map((schoolYear) => (
-                    <SelectItem
-                      key={schoolYear.id}
-                      value={schoolYear.id}
-                      className="max-w-full truncate"
-                    >
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={schoolYearLabel}
+                className="w-full justify-center"
+              />
             </div>
             <div className="min-w-0 space-y-2 text-sm font-bold">
               <span>Year Level</span>
@@ -3170,27 +3157,7 @@ export default function LandingPage() {
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-                  <label
-                    className="sr-only"
-                    htmlFor="student-result-year-filter"
-                  >
-                    Year filter
-                  </label>
-                  <select
-                    id="student-result-year-filter"
-                    value={resultYearFilter}
-                    onChange={(event) =>
-                      setResultYearFilter(event.target.value)
-                    }
-                    className="min-h-11 rounded-2xl border bg-background px-4 text-sm font-black outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
-                  >
-                    <option value={ALL_YEARS_VALUE}>All school years</option>
-                    {yearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {getSchoolYearLabel(lookup.schoolYears, year)}
-                      </option>
-                    ))}
-                  </select>
+                  <SchoolYearBadge label={selectedYearLabel} />
                 </div>
               </div>
 

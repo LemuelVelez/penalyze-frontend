@@ -205,6 +205,16 @@ function sortPenaltyResultsByBackendEventOrder(rows: PenaltyResultRecord[]) {
   return [...rows].sort(comparePenaltyResultsByBackendEventOrder);
 }
 
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 export default function FinesPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
@@ -312,11 +322,6 @@ export default function FinesPage() {
   useEffect(() => {
     void loadPageData();
   }, []);
-
-  async function handleSchoolYearChange(value: string) {
-    setSelectedSchoolYearId(value);
-    await loadPageData(value);
-  }
 
   async function handleRefreshPenaltyResults() {
     setIsRefreshingResults(true);
@@ -567,21 +572,10 @@ export default function FinesPage() {
             </div>
 
             <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto xl:grid-cols-3">
-              <Select
-                value={selectedSchoolYearId}
-                onValueChange={handleSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                  <SelectValue placeholder="School year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={selectedSchoolYearLabel}
+                className="w-full justify-center"
+              />
 
               <Select
                 value={statusFilter}

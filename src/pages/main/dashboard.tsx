@@ -17,13 +17,6 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
@@ -115,6 +108,16 @@ function StatCard(props: {
         {props.helper}
       </p>
     </article>
+  );
+}
+
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-11 items-center rounded-xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
   );
 }
 
@@ -220,18 +223,10 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Select value={yearFilter} onValueChange={setYearFilter}>
-              <SelectTrigger className="min-h-11 rounded-xl px-4 text-sm font-black sm:w-36">
-                <SelectValue placeholder="Active school year" />
-              </SelectTrigger>
-              <SelectContent>
-                {yearOptions.map((year) => (
-                  <SelectItem key={year} value={year}>
-                    {getSchoolYearLabel(schoolYears, year)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SchoolYearBadge
+              label={yearLabel}
+              className="justify-center sm:w-auto"
+            />
             <Button
               type="button"
               variant="outline"

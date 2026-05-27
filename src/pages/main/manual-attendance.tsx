@@ -17,6 +17,7 @@ import type {
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
+  getSchoolYearLabel,
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
@@ -328,6 +329,16 @@ function getSelectedEventRecords(
   );
 }
 
+function SchoolYearBadge(props: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+    >
+      {props.label}
+    </span>
+  );
+}
+
 export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
@@ -379,6 +390,15 @@ export default function ManualAttendancePage() {
     () => getStudentProgramOptions(form.college),
     [form.college],
   );
+  const selectedSchoolYearLabel = useMemo(() => {
+    return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
+  }, [schoolYears, selectedSchoolYearId]);
+  const formSchoolYearLabel = useMemo(() => {
+    return getSchoolYearLabel(
+      schoolYears,
+      form.schoolYearId || selectedSchoolYearId,
+    );
+  }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -435,11 +455,6 @@ export default function ManualAttendancePage() {
   useEffect(() => {
     void loadPageData();
   }, []);
-
-  async function handleSchoolYearChange(value: string) {
-    setSelectedSchoolYearId(value);
-    await loadPageData(value);
-  }
 
   function handleFieldChange(
     field: Exclude<keyof ManualAttendanceFormState, "eventIds">,
@@ -657,21 +672,10 @@ export default function ManualAttendancePage() {
             </div>
 
             <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
-              <Select
-                value={selectedSchoolYearId}
-                onValueChange={handleSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                  <SelectValue placeholder="School year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SchoolYearBadge
+                label={selectedSchoolYearLabel}
+                className="w-full justify-center"
+              />
 
               <Select
                 value={collegeFilter || "__all_colleges__"}
@@ -727,23 +731,10 @@ export default function ManualAttendancePage() {
             >
               <label className="space-y-2">
                 <span className="text-sm font-bold">School year</span>
-                <Select
-                  value={form.schoolYearId}
-                  onValueChange={(value) =>
-                    handleFieldChange("schoolYearId", value)
-                  }
-                >
-                  <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
-                    <SelectValue placeholder="School year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schoolYears.map((schoolYear) => (
-                      <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                        {schoolYear.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SchoolYearBadge
+                  label={formSchoolYearLabel}
+                  className="w-full justify-center"
+                />
               </label>
 
               <label className="space-y-2">
