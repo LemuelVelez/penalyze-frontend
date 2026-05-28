@@ -130,11 +130,6 @@ export type DeletedAttendanceRecordsResult<TRecord> = {
   deletedRecords: TRecord[];
 };
 
-export type DeletedCalculationResultsResult = {
-  deletedCount: number;
-  deletedRecords: CalculationResultRecord[];
-};
-
 export type AttendanceImportInput = {
   schoolYearId?: string;
   eventId?: string;
@@ -273,7 +268,8 @@ export type AttendanceRowsSaveInput = {
   signal?: AbortSignal;
 };
 
-const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.ods,.csv,.txt";
+const ACCEPTED_ATTENDANCE_FILE_TYPES =
+  ".xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.ods,.csv,.txt";
 const LOCAL_API_BASE_URL = "http://localhost:3000";
 
 function normalizeBaseUrl(value: unknown) {
@@ -303,7 +299,9 @@ function isLocalUrl(value: string) {
 
   try {
     const { hostname } = new URL(value);
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    return (
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+    );
   } catch {
     return value.includes("localhost") || value.includes("127.0.0.1");
   }
@@ -614,7 +612,8 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
 
   const targetImportIds = new Set(options.importIds?.filter(Boolean) ?? []);
 
-  if (!options.studentId && !options.college && !targetImportIds.size) return rows;
+  if (!options.studentId && !options.college && !targetImportIds.size)
+    return rows;
 
   const targetStudentId = options.studentId
     ? normalizeStudentId(options.studentId)
@@ -688,10 +687,12 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
   return response.data ?? [];
 }
 
-export async function refreshAttendanceFinalResults(options: {
-  schoolYearId?: string;
-  importId?: string;
-} = {}) {
+export async function refreshAttendanceFinalResults(
+  options: {
+    schoolYearId?: string;
+    importId?: string;
+  } = {},
+) {
   const response = await apiRequest<AttendanceFinalResultRecord[]>(
     "/api/attendance/final-results/refresh",
     {
@@ -719,10 +720,12 @@ export async function listCalculationResults(options: ListOptions = {}) {
   return response.data ?? [];
 }
 
-export async function refreshCalculationResults(options: {
-  schoolYearId?: string;
-  importIds?: string[];
-} = {}) {
+export async function refreshCalculationResults(
+  options: {
+    schoolYearId?: string;
+    importIds?: string[];
+  } = {},
+) {
   const response = await apiRequest<CalculationResultRecord[]>(
     "/api/attendance/calculation-results/refresh",
     {
@@ -734,17 +737,15 @@ export async function refreshCalculationResults(options: {
   return response.data ?? [];
 }
 
-
 export async function deleteCalculationResultsByIds(
   calculationResultIds: string[],
 ) {
-  const response = await apiRequest<DeletedCalculationResultsResult>(
-    "/api/attendance/calculation-results",
-    {
-      method: "DELETE",
-      body: JSON.stringify({ ids: calculationResultIds }),
-    },
-  );
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<CalculationResultRecord>
+  >("/api/attendance/calculation-results", {
+    method: "DELETE",
+    body: JSON.stringify({ ids: calculationResultIds }),
+  });
 
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
@@ -752,13 +753,12 @@ export async function deleteCalculationResultsByIds(
 export async function deleteCalculationResultsBySchoolYear(
   schoolYearId: string,
 ) {
-  const response = await apiRequest<DeletedCalculationResultsResult>(
-    "/api/attendance/calculation-results",
-    {
-      method: "DELETE",
-      body: JSON.stringify({ schoolYearId }),
-    },
-  );
+  const response = await apiRequest<
+    DeletedAttendanceRecordsResult<CalculationResultRecord>
+  >("/api/attendance/calculation-results", {
+    method: "DELETE",
+    body: JSON.stringify({ schoolYearId }),
+  });
 
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }

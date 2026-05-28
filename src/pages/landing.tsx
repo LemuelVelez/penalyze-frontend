@@ -4,20 +4,25 @@ import { Link, useNavigate } from "react-router-dom";
 
 import {
   getStudentAttendanceRecords,
+  listAllAttendanceRecords,
   listAttendanceEvents,
-  listAttendanceRecords,
+  listAttendanceFinalResults,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceFinalResultRecord,
   AttendanceRecord,
-  ManualAttendanceInput,
 } from "../api/attendance";
 import {
   getStudentFines,
   matchPenalty,
   registerZeroAttendanceFine,
 } from "../api/fines";
-import type { FineRecord, PenaltyRecord } from "../api/fines";
+import type {
+  FineRecord,
+  PenaltyRecord,
+  ZeroAttendanceFinePayload,
+} from "../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
@@ -553,7 +558,6 @@ function getFineAttendanceEventDateValue(
   return getAttendanceEventDateValue(linkedEvent);
 }
 
-
 function getFineRecordYear(
   fine: FineRecord,
   eventById?: Map<string, AttendanceEvent>,
@@ -646,7 +650,10 @@ function getAttendanceEventSequence(
   record: AttendanceRecord,
   eventById?: Map<string, AttendanceEvent>,
 ) {
-  const backendEventOrder = getAttendanceRecordEventOrderValue(record, eventById);
+  const backendEventOrder = getAttendanceRecordEventOrderValue(
+    record,
+    eventById,
+  );
   if (backendEventOrder !== null) return backendEventOrder;
 
   const candidates = [
@@ -1752,7 +1759,10 @@ function getFineBackendEventTime(
   eventById?: Map<string, AttendanceEvent>,
   attendanceRecordById?: Map<string, AttendanceRecord>,
 ) {
-  const linkedRecord = getFineLinkedAttendanceRecord(fine, attendanceRecordById);
+  const linkedRecord = getFineLinkedAttendanceRecord(
+    fine,
+    attendanceRecordById,
+  );
   const value =
     getFineAbsentEventDateValue(fine, eventById) ??
     (linkedRecord
@@ -2085,8 +2095,8 @@ function ZeroAttendanceRegistrationDialog(props: {
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
             This Student ID has no saved attendance or fine record. Fill out the
-            attendee details to create an empty-events zero attendance record in
-            Manual Attendance, then add multiple events to the attendee later.
+            attendee details to create a zero attendance record in Manual
+            Attendance, then add multiple events to the attendee later.
           </div>
 
           {props.error ? (
@@ -2313,31 +2323,59 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
+function finalResultToAttendanceRecord(
+  row: AttendanceFinalResultRecord,
+): AttendanceRecord {
+  const rowData = row as AttendanceFinalResultRecord & Record<string, unknown>;
+  const eventId = String(rowData.event_id ?? "").trim();
+  const eventName = String(rowData.event_name ?? "").trim();
+
+  return {
+    id: row.id,
+    school_year_id: row.school_year_id,
+    import_id: row.import_id,
+    event_id: eventId || null,
+    event_name: eventName || "Final attendance result",
+    student_id: row.student_id,
+    name: row.name,
+    year_level: row.year_level,
+    college: row.college,
+    program: row.program,
+    institution: row.institution,
+    no_of_absences: row.total_absences,
+    remarks: row.attendance_status,
+    scanned_at: row.latest_scanned_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    event_order: rowData.event_order ?? null,
+    event_start_at: rowData.event_start_at ?? null,
+    event_end_at: rowData.event_end_at ?? null,
+  } as AttendanceRecord;
+}
+
 async function listLandingAttendanceRecords(
   onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
 ) {
-  const pageSize = 500;
-  const maxPages = 100;
-  const rows: AttendanceRecord[] = [];
+  const [attendanceRows, finalRows] = await Promise.all([
+    listAllAttendanceRecords({
+      pageSize: 500,
+      maxPages: 100,
+    }),
+    listAttendanceFinalResults({
+      limit: 5000,
+      offset: 0,
+    }),
+  ]);
+  const rows = getUniqueDisplayAttendance([
+    ...attendanceRows,
+    ...finalRows.map(finalResultToAttendanceRecord),
+  ]);
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const pageRows = await listAttendanceRecords({
-      limit: pageSize,
-      offset: page * pageSize,
-    });
-
-    rows.push(...pageRows);
-
-    const isComplete = pageRows.length < pageSize;
-
-    onProgress?.({
-      loadedRows: rows.length,
-      pageCount: page + 1,
-      isComplete,
-    });
-
-    if (isComplete) break;
-  }
+  onProgress?.({
+    loadedRows: rows.length,
+    pageCount: Math.max(1, Math.ceil(rows.length / 500)),
+    isComplete: true,
+  });
 
   return rows;
 }
@@ -2608,7 +2646,9 @@ export default function LandingPage() {
     setZeroAttendanceForm({
       ...emptyZeroAttendanceForm,
       studentId: cleanStudentId,
-      schoolYearId: getActiveSchoolYearId(getSelectableSchoolYears(availableSchoolYears)),
+      schoolYearId: getActiveSchoolYearId(
+        getSelectableSchoolYears(availableSchoolYears),
+      ),
     });
     setZeroAttendanceDialogOpen(true);
   }
@@ -2629,22 +2669,17 @@ export default function LandingPage() {
   ) {
     event.preventDefault();
 
-    const payload: ManualAttendanceInput = {
+    const payload: ZeroAttendanceFinePayload = {
       studentId: zeroAttendanceForm.studentId.trim(),
       schoolYearId:
         zeroAttendanceForm.schoolYearId ||
         getActiveSchoolYearId(getSelectableSchoolYears(schoolYears)) ||
         undefined,
-      eventId: undefined,
-      eventName: undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
       college: zeroAttendanceForm.college.trim(),
       program: zeroAttendanceForm.program.trim(),
       institution: zeroAttendanceForm.institution.trim(),
-      noOfAbsences: 0,
-      remarks: ZERO_ATTENDANCE_REMARK,
-      attendanceType: "zero_attendance",
     };
 
     if (!payload.studentId) {
@@ -2661,19 +2696,20 @@ export default function LandingPage() {
     setZeroAttendanceError("");
 
     try {
-      const result = await registerZeroAttendanceFine({
-        schoolYearId: payload.schoolYearId,
-        studentId: payload.studentId,
-        name: payload.name,
-        yearLevel: payload.yearLevel,
-        college: payload.college,
-        program: payload.program,
-        institution: payload.institution,
-      });
+      const result = await registerZeroAttendanceFine(payload);
 
       if (!result?.attendanceRecord) {
-        throw new Error("Unable to save empty-events zero attendance record.");
+        throw new Error("Unable to save zero attendance record.");
       }
+
+      const [attendanceEvents, allAttendanceRecords] = await Promise.all([
+        listAttendanceEvents({
+          schoolYearId: payload.schoolYearId,
+          limit: 500,
+          offset: 0,
+        }).catch(() => [] as AttendanceEvent[]),
+        listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
+      ]);
 
       const savedZeroAttendanceRecord = {
         ...result.attendanceRecord,
@@ -2689,37 +2725,30 @@ export default function LandingPage() {
       const attendanceRecord = {
         ...savedZeroAttendanceRecord,
         no_of_absences: Math.max(
+          result.totalEvents,
           getRecordAbsenceCount(savedZeroAttendanceRecord),
-          result.totalEvents || 0,
           fine ? getFineAbsenceCount(fine) : 0,
         ),
       };
-      const schoolYearId =
-        attendanceRecord.school_year_id || payload.schoolYearId || undefined;
-      const [attendanceEvents, attendanceRecords, latestFines] =
-        await Promise.all([
-          listAttendanceEvents({
-            schoolYearId,
-            limit: 500,
-            offset: 0,
-          }).catch(() => [] as AttendanceEvent[]),
-          listLandingAttendanceRecords().catch(() => [attendanceRecord]),
-          getStudentFines(attendanceRecord.student_id).catch(() =>
-            fine ? [fine] : [],
-          ),
-        ]);
+      const attendanceRecords = allAttendanceRecords.some(
+        (record) => record.id === attendanceRecord.id,
+      )
+        ? allAttendanceRecords
+        : [attendanceRecord, ...allAttendanceRecords];
 
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
-      setResultYearFilter(schoolYearId || ALL_YEARS_VALUE);
+      setResultYearFilter(
+        attendanceRecord.school_year_id ||
+          payload.schoolYearId ||
+          ALL_YEARS_VALUE,
+      );
       setLookup({
         attendance: [attendanceRecord],
         attendanceEvents,
-        attendanceRecords: attendanceRecords.length
-          ? attendanceRecords
-          : [attendanceRecord],
+        attendanceRecords,
         schoolYears,
-        fines: latestFines.length ? latestFines : fine ? [fine] : [],
+        fines: fine ? [fine] : [],
         fallbackFine: null,
       });
       setZeroAttendanceDialogOpen(false);
@@ -2728,7 +2757,7 @@ export default function LandingPage() {
       setZeroAttendanceError(
         saveError instanceof Error
           ? saveError.message
-          : "Unable to save empty-events zero attendance record.",
+          : "Unable to save zero attendance record.",
       );
     } finally {
       setIsSavingZeroAttendance(false);

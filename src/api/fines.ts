@@ -14,8 +14,6 @@ export type FineRecord = {
   status: FineStatus;
   attendance_event_id?: string | null;
   attendance_remarks?: string | null;
-  source_table?: string | null;
-  source_record_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -51,7 +49,6 @@ export type DeletedPenaltyResultsResult = {
   deletedCount: number;
   deletedRecords: PenaltyResultRecord[];
 };
-
 
 export type PenaltyResultUpdateInput = {
   studentId?: string;
@@ -120,7 +117,9 @@ function isLocalUrl(value: string) {
 
   try {
     const { hostname } = new URL(value);
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    return (
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+    );
   } catch {
     return value.includes("localhost") || value.includes("127.0.0.1");
   }
@@ -154,10 +153,16 @@ function getApiBaseUrl() {
 }
 
 function getAuthToken() {
-  return localStorage.getItem("penalyze.auth.token") || sessionStorage.getItem("penalyze.auth.token") || "";
+  return (
+    localStorage.getItem("penalyze.auth.token") ||
+    sessionStorage.getItem("penalyze.auth.token") ||
+    ""
+  );
 }
 
-function buildSearchParams(params: Record<string, string | number | undefined>) {
+function buildSearchParams(
+  params: Record<string, string | number | undefined>,
+) {
   const search = new URLSearchParams();
 
   Object.entries(params).forEach(([key, value]) => {
@@ -172,7 +177,11 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   const token = getAuthToken();
 
-  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+  if (
+    !headers.has("Content-Type") &&
+    options.body &&
+    !(options.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -183,14 +192,18 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
-    credentials: "include"
+    credentials: "include",
   });
 
   const contentType = response.headers.get("content-type") ?? "";
-  const payload = contentType.includes("application/json") ? await response.json() : null;
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : null;
 
   if (!response.ok) {
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
   }
 
   return payload as ApiEnvelope<T>;
@@ -202,7 +215,7 @@ export async function listFines(options: ListFineOptions = {}) {
     status: options.status || undefined,
     studentId: options.studentId,
     limit: options.limit ?? 100,
-    offset: options.offset ?? 0
+    offset: options.offset ?? 0,
   });
 
   const response = await apiRequest<FineRecord[]>(`/api/fines${query}`);
@@ -213,7 +226,10 @@ function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
   return {
     id: result.id,
     school_year_id: result.school_year_id,
-    attendance_record_id: result.source_table === "attendance_records" ? result.source_record_id : null,
+    attendance_record_id:
+      result.source_table === "attendance_records"
+        ? result.source_record_id
+        : null,
     penalty_id: result.penalty_id,
     student_id: result.student_id,
     name: result.name,
@@ -221,11 +237,12 @@ function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
     prescribed_penalty: result.prescribed_penalty,
     status: result.status,
     attendance_event_id: null,
-    attendance_remarks: result.source_table === "manual_attendance_records" ? "Manual attendance result" : "Final attendance result",
-    source_table: result.source_table,
-    source_record_id: result.source_record_id,
+    attendance_remarks:
+      result.source_table === "manual_attendance_records"
+        ? "Manual attendance result"
+        : "Final attendance result",
     created_at: result.created_at,
-    updated_at: result.updated_at
+    updated_at: result.updated_at,
   };
 }
 
@@ -234,19 +251,16 @@ export async function getStudentFines(studentId: string) {
     listFines({
       studentId,
       limit: 1000,
-      offset: 0
+      offset: 0,
     }),
     listPenaltyResults({
       studentId,
       limit: 1000,
-      offset: 0
-    }).catch(() => [] as PenaltyResultRecord[])
+      offset: 0,
+    }).catch(() => [] as PenaltyResultRecord[]),
   ]);
 
-  return [
-    ...fines,
-    ...penaltyResults.map(penaltyResultToFineRecord)
-  ];
+  return [...fines, ...penaltyResults.map(penaltyResultToFineRecord)];
 }
 
 export async function listPenaltyResults(options: ListFineOptions = {}) {
@@ -255,36 +269,55 @@ export async function listPenaltyResults(options: ListFineOptions = {}) {
     status: options.status || undefined,
     studentId: options.studentId,
     limit: options.limit ?? 100,
-    offset: options.offset ?? 0
+    offset: options.offset ?? 0,
   });
 
-  const response = await apiRequest<PenaltyResultRecord[]>(`/api/fines/penalty-results${query}`);
+  const response = await apiRequest<PenaltyResultRecord[]>(
+    `/api/fines/penalty-results${query}`,
+  );
   return response.data ?? [];
 }
 
-export async function refreshPenaltyResults(options: { schoolYearId?: string; importIds?: string[] } = {}) {
-  const response = await apiRequest<PenaltyResultRecord[]>("/api/fines/penalty-results/refresh", {
-    method: "POST",
-    body: JSON.stringify(options)
-  });
+export async function refreshPenaltyResults(
+  options: { schoolYearId?: string; importIds?: string[] } = {},
+) {
+  const response = await apiRequest<PenaltyResultRecord[]>(
+    "/api/fines/penalty-results/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify(options),
+    },
+  );
 
   return response.data ?? [];
 }
 
-export async function updatePenaltyResultStatus(id: string, status: FineStatus) {
-  const response = await apiRequest<PenaltyResultRecord>(`/api/fines/penalty-results/${encodeURIComponent(id)}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ status })
-  });
+export async function updatePenaltyResultStatus(
+  id: string,
+  status: FineStatus,
+) {
+  const response = await apiRequest<PenaltyResultRecord>(
+    `/api/fines/penalty-results/${encodeURIComponent(id)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  );
 
   return response.data;
 }
 
-export async function updatePenaltyResult(id: string, input: PenaltyResultUpdateInput) {
-  const response = await apiRequest<PenaltyResultRecord>(`/api/fines/penalty-results/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: JSON.stringify(input)
-  });
+export async function updatePenaltyResult(
+  id: string,
+  input: PenaltyResultUpdateInput,
+) {
+  const response = await apiRequest<PenaltyResultRecord>(
+    `/api/fines/penalty-results/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
 
   return response.data;
 }
@@ -318,11 +351,16 @@ export async function getFineSummary() {
   return response.data ?? { unpaid: 0, paid: 0, waived: 0 };
 }
 
-export async function registerZeroAttendanceFine(payload: ZeroAttendanceFinePayload) {
-  const response = await apiRequest<ZeroAttendanceFineResult>("/api/fines/zero-attendance", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
+export async function registerZeroAttendanceFine(
+  payload: ZeroAttendanceFinePayload,
+) {
+  const response = await apiRequest<ZeroAttendanceFineResult>(
+    "/api/fines/zero-attendance",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 
   if (!response.data) {
     throw new Error("Unable to register zero attendance record.");
@@ -332,10 +370,13 @@ export async function registerZeroAttendanceFine(payload: ZeroAttendanceFinePayl
 }
 
 export async function updateFineStatus(id: string, status: FineStatus) {
-  const response = await apiRequest<FineRecord>(`/api/fines/${encodeURIComponent(id)}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ status })
-  });
+  const response = await apiRequest<FineRecord>(
+    `/api/fines/${encodeURIComponent(id)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  );
 
   return response.data;
 }
@@ -345,51 +386,72 @@ export async function listPenalties() {
   return response.data ?? [];
 }
 
-export async function createPenalty(noOfAbsences: number, prescribedPenalty: string) {
+export async function createPenalty(
+  noOfAbsences: number,
+  prescribedPenalty: string,
+) {
   const response = await apiRequest<PenaltyRecord>("/api/fines/penalties", {
     method: "POST",
     body: JSON.stringify({
       noOfAbsences,
-      prescribedPenalty
-    })
+      prescribedPenalty,
+    }),
   });
 
   return response.data;
 }
 
-export async function savePenalty(noOfAbsences: number, prescribedPenalty: string) {
+export async function savePenalty(
+  noOfAbsences: number,
+  prescribedPenalty: string,
+) {
   return createPenalty(noOfAbsences, prescribedPenalty);
 }
 
-export async function updatePenalty(id: string, noOfAbsences: number, prescribedPenalty: string) {
-  const response = await apiRequest<PenaltyRecord>(`/api/fines/penalties/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      noOfAbsences,
-      prescribedPenalty
-    })
-  });
+export async function updatePenalty(
+  id: string,
+  noOfAbsences: number,
+  prescribedPenalty: string,
+) {
+  const response = await apiRequest<PenaltyRecord>(
+    `/api/fines/penalties/${encodeURIComponent(id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        noOfAbsences,
+        prescribedPenalty,
+      }),
+    },
+  );
 
   return response.data;
 }
 
 export async function deletePenalty(id: string) {
-  const response = await apiRequest<PenaltyRecord>(`/api/fines/penalties/${encodeURIComponent(id)}`, {
-    method: "DELETE"
-  });
+  const response = await apiRequest<PenaltyRecord>(
+    `/api/fines/penalties/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   return response.data;
 }
 
 export async function seedDefaultPenalties() {
-  const response = await apiRequest<PenaltyRecord[]>("/api/fines/penalties/seed", {
-    method: "POST"
-  });
+  const response = await apiRequest<PenaltyRecord[]>(
+    "/api/fines/penalties/seed",
+    {
+      method: "POST",
+    },
+  );
 
   return response.data ?? [];
 }
 
 export async function matchPenalty(noOfAbsences: number) {
-  const response = await apiRequest<PenaltyRecord>(`/api/fines/penalties/match/${noOfAbsences}`);
+  const response = await apiRequest<PenaltyRecord>(
+    `/api/fines/penalties/match/${noOfAbsences}`,
+  );
   return response.data ?? null;
 }

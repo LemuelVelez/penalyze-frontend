@@ -155,17 +155,6 @@ export default function EventsPage() {
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
-  const eventIds = useMemo(() => events.map((event) => event.id), [events]);
-
-  const selectedEventCount = useMemo(() => {
-    const ids = new Set(eventIds);
-
-    return selectedEventIds.filter((id) => ids.has(id)).length;
-  }, [eventIds, selectedEventIds]);
-
-  const allEventsSelected =
-    eventIds.length > 0 && selectedEventCount === eventIds.length;
-
   const summary = useMemo(() => {
     return {
       events: events.length,
@@ -178,6 +167,14 @@ export default function EventsPage() {
       ).length,
     };
   }, [events]);
+
+  const displayedEventIds = useMemo<string[]>(() => {
+    return events.map((event) => String(event.id ?? "").trim()).filter(Boolean);
+  }, [events]);
+
+  const allDisplayedEventsSelected =
+    displayedEventIds.length > 0 &&
+    displayedEventIds.every((eventId) => selectedEventIds.includes(eventId));
 
   async function loadEvents(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -214,98 +211,6 @@ export default function EventsPage() {
     void loadEvents();
   }, []);
 
-
-  function handleToggleEvent(eventId: string) {
-    setSelectedEventIds((currentIds) => {
-      if (currentIds.includes(eventId)) {
-        return currentIds.filter((id) => id !== eventId);
-      }
-
-      return [...currentIds, eventId];
-    });
-  }
-
-  function handleToggleAllEvents() {
-    setSelectedEventIds((currentIds) => {
-      if (allEventsSelected) {
-        const ids = new Set(eventIds);
-
-        return currentIds.filter((id) => !ids.has(id));
-      }
-
-      return Array.from(new Set([...currentIds, ...eventIds]));
-    });
-  }
-
-  async function deleteEventIds(ids: string[]) {
-    for (const eventId of ids) {
-      await deleteAttendanceEvent(eventId);
-    }
-  }
-
-  async function handleDeleteSelectedEvents() {
-    const ids = new Set(eventIds);
-    const idsToDelete = selectedEventIds.filter((id) => ids.has(id));
-
-    if (!idsToDelete.length) {
-      toast.error("Please select events to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete the selected event records?")
-    ) {
-      return;
-    }
-
-    setIsDeletingEvents(true);
-
-    try {
-      await deleteEventIds(idsToDelete);
-      setSelectedEventIds((currentIds) =>
-        currentIds.filter((id) => !idsToDelete.includes(id)),
-      );
-      toast.success(`${idsToDelete.length.toLocaleString()} event/s deleted.`);
-      await loadEvents(selectedSchoolYearId);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to delete events.",
-      );
-    } finally {
-      setIsDeletingEvents(false);
-    }
-  }
-
-  async function handleDeleteAllEvents() {
-    if (!eventIds.length) {
-      toast.error("No events to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete all displayed event records?")
-    ) {
-      return;
-    }
-
-    setIsDeletingEvents(true);
-
-    try {
-      await deleteEventIds(eventIds);
-      setSelectedEventIds([]);
-      toast.success(`${eventIds.length.toLocaleString()} event/s deleted.`);
-      await loadEvents(selectedSchoolYearId);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to delete events.",
-      );
-    } finally {
-      setIsDeletingEvents(false);
-    }
-  }
-
   function handleOpenCreateDialog() {
     setEditingEvent(null);
     setForm(buildEventForm(null, selectedSchoolYearId));
@@ -320,6 +225,18 @@ export default function EventsPage() {
 
   function handleFieldChange(field: keyof EventFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleEventSelection(eventId: string, checked: boolean) {
+    setSelectedEventIds((current) => {
+      if (checked) return Array.from(new Set([...current, eventId]));
+
+      return current.filter((id) => id !== eventId);
+    });
+  }
+
+  function handleSelectAllEvents(checked: boolean) {
+    setSelectedEventIds(checked ? displayedEventIds : []);
   }
 
   async function handleSaveEvent(event: SyntheticEvent<HTMLFormElement>) {
@@ -371,6 +288,7 @@ export default function EventsPage() {
 
     try {
       await deleteAttendanceEvent(event.id);
+      setSelectedEventIds((current) => current.filter((id) => id !== event.id));
       toast.success("Event deleted.");
       await loadEvents(selectedSchoolYearId);
     } catch (error) {
@@ -379,6 +297,64 @@ export default function EventsPage() {
       );
     } finally {
       setDeletingEventId("");
+    }
+  }
+
+  async function handleDeleteSelectedEvents() {
+    const eventIds = Array.from(new Set(selectedEventIds));
+
+    if (!eventIds.length) {
+      toast.error("Select at least one event record.");
+      return;
+    }
+
+    setIsDeletingEvents(true);
+
+    try {
+      await Promise.all(
+        eventIds.map((eventId) => deleteAttendanceEvent(eventId)),
+      );
+      await loadEvents(selectedSchoolYearId);
+      toast.success(
+        `${eventIds.length.toLocaleString()} event record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete selected event records.",
+      );
+    } finally {
+      setIsDeletingEvents(false);
+    }
+  }
+
+  async function handleDeleteAllEvents() {
+    const eventIds = Array.from(new Set(displayedEventIds));
+
+    if (!eventIds.length) {
+      toast.error("No event records to delete.");
+      return;
+    }
+
+    setIsDeletingEvents(true);
+
+    try {
+      await Promise.all(
+        eventIds.map((eventId) => deleteAttendanceEvent(eventId)),
+      );
+      await loadEvents(selectedSchoolYearId);
+      toast.success(
+        `${eventIds.length.toLocaleString()} event record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete event records.",
+      );
+    } finally {
+      setIsDeletingEvents(false);
     }
   }
 
@@ -444,32 +420,40 @@ export default function EventsPage() {
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-1">
+            <div>
               <h2 className="text-xl font-black">Event records</h2>
               <p className="text-sm text-muted-foreground">
                 Showing {events.length.toLocaleString()} event record/s.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"
-                disabled={isDeletingEvents || selectedEventCount === 0}
                 onClick={handleDeleteSelectedEvents}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                disabled={
+                  !selectedEventIds.length ||
+                  isSaving ||
+                  isDeletingEvents ||
+                  Boolean(deletingEventId)
+                }
+                className="min-h-11 rounded-2xl px-5 text-xs font-black"
               >
-                {isDeletingEvents
-                  ? "Deleting..."
-                  : `Delete Selected (${selectedEventCount})`}
+                {isDeletingEvents ? "Deleting..." : "Delete Selected"}
               </Button>
               <Button
                 type="button"
                 variant="destructive"
-                disabled={isDeletingEvents || events.length === 0}
                 onClick={handleDeleteAllEvents}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                disabled={
+                  !displayedEventIds.length ||
+                  isSaving ||
+                  isDeletingEvents ||
+                  Boolean(deletingEventId)
+                }
+                className="min-h-11 rounded-2xl px-5 text-xs font-black"
               >
-                Delete All
+                {isDeletingEvents ? "Deleting..." : "Delete All"}
               </Button>
             </div>
           </div>
@@ -478,13 +462,14 @@ export default function EventsPage() {
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">
+                  <th className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allEventsSelected}
-                      onChange={handleToggleAllEvents}
-                      disabled={!events.length}
                       aria-label="Select all event records"
+                      checked={allDisplayedEventsSelected}
+                      onChange={(event) =>
+                        handleSelectAllEvents(event.target.checked)
+                      }
                       className="size-4 rounded border"
                     />
                   </th>
@@ -504,9 +489,14 @@ export default function EventsPage() {
                       <td className="px-4 py-3 align-top">
                         <input
                           type="checkbox"
-                          checked={selectedEventIds.includes(event.id)}
-                          onChange={() => handleToggleEvent(event.id)}
                           aria-label={`Select ${event.name}`}
+                          checked={selectedEventIds.includes(event.id)}
+                          onChange={(changeEvent) =>
+                            handleEventSelection(
+                              event.id,
+                              changeEvent.target.checked,
+                            )
+                          }
                           className="size-4 rounded border"
                         />
                       </td>

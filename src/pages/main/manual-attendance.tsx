@@ -239,7 +239,7 @@ function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
 
 function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   records: T[],
-): T[] {
+) {
   return [...records].sort(compareByBackendEventOrder);
 }
 
@@ -313,7 +313,9 @@ function mergeManualAttendanceByStudent(
       } satisfies ManualAttendanceStudentGroup;
     })
     .sort((leftGroup, rightGroup) => {
-      const collegeCompare = leftGroup.college.localeCompare(rightGroup.college);
+      const collegeCompare = leftGroup.college.localeCompare(
+        rightGroup.college,
+      );
       if (collegeCompare !== 0) return collegeCompare;
       return leftGroup.studentId.localeCompare(rightGroup.studentId);
     });
@@ -344,7 +346,7 @@ export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [records, setRecords] = useState<ManualAttendanceRecord[]>([]);
-  const [selectedManualGroupKeys, setSelectedManualGroupKeys] = useState<
+  const [selectedManualRecordIds, setSelectedManualRecordIds] = useState<
     string[]
   >([]);
   const [form, setForm] = useState<ManualAttendanceFormState>({
@@ -357,8 +359,7 @@ export default function ManualAttendancePage() {
   const [collegeFilter, setCollegeFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeletingManualRecords, setIsDeletingManualRecords] =
-    useState(false);
+  const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
   const [eventsDialogGroup, setEventsDialogGroup] =
@@ -388,20 +389,19 @@ export default function ManualAttendancePage() {
     });
   }, [studentGroups, collegeFilter]);
 
-  const filteredGroupKeys = useMemo(() => {
-    return filteredGroups.map((group) => group.key);
+  const filteredGroupRecordIds = useMemo<string[]>(() => {
+    return filteredGroups.flatMap((group) =>
+      group.records
+        .map((record) => String(record.id ?? "").trim())
+        .filter(Boolean),
+    );
   }, [filteredGroups]);
 
-  const selectedFilteredManualGroupCount = useMemo(() => {
-    const filteredKeys = new Set(filteredGroupKeys);
-
-    return selectedManualGroupKeys.filter((key) => filteredKeys.has(key))
-      .length;
-  }, [filteredGroupKeys, selectedManualGroupKeys]);
-
-  const allFilteredManualGroupsSelected =
-    filteredGroupKeys.length > 0 &&
-    selectedFilteredManualGroupCount === filteredGroupKeys.length;
+  const allFilteredGroupsSelected =
+    filteredGroupRecordIds.length > 0 &&
+    filteredGroupRecordIds.every((recordId) =>
+      selectedManualRecordIds.includes(recordId),
+    );
 
   const selectedEventRecords = useMemo(
     () => getSelectedEventRecords(records, form.eventIds),
@@ -452,7 +452,7 @@ export default function ManualAttendancePage() {
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setEvents(sortByBackendEventOrder(eventRows));
       setRecords(sortByBackendEventOrder(manualRows));
-      setSelectedManualGroupKeys([]);
+      setSelectedManualRecordIds([]);
       setForm((current) => ({
         ...current,
         schoolYearId:
@@ -502,6 +502,45 @@ export default function ManualAttendancePage() {
     });
   }
 
+  function getManualGroupRecordIds(group: ManualAttendanceStudentGroup) {
+    return group.records
+      .map((record) => String(record.id ?? "").trim())
+      .filter(Boolean);
+  }
+
+  function isManualGroupSelected(group: ManualAttendanceStudentGroup) {
+    const groupRecordIds = getManualGroupRecordIds(group);
+
+    return (
+      groupRecordIds.length > 0 &&
+      groupRecordIds.every((recordId) =>
+        selectedManualRecordIds.includes(recordId),
+      )
+    );
+  }
+
+  function handleManualGroupSelection(
+    group: ManualAttendanceStudentGroup,
+    checked: boolean,
+  ) {
+    const groupRecordIds = getManualGroupRecordIds(group);
+
+    setSelectedManualRecordIds((current) => {
+      const nextIds = new Set(current);
+
+      groupRecordIds.forEach((recordId) => {
+        if (checked) nextIds.add(recordId);
+        else nextIds.delete(recordId);
+      });
+
+      return Array.from(nextIds);
+    });
+  }
+
+  function handleSelectAllManualGroups(checked: boolean) {
+    setSelectedManualRecordIds(checked ? filteredGroupRecordIds : []);
+  }
+
   function handleOpenCreateDialog() {
     setEditingGroupKey("");
     setForm((current) => ({
@@ -539,116 +578,6 @@ export default function ManualAttendancePage() {
       remarks: group.remarks,
     });
     setManualAttendanceDialogOpen(true);
-  }
-
-
-  function handleToggleManualGroup(groupKey: string) {
-    setSelectedManualGroupKeys((currentKeys) => {
-      if (currentKeys.includes(groupKey)) {
-        return currentKeys.filter((key) => key !== groupKey);
-      }
-
-      return [...currentKeys, groupKey];
-    });
-  }
-
-  function handleToggleAllManualGroups() {
-    setSelectedManualGroupKeys((currentKeys) => {
-      if (allFilteredManualGroupsSelected) {
-        const filteredKeys = new Set(filteredGroupKeys);
-
-        return currentKeys.filter((key) => !filteredKeys.has(key));
-      }
-
-      return Array.from(new Set([...currentKeys, ...filteredGroupKeys]));
-    });
-  }
-
-  function getManualRecordIdsForGroups(groupKeys: string[]) {
-    const keySet = new Set(groupKeys);
-
-    return filteredGroups
-      .filter((group) => keySet.has(group.key))
-      .flatMap((group) => group.records.map((record) => record.id))
-      .filter(Boolean);
-  }
-
-  async function handleDeleteSelectedManualGroups() {
-    const filteredKeys = new Set(filteredGroupKeys);
-    const keysToDelete = selectedManualGroupKeys.filter((key) =>
-      filteredKeys.has(key),
-    );
-    const recordIds = getManualRecordIdsForGroups(keysToDelete);
-
-    if (!recordIds.length) {
-      toast.error("Please select manual attendance records to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete the selected manual attendance records?")
-    ) {
-      return;
-    }
-
-    setIsDeletingManualRecords(true);
-
-    try {
-      const result = await deleteManualAttendanceRecordsByIds(recordIds);
-
-      setSelectedManualGroupKeys((currentKeys) =>
-        currentKeys.filter((key) => !keysToDelete.includes(key)),
-      );
-      await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete manual attendance records.",
-      );
-    } finally {
-      setIsDeletingManualRecords(false);
-    }
-  }
-
-  async function handleDeleteAllManualGroups() {
-    const recordIds = getManualRecordIdsForGroups(filteredGroupKeys);
-
-    if (!recordIds.length) {
-      toast.error("No manual attendance records to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete all displayed manual attendance records?")
-    ) {
-      return;
-    }
-
-    setIsDeletingManualRecords(true);
-
-    try {
-      const result = await deleteManualAttendanceRecordsByIds(recordIds);
-
-      setSelectedManualGroupKeys([]);
-      await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete manual attendance records.",
-      );
-    } finally {
-      setIsDeletingManualRecords(false);
-    }
   }
 
   function handleDialogOpenChange(open: boolean) {
@@ -700,21 +629,22 @@ export default function ManualAttendancePage() {
     setIsSaving(true);
 
     try {
-      const selectedEventIds = Array.from(new Set<string>(form.eventIds));
+      const selectedEventIds = Array.from(new Set(form.eventIds));
       const editingGroup = editingGroupKey
         ? studentGroups.find((group) => group.key === editingGroupKey)
         : null;
 
       if (editingGroup) {
         const existingRecords = editingGroup.records;
-        const existingByEventId = new Map<string, ManualAttendanceRecord>(
+        const existingByEventId = new Map(
           existingRecords
             .filter((record) => record.event_id)
             .map((record) => [record.event_id as string, record]),
         );
         const selectedEventIdSet = new Set(selectedEventIds);
         const recordsToDelete = existingRecords.filter(
-          (record) => !record.event_id || !selectedEventIdSet.has(record.event_id),
+          (record) =>
+            !record.event_id || !selectedEventIdSet.has(record.event_id),
         );
 
         await Promise.all(
@@ -771,6 +701,11 @@ export default function ManualAttendancePage() {
       await Promise.all(
         group.records.map((record) => deleteAttendanceRecord(record.id)),
       );
+      setSelectedManualRecordIds((current) =>
+        current.filter(
+          (recordId) => !getManualGroupRecordIds(group).includes(recordId),
+        ),
+      );
       await loadPageData(selectedSchoolYearId);
       toast.success("Manual attendance deleted.");
     } catch (error) {
@@ -781,6 +716,62 @@ export default function ManualAttendancePage() {
       );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteSelectedManualRecords() {
+    const recordIds = Array.from(new Set(selectedManualRecordIds));
+
+    if (!recordIds.length) {
+      toast.error("Select at least one manual attendance record.");
+      return;
+    }
+
+    setIsDeletingManualRecords(true);
+
+    try {
+      const result = await deleteManualAttendanceRecordsByIds(recordIds);
+
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete selected manual attendance records.",
+      );
+    } finally {
+      setIsDeletingManualRecords(false);
+    }
+  }
+
+  async function handleDeleteAllManualRecords() {
+    const recordIds = Array.from(new Set(filteredGroupRecordIds));
+
+    if (!recordIds.length) {
+      toast.error("No manual attendance records to delete.");
+      return;
+    }
+
+    setIsDeletingManualRecords(true);
+
+    try {
+      const result = await deleteManualAttendanceRecordsByIds(recordIds);
+
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete manual attendance records.",
+      );
+    } finally {
+      setIsDeletingManualRecords(false);
     }
   }
 
@@ -850,11 +841,16 @@ export default function ManualAttendancePage() {
           </div>
         </section>
 
-        <Dialog open={manualAttendanceDialogOpen} onOpenChange={handleDialogOpenChange}>
+        <Dialog
+          open={manualAttendanceDialogOpen}
+          onOpenChange={handleDialogOpenChange}
+        >
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>
-                {editingGroupKey ? "Edit manual attendance" : "Add manual attendance"}
+                {editingGroupKey
+                  ? "Edit manual attendance"
+                  : "Add manual attendance"}
               </DialogTitle>
             </DialogHeader>
             <form
@@ -1088,7 +1084,8 @@ export default function ManualAttendancePage() {
                     })
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-card p-5 text-center text-sm font-semibold text-muted-foreground sm:col-span-2">
-                      No events available. Saving will create an empty-events attendee.
+                      No events available. Saving will create an empty-events
+                      attendee.
                     </div>
                   )}
                 </div>
@@ -1108,7 +1105,9 @@ export default function ManualAttendancePage() {
 
               {selectedEventRecords.length ? (
                 <div className="rounded-2xl border bg-background p-4 text-sm lg:col-span-4">
-                  <p className="font-black">Currently selected existing records</p>
+                  <p className="font-black">
+                    Currently selected existing records
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {selectedEventRecords.map((record) => (
                       <span
@@ -1175,9 +1174,13 @@ export default function ManualAttendancePage() {
                         {index + 1}
                       </span>
                       <div>
-                        <p className="font-black">{getRecordEventLabel(record)}</p>
+                        <p className="font-black">
+                          {getRecordEventLabel(record)}
+                        </p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {formatDateTime(record.scanned_at ?? record.created_at)}
+                          {formatDateTime(
+                            record.scanned_at ?? record.created_at,
+                          )}
                         </p>
                         {record.remarks ? (
                           <p className="mt-2 text-sm text-muted-foreground">
@@ -1198,35 +1201,39 @@ export default function ManualAttendancePage() {
         </Dialog>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-black">Manual attendance records</h2>
               <p className="text-sm text-muted-foreground">
                 {filteredGroups.length.toLocaleString()} attendee/s shown
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"
+                onClick={handleDeleteSelectedManualRecords}
                 disabled={
-                  isDeletingManualRecords || selectedFilteredManualGroupCount === 0
+                  !selectedManualRecordIds.length ||
+                  isSaving ||
+                  isDeletingManualRecords
                 }
-                onClick={handleDeleteSelectedManualGroups}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                className="min-h-11 rounded-2xl px-5 text-xs font-black"
               >
-                {isDeletingManualRecords
-                  ? "Deleting..."
-                  : `Delete Selected (${selectedFilteredManualGroupCount})`}
+                {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
               </Button>
               <Button
                 type="button"
                 variant="destructive"
-                disabled={isDeletingManualRecords || filteredGroups.length === 0}
-                onClick={handleDeleteAllManualGroups}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                onClick={handleDeleteAllManualRecords}
+                disabled={
+                  !filteredGroupRecordIds.length ||
+                  isSaving ||
+                  isDeletingManualRecords
+                }
+                className="min-h-11 rounded-2xl px-5 text-xs font-black"
               >
-                Delete All
+                {isDeletingManualRecords ? "Deleting..." : "Delete All"}
               </Button>
             </div>
           </div>
@@ -1235,13 +1242,14 @@ export default function ManualAttendancePage() {
             <table className="w-full min-w-full text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">
+                  <th className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allFilteredManualGroupsSelected}
-                      onChange={handleToggleAllManualGroups}
-                      disabled={!filteredGroups.length}
                       aria-label="Select all manual attendance records"
+                      checked={allFilteredGroupsSelected}
+                      onChange={(event) =>
+                        handleSelectAllManualGroups(event.target.checked)
+                      }
                       className="size-4 rounded border"
                     />
                   </th>
@@ -1259,12 +1267,17 @@ export default function ManualAttendancePage() {
                 {filteredGroups.length ? (
                   filteredGroups.map((group) => (
                     <tr key={group.key} className="border-t">
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <input
                           type="checkbox"
-                          checked={selectedManualGroupKeys.includes(group.key)}
-                          onChange={() => handleToggleManualGroup(group.key)}
                           aria-label={`Select ${group.studentId}`}
+                          checked={isManualGroupSelected(group)}
+                          onChange={(event) =>
+                            handleManualGroupSelection(
+                              group,
+                              event.target.checked,
+                            )
+                          }
                           className="size-4 rounded border"
                         />
                       </td>

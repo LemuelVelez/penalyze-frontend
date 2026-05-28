@@ -3,9 +3,9 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  getAcceptedAttendanceFileTypes,
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
-  getAcceptedAttendanceFileTypes,
   listAllAttendanceRecords,
   listAttendanceEvents,
   listAttendanceFinalResults,
@@ -394,7 +394,8 @@ function extractAttendancePreviewMetadata(
       (row) =>
         row.errors.length === 0 &&
         (row.eventName || row.eventStartAt || row.eventEndAt),
-    ) ?? rows.find((row) => row.eventName || row.eventStartAt || row.eventEndAt);
+    ) ??
+    rows.find((row) => row.eventName || row.eventStartAt || row.eventEndAt);
 
   if (!metadataRow) return metadata;
 
@@ -450,9 +451,9 @@ async function getAttendanceFileMetadata(
 function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {
   return Boolean(
     metadata.schoolYearId ||
-      metadata.eventName ||
-      metadata.eventStartAt ||
-      metadata.eventEndAt,
+    metadata.eventName ||
+    metadata.eventStartAt ||
+    metadata.eventEndAt,
   );
 }
 
@@ -550,7 +551,7 @@ function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
 
 function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   records: T[],
-): T[] {
+) {
   return [...records].sort(compareByBackendEventOrder);
 }
 
@@ -638,7 +639,9 @@ function getStudentEventSummaries(
 
     if (leftTime !== rightTime) return leftTime - rightTime;
 
-    return getRecordEventSortKey(left).localeCompare(getRecordEventSortKey(right));
+    return getRecordEventSortKey(left).localeCompare(
+      getRecordEventSortKey(right),
+    );
   });
 }
 
@@ -681,10 +684,9 @@ export default function AttendancePage() {
   const [finalResults, setFinalResults] = useState<
     AttendanceFinalResultRecord[]
   >([]);
-  const [selectedFinalResultIds, setSelectedFinalResultIds] = useState<string[]>(
-    [],
-  );
-  const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
+  const [selectedFinalResultIds, setSelectedFinalResultIds] = useState<
+    string[]
+  >([]);
   const [uploadedAttendanceRecords, setUploadedAttendanceRecords] = useState<
     AttendanceRecord[]
   >([]);
@@ -697,6 +699,7 @@ export default function AttendancePage() {
   const [finalResultForm, setFinalResultForm] =
     useState<FinalResultFormState>(emptyFinalResultForm);
   const [isSavingFinalResult, setIsSavingFinalResult] = useState(false);
+  const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [progress, setProgress] = useState<AttendanceImportProgress | null>(
@@ -719,22 +722,21 @@ export default function AttendancePage() {
     return sortByBackendEventOrder(attendanceEvents);
   }, [attendanceEvents]);
 
-  const selectedUploadEventValue = uploadForm.eventId || CUSTOM_UPLOAD_EVENT_VALUE;
+  const selectedUploadEventValue =
+    uploadForm.eventId || CUSTOM_UPLOAD_EVENT_VALUE;
 
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
       .map((row) => String(row.college ?? "").trim())
-      .filter((college): college is string => Boolean(college));
+      .filter(Boolean);
 
-    return Array.from(new Set<string>(colleges)).sort((left, right) =>
+    return Array.from(new Set(colleges)).sort((left, right) =>
       left.localeCompare(right),
     );
   }, [finalResults]);
 
-  const displayedFinalResults = useMemo((): AttendanceFinalResultRecord[] => {
-    const rows = sortByBackendEventOrder<AttendanceFinalResultRecord>(
-      finalResults,
-    );
+  const displayedFinalResults = useMemo(() => {
+    const rows = sortByBackendEventOrder(finalResults);
 
     if (collegeFilter === "__all_colleges__") return rows;
 
@@ -743,19 +745,17 @@ export default function AttendancePage() {
     );
   }, [finalResults, collegeFilter]);
 
-  const displayedFinalResultIds = useMemo(() => {
-    return displayedFinalResults.map((result) => result.id);
-  }, [displayedFinalResults]);
+  const displayedFinalResultIds = useMemo(
+    () => displayedFinalResults.map((result) => result.id),
+    [displayedFinalResults],
+  );
 
-  const selectedDisplayedFinalResultCount = useMemo(() => {
-    const displayedIds = new Set(displayedFinalResultIds);
+  const allDisplayedFinalResultsSelected = useMemo(() => {
+    if (!displayedFinalResultIds.length) return false;
 
-    return selectedFinalResultIds.filter((id) => displayedIds.has(id)).length;
+    const selectedIds = new Set(selectedFinalResultIds);
+    return displayedFinalResultIds.every((id) => selectedIds.has(id));
   }, [displayedFinalResultIds, selectedFinalResultIds]);
-
-  const allDisplayedFinalResultsSelected =
-    displayedFinalResultIds.length > 0 &&
-    selectedDisplayedFinalResultCount === displayedFinalResultIds.length;
 
   const summary = useMemo(() => {
     const totalStudents = displayedFinalResults.length;
@@ -869,7 +869,9 @@ export default function AttendancePage() {
     }
 
     if (!isAcceptedAttendanceFile(nextFile, acceptedFileTypes)) {
-      toast.error("Please upload a TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, or ODS file.");
+      toast.error(
+        "Please upload a TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, or ODS file.",
+      );
       return;
     }
 
@@ -888,7 +890,9 @@ export default function AttendancePage() {
             current.schoolYearId ||
             selectedSchoolYearId,
         }));
-        toast.success("Attendance file details detected. Review before saving.");
+        toast.success(
+          "Attendance file details detected. Review before saving.",
+        );
       }
     } catch {
       return;
@@ -924,7 +928,9 @@ export default function AttendancePage() {
       return;
     }
 
-    const selectedEvent = uploadEventOptions.find((event) => event.id === value);
+    const selectedEvent = uploadEventOptions.find(
+      (event) => event.id === value,
+    );
 
     if (!selectedEvent) return;
 
@@ -1046,23 +1052,19 @@ export default function AttendancePage() {
     }
   }
 
-
-  function handleToggleFinalResult(resultId: string) {
+  function handleFinalResultSelection(id: string, checked: boolean) {
     setSelectedFinalResultIds((currentIds) => {
-      if (currentIds.includes(resultId)) {
-        return currentIds.filter((id) => id !== resultId);
-      }
-
-      return [...currentIds, resultId];
+      if (checked) return Array.from(new Set([...currentIds, id]));
+      return currentIds.filter((currentId) => currentId !== id);
     });
   }
 
-  function handleToggleAllFinalResults() {
+  function handleSelectAllFinalResults(checked: boolean) {
     setSelectedFinalResultIds((currentIds) => {
-      if (allDisplayedFinalResultsSelected) {
-        const displayedIds = new Set(displayedFinalResultIds);
+      const displayedIdSet = new Set(displayedFinalResultIds);
 
-        return currentIds.filter((id) => !displayedIds.has(id));
+      if (!checked) {
+        return currentIds.filter((id) => !displayedIdSet.has(id));
       }
 
       return Array.from(new Set([...currentIds, ...displayedFinalResultIds]));
@@ -1070,40 +1072,22 @@ export default function AttendancePage() {
   }
 
   async function handleDeleteSelectedFinalResults() {
-    const displayedIds = new Set(displayedFinalResultIds);
-    const idsToDelete = selectedFinalResultIds.filter((id) =>
-      displayedIds.has(id),
-    );
-
-    if (!idsToDelete.length) {
-      toast.error("Please select final attendance results to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete the selected final attendance results?")
-    ) {
+    if (!selectedFinalResultIds.length) {
+      toast.error("Select final attendance results to delete.");
       return;
     }
 
     setIsDeletingFinalResults(true);
 
     try {
-      const result = await deleteAttendanceFinalResultsByIds(idsToDelete);
-
-      setSelectedFinalResultIds((currentIds) =>
-        currentIds.filter((id) => !idsToDelete.includes(id)),
-      );
+      await deleteAttendanceFinalResultsByIds(selectedFinalResultIds);
       await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${formatNumber(result.deletedCount)} final attendance result/s deleted.`,
-      );
+      toast.success("Selected final attendance results deleted.");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to delete final attendance results.",
+          : "Unable to delete selected final attendance results.",
       );
     } finally {
       setIsDeletingFinalResults(false);
@@ -1111,38 +1095,29 @@ export default function AttendancePage() {
   }
 
   async function handleDeleteAllFinalResults() {
-    if (!displayedFinalResultIds.length) {
+    if (!displayedFinalResults.length) {
       toast.error("No final attendance results to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete all displayed final attendance results?")
-    ) {
       return;
     }
 
     setIsDeletingFinalResults(true);
 
     try {
-      const shouldDeleteWholeSchoolYear =
-        selectedSchoolYearId !== ALL_YEARS_VALUE &&
-        collegeFilter === "__all_colleges__";
-      const result = shouldDeleteWholeSchoolYear
-        ? await deleteAttendanceFinalResultsBySchoolYear(selectedSchoolYearId)
-        : await deleteAttendanceFinalResultsByIds(displayedFinalResultIds);
+      if (selectedSchoolYearId !== ALL_YEARS_VALUE) {
+        await deleteAttendanceFinalResultsBySchoolYear(selectedSchoolYearId);
+      } else {
+        await deleteAttendanceFinalResultsByIds(
+          displayedFinalResults.map((result) => result.id),
+        );
+      }
 
-      setSelectedFinalResultIds([]);
       await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${formatNumber(result.deletedCount)} final attendance result/s deleted.`,
-      );
+      toast.success("All final attendance results deleted.");
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to delete final attendance results.",
+          : "Unable to delete all final attendance results.",
       );
     } finally {
       setIsDeletingFinalResults(false);
@@ -1228,14 +1203,16 @@ export default function AttendancePage() {
         sourceRecords.map((record) => {
           const payload: ManualAttendanceInput = {
             schoolYearId:
-              finalResultForm.schoolYearId || record.school_year_id || undefined,
+              finalResultForm.schoolYearId ||
+              record.school_year_id ||
+              undefined,
             eventId: record.event_id ?? undefined,
             eventName:
-              "event_name" in record ? record.event_name ?? undefined : undefined,
+              "event_name" in record
+                ? (record.event_name ?? undefined)
+                : undefined,
             scannedAt:
-              finalResultForm.latestScannedAt ||
-              record.scanned_at ||
-              undefined,
+              finalResultForm.latestScannedAt || record.scanned_at || undefined,
             studentId: finalResultForm.studentId.trim(),
             name: finalResultForm.name.trim(),
             yearLevel: finalResultForm.yearLevel.trim(),
@@ -1244,13 +1221,9 @@ export default function AttendancePage() {
             institution: finalResultForm.institution.trim(),
             noOfAbsences: totalAbsences,
             remarks:
-              finalResultForm.remarks.trim() ||
-              record.remarks ||
-              undefined,
+              finalResultForm.remarks.trim() || record.remarks || undefined,
             attendanceType:
-              "attendance_type" in record
-                ? record.attendance_type
-                : undefined,
+              "attendance_type" in record ? record.attendance_type : undefined,
           };
 
           return updateAttendanceRecord(record.id, payload);
@@ -1344,7 +1317,8 @@ export default function AttendancePage() {
             <div>
               <h2 className="text-xl font-black">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Drag and drop or choose TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, or ODS.
+                Drag and drop or choose TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX,
+                XLTM, or ODS.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -1399,7 +1373,8 @@ export default function AttendancePage() {
                   {file ? file.name : "Drop attendance file here"}
                 </span>
                 <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
-                  TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, and ODS are supported.
+                  TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, and ODS are
+                  supported.
                 </span>
                 <Input
                   type="file"
@@ -1520,7 +1495,9 @@ export default function AttendancePage() {
                         {index + 1}
                       </span>
                       <div className="min-w-0">
-                        <p className="wrap-break-word font-black">{eventSummary.eventName}</p>
+                        <p className="wrap-break-word font-black">
+                          {eventSummary.eventName}
+                        </p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           {eventSummary.source} •{" "}
                           {formatDateTime(eventSummary.scannedAt)}
@@ -1560,7 +1537,10 @@ export default function AttendancePage() {
                 <Input
                   value={finalResultForm.studentId}
                   onChange={(event) =>
-                    handleFinalResultFieldChange("studentId", event.target.value)
+                    handleFinalResultFieldChange(
+                      "studentId",
+                      event.target.value,
+                    )
                   }
                   className="min-h-12 rounded-2xl"
                 />
@@ -1582,7 +1562,10 @@ export default function AttendancePage() {
                 <Input
                   value={finalResultForm.yearLevel}
                   onChange={(event) =>
-                    handleFinalResultFieldChange("yearLevel", event.target.value)
+                    handleFinalResultFieldChange(
+                      "yearLevel",
+                      event.target.value,
+                    )
                   }
                   className="min-h-12 rounded-2xl"
                 />
@@ -1711,29 +1694,31 @@ export default function AttendancePage() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-sm font-bold text-muted-foreground">
+                {formatNumber(displayedFinalResults.length)} result/s
+              </p>
               <Button
                 type="button"
                 variant="outline"
-                disabled={isDeletingFinalResults || selectedDisplayedFinalResultCount === 0}
+                disabled={
+                  isDeletingFinalResults || !selectedFinalResultIds.length
+                }
                 onClick={handleDeleteSelectedFinalResults}
                 className="min-h-11 rounded-2xl px-4 text-xs font-black"
               >
-                {isDeletingFinalResults
-                  ? "Deleting..."
-                  : `Delete Selected (${selectedDisplayedFinalResultCount})`}
+                Delete Selected
               </Button>
               <Button
                 type="button"
-                variant="destructive"
-                disabled={isDeletingFinalResults || displayedFinalResults.length === 0}
+                variant="outline"
+                disabled={
+                  isDeletingFinalResults || !displayedFinalResults.length
+                }
                 onClick={handleDeleteAllFinalResults}
                 className="min-h-11 rounded-2xl px-4 text-xs font-black"
               >
                 Delete All
               </Button>
-              <p className="text-sm font-bold text-muted-foreground">
-                {formatNumber(displayedFinalResults.length)} result/s
-              </p>
             </div>
           </div>
 
@@ -1745,8 +1730,9 @@ export default function AttendancePage() {
                     <input
                       type="checkbox"
                       checked={allDisplayedFinalResultsSelected}
-                      onChange={handleToggleAllFinalResults}
-                      disabled={!displayedFinalResults.length}
+                      onChange={(event) =>
+                        handleSelectAllFinalResults(event.target.checked)
+                      }
                       aria-label="Select all final attendance results"
                       className="size-4 rounded border"
                     />
@@ -1776,8 +1762,13 @@ export default function AttendancePage() {
                           <input
                             type="checkbox"
                             checked={selectedFinalResultIds.includes(result.id)}
-                            onChange={() => handleToggleFinalResult(result.id)}
-                            aria-label={`Select ${result.student_id}`}
+                            onChange={(event) =>
+                              handleFinalResultSelection(
+                                result.id,
+                                event.target.checked,
+                              )
+                            }
+                            aria-label={`Select final result for ${result.student_id}`}
                             className="size-4 rounded border"
                           />
                         </td>

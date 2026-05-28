@@ -10,6 +10,7 @@ import {
   listPenaltyResults,
   refreshPenaltyResults,
   seedDefaultPenalties,
+  deletePenaltyResultsBySchoolYear,
   updatePenalty,
   updatePenaltyResult,
   updatePenaltyResultStatus,
@@ -177,7 +178,8 @@ function getBackendEventOrder(result: BackendEventOrderedResult) {
 }
 
 function getBackendEventTime(result: BackendEventOrderedResult) {
-  const value = result.event_start_at ?? result.event_end_at ?? result.updated_at;
+  const value =
+    result.event_start_at ?? result.event_end_at ?? result.updated_at;
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
@@ -225,23 +227,22 @@ export default function FinesPage() {
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
-  const [selectedPenaltyResultIds, setSelectedPenaltyResultIds] = useState<
-    string[]
-  >([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [penaltyForm, setPenaltyForm] =
     useState<PenaltyFormState>(emptyPenaltyForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshingResults, setIsRefreshingResults] = useState(false);
-  const [isDeletingPenaltyResults, setIsDeletingPenaltyResults] =
-    useState(false);
   const [isSavingPenalty, setIsSavingPenalty] = useState(false);
   const [penaltyDialogOpen, setPenaltyDialogOpen] = useState(false);
   const [penaltyResultDialogOpen, setPenaltyResultDialogOpen] = useState(false);
-  const [penaltyResultForm, setPenaltyResultForm] = useState<PenaltyResultFormState>(
-    emptyPenaltyResultForm,
-  );
+  const [penaltyResultForm, setPenaltyResultForm] =
+    useState<PenaltyResultFormState>(emptyPenaltyResultForm);
   const [isSavingPenaltyResult, setIsSavingPenaltyResult] = useState(false);
+  const [selectedPenaltyResultIds, setSelectedPenaltyResultIds] = useState<
+    string[]
+  >([]);
+  const [isDeletingPenaltyResults, setIsDeletingPenaltyResults] =
+    useState(false);
   const [updatingStatusId, setUpdatingStatusId] = useState("");
 
   const selectedSchoolYearLabel = useMemo(() => {
@@ -251,38 +252,38 @@ export default function FinesPage() {
   const collegeOptions = useMemo(() => {
     const colleges = penaltyResults
       .map(getPenaltyResultCollege)
-      .filter((college): college is string => Boolean(college));
+      .filter(Boolean);
 
-    return Array.from(new Set<string>(colleges)).sort((left, right) =>
+    return Array.from(new Set(colleges)).sort((left, right) =>
       left.localeCompare(right),
     );
   }, [penaltyResults]);
 
   const filteredPenaltyResults = useMemo(() => {
-    return sortPenaltyResultsByBackendEventOrder(penaltyResults).filter((result) => {
-      const matchesStatus =
-        statusFilter === "all" || result.status === statusFilter;
-      const matchesCollege =
-        collegeFilter === "__all_colleges__" ||
-        getPenaltyResultCollege(result) === collegeFilter;
+    return sortPenaltyResultsByBackendEventOrder(penaltyResults).filter(
+      (result) => {
+        const matchesStatus =
+          statusFilter === "all" || result.status === statusFilter;
+        const matchesCollege =
+          collegeFilter === "__all_colleges__" ||
+          getPenaltyResultCollege(result) === collegeFilter;
 
-      return matchesStatus && matchesCollege;
-    });
+        return matchesStatus && matchesCollege;
+      },
+    );
   }, [penaltyResults, statusFilter, collegeFilter]);
 
-  const filteredPenaltyResultIds = useMemo(() => {
-    return filteredPenaltyResults.map((result) => result.id);
+  const displayedPenaltyResultIds = useMemo<string[]>(() => {
+    return filteredPenaltyResults
+      .map((result) => String(result.id ?? "").trim())
+      .filter(Boolean);
   }, [filteredPenaltyResults]);
 
-  const selectedFilteredPenaltyResultCount = useMemo(() => {
-    const filteredIds = new Set(filteredPenaltyResultIds);
-
-    return selectedPenaltyResultIds.filter((id) => filteredIds.has(id)).length;
-  }, [filteredPenaltyResultIds, selectedPenaltyResultIds]);
-
-  const allFilteredPenaltyResultsSelected =
-    filteredPenaltyResultIds.length > 0 &&
-    selectedFilteredPenaltyResultCount === filteredPenaltyResultIds.length;
+  const allDisplayedPenaltyResultsSelected =
+    displayedPenaltyResultIds.length > 0 &&
+    displayedPenaltyResultIds.every((resultId) =>
+      selectedPenaltyResultIds.includes(resultId),
+    );
 
   const summary = useMemo(() => {
     return {
@@ -315,7 +316,7 @@ export default function FinesPage() {
         nextSchoolYearId !== ALL_YEARS_VALUE &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
-          : schoolYearRows[0]?.id ?? "";
+          : (schoolYearRows[0]?.id ?? "");
       const penaltyResultRows = fallbackSchoolYearId
         ? await listPenaltyResults({
             schoolYearId: fallbackSchoolYearId,
@@ -327,7 +328,10 @@ export default function FinesPage() {
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setPenalties(penaltyRows);
-      setPenaltyResults(sortPenaltyResultsByBackendEventOrder(penaltyResultRows));
+      setPenaltyResults(
+        sortPenaltyResultsByBackendEventOrder(penaltyResultRows),
+      );
+      setSelectedPenaltyResultIds([]);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -342,104 +346,6 @@ export default function FinesPage() {
   useEffect(() => {
     void loadPageData();
   }, []);
-
-
-  function handleTogglePenaltyResult(resultId: string) {
-    setSelectedPenaltyResultIds((currentIds) => {
-      if (currentIds.includes(resultId)) {
-        return currentIds.filter((id) => id !== resultId);
-      }
-
-      return [...currentIds, resultId];
-    });
-  }
-
-  function handleToggleAllPenaltyResults() {
-    setSelectedPenaltyResultIds((currentIds) => {
-      if (allFilteredPenaltyResultsSelected) {
-        const filteredIds = new Set(filteredPenaltyResultIds);
-
-        return currentIds.filter((id) => !filteredIds.has(id));
-      }
-
-      return Array.from(new Set([...currentIds, ...filteredPenaltyResultIds]));
-    });
-  }
-
-  async function handleDeleteSelectedPenaltyResults() {
-    const filteredIds = new Set(filteredPenaltyResultIds);
-    const idsToDelete = selectedPenaltyResultIds.filter((id) =>
-      filteredIds.has(id),
-    );
-
-    if (!idsToDelete.length) {
-      toast.error("Please select penalty results to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete the selected penalty results?")
-    ) {
-      return;
-    }
-
-    setIsDeletingPenaltyResults(true);
-
-    try {
-      const result = await deletePenaltyResultsByIds(idsToDelete);
-
-      setSelectedPenaltyResultIds((currentIds) =>
-        currentIds.filter((id) => !idsToDelete.includes(id)),
-      );
-      await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete penalty results.",
-      );
-    } finally {
-      setIsDeletingPenaltyResults(false);
-    }
-  }
-
-  async function handleDeleteAllPenaltyResults() {
-    if (!filteredPenaltyResultIds.length) {
-      toast.error("No penalty results to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete all displayed penalty results?")
-    ) {
-      return;
-    }
-
-    setIsDeletingPenaltyResults(true);
-
-    try {
-      const result = await deletePenaltyResultsByIds(filteredPenaltyResultIds);
-
-      setSelectedPenaltyResultIds([]);
-      await loadPageData(selectedSchoolYearId);
-      toast.success(
-        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete penalty results.",
-      );
-    } finally {
-      setIsDeletingPenaltyResults(false);
-    }
-  }
 
   async function handleRefreshPenaltyResults() {
     setIsRefreshingResults(true);
@@ -461,6 +367,79 @@ export default function FinesPage() {
       );
     } finally {
       setIsRefreshingResults(false);
+    }
+  }
+
+  function handlePenaltyResultSelection(resultId: string, checked: boolean) {
+    setSelectedPenaltyResultIds((current) => {
+      if (checked) return Array.from(new Set([...current, resultId]));
+
+      return current.filter((id) => id !== resultId);
+    });
+  }
+
+  function handleSelectAllPenaltyResults(checked: boolean) {
+    setSelectedPenaltyResultIds(checked ? displayedPenaltyResultIds : []);
+  }
+
+  async function handleDeleteSelectedPenaltyResults() {
+    const resultIds = Array.from(new Set(selectedPenaltyResultIds));
+
+    if (!resultIds.length) {
+      toast.error("Select at least one penalty result.");
+      return;
+    }
+
+    setIsDeletingPenaltyResults(true);
+
+    try {
+      const result = await deletePenaltyResultsByIds(resultIds);
+
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete selected penalty results.",
+      );
+    } finally {
+      setIsDeletingPenaltyResults(false);
+    }
+  }
+
+  async function handleDeleteAllPenaltyResults() {
+    const resultIds = Array.from(new Set(displayedPenaltyResultIds));
+
+    if (!resultIds.length) {
+      toast.error("No penalty results to delete.");
+      return;
+    }
+
+    setIsDeletingPenaltyResults(true);
+
+    try {
+      const result =
+        selectedSchoolYearId !== ALL_YEARS_VALUE &&
+        statusFilter === "all" &&
+        collegeFilter === "__all_colleges__"
+          ? await deletePenaltyResultsBySchoolYear(selectedSchoolYearId)
+          : await deletePenaltyResultsByIds(resultIds);
+
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete penalty results.",
+      );
+    } finally {
+      setIsDeletingPenaltyResults(false);
     }
   }
 
@@ -586,7 +565,9 @@ export default function FinesPage() {
     if (!open) setPenaltyResultForm(emptyPenaltyResultForm);
   }
 
-  async function handleSavePenaltyResult(event: SyntheticEvent<HTMLFormElement>) {
+  async function handleSavePenaltyResult(
+    event: SyntheticEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
     const noOfAbsences = Number(penaltyResultForm.noOfAbsences);
@@ -616,17 +597,14 @@ export default function FinesPage() {
     setIsSavingPenaltyResult(true);
 
     try {
-      const updated = await updatePenaltyResult(
-        penaltyResultForm.id,
-        {
-          studentId: penaltyResultForm.studentId.trim(),
-          name: penaltyResultForm.name.trim(),
-          noOfAbsences,
-          prescribedPenalty: penaltyResultForm.prescribedPenalty.trim(),
-          status: penaltyResultForm.status,
-          ...(currentCollege ? { college: currentCollege } : {}),
-        } as Parameters<typeof updatePenaltyResult>[1],
-      );
+      const updated = await updatePenaltyResult(penaltyResultForm.id, {
+        studentId: penaltyResultForm.studentId.trim(),
+        name: penaltyResultForm.name.trim(),
+        noOfAbsences,
+        prescribedPenalty: penaltyResultForm.prescribedPenalty.trim(),
+        status: penaltyResultForm.status,
+        ...(currentCollege ? { college: currentCollege } : {}),
+      } as Parameters<typeof updatePenaltyResult>[1]);
 
       setPenaltyResults((current) =>
         sortPenaltyResultsByBackendEventOrder(
@@ -767,36 +745,37 @@ export default function FinesPage() {
                 Saved final penalty records generated from absence counts.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"
-                disabled={
-                  isDeletingPenaltyResults ||
-                  selectedFilteredPenaltyResultCount === 0
-                }
                 onClick={handleDeleteSelectedPenaltyResults}
-                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                disabled={
+                  !selectedPenaltyResultIds.length ||
+                  isRefreshingResults ||
+                  isDeletingPenaltyResults
+                }
+                className="min-h-12 rounded-2xl px-5 text-xs font-black"
               >
-                {isDeletingPenaltyResults
-                  ? "Deleting..."
-                  : `Delete Selected (${selectedFilteredPenaltyResultCount})`}
+                {isDeletingPenaltyResults ? "Deleting..." : "Delete Selected"}
               </Button>
               <Button
                 type="button"
                 variant="destructive"
-                disabled={
-                  isDeletingPenaltyResults || filteredPenaltyResults.length === 0
-                }
                 onClick={handleDeleteAllPenaltyResults}
-                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                disabled={
+                  !displayedPenaltyResultIds.length ||
+                  isRefreshingResults ||
+                  isDeletingPenaltyResults
+                }
+                className="min-h-12 rounded-2xl px-5 text-xs font-black"
               >
-                Delete All
+                {isDeletingPenaltyResults ? "Deleting..." : "Delete All"}
               </Button>
               <Button
                 type="button"
                 onClick={handleRefreshPenaltyResults}
-                disabled={isRefreshingResults}
+                disabled={isRefreshingResults || isDeletingPenaltyResults}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
                 {isRefreshingResults
@@ -810,13 +789,14 @@ export default function FinesPage() {
             <table className="w-full min-w-full text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">
+                  <th className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allFilteredPenaltyResultsSelected}
-                      onChange={handleToggleAllPenaltyResults}
-                      disabled={!filteredPenaltyResults.length}
                       aria-label="Select all penalty results"
+                      checked={allDisplayedPenaltyResultsSelected}
+                      onChange={(event) =>
+                        handleSelectAllPenaltyResults(event.target.checked)
+                      }
                       className="size-4 rounded border"
                     />
                   </th>
@@ -834,12 +814,17 @@ export default function FinesPage() {
                 {filteredPenaltyResults.length ? (
                   filteredPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <input
                           type="checkbox"
-                          checked={selectedPenaltyResultIds.includes(result.id)}
-                          onChange={() => handleTogglePenaltyResult(result.id)}
                           aria-label={`Select ${result.student_id}`}
+                          checked={selectedPenaltyResultIds.includes(result.id)}
+                          onChange={(event) =>
+                            handlePenaltyResultSelection(
+                              result.id,
+                              event.target.checked,
+                            )
+                          }
                           className="size-4 rounded border"
                         />
                       </td>

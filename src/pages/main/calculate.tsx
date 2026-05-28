@@ -29,6 +29,9 @@ import {
 import { Input } from "../../components/ui/input";
 import { Progress } from "../../components/ui/progress";
 
+const ZERO_ATTENDANCE_REMARK =
+  "Zero attendance registration from landing page.";
+
 type CalculationRow = {
   key: string;
   resultId?: string;
@@ -265,6 +268,12 @@ function normalizeStudentId(value: unknown) {
   return normalizeValue(value).toLowerCase();
 }
 
+function isZeroAttendanceRecord(record: AttendanceRecord) {
+  return normalizeValue(record.remarks).includes(
+    ZERO_ATTENDANCE_REMARK.toLowerCase(),
+  );
+}
+
 function getRecordTimestamp(record: AttendanceRecord | ManualAttendanceRecord) {
   const value = record.scanned_at ?? record.created_at;
   const time = value ? new Date(value).getTime() : 0;
@@ -490,6 +499,11 @@ async function listSelectedImportedAttendanceRecords(
 
   const appendSelectedRows = (pageRows: AttendanceRecord[]) => {
     pageRows.forEach((record) => {
+      if (isZeroAttendanceRecord(record)) {
+        rows.push(record);
+        return;
+      }
+
       if (!record.import_id) return;
       if (selectedImportIds.size && !selectedImportIds.has(record.import_id)) {
         return;
@@ -521,7 +535,6 @@ async function listSelectedImportedAttendanceRecords(
   if (!paginatedListAttendanceRecords) {
     const allRows = await attendanceApi.listAllAttendanceRecords({
       schoolYearId: options.schoolYearId,
-      importIds: options.importIds,
       pageSize,
       maxPages,
     });
@@ -544,7 +557,6 @@ async function listSelectedImportedAttendanceRecords(
   for (let page = 0; page < maxPages; page += 1) {
     const pageRows = await paginatedListAttendanceRecords({
       schoolYearId: options.schoolYearId,
-      importIds: options.importIds,
       limit: pageSize,
       offset: page * pageSize,
     });
@@ -605,6 +617,7 @@ async function buildCalculationRows(
 ) {
   const selectedImportIds = new Set(props.importIds);
   const importedRecords = props.attendanceRecords.filter((record) => {
+    if (isZeroAttendanceRecord(record)) return true;
     if (!record.import_id) return false;
     if (!selectedImportIds.size) return true;
 
@@ -838,20 +851,17 @@ export default function CalculatePage() {
     });
   }, [calculationRows, searchText]);
 
-  const filteredRowKeys = useMemo(() => {
-    return filteredRows.map((row) => row.key);
-  }, [filteredRows]);
+  const filteredRowKeys = useMemo(
+    () => filteredRows.map((row) => row.key),
+    [filteredRows],
+  );
 
-  const selectedFilteredCalculationRowCount = useMemo(() => {
-    const filteredKeys = new Set(filteredRowKeys);
+  const allFilteredRowsSelected = useMemo(() => {
+    if (!filteredRowKeys.length) return false;
 
-    return selectedCalculationRowKeys.filter((key) => filteredKeys.has(key))
-      .length;
+    const selectedKeys = new Set(selectedCalculationRowKeys);
+    return filteredRowKeys.every((key) => selectedKeys.has(key));
   }, [filteredRowKeys, selectedCalculationRowKeys]);
-
-  const allFilteredCalculationRowsSelected =
-    filteredRowKeys.length > 0 &&
-    selectedFilteredCalculationRowCount === filteredRowKeys.length;
 
   const summary = useMemo(() => {
     return {
@@ -1054,7 +1064,6 @@ export default function CalculatePage() {
       setAttendanceImports(sortByBackendEventOrder(importRows));
       setPenalties(penaltyRows);
       setCalculationRows(savedRows);
-      setSelectedCalculationRowKeys([]);
       setLastCalculatedAt(latestCalculatedAt ?? "");
       setCalculationMode("saved");
 
@@ -1292,153 +1301,6 @@ export default function CalculatePage() {
     void loadSavedResults();
   }, []);
 
-
-  function handleToggleCalculationRow(rowKey: string) {
-    setSelectedCalculationRowKeys((currentKeys) => {
-      if (currentKeys.includes(rowKey)) {
-        return currentKeys.filter((key) => key !== rowKey);
-      }
-
-      return [...currentKeys, rowKey];
-    });
-  }
-
-  function handleToggleAllCalculationRows() {
-    setSelectedCalculationRowKeys((currentKeys) => {
-      if (allFilteredCalculationRowsSelected) {
-        const filteredKeys = new Set(filteredRowKeys);
-
-        return currentKeys.filter((key) => !filteredKeys.has(key));
-      }
-
-      return Array.from(new Set([...currentKeys, ...filteredRowKeys]));
-    });
-  }
-
-  function getSelectedCalculationRows(rowKeys: string[]) {
-    const keySet = new Set(rowKeys);
-
-    return filteredRows.filter((row) => keySet.has(row.key));
-  }
-
-  async function deleteSavedCalculationRows(rows: CalculationRow[]) {
-    const resultIds = rows
-      .map((row) => row.resultId)
-      .filter((id): id is string => Boolean(id));
-
-    if (resultIds.length) {
-      await attendanceApi.deleteCalculationResultsByIds(resultIds);
-    }
-
-    return resultIds.length;
-  }
-
-  async function handleDeleteSelectedCalculationRows() {
-    const filteredKeys = new Set(filteredRowKeys);
-    const keysToDelete = selectedCalculationRowKeys.filter((key) =>
-      filteredKeys.has(key),
-    );
-    const rowsToDelete = getSelectedCalculationRows(keysToDelete);
-
-    if (!rowsToDelete.length) {
-      toast.error("Please select calculation rows to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete the selected calculation rows?")
-    ) {
-      return;
-    }
-
-    setIsDeletingCalculationRows(true);
-
-    try {
-      const savedDeleteCount = await deleteSavedCalculationRows(rowsToDelete);
-
-      setCalculationRows((currentRows) =>
-        currentRows.filter((row) => !keysToDelete.includes(row.key)),
-      );
-      setSelectedCalculationRowKeys((currentKeys) =>
-        currentKeys.filter((key) => !keysToDelete.includes(key)),
-      );
-
-      if (savedDeleteCount > 0) {
-        await loadSavedResults(selectedSchoolYearId, selectedImportIds);
-      }
-
-      toast.success(
-        `${rowsToDelete.length.toLocaleString()} calculation row/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete calculation rows.",
-      );
-    } finally {
-      setIsDeletingCalculationRows(false);
-    }
-  }
-
-  async function handleDeleteAllCalculationRows() {
-    const rowsToDelete = filteredRows;
-
-    if (!rowsToDelete.length) {
-      toast.error("No calculation rows to delete.");
-      return;
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Delete all displayed calculation rows?")
-    ) {
-      return;
-    }
-
-    setIsDeletingCalculationRows(true);
-
-    try {
-      const shouldDeleteWholeSchoolYear =
-        calculationMode === "saved" &&
-        selectedSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
-        !searchText.trim() &&
-        !selectedImportIds.length;
-
-      if (shouldDeleteWholeSchoolYear) {
-        await attendanceApi.deleteCalculationResultsBySchoolYear(
-          selectedSchoolYearId,
-        );
-        await loadSavedResults(selectedSchoolYearId, selectedImportIds);
-      } else {
-        const savedDeleteCount = await deleteSavedCalculationRows(rowsToDelete);
-        const keysToDelete = new Set(rowsToDelete.map((row) => row.key));
-
-        setCalculationRows((currentRows) =>
-          currentRows.filter((row) => !keysToDelete.has(row.key)),
-        );
-
-        if (savedDeleteCount > 0) {
-          await loadSavedResults(selectedSchoolYearId, selectedImportIds);
-        }
-      }
-
-      setSelectedCalculationRowKeys([]);
-      toast.success(
-        `${rowsToDelete.length.toLocaleString()} calculation row/s deleted.`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete calculation rows.",
-      );
-    } finally {
-      setIsDeletingCalculationRows(false);
-    }
-  }
-
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
     const importOrder = new Map<string, number>(
       attendanceImports.map((importRecord, index) => [importRecord.id, index]),
@@ -1516,6 +1378,103 @@ export default function CalculatePage() {
           : form,
       ),
     );
+  }
+
+  function handleCalculationRowSelection(key: string, checked: boolean) {
+    setSelectedCalculationRowKeys((currentKeys) => {
+      if (checked) return Array.from(new Set([...currentKeys, key]));
+      return currentKeys.filter((currentKey) => currentKey !== key);
+    });
+  }
+
+  function handleSelectAllCalculationRows(checked: boolean) {
+    setSelectedCalculationRowKeys((currentKeys) => {
+      const filteredKeySet = new Set(filteredRowKeys);
+
+      if (!checked) {
+        return currentKeys.filter((key) => !filteredKeySet.has(key));
+      }
+
+      return Array.from(new Set([...currentKeys, ...filteredRowKeys]));
+    });
+  }
+
+  async function handleDeleteSelectedCalculationRows() {
+    const selectedKeySet = new Set(selectedCalculationRowKeys);
+    const selectedRows = calculationRows.filter((row) =>
+      selectedKeySet.has(row.key),
+    );
+
+    if (!selectedRows.length) {
+      toast.error("Select calculation rows to delete.");
+      return;
+    }
+
+    setIsDeletingCalculationRows(true);
+
+    try {
+      const savedResultIds = selectedRows
+        .map((row) => row.resultId)
+        .filter((id): id is string => Boolean(id));
+
+      if (savedResultIds.length) {
+        await attendanceApi.deleteCalculationResultsByIds(savedResultIds);
+      }
+
+      setCalculationRows((currentRows) =>
+        currentRows.filter((row) => !selectedKeySet.has(row.key)),
+      );
+      setSelectedCalculationRowKeys((currentKeys) =>
+        currentKeys.filter((key) => !selectedKeySet.has(key)),
+      );
+      toast.success("Selected calculation rows deleted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete selected calculation rows.",
+      );
+    } finally {
+      setIsDeletingCalculationRows(false);
+    }
+  }
+
+  async function handleDeleteAllCalculationRows() {
+    if (!calculationRows.length) {
+      toast.error("No calculation rows to delete.");
+      return;
+    }
+
+    setIsDeletingCalculationRows(true);
+
+    try {
+      const savedResultIds = calculationRows
+        .map((row) => row.resultId)
+        .filter((id): id is string => Boolean(id));
+
+      if (
+        calculationMode === "saved" &&
+        selectedSchoolYearId !== ALL_SCHOOL_YEARS_VALUE
+      ) {
+        await attendanceApi.deleteCalculationResultsBySchoolYear(
+          selectedSchoolYearId,
+        );
+      } else if (savedResultIds.length) {
+        await attendanceApi.deleteCalculationResultsByIds(savedResultIds);
+      }
+
+      setCalculationRows([]);
+      setSelectedCalculationRowKeys([]);
+      toast.success("All calculation rows deleted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete all calculation rows.",
+      );
+    } finally {
+      setIsDeletingCalculationRows(false);
+    }
   }
 
   function handleOpenEditRow(row: CalculationRow) {
@@ -1656,11 +1615,7 @@ export default function CalculatePage() {
       toast.success("Source records updated.");
       setEditingRow(null);
       setRecordEditForms([]);
-      await loadPreviewRows(
-        selectedSchoolYearId,
-        [],
-        progressTaskId,
-      );
+      await loadPreviewRows(selectedSchoolYearId, [], progressTaskId);
     } catch (error) {
       failCalculationProgress(
         progressTaskId,
@@ -1894,7 +1849,7 @@ export default function CalculatePage() {
                 calculated: {formatDateTime(lastCalculatedAt)}
               </p>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
@@ -1906,19 +1861,17 @@ export default function CalculatePage() {
                 variant="outline"
                 disabled={
                   isDeletingCalculationRows ||
-                  selectedFilteredCalculationRowCount === 0
+                  !selectedCalculationRowKeys.length
                 }
                 onClick={handleDeleteSelectedCalculationRows}
                 className="min-h-12 rounded-2xl px-4 text-xs font-black"
               >
-                {isDeletingCalculationRows
-                  ? "Deleting..."
-                  : `Delete Selected (${selectedFilteredCalculationRowCount})`}
+                Delete Selected
               </Button>
               <Button
                 type="button"
-                variant="destructive"
-                disabled={isDeletingCalculationRows || filteredRows.length === 0}
+                variant="outline"
+                disabled={isDeletingCalculationRows || !calculationRows.length}
                 onClick={handleDeleteAllCalculationRows}
                 className="min-h-12 rounded-2xl px-4 text-xs font-black"
               >
@@ -1934,9 +1887,10 @@ export default function CalculatePage() {
                   <th className="px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allFilteredCalculationRowsSelected}
-                      onChange={handleToggleAllCalculationRows}
-                      disabled={!filteredRows.length}
+                      checked={allFilteredRowsSelected}
+                      onChange={(event) =>
+                        handleSelectAllCalculationRows(event.target.checked)
+                      }
                       aria-label="Select all calculation rows"
                       className="size-4 rounded border"
                     />
@@ -1960,8 +1914,13 @@ export default function CalculatePage() {
                         <input
                           type="checkbox"
                           checked={selectedCalculationRowKeys.includes(row.key)}
-                          onChange={() => handleToggleCalculationRow(row.key)}
-                          aria-label={`Select ${row.studentId}`}
+                          onChange={(event) =>
+                            handleCalculationRowSelection(
+                              row.key,
+                              event.target.checked,
+                            )
+                          }
+                          aria-label={`Select calculation row for ${row.studentId}`}
                           className="size-4 rounded border"
                         />
                       </td>
