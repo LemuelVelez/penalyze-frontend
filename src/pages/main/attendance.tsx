@@ -160,6 +160,30 @@ function handleDateTimePickerClick(event: SyntheticEvent<HTMLInputElement>) {
 
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
+type AttendanceFileContents = {
+  text: string;
+  byteLength: number;
+};
+
+async function readAttendanceFileContents(
+  file: File,
+): Promise<AttendanceFileContents> {
+  const buffer = await file.arrayBuffer();
+
+  if (!buffer.byteLength) {
+    throw new Error("The uploaded attendance file is empty.");
+  }
+
+  const text = new TextDecoder("utf-8", { fatal: false })
+    .decode(buffer)
+    .replace(/\u0000/g, "");
+
+  return {
+    text,
+    byteLength: buffer.byteLength,
+  };
+}
+
 function cleanAttendanceMetadataValue(value: unknown) {
   return String(value ?? "")
     .replace(/^["'\s]+|["'\s]+$/g, "")
@@ -359,12 +383,9 @@ async function getAttendanceFileMetadata(
   file: File,
   schoolYears: SchoolYearRecord[],
 ) {
-  const previewBuffer = await file.arrayBuffer();
-  const decodedText = new TextDecoder("utf-8", { fatal: false })
-    .decode(previewBuffer)
-    .slice(0, 120_000);
+  const { text } = await readAttendanceFileContents(file);
 
-  return extractAttendanceFileMetadata(decodedText, schoolYears);
+  return extractAttendanceFileMetadata(text.slice(0, 120_000), schoolYears);
 }
 
 function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {
@@ -873,6 +894,18 @@ export default function AttendancePage() {
     });
 
     try {
+      setProgress({
+        stage: "parsing",
+        percent: 3,
+        message: "Reading uploaded attendance file contents...",
+        processedRows: 0,
+        totalRows: 0,
+        savedRecords: 0,
+        createdFines: 0,
+      });
+
+      await readAttendanceFileContents(file);
+
       const result = await saveAttendanceFile(file, {
         schoolYearId: uploadForm.schoolYearId || undefined,
         eventId: uploadForm.eventId || undefined,
