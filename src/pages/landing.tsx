@@ -6,16 +6,17 @@ import {
   getStudentAttendanceRecords,
   listAttendanceEvents,
   listAttendanceRecords,
-  listManualAttendanceRecords,
-  saveManualAttendanceRecord,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
   AttendanceRecord,
   ManualAttendanceInput,
-  ManualAttendanceRecord,
 } from "../api/attendance";
-import { getStudentFines, matchPenalty } from "../api/fines";
+import {
+  getStudentFines,
+  matchPenalty,
+  registerZeroAttendanceFine,
+} from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -2312,76 +2313,33 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
-function manualRecordToDisplayAttendanceRecord(
-  row: ManualAttendanceRecord,
-): AttendanceRecord {
-  const rowData = row as ManualAttendanceRecord & Record<string, unknown>;
-
-  return {
-    id: row.id,
-    school_year_id: row.school_year_id,
-    import_id: null,
-    event_id: row.event_id,
-    event_name: row.event_name ?? null,
-    student_id: row.student_id,
-    name: row.name,
-    year_level: row.year_level,
-    college: row.college,
-    program: row.program,
-    institution: row.institution,
-    no_of_absences: row.no_of_absences,
-    remarks: row.remarks,
-    scanned_at: row.scanned_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    event_order: rowData.event_order ?? null,
-    event_start_at: rowData.event_start_at ?? null,
-    event_end_at: rowData.event_end_at ?? null,
-  } as AttendanceRecord;
-}
-
 async function listLandingAttendanceRecords(
   onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
 ) {
   const pageSize = 500;
   const maxPages = 100;
-  const attendanceRows: AttendanceRecord[] = [];
-  const manualRows: ManualAttendanceRecord[] = [];
-  let pageCount = 0;
+  const rows: AttendanceRecord[] = [];
 
   for (let page = 0; page < maxPages; page += 1) {
-    const [attendancePageRows, manualPageRows] = await Promise.all([
-      listAttendanceRecords({
-        limit: pageSize,
-        offset: page * pageSize,
-      }),
-      listManualAttendanceRecords({
-        limit: pageSize,
-        offset: page * pageSize,
-      }),
-    ]);
+    const pageRows = await listAttendanceRecords({
+      limit: pageSize,
+      offset: page * pageSize,
+    });
 
-    attendanceRows.push(...attendancePageRows);
-    manualRows.push(...manualPageRows);
-    pageCount = page + 1;
+    rows.push(...pageRows);
 
-    const loadedRows = attendanceRows.length + manualRows.length;
-    const isComplete =
-      attendancePageRows.length < pageSize && manualPageRows.length < pageSize;
+    const isComplete = pageRows.length < pageSize;
 
     onProgress?.({
-      loadedRows,
-      pageCount,
+      loadedRows: rows.length,
+      pageCount: page + 1,
       isComplete,
     });
 
     if (isComplete) break;
   }
 
-  return getUniqueDisplayAttendance([
-    ...attendanceRows,
-    ...manualRows.map(manualRecordToDisplayAttendanceRecord),
-  ]);
+  return rows;
 }
 
 export default function LandingPage() {
@@ -2703,18 +2661,26 @@ export default function LandingPage() {
     setZeroAttendanceError("");
 
     try {
-      const result = await saveManualAttendanceRecord(payload);
+      const result = await registerZeroAttendanceFine({
+        schoolYearId: payload.schoolYearId,
+        studentId: payload.studentId,
+        name: payload.name,
+        yearLevel: payload.yearLevel,
+        college: payload.college,
+        program: payload.program,
+        institution: payload.institution,
+      });
 
-      if (!result?.record) {
+      if (!result?.attendanceRecord) {
         throw new Error("Unable to save empty-events zero attendance record.");
       }
 
       const savedZeroAttendanceRecord = {
-        ...result.record,
+        ...result.attendanceRecord,
         import_id: null,
         event_id: null,
         event_name: null,
-        remarks: result.record.remarks || ZERO_ATTENDANCE_REMARK,
+        remarks: result.attendanceRecord.remarks || ZERO_ATTENDANCE_REMARK,
       } satisfies AttendanceRecord;
       const fine = normalizeManualAttendanceFineForDisplay(
         result.fine,
@@ -2724,54 +2690,36 @@ export default function LandingPage() {
         ...savedZeroAttendanceRecord,
         no_of_absences: Math.max(
           getRecordAbsenceCount(savedZeroAttendanceRecord),
+          result.totalEvents || 0,
           fine ? getFineAbsenceCount(fine) : 0,
         ),
       };
-
-      const [studentAttendance, refreshedFines, attendanceEvents, attendanceRecords] =
+      const schoolYearId =
+        attendanceRecord.school_year_id || payload.schoolYearId || undefined;
+      const [attendanceEvents, attendanceRecords, latestFines] =
         await Promise.all([
-          getStudentAttendanceRecords(attendanceRecord.student_id).catch(
-            () => [] as AttendanceRecord[],
+          listAttendanceEvents({
+            schoolYearId,
+            limit: 500,
+            offset: 0,
+          }).catch(() => [] as AttendanceEvent[]),
+          listLandingAttendanceRecords().catch(() => [attendanceRecord]),
+          getStudentFines(attendanceRecord.student_id).catch(() =>
+            fine ? [fine] : [],
           ),
-          getStudentFines(attendanceRecord.student_id).catch(
-            () => [] as FineRecord[],
-          ),
-          listAttendanceEvents({ limit: 500, offset: 0 }).catch(
-            () => [] as AttendanceEvent[],
-          ),
-          listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
         ]);
-
-      const mergedStudentAttendance = getUniqueDisplayAttendance([
-        attendanceRecord,
-        ...studentAttendance,
-        ...attendanceRecords.filter(
-          (record) =>
-            normalizeDisplayValue(record.student_id) ===
-            normalizeDisplayValue(attendanceRecord.student_id),
-        ),
-      ]);
-      const mergedFines = getUniqueDisplayFines([
-        ...(fine ? [fine] : []),
-        ...refreshedFines,
-      ]);
 
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
-      setResultYearFilter(
-        attendanceRecord.school_year_id ||
-          payload.schoolYearId ||
-          ALL_YEARS_VALUE,
-      );
+      setResultYearFilter(schoolYearId || ALL_YEARS_VALUE);
       setLookup({
-        attendance: mergedStudentAttendance,
+        attendance: [attendanceRecord],
         attendanceEvents,
-        attendanceRecords: getUniqueDisplayAttendance([
-          attendanceRecord,
-          ...attendanceRecords,
-        ]),
+        attendanceRecords: attendanceRecords.length
+          ? attendanceRecords
+          : [attendanceRecord],
         schoolYears,
-        fines: mergedFines,
+        fines: latestFines.length ? latestFines : fine ? [fine] : [],
         fallbackFine: null,
       });
       setZeroAttendanceDialogOpen(false);
@@ -2969,16 +2917,7 @@ export default function LandingPage() {
         "Classifying attendance status and checking related fines.",
       );
 
-      const matchedAttendance = getUniqueDisplayAttendance([
-        ...attendance,
-        ...attendanceRecords.filter(
-          (record) =>
-            normalizeDisplayValue(record.student_id) ===
-            normalizeDisplayValue(cleanStudentId),
-        ),
-      ]);
-
-      if (!matchedAttendance.length && !fines.length) {
+      if (!attendance.length && !fines.length) {
         updateProgress(
           100,
           "No saved student record found.",
@@ -2989,7 +2928,7 @@ export default function LandingPage() {
       }
 
       const fallbackAbsenceCount = getFallbackAbsenceCount(
-        matchedAttendance,
+        attendance,
         attendanceRecords,
         attendanceEvents,
       );
@@ -2998,7 +2937,7 @@ export default function LandingPage() {
       const fallbackFine = shouldBuildFallbackFine
         ? buildFallbackFine(
             cleanStudentId,
-            matchedAttendance,
+            attendance,
             fallbackAbsenceCount,
             await resolveFallbackPenalty(fallbackAbsenceCount),
           )
@@ -3006,7 +2945,7 @@ export default function LandingPage() {
 
       setResultYearFilter(ALL_YEARS_VALUE);
       setLookup({
-        attendance: matchedAttendance,
+        attendance,
         attendanceEvents,
         attendanceRecords,
         schoolYears: schoolYearRows,

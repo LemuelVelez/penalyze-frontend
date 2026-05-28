@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   createPenalty,
   deletePenalty,
+  deletePenaltyResultsByIds,
   listPenalties,
   listPenaltyResults,
   refreshPenaltyResults,
@@ -224,11 +225,16 @@ export default function FinesPage() {
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
+  const [selectedPenaltyResultIds, setSelectedPenaltyResultIds] = useState<
+    string[]
+  >([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [penaltyForm, setPenaltyForm] =
     useState<PenaltyFormState>(emptyPenaltyForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshingResults, setIsRefreshingResults] = useState(false);
+  const [isDeletingPenaltyResults, setIsDeletingPenaltyResults] =
+    useState(false);
   const [isSavingPenalty, setIsSavingPenalty] = useState(false);
   const [penaltyDialogOpen, setPenaltyDialogOpen] = useState(false);
   const [penaltyResultDialogOpen, setPenaltyResultDialogOpen] = useState(false);
@@ -245,9 +251,9 @@ export default function FinesPage() {
   const collegeOptions = useMemo(() => {
     const colleges = penaltyResults
       .map(getPenaltyResultCollege)
-      .filter(Boolean);
+      .filter((college): college is string => Boolean(college));
 
-    return Array.from(new Set(colleges)).sort((left, right) =>
+    return Array.from(new Set<string>(colleges)).sort((left, right) =>
       left.localeCompare(right),
     );
   }, [penaltyResults]);
@@ -263,6 +269,20 @@ export default function FinesPage() {
       return matchesStatus && matchesCollege;
     });
   }, [penaltyResults, statusFilter, collegeFilter]);
+
+  const filteredPenaltyResultIds = useMemo(() => {
+    return filteredPenaltyResults.map((result) => result.id);
+  }, [filteredPenaltyResults]);
+
+  const selectedFilteredPenaltyResultCount = useMemo(() => {
+    const filteredIds = new Set(filteredPenaltyResultIds);
+
+    return selectedPenaltyResultIds.filter((id) => filteredIds.has(id)).length;
+  }, [filteredPenaltyResultIds, selectedPenaltyResultIds]);
+
+  const allFilteredPenaltyResultsSelected =
+    filteredPenaltyResultIds.length > 0 &&
+    selectedFilteredPenaltyResultCount === filteredPenaltyResultIds.length;
 
   const summary = useMemo(() => {
     return {
@@ -322,6 +342,104 @@ export default function FinesPage() {
   useEffect(() => {
     void loadPageData();
   }, []);
+
+
+  function handleTogglePenaltyResult(resultId: string) {
+    setSelectedPenaltyResultIds((currentIds) => {
+      if (currentIds.includes(resultId)) {
+        return currentIds.filter((id) => id !== resultId);
+      }
+
+      return [...currentIds, resultId];
+    });
+  }
+
+  function handleToggleAllPenaltyResults() {
+    setSelectedPenaltyResultIds((currentIds) => {
+      if (allFilteredPenaltyResultsSelected) {
+        const filteredIds = new Set(filteredPenaltyResultIds);
+
+        return currentIds.filter((id) => !filteredIds.has(id));
+      }
+
+      return Array.from(new Set([...currentIds, ...filteredPenaltyResultIds]));
+    });
+  }
+
+  async function handleDeleteSelectedPenaltyResults() {
+    const filteredIds = new Set(filteredPenaltyResultIds);
+    const idsToDelete = selectedPenaltyResultIds.filter((id) =>
+      filteredIds.has(id),
+    );
+
+    if (!idsToDelete.length) {
+      toast.error("Please select penalty results to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete the selected penalty results?")
+    ) {
+      return;
+    }
+
+    setIsDeletingPenaltyResults(true);
+
+    try {
+      const result = await deletePenaltyResultsByIds(idsToDelete);
+
+      setSelectedPenaltyResultIds((currentIds) =>
+        currentIds.filter((id) => !idsToDelete.includes(id)),
+      );
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete penalty results.",
+      );
+    } finally {
+      setIsDeletingPenaltyResults(false);
+    }
+  }
+
+  async function handleDeleteAllPenaltyResults() {
+    if (!filteredPenaltyResultIds.length) {
+      toast.error("No penalty results to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete all displayed penalty results?")
+    ) {
+      return;
+    }
+
+    setIsDeletingPenaltyResults(true);
+
+    try {
+      const result = await deletePenaltyResultsByIds(filteredPenaltyResultIds);
+
+      setSelectedPenaltyResultIds([]);
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} penalty result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete penalty results.",
+      );
+    } finally {
+      setIsDeletingPenaltyResults(false);
+    }
+  }
 
   async function handleRefreshPenaltyResults() {
     setIsRefreshingResults(true);
@@ -649,22 +767,59 @@ export default function FinesPage() {
                 Saved final penalty records generated from absence counts.
               </p>
             </div>
-            <Button
-              type="button"
-              onClick={handleRefreshPenaltyResults}
-              disabled={isRefreshingResults}
-              className="min-h-12 rounded-2xl px-6 font-black"
-            >
-              {isRefreshingResults
-                ? "Refreshing..."
-                : "Refresh Penalty Results"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  isDeletingPenaltyResults ||
+                  selectedFilteredPenaltyResultCount === 0
+                }
+                onClick={handleDeleteSelectedPenaltyResults}
+                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+              >
+                {isDeletingPenaltyResults
+                  ? "Deleting..."
+                  : `Delete Selected (${selectedFilteredPenaltyResultCount})`}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={
+                  isDeletingPenaltyResults || filteredPenaltyResults.length === 0
+                }
+                onClick={handleDeleteAllPenaltyResults}
+                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+              >
+                Delete All
+              </Button>
+              <Button
+                type="button"
+                onClick={handleRefreshPenaltyResults}
+                disabled={isRefreshingResults}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                {isRefreshingResults
+                  ? "Refreshing..."
+                  : "Refresh Penalty Results"}
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-2xl border bg-background">
             <table className="w-full min-w-full text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredPenaltyResultsSelected}
+                      onChange={handleToggleAllPenaltyResults}
+                      disabled={!filteredPenaltyResults.length}
+                      aria-label="Select all penalty results"
+                      className="size-4 rounded border"
+                    />
+                  </th>
                   <th className="px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">College</th>
@@ -679,6 +834,15 @@ export default function FinesPage() {
                 {filteredPenaltyResults.length ? (
                   filteredPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedPenaltyResultIds.includes(result.id)}
+                          onChange={() => handleTogglePenaltyResult(result.id)}
+                          aria-label={`Select ${result.student_id}`}
+                          className="size-4 rounded border"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-black">
                         {result.student_id}
                       </td>
@@ -740,7 +904,7 @@ export default function FinesPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading

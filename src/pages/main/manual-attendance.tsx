@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   deleteAttendanceRecord,
+  deleteManualAttendanceRecordsByIds,
   listAttendanceEvents,
   listManualAttendanceRecords,
   saveManualAttendanceRecord,
@@ -238,7 +239,7 @@ function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
 
 function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   records: T[],
-) {
+): T[] {
   return [...records].sort(compareByBackendEventOrder);
 }
 
@@ -343,6 +344,9 @@ export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [records, setRecords] = useState<ManualAttendanceRecord[]>([]);
+  const [selectedManualGroupKeys, setSelectedManualGroupKeys] = useState<
+    string[]
+  >([]);
   const [form, setForm] = useState<ManualAttendanceFormState>({
     ...emptyForm,
     scannedAt: formatDateTimeInputValue(),
@@ -353,6 +357,8 @@ export default function ManualAttendancePage() {
   const [collegeFilter, setCollegeFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeletingManualRecords, setIsDeletingManualRecords] =
+    useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
   const [eventsDialogGroup, setEventsDialogGroup] =
@@ -381,6 +387,21 @@ export default function ManualAttendancePage() {
       return group.college.trim().toLowerCase() === targetCollege;
     });
   }, [studentGroups, collegeFilter]);
+
+  const filteredGroupKeys = useMemo(() => {
+    return filteredGroups.map((group) => group.key);
+  }, [filteredGroups]);
+
+  const selectedFilteredManualGroupCount = useMemo(() => {
+    const filteredKeys = new Set(filteredGroupKeys);
+
+    return selectedManualGroupKeys.filter((key) => filteredKeys.has(key))
+      .length;
+  }, [filteredGroupKeys, selectedManualGroupKeys]);
+
+  const allFilteredManualGroupsSelected =
+    filteredGroupKeys.length > 0 &&
+    selectedFilteredManualGroupCount === filteredGroupKeys.length;
 
   const selectedEventRecords = useMemo(
     () => getSelectedEventRecords(records, form.eventIds),
@@ -431,6 +452,7 @@ export default function ManualAttendancePage() {
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setEvents(sortByBackendEventOrder(eventRows));
       setRecords(sortByBackendEventOrder(manualRows));
+      setSelectedManualGroupKeys([]);
       setForm((current) => ({
         ...current,
         schoolYearId:
@@ -519,6 +541,116 @@ export default function ManualAttendancePage() {
     setManualAttendanceDialogOpen(true);
   }
 
+
+  function handleToggleManualGroup(groupKey: string) {
+    setSelectedManualGroupKeys((currentKeys) => {
+      if (currentKeys.includes(groupKey)) {
+        return currentKeys.filter((key) => key !== groupKey);
+      }
+
+      return [...currentKeys, groupKey];
+    });
+  }
+
+  function handleToggleAllManualGroups() {
+    setSelectedManualGroupKeys((currentKeys) => {
+      if (allFilteredManualGroupsSelected) {
+        const filteredKeys = new Set(filteredGroupKeys);
+
+        return currentKeys.filter((key) => !filteredKeys.has(key));
+      }
+
+      return Array.from(new Set([...currentKeys, ...filteredGroupKeys]));
+    });
+  }
+
+  function getManualRecordIdsForGroups(groupKeys: string[]) {
+    const keySet = new Set(groupKeys);
+
+    return filteredGroups
+      .filter((group) => keySet.has(group.key))
+      .flatMap((group) => group.records.map((record) => record.id))
+      .filter(Boolean);
+  }
+
+  async function handleDeleteSelectedManualGroups() {
+    const filteredKeys = new Set(filteredGroupKeys);
+    const keysToDelete = selectedManualGroupKeys.filter((key) =>
+      filteredKeys.has(key),
+    );
+    const recordIds = getManualRecordIdsForGroups(keysToDelete);
+
+    if (!recordIds.length) {
+      toast.error("Please select manual attendance records to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete the selected manual attendance records?")
+    ) {
+      return;
+    }
+
+    setIsDeletingManualRecords(true);
+
+    try {
+      const result = await deleteManualAttendanceRecordsByIds(recordIds);
+
+      setSelectedManualGroupKeys((currentKeys) =>
+        currentKeys.filter((key) => !keysToDelete.includes(key)),
+      );
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete manual attendance records.",
+      );
+    } finally {
+      setIsDeletingManualRecords(false);
+    }
+  }
+
+  async function handleDeleteAllManualGroups() {
+    const recordIds = getManualRecordIdsForGroups(filteredGroupKeys);
+
+    if (!recordIds.length) {
+      toast.error("No manual attendance records to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete all displayed manual attendance records?")
+    ) {
+      return;
+    }
+
+    setIsDeletingManualRecords(true);
+
+    try {
+      const result = await deleteManualAttendanceRecordsByIds(recordIds);
+
+      setSelectedManualGroupKeys([]);
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete manual attendance records.",
+      );
+    } finally {
+      setIsDeletingManualRecords(false);
+    }
+  }
+
   function handleDialogOpenChange(open: boolean) {
     setManualAttendanceDialogOpen(open);
 
@@ -568,14 +700,14 @@ export default function ManualAttendancePage() {
     setIsSaving(true);
 
     try {
-      const selectedEventIds = Array.from(new Set(form.eventIds));
+      const selectedEventIds = Array.from(new Set<string>(form.eventIds));
       const editingGroup = editingGroupKey
         ? studentGroups.find((group) => group.key === editingGroupKey)
         : null;
 
       if (editingGroup) {
         const existingRecords = editingGroup.records;
-        const existingByEventId = new Map(
+        const existingByEventId = new Map<string, ManualAttendanceRecord>(
           existingRecords
             .filter((record) => record.event_id)
             .map((record) => [record.event_id as string, record]),
@@ -1073,12 +1205,46 @@ export default function ManualAttendancePage() {
                 {filteredGroups.length.toLocaleString()} attendee/s shown
               </p>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  isDeletingManualRecords || selectedFilteredManualGroupCount === 0
+                }
+                onClick={handleDeleteSelectedManualGroups}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                {isDeletingManualRecords
+                  ? "Deleting..."
+                  : `Delete Selected (${selectedFilteredManualGroupCount})`}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isDeletingManualRecords || filteredGroups.length === 0}
+                onClick={handleDeleteAllManualGroups}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                Delete All
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-2xl border bg-background">
             <table className="w-full min-w-full text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredManualGroupsSelected}
+                      onChange={handleToggleAllManualGroups}
+                      disabled={!filteredGroups.length}
+                      aria-label="Select all manual attendance records"
+                      className="size-4 rounded border"
+                    />
+                  </th>
                   <th className="px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Events</th>
@@ -1093,6 +1259,15 @@ export default function ManualAttendancePage() {
                 {filteredGroups.length ? (
                   filteredGroups.map((group) => (
                     <tr key={group.key} className="border-t">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedManualGroupKeys.includes(group.key)}
+                          onChange={() => handleToggleManualGroup(group.key)}
+                          aria-label={`Select ${group.studentId}`}
+                          className="size-4 rounded border"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-black">
                         {group.studentId}
                       </td>
@@ -1170,7 +1345,7 @@ export default function ManualAttendancePage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading

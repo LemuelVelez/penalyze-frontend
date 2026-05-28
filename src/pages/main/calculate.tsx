@@ -780,6 +780,9 @@ export default function CalculatePage() {
   >([]);
   const [selectedImportIds, setSelectedImportIds] = useState<string[]>([]);
   const [calculationRows, setCalculationRows] = useState<CalculationRow[]>([]);
+  const [selectedCalculationRowKeys, setSelectedCalculationRowKeys] = useState<
+    string[]
+  >([]);
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [searchText, setSearchText] = useState("");
   const [lastCalculatedAt, setLastCalculatedAt] = useState("");
@@ -793,6 +796,8 @@ export default function CalculatePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSavingResults, setIsSavingResults] = useState(false);
+  const [isDeletingCalculationRows, setIsDeletingCalculationRows] =
+    useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgressState | null>(() =>
@@ -832,6 +837,21 @@ export default function CalculatePage() {
         .includes(query);
     });
   }, [calculationRows, searchText]);
+
+  const filteredRowKeys = useMemo(() => {
+    return filteredRows.map((row) => row.key);
+  }, [filteredRows]);
+
+  const selectedFilteredCalculationRowCount = useMemo(() => {
+    const filteredKeys = new Set(filteredRowKeys);
+
+    return selectedCalculationRowKeys.filter((key) => filteredKeys.has(key))
+      .length;
+  }, [filteredRowKeys, selectedCalculationRowKeys]);
+
+  const allFilteredCalculationRowsSelected =
+    filteredRowKeys.length > 0 &&
+    selectedFilteredCalculationRowCount === filteredRowKeys.length;
 
   const summary = useMemo(() => {
     return {
@@ -1034,6 +1054,7 @@ export default function CalculatePage() {
       setAttendanceImports(sortByBackendEventOrder(importRows));
       setPenalties(penaltyRows);
       setCalculationRows(savedRows);
+      setSelectedCalculationRowKeys([]);
       setLastCalculatedAt(latestCalculatedAt ?? "");
       setCalculationMode("saved");
 
@@ -1221,6 +1242,7 @@ export default function CalculatePage() {
       await yieldCalculationProgressFrame();
 
       setCalculationRows(nextRows);
+      setSelectedCalculationRowKeys([]);
       setLastCalculatedAt(new Date().toISOString());
       setCalculationMode("preview");
 
@@ -1269,6 +1291,153 @@ export default function CalculatePage() {
   useEffect(() => {
     void loadSavedResults();
   }, []);
+
+
+  function handleToggleCalculationRow(rowKey: string) {
+    setSelectedCalculationRowKeys((currentKeys) => {
+      if (currentKeys.includes(rowKey)) {
+        return currentKeys.filter((key) => key !== rowKey);
+      }
+
+      return [...currentKeys, rowKey];
+    });
+  }
+
+  function handleToggleAllCalculationRows() {
+    setSelectedCalculationRowKeys((currentKeys) => {
+      if (allFilteredCalculationRowsSelected) {
+        const filteredKeys = new Set(filteredRowKeys);
+
+        return currentKeys.filter((key) => !filteredKeys.has(key));
+      }
+
+      return Array.from(new Set([...currentKeys, ...filteredRowKeys]));
+    });
+  }
+
+  function getSelectedCalculationRows(rowKeys: string[]) {
+    const keySet = new Set(rowKeys);
+
+    return filteredRows.filter((row) => keySet.has(row.key));
+  }
+
+  async function deleteSavedCalculationRows(rows: CalculationRow[]) {
+    const resultIds = rows
+      .map((row) => row.resultId)
+      .filter((id): id is string => Boolean(id));
+
+    if (resultIds.length) {
+      await attendanceApi.deleteCalculationResultsByIds(resultIds);
+    }
+
+    return resultIds.length;
+  }
+
+  async function handleDeleteSelectedCalculationRows() {
+    const filteredKeys = new Set(filteredRowKeys);
+    const keysToDelete = selectedCalculationRowKeys.filter((key) =>
+      filteredKeys.has(key),
+    );
+    const rowsToDelete = getSelectedCalculationRows(keysToDelete);
+
+    if (!rowsToDelete.length) {
+      toast.error("Please select calculation rows to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete the selected calculation rows?")
+    ) {
+      return;
+    }
+
+    setIsDeletingCalculationRows(true);
+
+    try {
+      const savedDeleteCount = await deleteSavedCalculationRows(rowsToDelete);
+
+      setCalculationRows((currentRows) =>
+        currentRows.filter((row) => !keysToDelete.includes(row.key)),
+      );
+      setSelectedCalculationRowKeys((currentKeys) =>
+        currentKeys.filter((key) => !keysToDelete.includes(key)),
+      );
+
+      if (savedDeleteCount > 0) {
+        await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+      }
+
+      toast.success(
+        `${rowsToDelete.length.toLocaleString()} calculation row/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete calculation rows.",
+      );
+    } finally {
+      setIsDeletingCalculationRows(false);
+    }
+  }
+
+  async function handleDeleteAllCalculationRows() {
+    const rowsToDelete = filteredRows;
+
+    if (!rowsToDelete.length) {
+      toast.error("No calculation rows to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete all displayed calculation rows?")
+    ) {
+      return;
+    }
+
+    setIsDeletingCalculationRows(true);
+
+    try {
+      const shouldDeleteWholeSchoolYear =
+        calculationMode === "saved" &&
+        selectedSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
+        !searchText.trim() &&
+        !selectedImportIds.length;
+
+      if (shouldDeleteWholeSchoolYear) {
+        await attendanceApi.deleteCalculationResultsBySchoolYear(
+          selectedSchoolYearId,
+        );
+        await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+      } else {
+        const savedDeleteCount = await deleteSavedCalculationRows(rowsToDelete);
+        const keysToDelete = new Set(rowsToDelete.map((row) => row.key));
+
+        setCalculationRows((currentRows) =>
+          currentRows.filter((row) => !keysToDelete.has(row.key)),
+        );
+
+        if (savedDeleteCount > 0) {
+          await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+        }
+      }
+
+      setSelectedCalculationRowKeys([]);
+      toast.success(
+        `${rowsToDelete.length.toLocaleString()} calculation row/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete calculation rows.",
+      );
+    } finally {
+      setIsDeletingCalculationRows(false);
+    }
+  }
 
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
     const importOrder = new Map<string, number>(
@@ -1725,18 +1894,53 @@ export default function CalculatePage() {
                 calculated: {formatDateTime(lastCalculatedAt)}
               </p>
             </div>
-            <Input
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search student, college, program, or penalty"
-              className="min-h-12 rounded-2xl lg:max-w-md"
-            />
+            <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+              <Input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search student, college, program, or penalty"
+                className="min-h-12 rounded-2xl lg:max-w-md"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  isDeletingCalculationRows ||
+                  selectedFilteredCalculationRowCount === 0
+                }
+                onClick={handleDeleteSelectedCalculationRows}
+                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+              >
+                {isDeletingCalculationRows
+                  ? "Deleting..."
+                  : `Delete Selected (${selectedFilteredCalculationRowCount})`}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isDeletingCalculationRows || filteredRows.length === 0}
+                onClick={handleDeleteAllCalculationRows}
+                className="min-h-12 rounded-2xl px-4 text-xs font-black"
+              >
+                Delete All
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-2xl border">
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredCalculationRowsSelected}
+                      onChange={handleToggleAllCalculationRows}
+                      disabled={!filteredRows.length}
+                      aria-label="Select all calculation rows"
+                      className="size-4 rounded border"
+                    />
+                  </th>
                   <th className="px-4 py-3">Student</th>
                   <th className="px-4 py-3">College / Program</th>
                   <th className="px-4 py-3">Attended Events</th>
@@ -1752,6 +1956,15 @@ export default function CalculatePage() {
                 {filteredRows.length ? (
                   filteredRows.map((row) => (
                     <tr key={row.key} className="border-t">
+                      <td className="px-4 py-3 align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedCalculationRowKeys.includes(row.key)}
+                          onChange={() => handleToggleCalculationRow(row.key)}
+                          aria-label={`Select ${row.studentId}`}
+                          className="size-4 rounded border"
+                        />
+                      </td>
                       <td className="px-4 py-3 align-top">
                         <p className="font-black">{row.studentId}</p>
                         <p className="text-muted-foreground">{row.name}</p>
@@ -1820,7 +2033,7 @@ export default function CalculatePage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading || isPreviewing

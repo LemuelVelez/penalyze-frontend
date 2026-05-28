@@ -3,6 +3,8 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
+  deleteAttendanceFinalResultsByIds,
+  deleteAttendanceFinalResultsBySchoolYear,
   getAcceptedAttendanceFileTypes,
   listAllAttendanceRecords,
   listAttendanceEvents,
@@ -548,7 +550,7 @@ function compareByBackendEventOrder<T extends BackendEventOrderedRecord>(
 
 function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   records: T[],
-) {
+): T[] {
   return [...records].sort(compareByBackendEventOrder);
 }
 
@@ -679,6 +681,10 @@ export default function AttendancePage() {
   const [finalResults, setFinalResults] = useState<
     AttendanceFinalResultRecord[]
   >([]);
+  const [selectedFinalResultIds, setSelectedFinalResultIds] = useState<string[]>(
+    [],
+  );
+  const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
   const [uploadedAttendanceRecords, setUploadedAttendanceRecords] = useState<
     AttendanceRecord[]
   >([]);
@@ -718,15 +724,17 @@ export default function AttendancePage() {
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
       .map((row) => String(row.college ?? "").trim())
-      .filter(Boolean);
+      .filter((college): college is string => Boolean(college));
 
-    return Array.from(new Set(colleges)).sort((left, right) =>
+    return Array.from(new Set<string>(colleges)).sort((left, right) =>
       left.localeCompare(right),
     );
   }, [finalResults]);
 
-  const displayedFinalResults = useMemo(() => {
-    const rows = sortByBackendEventOrder(finalResults);
+  const displayedFinalResults = useMemo((): AttendanceFinalResultRecord[] => {
+    const rows = sortByBackendEventOrder<AttendanceFinalResultRecord>(
+      finalResults,
+    );
 
     if (collegeFilter === "__all_colleges__") return rows;
 
@@ -734,6 +742,20 @@ export default function AttendancePage() {
       (row) => String(row.college ?? "").trim() === collegeFilter,
     );
   }, [finalResults, collegeFilter]);
+
+  const displayedFinalResultIds = useMemo(() => {
+    return displayedFinalResults.map((result) => result.id);
+  }, [displayedFinalResults]);
+
+  const selectedDisplayedFinalResultCount = useMemo(() => {
+    const displayedIds = new Set(displayedFinalResultIds);
+
+    return selectedFinalResultIds.filter((id) => displayedIds.has(id)).length;
+  }, [displayedFinalResultIds, selectedFinalResultIds]);
+
+  const allDisplayedFinalResultsSelected =
+    displayedFinalResultIds.length > 0 &&
+    selectedDisplayedFinalResultCount === displayedFinalResultIds.length;
 
   const summary = useMemo(() => {
     const totalStudents = displayedFinalResults.length;
@@ -812,6 +834,7 @@ export default function AttendancePage() {
       setAttendanceEvents(sortByBackendEventOrder(eventRows));
       setImports(sortByBackendEventOrder(importRows));
       setFinalResults(sortByBackendEventOrder(resultRows));
+      setSelectedFinalResultIds([]);
       setUploadedAttendanceRecords(uploadedRows);
       setManualAttendanceRecords(manualRows);
       setUploadForm((current) => ({
@@ -1020,6 +1043,109 @@ export default function AttendancePage() {
       );
     } finally {
       setIsLoading(false);
+    }
+  }
+
+
+  function handleToggleFinalResult(resultId: string) {
+    setSelectedFinalResultIds((currentIds) => {
+      if (currentIds.includes(resultId)) {
+        return currentIds.filter((id) => id !== resultId);
+      }
+
+      return [...currentIds, resultId];
+    });
+  }
+
+  function handleToggleAllFinalResults() {
+    setSelectedFinalResultIds((currentIds) => {
+      if (allDisplayedFinalResultsSelected) {
+        const displayedIds = new Set(displayedFinalResultIds);
+
+        return currentIds.filter((id) => !displayedIds.has(id));
+      }
+
+      return Array.from(new Set([...currentIds, ...displayedFinalResultIds]));
+    });
+  }
+
+  async function handleDeleteSelectedFinalResults() {
+    const displayedIds = new Set(displayedFinalResultIds);
+    const idsToDelete = selectedFinalResultIds.filter((id) =>
+      displayedIds.has(id),
+    );
+
+    if (!idsToDelete.length) {
+      toast.error("Please select final attendance results to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete the selected final attendance results?")
+    ) {
+      return;
+    }
+
+    setIsDeletingFinalResults(true);
+
+    try {
+      const result = await deleteAttendanceFinalResultsByIds(idsToDelete);
+
+      setSelectedFinalResultIds((currentIds) =>
+        currentIds.filter((id) => !idsToDelete.includes(id)),
+      );
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${formatNumber(result.deletedCount)} final attendance result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete final attendance results.",
+      );
+    } finally {
+      setIsDeletingFinalResults(false);
+    }
+  }
+
+  async function handleDeleteAllFinalResults() {
+    if (!displayedFinalResultIds.length) {
+      toast.error("No final attendance results to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete all displayed final attendance results?")
+    ) {
+      return;
+    }
+
+    setIsDeletingFinalResults(true);
+
+    try {
+      const shouldDeleteWholeSchoolYear =
+        selectedSchoolYearId !== ALL_YEARS_VALUE &&
+        collegeFilter === "__all_colleges__";
+      const result = shouldDeleteWholeSchoolYear
+        ? await deleteAttendanceFinalResultsBySchoolYear(selectedSchoolYearId)
+        : await deleteAttendanceFinalResultsByIds(displayedFinalResultIds);
+
+      setSelectedFinalResultIds([]);
+      await loadPageData(selectedSchoolYearId);
+      toast.success(
+        `${formatNumber(result.deletedCount)} final attendance result/s deleted.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete final attendance results.",
+      );
+    } finally {
+      setIsDeletingFinalResults(false);
     }
   }
 
@@ -1585,6 +1711,26 @@ export default function AttendancePage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDeletingFinalResults || selectedDisplayedFinalResultCount === 0}
+                onClick={handleDeleteSelectedFinalResults}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                {isDeletingFinalResults
+                  ? "Deleting..."
+                  : `Delete Selected (${selectedDisplayedFinalResultCount})`}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isDeletingFinalResults || displayedFinalResults.length === 0}
+                onClick={handleDeleteAllFinalResults}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                Delete All
+              </Button>
               <p className="text-sm font-bold text-muted-foreground">
                 {formatNumber(displayedFinalResults.length)} result/s
               </p>
@@ -1595,6 +1741,16 @@ export default function AttendancePage() {
             <table className="w-full min-w-full text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allDisplayedFinalResultsSelected}
+                      onChange={handleToggleAllFinalResults}
+                      disabled={!displayedFinalResults.length}
+                      aria-label="Select all final attendance results"
+                      className="size-4 rounded border"
+                    />
+                  </th>
                   <th className="px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">College</th>
@@ -1616,6 +1772,15 @@ export default function AttendancePage() {
 
                     return (
                       <tr key={result.id} className="border-t">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedFinalResultIds.includes(result.id)}
+                            onChange={() => handleToggleFinalResult(result.id)}
+                            aria-label={`Select ${result.student_id}`}
+                            className="size-4 rounded border"
+                          />
+                        </td>
                         <td className="px-4 py-3 wrap-break-word font-black">
                           {result.student_id}
                         </td>
@@ -1664,7 +1829,7 @@ export default function AttendancePage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading

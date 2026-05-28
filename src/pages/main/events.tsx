@@ -141,6 +141,8 @@ export default function EventsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingEventId, setDeletingEventId] = useState("");
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+  const [isDeletingEvents, setIsDeletingEvents] = useState(false);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -152,6 +154,17 @@ export default function EventsPage() {
       form.schoolYearId || selectedSchoolYearId,
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
+
+  const eventIds = useMemo(() => events.map((event) => event.id), [events]);
+
+  const selectedEventCount = useMemo(() => {
+    const ids = new Set(eventIds);
+
+    return selectedEventIds.filter((id) => ids.has(id)).length;
+  }, [eventIds, selectedEventIds]);
+
+  const allEventsSelected =
+    eventIds.length > 0 && selectedEventCount === eventIds.length;
 
   const summary = useMemo(() => {
     return {
@@ -187,6 +200,7 @@ export default function EventsPage() {
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
       setEvents(rows);
+      setSelectedEventIds([]);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to load events.",
@@ -199,6 +213,98 @@ export default function EventsPage() {
   useEffect(() => {
     void loadEvents();
   }, []);
+
+
+  function handleToggleEvent(eventId: string) {
+    setSelectedEventIds((currentIds) => {
+      if (currentIds.includes(eventId)) {
+        return currentIds.filter((id) => id !== eventId);
+      }
+
+      return [...currentIds, eventId];
+    });
+  }
+
+  function handleToggleAllEvents() {
+    setSelectedEventIds((currentIds) => {
+      if (allEventsSelected) {
+        const ids = new Set(eventIds);
+
+        return currentIds.filter((id) => !ids.has(id));
+      }
+
+      return Array.from(new Set([...currentIds, ...eventIds]));
+    });
+  }
+
+  async function deleteEventIds(ids: string[]) {
+    for (const eventId of ids) {
+      await deleteAttendanceEvent(eventId);
+    }
+  }
+
+  async function handleDeleteSelectedEvents() {
+    const ids = new Set(eventIds);
+    const idsToDelete = selectedEventIds.filter((id) => ids.has(id));
+
+    if (!idsToDelete.length) {
+      toast.error("Please select events to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete the selected event records?")
+    ) {
+      return;
+    }
+
+    setIsDeletingEvents(true);
+
+    try {
+      await deleteEventIds(idsToDelete);
+      setSelectedEventIds((currentIds) =>
+        currentIds.filter((id) => !idsToDelete.includes(id)),
+      );
+      toast.success(`${idsToDelete.length.toLocaleString()} event/s deleted.`);
+      await loadEvents(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete events.",
+      );
+    } finally {
+      setIsDeletingEvents(false);
+    }
+  }
+
+  async function handleDeleteAllEvents() {
+    if (!eventIds.length) {
+      toast.error("No events to delete.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Delete all displayed event records?")
+    ) {
+      return;
+    }
+
+    setIsDeletingEvents(true);
+
+    try {
+      await deleteEventIds(eventIds);
+      setSelectedEventIds([]);
+      toast.success(`${eventIds.length.toLocaleString()} event/s deleted.`);
+      await loadEvents(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to delete events.",
+      );
+    } finally {
+      setIsDeletingEvents(false);
+    }
+  }
 
   function handleOpenCreateDialog() {
     setEditingEvent(null);
@@ -337,17 +443,51 @@ export default function EventsPage() {
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-xl font-black">Event records</h2>
-            <p className="text-sm text-muted-foreground">
-              Showing {events.length.toLocaleString()} event record/s.
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-xl font-black">Event records</h2>
+              <p className="text-sm text-muted-foreground">
+                Showing {events.length.toLocaleString()} event record/s.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDeletingEvents || selectedEventCount === 0}
+                onClick={handleDeleteSelectedEvents}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                {isDeletingEvents
+                  ? "Deleting..."
+                  : `Delete Selected (${selectedEventCount})`}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isDeletingEvents || events.length === 0}
+                onClick={handleDeleteAllEvents}
+                className="min-h-11 rounded-2xl px-4 text-xs font-black"
+              >
+                Delete All
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-2xl border">
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allEventsSelected}
+                      onChange={handleToggleAllEvents}
+                      disabled={!events.length}
+                      aria-label="Select all event records"
+                      className="size-4 rounded border"
+                    />
+                  </th>
                   <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Event</th>
                   <th className="px-4 py-3">Schedule</th>
@@ -361,6 +501,15 @@ export default function EventsPage() {
                 {events.length ? (
                   events.map((event, index) => (
                     <tr key={event.id} className="border-t">
+                      <td className="px-4 py-3 align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedEventIds.includes(event.id)}
+                          onChange={() => handleToggleEvent(event.id)}
+                          aria-label={`Select ${event.name}`}
+                          className="size-4 rounded border"
+                        />
+                      </td>
                       <td className="px-4 py-3 align-top text-base font-black">
                         {(event.event_order || index + 1).toLocaleString()}
                       </td>
@@ -441,7 +590,7 @@ export default function EventsPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading ? "Loading events..." : "No events found."}

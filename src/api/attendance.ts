@@ -27,9 +27,6 @@ export type AttendanceRecord = {
   import_id: string | null;
   event_id: string | null;
   event_name: string | null;
-  event_order?: number | null;
-  event_start_at?: string | null;
-  event_end_at?: string | null;
   student_id: string;
   name: string;
   year_level: string | null;
@@ -50,9 +47,6 @@ export type ManualAttendanceRecord = {
   school_year_id: string | null;
   event_id: string | null;
   event_name?: string | null;
-  event_order?: number | null;
-  event_start_at?: string | null;
-  event_end_at?: string | null;
   attendance_type: ManualAttendanceType;
   student_id: string;
   name: string;
@@ -134,6 +128,11 @@ export type DeletedAttendanceImportsResult = {
 export type DeletedAttendanceRecordsResult<TRecord> = {
   deletedCount: number;
   deletedRecords: TRecord[];
+};
+
+export type DeletedCalculationResultsResult = {
+  deletedCount: number;
+  deletedRecords: CalculationResultRecord[];
 };
 
 export type AttendanceImportInput = {
@@ -733,6 +732,35 @@ export async function refreshCalculationResults(options: {
   );
 
   return response.data ?? [];
+}
+
+
+export async function deleteCalculationResultsByIds(
+  calculationResultIds: string[],
+) {
+  const response = await apiRequest<DeletedCalculationResultsResult>(
+    "/api/attendance/calculation-results",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ ids: calculationResultIds }),
+    },
+  );
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
+}
+
+export async function deleteCalculationResultsBySchoolYear(
+  schoolYearId: string,
+) {
+  const response = await apiRequest<DeletedCalculationResultsResult>(
+    "/api/attendance/calculation-results",
+    {
+      method: "DELETE",
+      body: JSON.stringify({ schoolYearId }),
+    },
+  );
+
+  return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
 export async function listManualAttendanceRecords(options: ListOptions = {}) {
