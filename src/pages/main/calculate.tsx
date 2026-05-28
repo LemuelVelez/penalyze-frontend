@@ -7,6 +7,7 @@ import type {
   AttendanceImportRecord,
   AttendanceRecord,
   CalculationResultRecord,
+  CalculationSourceType,
   ManualAttendanceInput,
   ManualAttendanceRecord,
 } from "../../api/attendance";
@@ -31,6 +32,32 @@ import { Progress } from "../../components/ui/progress";
 
 const ZERO_ATTENDANCE_REMARK =
   "Zero attendance registration from landing page.";
+
+const CALCULATION_SOURCE_OPTIONS: Array<{
+  value: CalculationSourceType;
+  title: string;
+  description: string;
+}> = [
+  {
+    value: "imported",
+    title: "Imported files",
+    description: "Include selected uploaded attendance files.",
+  },
+  {
+    value: "manual",
+    title: "Manual attendance",
+    description: "Include manual attendance records encoded by officers.",
+  },
+  {
+    value: "zero_attendance",
+    title: "Zero attendance",
+    description: "Include zero-attendance registrations and records.",
+  },
+];
+
+const DEFAULT_SELECTED_CALCULATION_SOURCES = CALCULATION_SOURCE_OPTIONS.map(
+  (option) => option.value,
+);
 
 type CalculationRow = {
   key: string;
@@ -269,8 +296,62 @@ function normalizeStudentId(value: unknown) {
 }
 
 function isZeroAttendanceRecord(record: AttendanceRecord) {
-  return normalizeValue(record.remarks).includes(
-    ZERO_ATTENDANCE_REMARK.toLowerCase(),
+  return normalizeValue(record.remarks)
+    .toLowerCase()
+    .includes(ZERO_ATTENDANCE_REMARK.toLowerCase());
+}
+
+function isZeroManualAttendanceRecord(record: ManualAttendanceRecord) {
+  return (
+    record.attendance_type === "zero_attendance" ||
+    normalizeValue(record.remarks)
+      .toLowerCase()
+      .includes(ZERO_ATTENDANCE_REMARK.toLowerCase())
+  );
+}
+
+function sortCalculationSourceTypes(sourceTypes: CalculationSourceType[]) {
+  const selectedSourceTypes = new Set(sourceTypes);
+
+  return CALCULATION_SOURCE_OPTIONS.map((option) => option.value).filter(
+    (sourceType) => selectedSourceTypes.has(sourceType),
+  );
+}
+
+function normalizeCalculationSourceTypes(sourceTypes: CalculationSourceType[]) {
+  const sortedSourceTypes = sortCalculationSourceTypes(sourceTypes);
+
+  return sortedSourceTypes.length
+    ? sortedSourceTypes
+    : [...DEFAULT_SELECTED_CALCULATION_SOURCES];
+}
+
+function getCalculationScopeKey(
+  importIds: string[],
+  sourceTypes: CalculationSourceType[],
+) {
+  const normalizedImportIds = [...importIds].sort((leftId, rightId) =>
+    leftId.localeCompare(rightId),
+  );
+  const normalizedSourceTypes = normalizeCalculationSourceTypes(sourceTypes);
+
+  if (
+    !normalizedImportIds.length &&
+    normalizedSourceTypes.length === DEFAULT_SELECTED_CALCULATION_SOURCES.length
+  ) {
+    return "school_year";
+  }
+
+  return [
+    `sources:${normalizedSourceTypes.join(",") || "none"}`,
+    `imports:${normalizedImportIds.join(",") || "all"}`,
+  ].join("|");
+}
+
+function getCalculationSourceLabel(sourceType: CalculationSourceType) {
+  return (
+    CALCULATION_SOURCE_OPTIONS.find((option) => option.value === sourceType)
+      ?.title ?? sourceType
   );
 }
 
@@ -488,23 +569,30 @@ function buildAttendanceInput(
 }
 
 async function listSelectedImportedAttendanceRecords(
-  options: { schoolYearId?: string; importIds: string[] } = { importIds: [] },
+  options: {
+    schoolYearId?: string;
+    importIds: string[];
+    includeImported?: boolean;
+    includeZeroAttendance?: boolean;
+  } = { importIds: [] },
   onProgress?: (progress: ImportedAttendanceLoadProgress) => void,
 ) {
   const pageSize = 500;
   const maxPages = 100;
   const selectedImportIds = new Set(options.importIds);
+  const includeImported = options.includeImported ?? true;
+  const includeZeroAttendance = options.includeZeroAttendance ?? true;
   const rows: AttendanceRecord[] = [];
   let loadedRecords = 0;
 
   const appendSelectedRows = (pageRows: AttendanceRecord[]) => {
     pageRows.forEach((record) => {
       if (isZeroAttendanceRecord(record)) {
-        rows.push(record);
+        if (includeZeroAttendance) rows.push(record);
         return;
       }
 
-      if (!record.import_id) return;
+      if (!includeImported || !record.import_id) return;
       if (selectedImportIds.size && !selectedImportIds.has(record.import_id)) {
         return;
       }
@@ -574,10 +662,16 @@ async function listSelectedImportedAttendanceRecords(
 }
 
 async function listAllManualAttendanceRecords(
-  options: { schoolYearId?: string } = {},
+  options: {
+    schoolYearId?: string;
+    includeManual?: boolean;
+    includeZeroAttendance?: boolean;
+  } = {},
   onProgress?: (progress: ManualAttendanceLoadProgress) => void,
 ) {
   const pageSize = 500;
+  const includeManual = options.includeManual ?? true;
+  const includeZeroAttendance = options.includeZeroAttendance ?? true;
   const rows: ManualAttendanceRecord[] = [];
 
   for (let page = 0; page < 100; page += 1) {
@@ -587,7 +681,13 @@ async function listAllManualAttendanceRecords(
       offset: page * pageSize,
     });
 
-    rows.push(...pageRows);
+    rows.push(
+      ...pageRows.filter((record) => {
+        const isZeroAttendance = isZeroManualAttendanceRecord(record);
+
+        return isZeroAttendance ? includeZeroAttendance : includeManual;
+      }),
+    );
 
     const isComplete = pageRows.length < pageSize;
 
@@ -612,16 +712,28 @@ async function buildCalculationRows(
     manualRecords: ManualAttendanceRecord[];
     penalties: PenaltyRecord[];
     importIds: string[];
+    sourceTypes: CalculationSourceType[];
   },
   onProgress?: (progress: BuildCalculationRowsProgress) => void,
 ) {
   const selectedImportIds = new Set(props.importIds);
+  const selectedSourceTypes = new Set(
+    normalizeCalculationSourceTypes(props.sourceTypes),
+  );
+  const includeImported = selectedSourceTypes.has("imported");
+  const includeManual = selectedSourceTypes.has("manual");
+  const includeZeroAttendance = selectedSourceTypes.has("zero_attendance");
   const importedRecords = props.attendanceRecords.filter((record) => {
-    if (isZeroAttendanceRecord(record)) return true;
-    if (!record.import_id) return false;
+    if (isZeroAttendanceRecord(record)) return includeZeroAttendance;
+    if (!includeImported || !record.import_id) return false;
     if (!selectedImportIds.size) return true;
 
     return selectedImportIds.has(record.import_id);
+  });
+  const manualRecords = props.manualRecords.filter((record) => {
+    const isZeroAttendance = isZeroManualAttendanceRecord(record);
+
+    return isZeroAttendance ? includeZeroAttendance : includeManual;
   });
   const groupedRecords = new Map<string, AttendanceRecord[]>();
   const groupedManualRecords = new Map<string, ManualAttendanceRecord[]>();
@@ -636,7 +748,7 @@ async function buildCalculationRows(
     groupedRecords.set(groupKey, rows);
   });
 
-  props.manualRecords.forEach((record) => {
+  manualRecords.forEach((record) => {
     const studentId = normalizeStudentId(record.student_id);
     if (!studentId) return;
 
@@ -650,7 +762,7 @@ async function buildCalculationRows(
     new Set([...groupedRecords.keys(), ...groupedManualRecords.keys()]),
   );
   const totalStudents = studentKeys.length;
-  const sourceRecords = importedRecords.length + props.manualRecords.length;
+  const sourceRecords = importedRecords.length + manualRecords.length;
   const rows: CalculationRow[] = [];
 
   if (!totalStudents) {
@@ -683,11 +795,12 @@ async function buildCalculationRows(
     const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
 
     rows.push({
-      key: `preview-${props.importIds.join("-") || "all"}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
+      key: `preview-${getCalculationScopeKey(props.importIds, props.sourceTypes)}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
       schoolYearId: bestRecord?.school_year_id ?? null,
-      calculationScopeKey: props.importIds.length
-        ? [...props.importIds].sort().join(":")
-        : "all_imports",
+      calculationScopeKey: getCalculationScopeKey(
+        props.importIds,
+        props.sourceTypes,
+      ),
       importIds: [...props.importIds],
       studentId: bestRecord?.student_id ?? studentKey,
       name: getBestTextValue(bestRecord?.name, studentKey),
@@ -792,6 +905,9 @@ export default function CalculatePage() {
     AttendanceImportRecord[]
   >([]);
   const [selectedImportIds, setSelectedImportIds] = useState<string[]>([]);
+  const [selectedCalculationSources, setSelectedCalculationSources] = useState<
+    CalculationSourceType[]
+  >([...DEFAULT_SELECTED_CALCULATION_SOURCES]);
   const [calculationRows, setCalculationRows] = useState<CalculationRow[]>([]);
   const [selectedCalculationRowKeys, setSelectedCalculationRowKeys] = useState<
     string[]
@@ -831,6 +947,19 @@ export default function CalculatePage() {
       .filter((importRecord) => selectedIds.has(importRecord.id))
       .map(formatImportLabel);
   }, [attendanceImports, selectedImportIds]);
+
+  const selectedCalculationSourceLabels = useMemo(() => {
+    return selectedCalculationSources.map(getCalculationSourceLabel);
+  }, [selectedCalculationSources]);
+
+  const selectedCalculationSourceSet = useMemo(() => {
+    return new Set(selectedCalculationSources);
+  }, [selectedCalculationSources]);
+
+  const includesImportedSource = selectedCalculationSourceSet.has("imported");
+  const canRunCalculation =
+    selectedCalculationSources.length > 0 &&
+    (!includesImportedSource || selectedImportIds.length > 0);
 
   const filteredRows = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -987,6 +1116,7 @@ export default function CalculatePage() {
   async function loadSavedResults(
     nextSchoolYearId = selectedSchoolYearId,
     nextImportIds = selectedImportIds,
+    nextSourceTypes = selectedCalculationSources,
     progressTaskId?: string,
   ) {
     const taskId =
@@ -1020,7 +1150,12 @@ export default function CalculatePage() {
         fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
           : fallbackSchoolYearId || undefined;
-      const requestImportIds = nextImportIds.length ? nextImportIds : undefined;
+      const normalizedSourceTypes =
+        normalizeCalculationSourceTypes(nextSourceTypes);
+      const requestImportIds =
+        normalizedSourceTypes.includes("imported") && nextImportIds.length
+          ? nextImportIds
+          : undefined;
 
       updateCalculationProgress(taskId, {
         detail: "Loading imports and saved calculation rows",
@@ -1039,6 +1174,7 @@ export default function CalculatePage() {
         attendanceApi.listCalculationResults({
           schoolYearId: requestSchoolYearId,
           importIds: requestImportIds,
+          sourceTypes: normalizedSourceTypes,
           limit: 1000,
           offset: 0,
         }),
@@ -1061,6 +1197,7 @@ export default function CalculatePage() {
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
+      setSelectedCalculationSources(normalizedSourceTypes);
       setAttendanceImports(sortByBackendEventOrder(importRows));
       setPenalties(penaltyRows);
       setCalculationRows(savedRows);
@@ -1088,6 +1225,7 @@ export default function CalculatePage() {
   async function loadPreviewRows(
     nextSchoolYearId = selectedSchoolYearId,
     nextImportIds = selectedImportIds,
+    nextSourceTypes = selectedCalculationSources,
     progressTaskId?: string,
   ) {
     const taskId =
@@ -1100,9 +1238,19 @@ export default function CalculatePage() {
       nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
         ? undefined
         : nextSchoolYearId;
+    const normalizedSourceTypes =
+      normalizeCalculationSourceTypes(nextSourceTypes);
+    const selectedSourceTypes = new Set(normalizedSourceTypes);
+    const includeImported = selectedSourceTypes.has("imported");
+    const includeManual = selectedSourceTypes.has("manual");
+    const includeZeroAttendance = selectedSourceTypes.has("zero_attendance");
+    const effectiveImportIds = includeImported ? nextImportIds : [];
     const { selectedImports, expectedImportedRecords } =
-      getSelectedImportProgressSummary(attendanceImports, nextImportIds);
-    const selectedImportCount = selectedImports.length || nextImportIds.length;
+      getSelectedImportProgressSummary(attendanceImports, effectiveImportIds);
+    const selectedImportCount =
+      selectedImports.length || effectiveImportIds.length;
+    const selectedSourceLabels =
+      normalizedSourceTypes.map(getCalculationSourceLabel);
     const importedStartPercent = progressTaskId ? 58 : 8;
     const importedRequestPercent = progressTaskId ? 62 : 18;
     const importedEndPercent = progressTaskId ? 68 : 46;
@@ -1115,7 +1263,7 @@ export default function CalculatePage() {
       label: "Calculating attendance fines",
       detail: expectedImportedRecords
         ? `Preparing ${expectedImportedRecords.toLocaleString()} expected imported row/s from ${selectedImportCount.toLocaleString()} selected file/s`
-        : `Preparing selected imported file/s`,
+        : `Preparing ${selectedSourceLabels.join(", ") || "selected attendance source/s"}`,
       percent: importedStartPercent,
       processed: 0,
       total: expectedImportedRecords,
@@ -1125,7 +1273,7 @@ export default function CalculatePage() {
     updateCalculationProgress(taskId, {
       detail: expectedImportedRecords
         ? `Requesting ${expectedImportedRecords.toLocaleString()} imported attendance row/s`
-        : "Requesting imported attendance records",
+        : "Requesting selected attendance records",
       percent: importedRequestPercent,
       processed: 0,
       total: expectedImportedRecords,
@@ -1133,50 +1281,55 @@ export default function CalculatePage() {
     await yieldCalculationProgressFrame();
 
     try {
-      const selectedAttendanceRows =
-        await listSelectedImportedAttendanceRecords(
-          {
-            schoolYearId: requestSchoolYearId,
-            importIds: nextImportIds,
-          },
-          (progress) => {
-            const importedProgressTotal =
-              expectedImportedRecords ||
-              Math.max(
-                progress.selectedRecords,
-                progress.page * progress.pageSize,
+      const shouldLoadAttendanceRecords =
+        includeImported || includeZeroAttendance;
+      const selectedAttendanceRows = shouldLoadAttendanceRecords
+        ? await listSelectedImportedAttendanceRecords(
+            {
+              schoolYearId: requestSchoolYearId,
+              importIds: effectiveImportIds,
+              includeImported,
+              includeZeroAttendance,
+            },
+            (progress) => {
+              const importedProgressTotal =
+                expectedImportedRecords ||
+                Math.max(
+                  progress.selectedRecords,
+                  progress.page * progress.pageSize,
+                );
+              const pagePercent = Math.min(
+                importedEndPercent,
+                importedRequestPercent + progress.page * 2,
               );
-            const pagePercent = Math.min(
-              importedEndPercent,
-              importedRequestPercent + progress.page * 2,
-            );
-            const rowPercent = getProgressRangePercent(
-              progress.selectedRecords,
-              importedProgressTotal,
-              importedRequestPercent,
-              importedEndPercent,
-            );
+              const rowPercent = getProgressRangePercent(
+                progress.selectedRecords,
+                importedProgressTotal,
+                importedRequestPercent,
+                importedEndPercent,
+              );
 
-            updateCalculationProgress(taskId, {
-              detail: progress.isComplete
-                ? `Loaded ${progress.selectedRecords.toLocaleString()} selected imported attendance record/s from ${progress.page.toLocaleString()} page/s`
-                : `Loaded page ${progress.page.toLocaleString()} with ${progress.selectedRecords.toLocaleString()} selected imported row/s from ${progress.loadedRecords.toLocaleString()} fetched row/s`,
-              percent: progress.isComplete
-                ? importedEndPercent
-                : Math.max(pagePercent, rowPercent),
-              processed: progress.selectedRecords,
-              total: expectedImportedRecords || importedProgressTotal,
-            });
-          },
-        );
-      const selectedImportedRecordCount = selectedAttendanceRows.length;
+              updateCalculationProgress(taskId, {
+                detail: progress.isComplete
+                  ? `Loaded ${progress.selectedRecords.toLocaleString()} selected attendance record/s from ${progress.page.toLocaleString()} page/s`
+                  : `Loaded page ${progress.page.toLocaleString()} with ${progress.selectedRecords.toLocaleString()} selected attendance row/s from ${progress.loadedRecords.toLocaleString()} fetched row/s`,
+                percent: progress.isComplete
+                  ? importedEndPercent
+                  : Math.max(pagePercent, rowPercent),
+                processed: progress.selectedRecords,
+                total: expectedImportedRecords || importedProgressTotal,
+              });
+            },
+          )
+        : [];
+      const selectedAttendanceRecordCount = selectedAttendanceRows.length;
       const importedRecordProgressTotal =
-        expectedImportedRecords || selectedImportedRecordCount;
+        expectedImportedRecords || selectedAttendanceRecordCount;
 
       updateCalculationProgress(taskId, {
-        detail: `Loaded ${selectedImportedRecordCount.toLocaleString()} imported attendance record/s`,
+        detail: `Loaded ${selectedAttendanceRecordCount.toLocaleString()} selected attendance record/s`,
         percent: importedEndPercent,
-        processed: selectedImportedRecordCount,
+        processed: selectedAttendanceRecordCount,
         total: importedRecordProgressTotal,
       });
       await yieldCalculationProgressFrame();
@@ -1189,28 +1342,33 @@ export default function CalculatePage() {
       });
       await yieldCalculationProgressFrame();
 
-      const manualRows = await listAllManualAttendanceRecords(
-        {
-          schoolYearId: requestSchoolYearId,
-        },
-        (progress) => {
-          const pagePercent = Math.min(
-            manualEndPercent,
-            manualStartPercent + progress.page * 2,
-          );
+      const shouldLoadManualRecords = includeManual || includeZeroAttendance;
+      const manualRows = shouldLoadManualRecords
+        ? await listAllManualAttendanceRecords(
+            {
+              schoolYearId: requestSchoolYearId,
+              includeManual,
+              includeZeroAttendance,
+            },
+            (progress) => {
+              const pagePercent = Math.min(
+                manualEndPercent,
+                manualStartPercent + progress.page * 2,
+              );
 
-          updateCalculationProgress(taskId, {
-            detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual attendance record/s from ${progress.page.toLocaleString()} page/s`,
-            percent: progress.isComplete ? manualEndPercent : pagePercent,
-            processed: progress.loadedRecords,
-            total: progress.isComplete
-              ? progress.loadedRecords
-              : Math.max(progress.loadedRecords, progress.pageSize),
-          });
-        },
-      );
+              updateCalculationProgress(taskId, {
+                detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual/zero attendance record/s from ${progress.page.toLocaleString()} page/s`,
+                percent: progress.isComplete ? manualEndPercent : pagePercent,
+                processed: progress.loadedRecords,
+                total: progress.isComplete
+                  ? progress.loadedRecords
+                  : Math.max(progress.loadedRecords, progress.pageSize),
+              });
+            },
+          )
+        : [];
       const totalSourceRecords =
-        selectedImportedRecordCount + manualRows.length;
+        selectedAttendanceRecordCount + manualRows.length;
 
       updateCalculationProgress(taskId, {
         detail: `Calculating ${totalSourceRecords.toLocaleString()} source record/s`,
@@ -1225,7 +1383,8 @@ export default function CalculatePage() {
           attendanceRecords: selectedAttendanceRows,
           manualRecords: manualRows,
           penalties,
-          importIds: nextImportIds,
+          importIds: effectiveImportIds,
+          sourceTypes: normalizedSourceTypes,
         },
         (progress) => {
           updateCalculationProgress(taskId, {
@@ -1326,6 +1485,19 @@ export default function CalculatePage() {
     });
   }
 
+  function handleCalculationSourceToggle(
+    sourceType: CalculationSourceType,
+    checked: boolean,
+  ) {
+    setSelectedCalculationSources((currentSources) => {
+      const nextSources = checked
+        ? [...currentSources, sourceType]
+        : currentSources.filter((currentSource) => currentSource !== sourceType);
+
+      return sortCalculationSourceTypes(nextSources);
+    });
+  }
+
   function handleSelectAllImports() {
     setSelectedImportIds(
       attendanceImports.map((importRecord) => importRecord.id),
@@ -1333,11 +1505,20 @@ export default function CalculatePage() {
   }
 
   async function handleLoadSavedResults() {
-    await loadSavedResults(selectedSchoolYearId, selectedImportIds);
+    await loadSavedResults(
+      selectedSchoolYearId,
+      selectedImportIds,
+      selectedCalculationSources,
+    );
   }
 
   async function handlePreviewCalculation() {
-    if (!selectedImportIds.length) {
+    if (!selectedCalculationSources.length) {
+      toast.error("Choose at least one attendance source to calculate.");
+      return;
+    }
+
+    if (includesImportedSource && !selectedImportIds.length) {
       toast.error("Choose at least one imported file to calculate.");
       return;
     }
@@ -1348,12 +1529,13 @@ export default function CalculatePage() {
       const rows = await loadPreviewRows(
         selectedSchoolYearId,
         selectedImportIds,
+        selectedCalculationSources,
       );
 
       toast.success(
         rows.length
           ? "Calculation preview updated."
-          : "No rows found for the selected imported files.",
+          : "No rows found for the selected attendance sources.",
       );
     } catch (error) {
       toast.error(
@@ -1492,7 +1674,12 @@ export default function CalculatePage() {
   }
 
   async function handleSaveResults() {
-    if (!selectedImportIds.length) {
+    if (!selectedCalculationSources.length) {
+      toast.error("Choose at least one attendance source before saving results.");
+      return;
+    }
+
+    if (includesImportedSource && !selectedImportIds.length) {
       toast.error("Choose at least one imported file before saving results.");
       return;
     }
@@ -1516,10 +1703,17 @@ export default function CalculatePage() {
         selectedSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
           : selectedSchoolYearId;
+      const normalizedSourceTypes = normalizeCalculationSourceTypes(
+        selectedCalculationSources,
+      );
+      const requestImportIds = normalizedSourceTypes.includes("imported")
+        ? selectedImportIds
+        : [];
 
       await attendanceApi.refreshCalculationResults({
         schoolYearId: requestSchoolYearId,
-        importIds: selectedImportIds,
+        importIds: requestImportIds,
+        sourceTypes: normalizedSourceTypes,
       });
 
       updateCalculationProgress(progressTaskId, {
@@ -1533,7 +1727,8 @@ export default function CalculatePage() {
       toast.success("Calculation results saved.");
       await loadSavedResults(
         selectedSchoolYearId,
-        selectedImportIds,
+        requestImportIds,
+        normalizedSourceTypes,
         progressTaskId,
       );
     } catch (error) {
@@ -1615,7 +1810,12 @@ export default function CalculatePage() {
       toast.success("Source records updated.");
       setEditingRow(null);
       setRecordEditForms([]);
-      await loadPreviewRows(selectedSchoolYearId, [], progressTaskId);
+      await loadPreviewRows(
+        selectedSchoolYearId,
+        selectedImportIds,
+        selectedCalculationSources,
+        progressTaskId,
+      );
     } catch (error) {
       failCalculationProgress(
         progressTaskId,
@@ -1673,9 +1873,7 @@ export default function CalculatePage() {
                   type="button"
                   variant="outline"
                   onClick={handlePreviewCalculation}
-                  disabled={
-                    isPreviewing || isLoading || !selectedImportIds.length
-                  }
+                  disabled={isPreviewing || isLoading || !canRunCalculation}
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
                   {isPreviewing ? "Calculating..." : "Preview Selected Files"}
@@ -1688,7 +1886,7 @@ export default function CalculatePage() {
                     isSavingResults ||
                     isLoading ||
                     !calculationRows.length ||
-                    !selectedImportIds.length
+                    !canRunCalculation
                   }
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
@@ -1764,11 +1962,11 @@ export default function CalculatePage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-xl font-black">
-                Imported files to calculate
+                Sources and imported files to calculate
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Choose one or more imported files before previewing and saving
-                calculation results.
+                Choose the source types, then select the imported files to
+                include in preview and saved calculation results.
               </p>
             </div>
 
@@ -1777,7 +1975,7 @@ export default function CalculatePage() {
                 type="button"
                 variant="outline"
                 onClick={handleSelectAllImports}
-                disabled={!attendanceImports.length}
+                disabled={!attendanceImports.length || !includesImportedSource}
                 className="min-h-10 rounded-xl px-4 text-xs font-black"
               >
                 Select All
@@ -1794,16 +1992,52 @@ export default function CalculatePage() {
             </div>
           </div>
 
+          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+            {CALCULATION_SOURCE_OPTIONS.map((sourceOption) => (
+              <label
+                key={sourceOption.value}
+                className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedCalculationSources.includes(
+                    sourceOption.value,
+                  )}
+                  onChange={(event) =>
+                    handleCalculationSourceToggle(
+                      sourceOption.value,
+                      event.target.checked,
+                    )
+                  }
+                  className="mt-1 size-4"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-black">
+                    {sourceOption.title}
+                  </span>
+                  <span className="mt-1 block text-muted-foreground">
+                    {sourceOption.description}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {attendanceImports.length ? (
               attendanceImports.map((importRecord) => (
                 <label
                   key={importRecord.id}
-                  className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
+                  className={`flex items-start gap-3 rounded-2xl border bg-background p-4 text-sm ${
+                    includesImportedSource
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed opacity-60"
+                  }`}
                 >
                   <input
                     type="checkbox"
                     checked={selectedImportIds.includes(importRecord.id)}
+                    disabled={!includesImportedSource}
                     onChange={() => handleImportToggle(importRecord.id)}
                     className="mt-1 size-4"
                   />
@@ -1831,8 +2065,13 @@ export default function CalculatePage() {
           </div>
 
           <div className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+            Selected sources:{" "}
+            {selectedCalculationSourceLabels.length
+              ? selectedCalculationSourceLabels.join(" | ")
+              : "None"}
+            <span className="mx-2">•</span>
             Selected files:{" "}
-            {selectedImportLabels.length
+            {includesImportedSource && selectedImportLabels.length
               ? selectedImportLabels.join(" | ")
               : "None"}
           </div>

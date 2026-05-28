@@ -41,6 +41,7 @@ export type AttendanceRecord = {
 };
 
 export type ManualAttendanceType = "manual" | "zero_attendance";
+export type CalculationSourceType = "imported" | "manual" | "zero_attendance";
 
 export type ManualAttendanceRecord = {
   id: string;
@@ -236,6 +237,7 @@ type ListOptions = {
   studentId?: string;
   eventId?: string;
   importIds?: string[];
+  sourceTypes?: CalculationSourceType[];
   college?: string;
   limit?: number;
   offset?: number;
@@ -708,6 +710,7 @@ export async function listCalculationResults(options: ListOptions = {}) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
     importIds: options.importIds?.join(","),
+    sourceTypes: options.sourceTypes?.join(","),
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
     studentId: options.studentId,
@@ -724,6 +727,7 @@ export async function refreshCalculationResults(
   options: {
     schoolYearId?: string;
     importIds?: string[];
+    sourceTypes?: CalculationSourceType[];
   } = {},
 ) {
   const response = await apiRequest<CalculationResultRecord[]>(
