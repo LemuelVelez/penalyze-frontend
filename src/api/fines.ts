@@ -14,6 +14,8 @@ export type FineRecord = {
   status: FineStatus;
   attendance_event_id?: string | null;
   attendance_remarks?: string | null;
+  source_table?: string | null;
+  source_record_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -220,6 +222,8 @@ function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
     status: result.status,
     attendance_event_id: null,
     attendance_remarks: result.source_table === "manual_attendance_records" ? "Manual attendance result" : "Final attendance result",
+    source_table: result.source_table,
+    source_record_id: result.source_record_id,
     created_at: result.created_at,
     updated_at: result.updated_at
   };

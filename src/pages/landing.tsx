@@ -5,14 +5,15 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   getStudentAttendanceRecords,
   listAttendanceEvents,
-  listAttendanceFinalResults,
+  listAttendanceRecords,
+  listManualAttendanceRecords,
   saveManualAttendanceRecord,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
-  AttendanceFinalResultRecord,
   AttendanceRecord,
   ManualAttendanceInput,
+  ManualAttendanceRecord,
 } from "../api/attendance";
 import { getStudentFines, matchPenalty } from "../api/fines";
 import type { FineRecord, PenaltyRecord } from "../api/fines";
@@ -2311,28 +2312,26 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
-function finalResultToAttendanceRecord(
-  row: AttendanceFinalResultRecord,
+function manualRecordToDisplayAttendanceRecord(
+  row: ManualAttendanceRecord,
 ): AttendanceRecord {
-  const rowData = row as AttendanceFinalResultRecord & Record<string, unknown>;
-  const eventId = String(rowData.event_id ?? "").trim();
-  const eventName = String(rowData.event_name ?? "").trim();
+  const rowData = row as ManualAttendanceRecord & Record<string, unknown>;
 
   return {
     id: row.id,
     school_year_id: row.school_year_id,
-    import_id: row.import_id,
-    event_id: eventId || null,
-    event_name: eventName || "Final attendance result",
+    import_id: null,
+    event_id: row.event_id,
+    event_name: row.event_name ?? null,
     student_id: row.student_id,
     name: row.name,
     year_level: row.year_level,
     college: row.college,
     program: row.program,
     institution: row.institution,
-    no_of_absences: row.total_absences,
-    remarks: row.attendance_status,
-    scanned_at: row.latest_scanned_at,
+    no_of_absences: row.no_of_absences,
+    remarks: row.remarks,
+    scanned_at: row.scanned_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
     event_order: rowData.event_order ?? null,
@@ -2344,18 +2343,45 @@ function finalResultToAttendanceRecord(
 async function listLandingAttendanceRecords(
   onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
 ) {
-  const rows = await listAttendanceFinalResults({
-    limit: 5000,
-    offset: 0,
-  });
+  const pageSize = 500;
+  const maxPages = 100;
+  const attendanceRows: AttendanceRecord[] = [];
+  const manualRows: ManualAttendanceRecord[] = [];
+  let pageCount = 0;
 
-  onProgress?.({
-    loadedRows: rows.length,
-    pageCount: 1,
-    isComplete: true,
-  });
+  for (let page = 0; page < maxPages; page += 1) {
+    const [attendancePageRows, manualPageRows] = await Promise.all([
+      listAttendanceRecords({
+        limit: pageSize,
+        offset: page * pageSize,
+      }),
+      listManualAttendanceRecords({
+        limit: pageSize,
+        offset: page * pageSize,
+      }),
+    ]);
 
-  return rows.map(finalResultToAttendanceRecord);
+    attendanceRows.push(...attendancePageRows);
+    manualRows.push(...manualPageRows);
+    pageCount = page + 1;
+
+    const loadedRows = attendanceRows.length + manualRows.length;
+    const isComplete =
+      attendancePageRows.length < pageSize && manualPageRows.length < pageSize;
+
+    onProgress?.({
+      loadedRows,
+      pageCount,
+      isComplete,
+    });
+
+    if (isComplete) break;
+  }
+
+  return getUniqueDisplayAttendance([
+    ...attendanceRows,
+    ...manualRows.map(manualRecordToDisplayAttendanceRecord),
+  ]);
 }
 
 export default function LandingPage() {
@@ -2702,6 +2728,34 @@ export default function LandingPage() {
         ),
       };
 
+      const [studentAttendance, refreshedFines, attendanceEvents, attendanceRecords] =
+        await Promise.all([
+          getStudentAttendanceRecords(attendanceRecord.student_id).catch(
+            () => [] as AttendanceRecord[],
+          ),
+          getStudentFines(attendanceRecord.student_id).catch(
+            () => [] as FineRecord[],
+          ),
+          listAttendanceEvents({ limit: 500, offset: 0 }).catch(
+            () => [] as AttendanceEvent[],
+          ),
+          listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
+        ]);
+
+      const mergedStudentAttendance = getUniqueDisplayAttendance([
+        attendanceRecord,
+        ...studentAttendance,
+        ...attendanceRecords.filter(
+          (record) =>
+            normalizeDisplayValue(record.student_id) ===
+            normalizeDisplayValue(attendanceRecord.student_id),
+        ),
+      ]);
+      const mergedFines = getUniqueDisplayFines([
+        ...(fine ? [fine] : []),
+        ...refreshedFines,
+      ]);
+
       setStudentId(attendanceRecord.student_id);
       setSearchedId(attendanceRecord.student_id);
       setResultYearFilter(
@@ -2710,11 +2764,14 @@ export default function LandingPage() {
           ALL_YEARS_VALUE,
       );
       setLookup({
-        attendance: [attendanceRecord],
-        attendanceEvents: [],
-        attendanceRecords: [attendanceRecord],
+        attendance: mergedStudentAttendance,
+        attendanceEvents,
+        attendanceRecords: getUniqueDisplayAttendance([
+          attendanceRecord,
+          ...attendanceRecords,
+        ]),
         schoolYears,
-        fines: fine ? [fine] : [],
+        fines: mergedFines,
         fallbackFine: null,
       });
       setZeroAttendanceDialogOpen(false);
@@ -2912,7 +2969,16 @@ export default function LandingPage() {
         "Classifying attendance status and checking related fines.",
       );
 
-      if (!attendance.length && !fines.length) {
+      const matchedAttendance = getUniqueDisplayAttendance([
+        ...attendance,
+        ...attendanceRecords.filter(
+          (record) =>
+            normalizeDisplayValue(record.student_id) ===
+            normalizeDisplayValue(cleanStudentId),
+        ),
+      ]);
+
+      if (!matchedAttendance.length && !fines.length) {
         updateProgress(
           100,
           "No saved student record found.",
@@ -2923,7 +2989,7 @@ export default function LandingPage() {
       }
 
       const fallbackAbsenceCount = getFallbackAbsenceCount(
-        attendance,
+        matchedAttendance,
         attendanceRecords,
         attendanceEvents,
       );
@@ -2932,7 +2998,7 @@ export default function LandingPage() {
       const fallbackFine = shouldBuildFallbackFine
         ? buildFallbackFine(
             cleanStudentId,
-            attendance,
+            matchedAttendance,
             fallbackAbsenceCount,
             await resolveFallbackPenalty(fallbackAbsenceCount),
           )
@@ -2940,7 +3006,7 @@ export default function LandingPage() {
 
       setResultYearFilter(ALL_YEARS_VALUE);
       setLookup({
-        attendance,
+        attendance: matchedAttendance,
         attendanceEvents,
         attendanceRecords,
         schoolYears: schoolYearRows,

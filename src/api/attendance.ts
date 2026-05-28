@@ -27,6 +27,9 @@ export type AttendanceRecord = {
   import_id: string | null;
   event_id: string | null;
   event_name: string | null;
+  event_order?: number | null;
+  event_start_at?: string | null;
+  event_end_at?: string | null;
   student_id: string;
   name: string;
   year_level: string | null;
@@ -47,6 +50,9 @@ export type ManualAttendanceRecord = {
   school_year_id: string | null;
   event_id: string | null;
   event_name?: string | null;
+  event_order?: number | null;
+  event_start_at?: string | null;
+  event_end_at?: string | null;
   attendance_type: ManualAttendanceType;
   student_id: string;
   name: string;
