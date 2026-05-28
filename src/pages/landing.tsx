@@ -6,11 +6,9 @@ import {
   getStudentAttendanceRecords,
   listAllAttendanceRecords,
   listAttendanceEvents,
-  listAttendanceFinalResults,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
-  AttendanceFinalResultRecord,
   AttendanceRecord,
 } from "../api/attendance";
 import {
@@ -203,6 +201,7 @@ const LANDING_RESOURCE_LINKS = [
 
 const ZERO_ATTENDANCE_REMARK =
   "Zero attendance registration from landing page.";
+const FINAL_ATTENDANCE_RESULT_NAME = "Final attendance result";
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
@@ -791,6 +790,39 @@ function normalizeDisplayValue(value: unknown) {
     .replace(/\s+/g, " ");
 }
 
+function hasFinalAttendanceResultMarker(...values: unknown[]) {
+  const finalAttendanceResultNames = new Set([
+    normalizeDisplayValue(FINAL_ATTENDANCE_RESULT_NAME),
+    "attendance final result",
+    "final_attendance_result",
+  ]);
+
+  return values.some((value) => {
+    const normalizedValue = normalizeDisplayValue(value);
+
+    return (
+      Boolean(normalizedValue) && finalAttendanceResultNames.has(normalizedValue)
+    );
+  });
+}
+
+function isFinalAttendanceResultRecord(record: AttendanceRecord) {
+  const recordData = record as Record<string, unknown>;
+
+  return Boolean(
+    recordData.is_final_attendance_result ||
+      recordData.isFinalAttendanceResult ||
+      hasFinalAttendanceResultMarker(
+        record.event_name,
+        recordData.attendance_result_type,
+        recordData.source_type,
+        recordData.record_type,
+        recordData.type,
+        recordData.kind,
+      ),
+  );
+}
+
 function getAttendanceDisplayKey(record: AttendanceRecord) {
   return [
     normalizeDisplayValue(record.student_id),
@@ -855,7 +887,8 @@ function getAttendanceEventSummaryKey(
   record: AttendanceRecord,
   eventById?: Map<string, AttendanceEvent>,
 ) {
-  if (isZeroAttendanceRecord(record)) return "";
+  if (isZeroAttendanceRecord(record) || isFinalAttendanceResultRecord(record))
+    return "";
 
   const eventId = String(record.event_id ?? "").trim();
   if (eventId) return `event-id:${eventId}`;
@@ -909,6 +942,7 @@ function getCollegeLinkedEventSummaryMap(
     .filter(
       (record) =>
         !isZeroAttendanceRecord(record) &&
+        !isFinalAttendanceResultRecord(record) &&
         getAttendanceRecordCollegeKey(record) === studentCollegeKey &&
         hasAttendanceEventIdentity(record, eventById),
     )
@@ -1015,6 +1049,7 @@ function getStudentAttendedEventSummaries(
     .filter(
       (record) =>
         !isZeroAttendanceRecord(record) &&
+        !isFinalAttendanceResultRecord(record) &&
         !isExplicitAbsentAttendanceRecord(record) &&
         (record.event_id || record.event_name || record.import_id),
     )
@@ -1178,7 +1213,8 @@ function getAttendanceEventSequenceSet(attendance: AttendanceRecord[]) {
   const sequenceSet = new Set<number>();
 
   attendance.forEach((record) => {
-    if (isZeroAttendanceRecord(record)) return;
+    if (isZeroAttendanceRecord(record) || isFinalAttendanceResultRecord(record))
+      return;
 
     const sequence = getPositiveAttendanceEventSequence(record);
     if (sequence !== null) sequenceSet.add(sequence);
@@ -1368,7 +1404,8 @@ function getStudentAbsentEventSummaries(
   const summaries = new Map<string, StudentAbsentEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
   const uniqueAttendance = getUniqueDisplayAttendance(attendance).filter(
-    (record) => !isZeroAttendanceRecord(record),
+    (record) =>
+      !isZeroAttendanceRecord(record) && !isFinalAttendanceResultRecord(record),
   );
   const explicitAbsentRecords = uniqueAttendance.filter(
     isExplicitAbsentAttendanceRecord,
@@ -1531,7 +1568,11 @@ function getFallbackAbsenceCount(
     return getTotalAbsences(attendance);
 
   const explicitAbsenceCounts = getUniqueDisplayAttendance(attendance)
-    .filter(isExplicitAbsentAttendanceRecord)
+    .filter(
+      (record) =>
+        !isFinalAttendanceResultRecord(record) &&
+        isExplicitAbsentAttendanceRecord(record),
+    )
     .map(getRecordAbsenceCount);
 
   if (!explicitAbsenceCounts.length) return 0;
@@ -2332,53 +2373,16 @@ function ZeroAttendanceRegistrationDialog(props: {
   );
 }
 
-function finalResultToAttendanceRecord(
-  row: AttendanceFinalResultRecord,
-): AttendanceRecord {
-  const rowData = row as AttendanceFinalResultRecord & Record<string, unknown>;
-  const eventId = String(rowData.event_id ?? "").trim();
-  const eventName = String(rowData.event_name ?? "").trim();
-
-  return {
-    id: row.id,
-    school_year_id: row.school_year_id,
-    import_id: row.import_id,
-    event_id: eventId || null,
-    event_name: eventName || "Final attendance result",
-    student_id: row.student_id,
-    name: row.name,
-    year_level: row.year_level,
-    college: row.college,
-    program: row.program,
-    institution: row.institution,
-    no_of_absences: row.total_absences,
-    remarks: row.attendance_status,
-    scanned_at: row.latest_scanned_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    event_order: rowData.event_order ?? null,
-    event_start_at: rowData.event_start_at ?? null,
-    event_end_at: rowData.event_end_at ?? null,
-  } as AttendanceRecord;
-}
-
 async function listLandingAttendanceRecords(
   onProgress?: (progress: LandingAttendanceRecordsPageProgress) => void,
 ) {
-  const [attendanceRows, finalRows] = await Promise.all([
-    listAllAttendanceRecords({
-      pageSize: 500,
-      maxPages: 100,
-    }),
-    listAttendanceFinalResults({
-      limit: 5000,
-      offset: 0,
-    }),
-  ]);
-  const rows = getUniqueDisplayAttendance([
-    ...attendanceRows,
-    ...finalRows.map(finalResultToAttendanceRecord),
-  ]);
+  const attendanceRows = await listAllAttendanceRecords({
+    pageSize: 500,
+    maxPages: 100,
+  });
+  const rows = getUniqueDisplayAttendance(
+    attendanceRows.filter((record) => !isFinalAttendanceResultRecord(record)),
+  );
 
   onProgress?.({
     loadedRows: rows.length,
