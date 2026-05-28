@@ -600,6 +600,15 @@ function matchesSelectedYear(recordYear: string, selectedYear: string) {
   return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
 }
 
+function getLandingActiveSchoolYearId(schoolYears: SchoolYearRecord[]) {
+  return (
+    getActiveSchoolYearId(getSelectableSchoolYears(schoolYears)) ||
+    getActiveSchoolYearId(schoolYears) ||
+    schoolYears.find((schoolYear) => schoolYear.id)?.id ||
+    ""
+  );
+}
+
 function getRecordEventName(
   record: AttendanceRecord,
   eventById?: Map<string, AttendanceEvent>,
@@ -2386,7 +2395,7 @@ export default function LandingPage() {
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [searchedId, setSearchedId] = useState("");
-  const [resultYearFilter, setResultYearFilter] = useState(ALL_YEARS_VALUE);
+  const [resultYearFilter, setResultYearFilter] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState<ProgressiveLoadProgress>(
     INITIAL_PROGRESSIVE_LOAD_PROGRESS,
@@ -2410,9 +2419,15 @@ export default function LandingPage() {
     try {
       const rows = await listSchoolYears({ activeOnly: true });
       setSchoolYears(rows);
+      const activeSchoolYearId = getLandingActiveSchoolYearId(rows);
+
+      setResultYearFilter((current) => {
+        if (current && current !== ALL_YEARS_VALUE) return current;
+        return activeSchoolYearId || current;
+      });
       setZeroAttendanceForm((current) => ({
         ...current,
-        schoolYearId: current.schoolYearId || getActiveSchoolYearId(rows),
+        schoolYearId: current.schoolYearId || activeSchoolYearId,
       }));
       return rows;
     } catch {
@@ -2468,19 +2483,25 @@ export default function LandingPage() {
     attendanceEventById,
     attendanceRecordById,
   ]);
-  const selectedYearLabel = getSchoolYearLabel(
-    lookup?.schoolYears ?? schoolYears,
-    resultYearFilter,
-  );
+  const selectedYearLabel =
+    getSchoolYearLabel(lookup?.schoolYears ?? schoolYears, resultYearFilter) ||
+    "Active school year";
 
   useEffect(() => {
+    if (!yearOptions.length) return;
+
     if (
-      resultYearFilter !== ALL_YEARS_VALUE &&
+      !resultYearFilter ||
+      resultYearFilter === ALL_YEARS_VALUE ||
       !yearOptions.includes(resultYearFilter)
     ) {
-      setResultYearFilter(ALL_YEARS_VALUE);
+      const activeSchoolYearId = getLandingActiveSchoolYearId(
+        lookup?.schoolYears ?? schoolYears,
+      );
+
+      setResultYearFilter(activeSchoolYearId || yearOptions[0] || "");
     }
-  }, [resultYearFilter, yearOptions]);
+  }, [resultYearFilter, yearOptions, lookup, schoolYears]);
 
   const displayedAttendance = useMemo(() => {
     if (!lookup) return [];
@@ -2641,14 +2662,16 @@ export default function LandingPage() {
     setLookup(null);
     setResultDialogOpen(false);
     setEventsDialogOpen(false);
+    const activeSchoolYearId = getLandingActiveSchoolYearId(
+      availableSchoolYears,
+    );
+
     setZeroAttendanceError("");
-    setResultYearFilter(ALL_YEARS_VALUE);
+    setResultYearFilter(activeSchoolYearId);
     setZeroAttendanceForm({
       ...emptyZeroAttendanceForm,
       studentId: cleanStudentId,
-      schoolYearId: getActiveSchoolYearId(
-        getSelectableSchoolYears(availableSchoolYears),
-      ),
+      schoolYearId: activeSchoolYearId,
     });
     setZeroAttendanceDialogOpen(true);
   }
@@ -2673,7 +2696,7 @@ export default function LandingPage() {
       studentId: zeroAttendanceForm.studentId.trim(),
       schoolYearId:
         zeroAttendanceForm.schoolYearId ||
-        getActiveSchoolYearId(getSelectableSchoolYears(schoolYears)) ||
+        getLandingActiveSchoolYearId(schoolYears) ||
         undefined,
       name: zeroAttendanceForm.name.trim(),
       yearLevel: zeroAttendanceForm.yearLevel.trim(),
@@ -2741,7 +2764,7 @@ export default function LandingPage() {
       setResultYearFilter(
         attendanceRecord.school_year_id ||
           payload.schoolYearId ||
-          ALL_YEARS_VALUE,
+          getLandingActiveSchoolYearId(schoolYears),
       );
       setLookup({
         attendance: [attendanceRecord],
@@ -2972,7 +2995,7 @@ export default function LandingPage() {
           )
         : null;
 
-      setResultYearFilter(ALL_YEARS_VALUE);
+      setResultYearFilter(getLandingActiveSchoolYearId(schoolYearRows));
       setLookup({
         attendance,
         attendanceEvents,
