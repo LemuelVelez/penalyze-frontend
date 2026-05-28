@@ -598,6 +598,7 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
     offset: options.offset ?? 0,
     studentId: options.studentId,
     eventId: options.eventId,
+    importIds: options.importIds?.join(","),
     college: options.college,
   });
 
@@ -606,7 +607,9 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
   );
   const rows = response.data ?? [];
 
-  if (!options.studentId && !options.college) return rows;
+  const targetImportIds = new Set(options.importIds?.filter(Boolean) ?? []);
+
+  if (!options.studentId && !options.college && !targetImportIds.size) return rows;
 
   const targetStudentId = options.studentId
     ? normalizeStudentId(options.studentId)
@@ -624,8 +627,11 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
       String(row.college ?? "")
         .trim()
         .toLowerCase() === targetCollege;
+    const matchesImport =
+      !targetImportIds.size ||
+      (row.import_id ? targetImportIds.has(row.import_id) : false);
 
-    return matchesStudent && matchesCollege;
+    return matchesStudent && matchesCollege && matchesImport;
   });
 }
 

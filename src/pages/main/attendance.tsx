@@ -9,6 +9,7 @@ import {
   listAttendanceFinalResults,
   listAttendanceImports,
   listManualAttendanceRecords,
+  previewAttendanceFile,
   refreshAttendanceFinalResults,
   saveAttendanceFile,
   updateAttendanceRecord,
@@ -21,6 +22,7 @@ import type {
   AttendanceRecord,
   ManualAttendanceInput,
   ManualAttendanceRecord,
+  ParsedAttendanceRow,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -186,6 +188,7 @@ async function readAttendanceFileContents(
 
 function cleanAttendanceMetadataValue(value: unknown) {
   return String(value ?? "")
+    .replace(/[\u00A0\u202F]+/g, " ")
     .replace(/^["'\s]+|["'\s]+$/g, "")
     .trim();
 }
@@ -214,7 +217,7 @@ function getAttendanceMetadataKey(value: string) {
   }
 
   if (
-    /^(start date\/time|start datetime|start date time|event start|event start date|event start date time|start date|date start)$/.test(
+    /^(start date\/time|start datetime|start date time|event start|event start at|event start date|event start date time|start date|date start)$/.test(
       key,
     )
   ) {
@@ -222,7 +225,7 @@ function getAttendanceMetadataKey(value: string) {
   }
 
   if (
-    /^(end date\/time|end datetime|end date time|event end|event end date|event end date time|end date|date end)$/.test(
+    /^(end date\/time|end datetime|end date time|event end|event end at|event end date|event end date time|end date|date end)$/.test(
       key,
     )
   ) {
@@ -379,13 +382,67 @@ function extractAttendanceFileMetadata(
   return metadata;
 }
 
-async function getAttendanceFileMetadata(
+function extractAttendancePreviewMetadata(
+  rows: ParsedAttendanceRow[],
+  schoolYears: SchoolYearRecord[],
+) {
+  const metadata: AttendanceFileMetadata = {};
+  const metadataRow =
+    rows.find(
+      (row) =>
+        row.errors.length === 0 &&
+        (row.eventName || row.eventStartAt || row.eventEndAt),
+    ) ?? rows.find((row) => row.eventName || row.eventStartAt || row.eventEndAt);
+
+  if (!metadataRow) return metadata;
+
+  if (metadataRow.schoolYearId) {
+    const schoolYearId = resolveAttendanceMetadataSchoolYearId(
+      metadataRow.schoolYearId,
+      schoolYears,
+    );
+    if (schoolYearId) metadata.schoolYearId = schoolYearId;
+  }
+
+  if (metadataRow.eventName) metadata.eventName = metadataRow.eventName;
+
+  if (metadataRow.eventStartAt) {
+    metadata.eventStartAt = formatDateTimeInputValue(metadataRow.eventStartAt);
+  }
+
+  if (metadataRow.eventEndAt) {
+    metadata.eventEndAt = formatDateTimeInputValue(metadataRow.eventEndAt);
+  }
+
+  return metadata;
+}
+
+async function getAttendanceFileTextMetadata(
   file: File,
   schoolYears: SchoolYearRecord[],
 ) {
   const { text } = await readAttendanceFileContents(file);
 
   return extractAttendanceFileMetadata(text.slice(0, 120_000), schoolYears);
+}
+
+async function getAttendanceFileMetadata(
+  file: File,
+  schoolYears: SchoolYearRecord[],
+) {
+  try {
+    const preview = await previewAttendanceFile(file);
+    const previewMetadata = extractAttendancePreviewMetadata(
+      preview?.rows ?? [],
+      schoolYears,
+    );
+
+    if (hasAttendanceFileMetadata(previewMetadata)) return previewMetadata;
+  } catch {
+    return getAttendanceFileTextMetadata(file, schoolYears);
+  }
+
+  return getAttendanceFileTextMetadata(file, schoolYears);
 }
 
 function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {

@@ -521,6 +521,7 @@ async function listSelectedImportedAttendanceRecords(
   if (!paginatedListAttendanceRecords) {
     const allRows = await attendanceApi.listAllAttendanceRecords({
       schoolYearId: options.schoolYearId,
+      importIds: options.importIds,
       pageSize,
       maxPages,
     });
@@ -543,6 +544,7 @@ async function listSelectedImportedAttendanceRecords(
   for (let page = 0; page < maxPages; page += 1) {
     const pageRows = await paginatedListAttendanceRecords({
       schoolYearId: options.schoolYearId,
+      importIds: options.importIds,
       limit: pageSize,
       offset: page * pageSize,
     });
@@ -954,7 +956,7 @@ export default function CalculatePage() {
 
   async function loadSavedResults(
     nextSchoolYearId = selectedSchoolYearId,
-    _nextImportIds = selectedImportIds,
+    nextImportIds = selectedImportIds,
     progressTaskId?: string,
   ) {
     const taskId =
@@ -988,6 +990,7 @@ export default function CalculatePage() {
         fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
           : fallbackSchoolYearId || undefined;
+      const requestImportIds = nextImportIds.length ? nextImportIds : undefined;
 
       updateCalculationProgress(taskId, {
         detail: "Loading imports and saved calculation rows",
@@ -1005,6 +1008,7 @@ export default function CalculatePage() {
         }),
         attendanceApi.listCalculationResults({
           schoolYearId: requestSchoolYearId,
+          importIds: requestImportIds,
           limit: 1000,
           offset: 0,
         }),
@@ -1103,7 +1107,7 @@ export default function CalculatePage() {
         await listSelectedImportedAttendanceRecords(
           {
             schoolYearId: requestSchoolYearId,
-            importIds: [],
+            importIds: nextImportIds,
           },
           (progress) => {
             const importedProgressTotal =
@@ -1191,7 +1195,7 @@ export default function CalculatePage() {
           attendanceRecords: selectedAttendanceRows,
           manualRecords: manualRows,
           penalties,
-          importIds: [],
+          importIds: nextImportIds,
         },
         (progress) => {
           updateCalculationProgress(taskId, {
@@ -1387,7 +1391,7 @@ export default function CalculatePage() {
 
       await attendanceApi.refreshCalculationResults({
         schoolYearId: requestSchoolYearId,
-        importIds: [],
+        importIds: selectedImportIds,
       });
 
       updateCalculationProgress(progressTaskId, {
@@ -1401,7 +1405,7 @@ export default function CalculatePage() {
       toast.success("Calculation results saved.");
       await loadSavedResults(
         selectedSchoolYearId,
-        [],
+        selectedImportIds,
         progressTaskId,
       );
     } catch (error) {
