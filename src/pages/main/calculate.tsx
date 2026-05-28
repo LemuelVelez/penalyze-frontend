@@ -954,7 +954,7 @@ export default function CalculatePage() {
 
   async function loadSavedResults(
     nextSchoolYearId = selectedSchoolYearId,
-    nextImportIds = selectedImportIds,
+    _nextImportIds = selectedImportIds,
     progressTaskId?: string,
   ) {
     const taskId =
@@ -1005,7 +1005,6 @@ export default function CalculatePage() {
         }),
         attendanceApi.listCalculationResults({
           schoolYearId: requestSchoolYearId,
-          importIds: nextImportIds,
           limit: 1000,
           offset: 0,
         }),
@@ -1104,7 +1103,7 @@ export default function CalculatePage() {
         await listSelectedImportedAttendanceRecords(
           {
             schoolYearId: requestSchoolYearId,
-            importIds: nextImportIds,
+            importIds: [],
           },
           (progress) => {
             const importedProgressTotal =
@@ -1192,7 +1191,7 @@ export default function CalculatePage() {
           attendanceRecords: selectedAttendanceRows,
           manualRecords: manualRows,
           penalties,
-          importIds: nextImportIds,
+          importIds: [],
         },
         (progress) => {
           updateCalculationProgress(taskId, {
@@ -1388,7 +1387,7 @@ export default function CalculatePage() {
 
       await attendanceApi.refreshCalculationResults({
         schoolYearId: requestSchoolYearId,
-        importIds: selectedImportIds,
+        importIds: [],
       });
 
       updateCalculationProgress(progressTaskId, {
@@ -1402,7 +1401,7 @@ export default function CalculatePage() {
       toast.success("Calculation results saved.");
       await loadSavedResults(
         selectedSchoolYearId,
-        selectedImportIds,
+        [],
         progressTaskId,
       );
     } catch (error) {
@@ -1486,7 +1485,7 @@ export default function CalculatePage() {
       setRecordEditForms([]);
       await loadPreviewRows(
         selectedSchoolYearId,
-        selectedImportIds,
+        [],
         progressTaskId,
       );
     } catch (error) {
