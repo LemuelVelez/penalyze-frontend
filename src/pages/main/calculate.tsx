@@ -429,10 +429,35 @@ function getAbsenceCount(value: unknown) {
   return Math.max(0, numericValue);
 }
 
-function getEventKey(record: AttendanceRecord) {
+type CalculationEventRecord = AttendanceRecord | ManualAttendanceRecord;
+
+function getCalculationRecordImportId(record: CalculationEventRecord) {
+  return "import_id" in record ? record.import_id : null;
+}
+
+function getAttendedEventKey(record: CalculationEventRecord) {
+  if ("attendance_type" in record) {
+    if (isZeroManualAttendanceRecord(record)) return "";
+  } else if (isZeroAttendanceRecord(record)) {
+    return "";
+  }
+
   return normalizeValue(
-    record.event_id || record.event_name || record.import_id || record.id,
+    record.event_id ||
+      record.event_name ||
+      getCalculationRecordImportId(record) ||
+      record.id,
   );
+}
+
+function getCalculationSchoolYearKey(record: CalculationEventRecord) {
+  return record.school_year_id ?? "unassigned";
+}
+
+function getCalculationStudentGroupKey(record: CalculationEventRecord) {
+  return `${getCalculationSchoolYearKey(record)}::${normalizeStudentId(
+    record.student_id,
+  )}`;
 }
 
 function getBestTextValue(...values: Array<string | null | undefined>) {
@@ -737,12 +762,24 @@ async function buildCalculationRows(
   });
   const groupedRecords = new Map<string, AttendanceRecord[]>();
   const groupedManualRecords = new Map<string, ManualAttendanceRecord[]>();
+  const expectedEventKeysBySchoolYear = new Map<string, Set<string>>();
+
+  [...importedRecords, ...manualRecords].forEach((record) => {
+    const eventKey = getAttendedEventKey(record);
+    if (!eventKey) return;
+
+    const schoolYearKey = getCalculationSchoolYearKey(record);
+    const eventKeys =
+      expectedEventKeysBySchoolYear.get(schoolYearKey) ?? new Set<string>();
+    eventKeys.add(eventKey);
+    expectedEventKeysBySchoolYear.set(schoolYearKey, eventKeys);
+  });
 
   importedRecords.forEach((record) => {
     const studentId = normalizeStudentId(record.student_id);
     if (!studentId) return;
 
-    const groupKey = `${record.school_year_id ?? "unassigned"}::${studentId}`;
+    const groupKey = getCalculationStudentGroupKey(record);
     const rows = groupedRecords.get(groupKey) ?? [];
     rows.push(record);
     groupedRecords.set(groupKey, rows);
@@ -752,7 +789,7 @@ async function buildCalculationRows(
     const studentId = normalizeStudentId(record.student_id);
     if (!studentId) return;
 
-    const groupKey = `${record.school_year_id ?? "unassigned"}::${studentId}`;
+    const groupKey = getCalculationStudentGroupKey(record);
     const rows = groupedManualRecords.get(groupKey) ?? [];
     rows.push(record);
     groupedManualRecords.set(groupKey, rows);
@@ -784,13 +821,31 @@ async function buildCalculationRows(
       groupedManualRecords.get(studentKey) ?? [],
     );
     const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
-    const eventKeys = new Set(attendanceGroup.map(getEventKey).filter(Boolean));
-    const importedAbsences = attendanceGroup.reduce((highestCount, record) => {
-      return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
-    }, 0);
+    const schoolYearKey = studentKey.split("::")[0] || "unassigned";
+    const expectedEventCount =
+      expectedEventKeysBySchoolYear.get(schoolYearKey)?.size ?? 0;
+    const attendedEventKeys = new Set(
+      [...attendanceGroup, ...manualGroup]
+        .map(getAttendedEventKey)
+        .filter(Boolean),
+    );
+    const explicitImportedAbsences = attendanceGroup.reduce(
+      (highestCount, record) => {
+        return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
+      },
+      0,
+    );
     const manualAbsences = manualGroup.reduce((total, record) => {
       return total + getAbsenceCount(record.no_of_absences);
     }, 0);
+    const eventAbsenceDeficit = Math.max(
+      0,
+      expectedEventCount - attendedEventKeys.size - manualAbsences,
+    );
+    const importedAbsences = Math.max(
+      explicitImportedAbsences,
+      eventAbsenceDeficit,
+    );
     const totalAbsences = importedAbsences + manualAbsences;
     const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
 
@@ -808,7 +863,7 @@ async function buildCalculationRows(
       college: getBestTextValue(bestRecord?.college) || null,
       program: getBestTextValue(bestRecord?.program) || null,
       institution: getBestTextValue(bestRecord?.institution) || null,
-      attendedEvents: eventKeys.size,
+      attendedEvents: attendedEventKeys.size,
       importedAbsences,
       manualAbsences,
       totalAbsences,
