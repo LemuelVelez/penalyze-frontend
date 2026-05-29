@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   getAcceptedAttendanceFileTypes,
+  deleteAttendanceRecord,
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
   listAllAttendanceRecords,
@@ -485,6 +486,123 @@ function normalizeStudentId(value: unknown) {
     .toLowerCase();
 }
 
+function normalizeAttendanceIdentityValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getAttendanceRecordTimestamp(record: AttendanceRecord) {
+  const value = record.scanned_at ?? record.created_at;
+  const time = value ? new Date(value).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getAttendanceRecordEventIdentity(record: AttendanceRecord) {
+  const eventId = String(record.event_id ?? "").trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = normalizeAttendanceIdentityValue(record.event_name);
+  if (eventName) return `event-name:${eventName}`;
+
+  return "";
+}
+
+function getUploadedAttendanceRecordDeduplicationKey(record: AttendanceRecord) {
+  const studentId = normalizeStudentId(record.student_id);
+  const eventIdentity = getAttendanceRecordEventIdentity(record);
+
+  if (!studentId || !eventIdentity) return "";
+
+  return [record.school_year_id ?? "", studentId, eventIdentity].join("::");
+}
+
+function getDuplicateUploadedAttendanceRecordIds(records: AttendanceRecord[]) {
+  const savedByStudentEvent = new Map<string, AttendanceRecord>();
+  const duplicateIds: string[] = [];
+
+  records.forEach((record) => {
+    const key = getUploadedAttendanceRecordDeduplicationKey(record);
+    const recordId = String(record.id ?? "").trim();
+
+    if (!key || !recordId) return;
+
+    const savedRecord = savedByStudentEvent.get(key);
+
+    if (!savedRecord) {
+      savedByStudentEvent.set(key, record);
+      return;
+    }
+
+    const savedTime = getAttendanceRecordTimestamp(savedRecord);
+    const recordTime = getAttendanceRecordTimestamp(record);
+
+    if (recordTime > 0 && savedTime > 0 && recordTime < savedTime) {
+      duplicateIds.push(String(savedRecord.id));
+      savedByStudentEvent.set(key, record);
+      return;
+    }
+
+    duplicateIds.push(recordId);
+  });
+
+  return Array.from(new Set(duplicateIds));
+}
+
+function deduplicateUploadedAttendanceRecordsByStudentEvent(
+  records: AttendanceRecord[],
+) {
+  const duplicates = new Set(getDuplicateUploadedAttendanceRecordIds(records));
+
+  if (!duplicates.size) return records;
+
+  return records.filter((record) => !duplicates.has(String(record.id ?? "")));
+}
+
+async function deleteDuplicateUploadedAttendanceRecords(props: {
+  schoolYearId?: string;
+  importId?: string;
+}) {
+  if (!props.importId) return 0;
+
+  const records = await listAllAttendanceRecords({
+    schoolYearId: props.schoolYearId,
+    pageSize: 500,
+    maxPages: 100,
+  });
+  const importRecords = records.filter((record) => {
+    return String(record.import_id ?? "").trim() === props.importId;
+  });
+  const duplicateIds = getDuplicateUploadedAttendanceRecordIds(importRecords);
+
+  if (!duplicateIds.length) return 0;
+
+  await Promise.all(
+    duplicateIds.map((recordId) => deleteAttendanceRecord(recordId)),
+  );
+
+  return duplicateIds.length;
+}
+
+function getStudentEventSummaryTimestamp(summary: StudentEventSummary) {
+  const time = summary.scannedAt ? new Date(summary.scannedAt).getTime() : 0;
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getStudentEventSummaryDeduplicationKey(
+  summary: StudentEventSummary,
+) {
+  const eventName = normalizeAttendanceIdentityValue(summary.eventName);
+  const eventKey = eventName || normalizeAttendanceIdentityValue(summary.recordId);
+
+  return `${summary.source}::${eventKey}`;
+}
+
 function getResultBadgeClassName(absences: number) {
   if (absences <= 0) return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (absences >= 10) return "border-red-200 bg-red-50 text-red-700";
@@ -629,8 +747,16 @@ function getStudentEventSummaries(
   const uniqueEvents = new Map<string, StudentEventSummary>();
 
   [...uploadedEvents, ...manualEvents].forEach((summary) => {
-    const key = `${summary.source}-${summary.eventName}-${summary.recordId}`;
-    uniqueEvents.set(key, summary);
+    const key = getStudentEventSummaryDeduplicationKey(summary);
+    const savedSummary = uniqueEvents.get(key);
+
+    if (
+      !savedSummary ||
+      getStudentEventSummaryTimestamp(summary) >
+        getStudentEventSummaryTimestamp(savedSummary)
+    ) {
+      uniqueEvents.set(key, summary);
+    }
   });
 
   return Array.from(uniqueEvents.values()).sort((left, right) => {
@@ -835,7 +961,9 @@ export default function AttendancePage() {
       setImports(sortByBackendEventOrder(importRows));
       setFinalResults(sortByBackendEventOrder(resultRows));
       setSelectedFinalResultIds([]);
-      setUploadedAttendanceRecords(uploadedRows);
+      setUploadedAttendanceRecords(
+        deduplicateUploadedAttendanceRecordsByStudentEvent(uploadedRows),
+      );
       setManualAttendanceRecords(manualRows);
       setUploadForm((current) => ({
         ...current,
@@ -1000,13 +1128,22 @@ export default function AttendancePage() {
         eventEndAt: uploadForm.eventEndAt || undefined,
         onProgress: setProgress,
       });
+      const deletedDuplicateCount =
+        await deleteDuplicateUploadedAttendanceRecords({
+          schoolYearId: uploadForm.schoolYearId || undefined,
+          importId: result?.importId || undefined,
+        });
 
       await refreshAttendanceFinalResults({
         schoolYearId: uploadForm.schoolYearId || undefined,
         importId: result?.importId,
       });
 
-      toast.success("Attendance file saved and final results updated.");
+      toast.success(
+        deletedDuplicateCount > 0
+          ? `Attendance file saved, ${deletedDuplicateCount.toLocaleString()} duplicate same-student same-event record/s skipped, and final results updated.`
+          : "Attendance file saved and final results updated.",
+      );
       setFile(null);
       setUploadForm((current) => ({
         ...current,
@@ -1869,3 +2006,4 @@ export default function AttendancePage() {
     </main>
   );
 }
+

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   deleteAttendanceRecord,
   deleteManualAttendanceRecordsByIds,
+  listAllAttendanceRecords,
   listAttendanceEvents,
   listManualAttendanceRecords,
   saveManualAttendanceRecord,
@@ -12,6 +13,7 @@ import {
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceRecord,
   ManualAttendanceInput,
   ManualAttendanceRecord,
 } from "../../api/attendance";
@@ -80,6 +82,8 @@ type ManualAttendanceStudentGroup = {
 
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
+const ZERO_ATTENDANCE_REMARK =
+  "Zero attendance registration from landing page.";
 
 const QR_CODE_YEAR_LEVEL_OPTIONS = [
   "1st Year",
@@ -154,6 +158,74 @@ function normalizeStudentId(value: unknown) {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+function normalizeManualValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function isZeroManualAttendanceRecord(
+  record: Partial<ManualAttendanceRecord> | Partial<AttendanceRecord>,
+) {
+  const recordData = record as Record<string, unknown>;
+
+  return (
+    recordData.attendance_type === "zero_attendance" ||
+    normalizeManualValue(record.remarks).includes("zero attendance") ||
+    normalizeManualValue(record.remarks).includes(
+      ZERO_ATTENDANCE_REMARK.toLowerCase(),
+    )
+  );
+}
+
+function mergeUniqueManualAttendanceRecords(
+  manualRows: ManualAttendanceRecord[],
+  zeroAttendanceRows: AttendanceRecord[],
+) {
+  const rowsById = new Map<string, ManualAttendanceRecord>();
+
+  [...manualRows, ...zeroAttendanceRows].forEach((record) => {
+    const recordId = String(record.id ?? "").trim();
+    if (!recordId) return;
+
+    rowsById.set(recordId, record as ManualAttendanceRecord);
+  });
+
+  return Array.from(rowsById.values());
+}
+
+function getManualRecordEventDeduplicationKey(record: ManualAttendanceRecord) {
+  const eventId = String(record.event_id ?? "").trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = normalizeManualValue(record.event_name).replace(
+    /[^a-z0-9]+/g,
+    " ",
+  );
+
+  return eventName ? `event-name:${eventName}` : "";
+}
+
+function getUniqueManualEventRecords(records: ManualAttendanceRecord[]) {
+  const eventsByKey = new Map<string, ManualAttendanceRecord>();
+
+  records.forEach((record) => {
+    const key = getManualRecordEventDeduplicationKey(record);
+    if (!key) return;
+
+    const savedRecord = eventsByKey.get(key);
+
+    if (
+      !savedRecord ||
+      getRecordTimestamp(record) > getRecordTimestamp(savedRecord)
+    ) {
+      eventsByKey.set(key, record);
+    }
+  });
+
+  return sortByBackendEventOrder(Array.from(eventsByKey.values()));
 }
 
 function getStudentProgramOptions(college: string) {
@@ -290,7 +362,7 @@ function mergeManualAttendanceByStudent(
     .map(([key, groupRecords]) => {
       const sortedRecords = sortByBackendEventOrder(groupRecords);
       const latestRecord = getLatestRecord(groupRecords) ?? sortedRecords[0];
-      const eventRecords = sortedRecords.filter((record) => record.event_id);
+      const eventRecords = getUniqueManualEventRecords(sortedRecords);
 
       return {
         key,
@@ -303,11 +375,11 @@ function mergeManualAttendanceByStudent(
         remarks: latestRecord?.remarks ?? "",
         latestScannedAt:
           latestRecord?.scanned_at ?? latestRecord?.created_at ?? null,
-        attendanceType: groupRecords.some(
-          (record) => record.attendance_type === "manual",
-        )
-          ? "manual"
-          : "zero_attendance",
+        attendanceType:
+          eventRecords.length > 0 ||
+          groupRecords.some((record) => record.attendance_type === "manual")
+            ? "manual"
+            : "zero_attendance",
         records: sortedRecords,
         events: eventRecords,
       } satisfies ManualAttendanceStudentGroup;
@@ -433,7 +505,7 @@ export default function ManualAttendancePage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : activeSchoolYearId;
-      const [eventRows, manualRows] = fallbackSchoolYearId
+      const [eventRows, manualRows, allAttendanceRows] = fallbackSchoolYearId
         ? await Promise.all([
             listAttendanceEvents({
               schoolYearId: fallbackSchoolYearId,
@@ -445,13 +517,25 @@ export default function ManualAttendancePage() {
               limit: 1000,
               offset: 0,
             }),
+            listAllAttendanceRecords({
+              schoolYearId: fallbackSchoolYearId,
+              pageSize: 500,
+              maxPages: 100,
+            }),
           ])
-        : [[], []];
+        : [[], [], []];
+      const zeroAttendanceRows = allAttendanceRows.filter(
+        isZeroManualAttendanceRecord,
+      );
+      const mergedManualRows = mergeUniqueManualAttendanceRecords(
+        manualRows,
+        zeroAttendanceRows,
+      );
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setEvents(sortByBackendEventOrder(eventRows));
-      setRecords(sortByBackendEventOrder(manualRows));
+      setRecords(sortByBackendEventOrder(mergedManualRows));
       setSelectedManualRecordIds([]);
       setForm((current) => ({
         ...current,
@@ -561,9 +645,13 @@ export default function ManualAttendancePage() {
       schoolYearId:
         latestRecord?.school_year_id ||
         (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId),
-      eventIds: group.events
-        .map((record) => record.event_id)
-        .filter(Boolean) as string[],
+      eventIds: Array.from(
+        new Set(
+          group.events
+            .map((record) => record.event_id)
+            .filter(Boolean) as string[],
+        ),
+      ),
       scannedAt: formatDateTimeInputValue(
         latestRecord?.scanned_at
           ? new Date(latestRecord.scanned_at)
@@ -636,16 +724,34 @@ export default function ManualAttendancePage() {
 
       if (editingGroup) {
         const existingRecords = editingGroup.records;
-        const existingByEventId = new Map(
-          existingRecords
-            .filter((record) => record.event_id)
-            .map((record) => [record.event_id as string, record]),
-        );
+        const existingByEventId = new Map<string, ManualAttendanceRecord>();
+        const duplicateEventRecordsToDelete: ManualAttendanceRecord[] = [];
+
+        sortByBackendEventOrder(existingRecords).forEach((record) => {
+          const eventId = String(record.event_id ?? "").trim();
+          if (!eventId) return;
+
+          if (existingByEventId.has(eventId)) {
+            duplicateEventRecordsToDelete.push(record);
+            return;
+          }
+
+          existingByEventId.set(eventId, record);
+        });
+
         const selectedEventIdSet = new Set(selectedEventIds);
-        const recordsToDelete = existingRecords.filter(
-          (record) =>
-            !record.event_id || !selectedEventIdSet.has(record.event_id),
+        const duplicateRecordIds = new Set(
+          duplicateEventRecordsToDelete.map((record) => record.id),
         );
+        const recordsToDelete = existingRecords.filter((record) => {
+          const eventId = String(record.event_id ?? "").trim();
+
+          return (
+            !eventId ||
+            !selectedEventIdSet.has(eventId) ||
+            duplicateRecordIds.has(record.id)
+          );
+        });
 
         await Promise.all(
           recordsToDelete.map((record) => deleteAttendanceRecord(record.id)),
@@ -1374,4 +1480,5 @@ export default function ManualAttendancePage() {
       </div>
     </main>
   );
+
 }
