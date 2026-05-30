@@ -54,6 +54,7 @@ import { Textarea } from "../../components/ui/textarea";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
+const FILE_UPLOAD_EVENT_VALUE = "__file_upload_event__";
 
 type UploadFormState = {
   schoolYearId: string;
@@ -495,6 +496,121 @@ function normalizeAttendanceIdentityValue(value: unknown) {
     .trim();
 }
 
+function getAttendanceEventDateTimeKey(value?: string | null) {
+  if (!value) return "";
+
+  const formattedValue = formatDateTimeInputValue(value);
+
+  return formattedValue || cleanAttendanceMetadataValue(value).slice(0, 16);
+}
+
+function getAttendanceEventScheduleLabel(
+  startAt?: string | null,
+  endAt?: string | null,
+) {
+  const startLabel = formatDateTime(startAt);
+  const endLabel = formatDateTime(endAt);
+
+  if (startLabel === "—" && endLabel === "—") return "";
+  if (startLabel !== "—" && endLabel !== "—") {
+    return `${startLabel} - ${endLabel}`;
+  }
+
+  return startLabel !== "—" ? startLabel : `Ends ${endLabel}`;
+}
+
+function getAttendanceEventSelectLabel(
+  eventName: string,
+  startAt?: string | null,
+  endAt?: string | null,
+) {
+  const scheduleLabel = getAttendanceEventScheduleLabel(startAt, endAt);
+
+  return scheduleLabel ? `${eventName} - ${scheduleLabel}` : eventName;
+}
+
+function getDetectedAttendanceFileEvent(
+  metadata: AttendanceFileMetadata,
+  fallbackSchoolYearId: string,
+) {
+  const eventName = cleanAttendanceMetadataValue(metadata.eventName);
+
+  if (!eventName) return null;
+
+  return {
+    schoolYearId: metadata.schoolYearId || fallbackSchoolYearId,
+    eventName,
+    eventStartAt: metadata.eventStartAt || "",
+    eventEndAt: metadata.eventEndAt || "",
+  };
+}
+
+function findMatchingAttendanceEventFromFile(props: {
+  events: AttendanceEvent[];
+  metadata: AttendanceFileMetadata;
+  fallbackSchoolYearId: string;
+}) {
+  const detectedEvent = getDetectedAttendanceFileEvent(
+    props.metadata,
+    props.fallbackSchoolYearId,
+  );
+
+  if (!detectedEvent) return null;
+
+  const eventNameKey = normalizeAttendanceIdentityValue(
+    detectedEvent.eventName,
+  );
+  const eventStartAtKey = getAttendanceEventDateTimeKey(
+    detectedEvent.eventStartAt,
+  );
+  const eventEndAtKey = getAttendanceEventDateTimeKey(detectedEvent.eventEndAt);
+  const matchingEvents = sortByBackendEventOrder(props.events).filter(
+    (event) => {
+      const sameSchoolYear =
+        !detectedEvent.schoolYearId ||
+        event.school_year_id === detectedEvent.schoolYearId;
+      const sameEventName =
+        normalizeAttendanceIdentityValue(event.name) === eventNameKey;
+
+      return sameSchoolYear && sameEventName;
+    },
+  );
+
+  if (!matchingEvents.length) return null;
+
+  const dateMatchedEvent = matchingEvents.find((event) => {
+    const eventStartKey = getAttendanceEventDateTimeKey(event.event_start_at);
+    const eventEndKey = getAttendanceEventDateTimeKey(event.event_end_at);
+    const startMatches = !eventStartAtKey || eventStartKey === eventStartAtKey;
+    const endMatches = !eventEndAtKey || eventEndKey === eventEndAtKey;
+
+    return startMatches && endMatches;
+  });
+
+  return dateMatchedEvent ?? matchingEvents[0];
+}
+
+function doesUploadFormUseDetectedFileEvent(
+  uploadForm: UploadFormState,
+  metadata: AttendanceFileMetadata,
+) {
+  const detectedEvent = getDetectedAttendanceFileEvent(
+    metadata,
+    uploadForm.schoolYearId,
+  );
+
+  if (!detectedEvent || uploadForm.eventId) return false;
+
+  return (
+    normalizeAttendanceIdentityValue(uploadForm.eventName) ===
+      normalizeAttendanceIdentityValue(detectedEvent.eventName) &&
+    getAttendanceEventDateTimeKey(uploadForm.eventStartAt) ===
+      getAttendanceEventDateTimeKey(detectedEvent.eventStartAt) &&
+    getAttendanceEventDateTimeKey(uploadForm.eventEndAt) ===
+      getAttendanceEventDateTimeKey(detectedEvent.eventEndAt)
+  );
+}
+
 function getAttendanceRecordTimestamp(record: AttendanceRecord) {
   const value = record.scanned_at ?? record.created_at;
   const time = value ? new Date(value).getTime() : 0;
@@ -801,6 +917,8 @@ export default function AttendancePage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
+  const [detectedFileEventMetadata, setDetectedFileEventMetadata] =
+    useState<AttendanceFileMetadata>({});
   const [file, setFile] = useState<File | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
@@ -848,8 +966,29 @@ export default function AttendancePage() {
     return sortByBackendEventOrder(attendanceEvents);
   }, [attendanceEvents]);
 
+  const detectedUploadFileEvent = useMemo(() => {
+    return getDetectedAttendanceFileEvent(
+      detectedFileEventMetadata,
+      uploadForm.schoolYearId || selectedSchoolYearId,
+    );
+  }, [
+    detectedFileEventMetadata,
+    selectedSchoolYearId,
+    uploadForm.schoolYearId,
+  ]);
+
+  const uploadFormUsesDetectedFileEvent = useMemo(() => {
+    return doesUploadFormUseDetectedFileEvent(
+      uploadForm,
+      detectedFileEventMetadata,
+    );
+  }, [detectedFileEventMetadata, uploadForm]);
+
   const selectedUploadEventValue =
-    uploadForm.eventId || CUSTOM_UPLOAD_EVENT_VALUE;
+    uploadForm.eventId ||
+    (uploadFormUsesDetectedFileEvent
+      ? FILE_UPLOAD_EVENT_VALUE
+      : CUSTOM_UPLOAD_EVENT_VALUE);
 
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
@@ -993,6 +1132,7 @@ export default function AttendancePage() {
   async function selectAttendanceFile(nextFile: File | null) {
     if (!nextFile) {
       setFile(null);
+      setDetectedFileEventMetadata({});
       return;
     }
 
@@ -1009,18 +1149,61 @@ export default function AttendancePage() {
       const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
 
       if (hasAttendanceFileMetadata(metadata)) {
-        setUploadForm((current) => ({
-          ...current,
-          ...metadata,
-          eventId: metadata.eventName ? "" : current.eventId,
-          schoolYearId:
-            metadata.schoolYearId ||
-            current.schoolYearId ||
-            selectedSchoolYearId,
-        }));
-        toast.success(
-          "Attendance file details detected. Review before saving.",
+        const metadataSchoolYearId =
+          metadata.schoolYearId || selectedSchoolYearId;
+        const eventRowsForUpload =
+          metadataSchoolYearId && metadataSchoolYearId !== selectedSchoolYearId
+            ? await listAttendanceEvents({
+                schoolYearId: metadataSchoolYearId,
+                limit: 500,
+                offset: 0,
+              })
+            : attendanceEvents;
+        const sortedEventRowsForUpload = sortByBackendEventOrder(
+          eventRowsForUpload,
         );
+        const matchingEvent = findMatchingAttendanceEventFromFile({
+          events: sortedEventRowsForUpload,
+          metadata,
+          fallbackSchoolYearId: metadataSchoolYearId || selectedSchoolYearId,
+        });
+
+        setAttendanceEvents(sortedEventRowsForUpload);
+        setDetectedFileEventMetadata(metadata);
+        setUploadForm((current) => {
+          const nextSchoolYearId =
+            metadata.schoolYearId ||
+            matchingEvent?.school_year_id ||
+            current.schoolYearId ||
+            selectedSchoolYearId;
+
+          if (matchingEvent) {
+            return {
+              ...current,
+              schoolYearId: nextSchoolYearId,
+              eventId: matchingEvent.id,
+              eventName: matchingEvent.name,
+              eventStartAt: formatDateTimeInputValue(
+                matchingEvent.event_start_at,
+              ),
+              eventEndAt: formatDateTimeInputValue(matchingEvent.event_end_at),
+            };
+          }
+
+          return {
+            ...current,
+            ...metadata,
+            eventId: "",
+            schoolYearId: nextSchoolYearId,
+          };
+        });
+        toast.success(
+          matchingEvent
+            ? "Matching existing event detected and selected."
+            : "Attendance file details detected. Review before saving.",
+        );
+      } else {
+        setDetectedFileEventMetadata({});
       }
     } catch {
       return;
@@ -1048,10 +1231,32 @@ export default function AttendancePage() {
   }
 
   function handleUploadEventSelect(value: string) {
+    if (value === FILE_UPLOAD_EVENT_VALUE) {
+      const detectedEvent = getDetectedAttendanceFileEvent(
+        detectedFileEventMetadata,
+        uploadForm.schoolYearId || selectedSchoolYearId,
+      );
+
+      if (!detectedEvent) return;
+
+      setUploadForm((current) => ({
+        ...current,
+        schoolYearId: detectedEvent.schoolYearId || current.schoolYearId,
+        eventId: "",
+        eventName: detectedEvent.eventName,
+        eventStartAt: detectedEvent.eventStartAt,
+        eventEndAt: detectedEvent.eventEndAt,
+      }));
+      return;
+    }
+
     if (value === CUSTOM_UPLOAD_EVENT_VALUE) {
       setUploadForm((current) => ({
         ...current,
         eventId: "",
+        eventName: "",
+        eventStartAt: "",
+        eventEndAt: "",
       }));
       return;
     }
@@ -1076,10 +1281,15 @@ export default function AttendancePage() {
     field: keyof UploadFormState,
     value: string,
   ) {
+    const shouldClearSelectedEvent =
+      field === "eventName" ||
+      field === "eventStartAt" ||
+      field === "eventEndAt";
+
     setUploadForm((current) => ({
       ...current,
       [field]: value,
-      eventId: field === "eventName" ? "" : current.eventId,
+      eventId: shouldClearSelectedEvent ? "" : current.eventId,
     }));
   }
 
@@ -1145,6 +1355,7 @@ export default function AttendancePage() {
           : "Attendance file saved and final results updated.",
       );
       setFile(null);
+      setDetectedFileEventMetadata({});
       setUploadForm((current) => ({
         ...current,
         eventId: "",
@@ -1541,12 +1752,25 @@ export default function AttendancePage() {
                     <SelectValue placeholder="Select existing event" />
                   </SelectTrigger>
                   <SelectContent>
+                    {detectedUploadFileEvent ? (
+                      <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
+                        {`Create new event from file: ${getAttendanceEventSelectLabel(
+                          detectedUploadFileEvent.eventName,
+                          detectedUploadFileEvent.eventStartAt,
+                          detectedUploadFileEvent.eventEndAt,
+                        )}`}
+                      </SelectItem>
+                    ) : null}
                     <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
-                      New event / manual input
+                      New blank event / manual input
                     </SelectItem>
                     {uploadEventOptions.map((event) => (
                       <SelectItem key={event.id} value={event.id}>
-                        {event.name}
+                        {`Use existing event: ${getAttendanceEventSelectLabel(
+                          event.name,
+                          event.event_start_at,
+                          event.event_end_at,
+                        )}`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2006,4 +2230,3 @@ export default function AttendancePage() {
     </main>
   );
 }
-
