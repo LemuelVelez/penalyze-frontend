@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   getAcceptedAttendanceFileTypes,
+  deleteAttendanceImport,
   deleteAttendanceRecord,
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
@@ -801,6 +802,77 @@ function isAcceptedAttendanceFile(file: File, acceptedFileTypes: string) {
   return acceptedExtensions.includes(extension);
 }
 
+function normalizeAttendanceFileName(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function getAttendanceImportEventKey(importRecord: AttendanceImportRecord) {
+  const eventId = String(importRecord.event_id ?? "").trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = normalizeAttendanceIdentityValue(importRecord.event_name);
+  return eventName ? `event-name:${eventName}` : "";
+}
+
+function getUploadFormEventKey(uploadForm: UploadFormState) {
+  const eventId = uploadForm.eventId.trim();
+  if (eventId) return `event-id:${eventId}`;
+
+  const eventName = normalizeAttendanceIdentityValue(uploadForm.eventName);
+  return eventName ? `event-name:${eventName}` : "";
+}
+
+function getAttendanceImportSchoolYearKey(value?: string | null) {
+  const schoolYearId = String(value ?? "").trim();
+
+  if (!schoolYearId || schoolYearId === ALL_YEARS_VALUE) return "";
+
+  return schoolYearId;
+}
+
+function findDuplicateAttendanceImportForUpload(props: {
+  imports: AttendanceImportRecord[];
+  file: File;
+  uploadForm: UploadFormState;
+  selectedSchoolYearId: string;
+}) {
+  const uploadFileName = normalizeAttendanceFileName(props.file.name);
+  const uploadSchoolYearId = getAttendanceImportSchoolYearKey(
+    props.uploadForm.schoolYearId || props.selectedSchoolYearId,
+  );
+  const uploadEventKey = getUploadFormEventKey(props.uploadForm);
+
+  if (!uploadFileName) return null;
+
+  return (
+    props.imports.find((importRecord) => {
+      if (
+        normalizeAttendanceFileName(importRecord.file_name) !== uploadFileName
+      ) {
+        return false;
+      }
+
+      const importSchoolYearId = getAttendanceImportSchoolYearKey(
+        importRecord.school_year_id,
+      );
+      const isSameSchoolYear =
+        !uploadSchoolYearId ||
+        !importSchoolYearId ||
+        uploadSchoolYearId === importSchoolYearId;
+
+      if (!isSameSchoolYear) return false;
+
+      const importEventKey = getAttendanceImportEventKey(importRecord);
+
+      if (!uploadEventKey || !importEventKey) return true;
+
+      return uploadEventKey === importEventKey;
+    }) ?? null
+  );
+}
+
 function getUploadedRecordEventName(record: AttendanceRecord) {
   if (record.event_name) return record.event_name;
   if (record.event_id) return `Event ${record.event_id}`;
@@ -944,6 +1016,7 @@ export default function AttendancePage() {
     useState<FinalResultFormState>(emptyFinalResultForm);
   const [isSavingFinalResult, setIsSavingFinalResult] = useState(false);
   const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
+  const [deletingImportId, setDeletingImportId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [progress, setProgress] = useState<AttendanceImportProgress | null>(
@@ -1310,7 +1383,7 @@ export default function AttendancePage() {
     setProgress({
       stage: "preparing",
       percent: 1,
-      message: "Preparing attendance import...",
+      message: "Checking recent attendance uploads...",
       processedRows: 0,
       totalRows: 0,
       savedRecords: 0,
@@ -1318,6 +1391,28 @@ export default function AttendancePage() {
     });
 
     try {
+      const uploadSchoolYearId = getAttendanceImportSchoolYearKey(
+        uploadForm.schoolYearId || selectedSchoolYearId,
+      );
+      const recentImports = await listAttendanceImports({
+        schoolYearId: uploadSchoolYearId || undefined,
+        limit: 1000,
+        offset: 0,
+      });
+      const duplicateImport = findDuplicateAttendanceImportForUpload({
+        imports: recentImports,
+        file,
+        uploadForm,
+        selectedSchoolYearId,
+      });
+
+      if (duplicateImport) {
+        throw new Error(
+          `"${file.name}" has already been uploaded for this school year/event. Delete the existing uploaded file before uploading it again.`,
+        );
+      }
+
+      setImports(sortByBackendEventOrder(recentImports));
       setProgress({
         stage: "parsing",
         percent: 3,
@@ -1469,6 +1564,31 @@ export default function AttendancePage() {
       );
     } finally {
       setIsDeletingFinalResults(false);
+    }
+  }
+
+  async function handleDeleteAttendanceImport(item: AttendanceImportRecord) {
+    setDeletingImportId(item.id);
+
+    try {
+      await deleteAttendanceImport(item.id);
+      await refreshAttendanceFinalResults({
+        schoolYearId:
+          item.school_year_id ||
+          (selectedSchoolYearId === ALL_YEARS_VALUE
+            ? undefined
+            : selectedSchoolYearId),
+      });
+      await loadPageData(selectedSchoolYearId);
+      toast.success("Uploaded attendance file deleted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete uploaded attendance file.",
+      );
+    } finally {
+      setDeletingImportId("");
     }
   }
 
@@ -2204,7 +2324,7 @@ export default function AttendancePage() {
                   key={item.id}
                   className="rounded-2xl border bg-background p-4"
                 >
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="break-all font-black">{item.file_name}</p>
                       <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
@@ -2212,10 +2332,40 @@ export default function AttendancePage() {
                         {formatDate(item.created_at)}
                       </p>
                     </div>
-                    <p className="shrink-0 text-sm font-bold text-muted-foreground">
-                      {formatNumber(item.rows_valid)} valid /{" "}
-                      {formatNumber(item.rows_total)} total
-                    </p>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <p className="text-sm font-bold text-muted-foreground">
+                        {formatNumber(item.rows_valid)} valid /{" "}
+                        {formatNumber(item.rows_total)} total
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleDeleteAttendanceImport(item)}
+                        disabled={Boolean(deletingImportId) || isSaving}
+                        aria-label={`Delete uploaded file ${item.file_name}`}
+                        title="Delete uploaded file"
+                        className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="size-4"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                        <span className="sr-only">Delete uploaded file</span>
+                      </Button>
+                    </div>
                   </div>
                 </article>
               ))
@@ -2230,3 +2380,4 @@ export default function AttendancePage() {
     </main>
   );
 }
+

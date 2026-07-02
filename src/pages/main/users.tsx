@@ -273,10 +273,6 @@ export default function UsersPage() {
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
             Users
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Display admin and officer accounts and manage user records with
-            create, read, update, and delete actions.
-          </p>
         </div>
 
         <div className="mb-6 flex justify-end">
