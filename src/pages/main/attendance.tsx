@@ -37,6 +37,17 @@ import {
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../../components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -2178,28 +2189,84 @@ export default function AttendancePage() {
               <p className="text-sm font-bold text-muted-foreground">
                 {formatNumber(displayedFinalResults.length)} result/s
               </p>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={
-                  isDeletingFinalResults || !selectedFinalResultIds.length
-                }
-                onClick={handleDeleteSelectedFinalResults}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
-              >
-                Delete Selected
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={
-                  isDeletingFinalResults || !displayedFinalResults.length
-                }
-                onClick={handleDeleteAllFinalResults}
-                className="min-h-11 rounded-2xl px-4 text-xs font-black"
-              >
-                Delete All
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      isDeletingFinalResults || !selectedFinalResultIds.length
+                    }
+                    className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                  >
+                    Delete Selected
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete selected final attendance results?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete {formatNumber(
+                        selectedFinalResultIds.length,
+                      )} selected final attendance result/s. This action cannot
+                      be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingFinalResults}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteSelectedFinalResults()}
+                      disabled={isDeletingFinalResults}
+                      className="bg-destructive text-destructive-foreground hover:opacity-90"
+                    >
+                      Delete Selected
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      isDeletingFinalResults || !displayedFinalResults.length
+                    }
+                    className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                  >
+                    Delete All
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Delete all final attendance results?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete all {formatNumber(
+                        displayedFinalResults.length,
+                      )} displayed final attendance result/s. This action cannot
+                      be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingFinalResults}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteAllFinalResults()}
+                      disabled={isDeletingFinalResults}
+                      className="bg-destructive text-destructive-foreground hover:opacity-90"
+                    >
+                      Delete All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 
@@ -2337,34 +2404,65 @@ export default function AttendancePage() {
                         {formatNumber(item.rows_valid)} valid /{" "}
                         {formatNumber(item.rows_total)} total
                       </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleDeleteAttendanceImport(item)}
-                        disabled={Boolean(deletingImportId) || isSaving}
-                        aria-label={`Delete uploaded file ${item.file_name}`}
-                        title="Delete uploaded file"
-                        className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="size-4"
-                          aria-hidden="true"
-                        >
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                        <span className="sr-only">Delete uploaded file</span>
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={Boolean(deletingImportId) || isSaving}
+                            aria-label={`Delete uploaded file ${item.file_name}`}
+                            title="Delete uploaded file"
+                            className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="size-4"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                            <span className="sr-only">Delete uploaded file</span>
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Delete uploaded attendance file?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will permanently delete "{item.file_name}"
+                              and refresh the final attendance results. This
+                              action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel
+                              disabled={Boolean(deletingImportId) || isSaving}
+                            >
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() =>
+                                void handleDeleteAttendanceImport(item)
+                              }
+                              disabled={Boolean(deletingImportId) || isSaving}
+                              className="bg-destructive text-destructive-foreground hover:opacity-90"
+                            >
+                              Delete File
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </div>
                 </article>
@@ -2380,4 +2478,3 @@ export default function AttendancePage() {
     </main>
   );
 }
-
