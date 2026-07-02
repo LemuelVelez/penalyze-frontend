@@ -174,8 +174,8 @@ const LANDING_RESOURCE_LINKS = [
     audience: "SSG Officers",
     title: "Download QR Scanner",
     description:
-      "Download the scanner for checking student QR codes during attendance and monitoring. Latest update: May 30, 2026.",
-    href: "https://drive.google.com/file/d/1-I0k7l4MA6qejmQhRKzKomoOTQIVwJ3S/view?usp=sharing",
+      "Download the scanner for checking student QR codes during attendance and monitoring. If this link is expired, inquire with the SSG officers for guidance, especially if you are an SSG officer who needs the scanner for attendance.",
+    href: "https://expo.dev/accounts/lem07/projects/ssg-qrcode-scanner/builds/8f0780f1-3eaa-4b2b-b8f1-9db21a789915",
     cta: "Download Scanner",
     download: true,
   },
@@ -3422,3 +3422,4 @@ export default function LandingPage() {
     </main>
   );
 }
+
