@@ -1297,17 +1297,17 @@ export default function AttendancePage() {
     void selectAttendanceFile(event.target.files?.[0] ?? null);
   }
 
-  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDraggingFile(true);
   }
 
-  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDraggingFile(false);
   }
 
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDraggingFile(false);
     void selectAttendanceFile(event.dataTransfer.files?.[0] ?? null);
