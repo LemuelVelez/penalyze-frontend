@@ -17,6 +17,7 @@ import Loading from "./components/loading";
 import { Toaster } from "./components/ui/sonner";
 import LoginPage from "./pages/auth/login";
 import AttendancePage from "./pages/main/attendance";
+import AttendanceRequestsPage from "./pages/main/attendance-requests";
 import HistoryPage from "./pages/main/history";
 import ManualAttendancePage from "./pages/main/manual-attendance";
 import CalculatePage from "./pages/main/calculate";
@@ -87,6 +88,7 @@ function AppRoutes() {
     () => [
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/attendance", element: <AttendancePage /> },
+      { path: "/attendance-requests", element: <AttendanceRequestsPage /> },
       { path: "/manual-attendance", element: <ManualAttendancePage /> },
       { path: "/events", element: <EventsPage /> },
       { path: "/history", element: <HistoryPage /> },

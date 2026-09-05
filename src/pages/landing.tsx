@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
+import { createAttendanceRequest } from "../api/attendanceRequests";
 import {
   getStudentAttendanceRecords,
   listAllAttendanceRecords,
   listAttendanceEvents,
+  listManualAttendanceRecords,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
   AttendanceRecord,
+  ManualAttendanceRecord,
 } from "../api/attendance";
 import {
   getStudentFines,
@@ -157,6 +161,19 @@ type ZeroAttendanceFormState = {
   institution: string;
 };
 
+type AttendanceRequestFormState = {
+  studentId: string;
+  schoolYearId: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  institution: string;
+  note: string;
+  selectedEventIds: string[];
+  evidenceByEvent: Record<string, string>;
+};
+
 const AUTH_STORAGE_KEYS = [
   "penalyze.auth.session",
   "penalyze.auth.token",
@@ -245,6 +262,19 @@ const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
   college: "",
   program: "",
   institution: DEFAULT_STUDENT_INSTITUTION,
+};
+
+const emptyAttendanceRequestForm: AttendanceRequestFormState = {
+  studentId: "",
+  schoolYearId: "",
+  name: "",
+  yearLevel: "",
+  college: "",
+  program: "",
+  institution: DEFAULT_STUDENT_INSTITUTION,
+  note: "",
+  selectedEventIds: [],
+  evidenceByEvent: {},
 };
 
 const textInputClassName =
@@ -2125,6 +2155,7 @@ function ZeroAttendanceRegistrationDialog(props: {
   error: string;
   isSaving: boolean;
   onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
+  onRequestReview: () => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   const programOptions = getStudentProgramOptions(props.form.college);
@@ -2144,9 +2175,12 @@ function ZeroAttendanceRegistrationDialog(props: {
 
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
-            This Student ID has no saved attendance or fine record. Fill out the
-            attendee details to create a zero attendance record in Manual
-            Attendance, then add multiple events to the attendee later.
+            This Student ID has no saved attendance or fine record. If you
+            attended one or more events, use <strong>Request Event Review</strong>
+            and attach an accessible evidence link for every event you claim.
+            Authenticated officers or admins will review the evidence before
+            attendance is added. Use <strong>Save Zero Attendance</strong> only
+            when you did not attend any event.
           </div>
 
           {props.error ? (
@@ -2360,6 +2394,15 @@ function ZeroAttendanceRegistrationDialog(props: {
               Cancel
             </Button>
             <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={props.onRequestReview}
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
+            >
+              Request Event Review
+            </Button>
+            <Button
               type="submit"
               disabled={props.isSaving}
               className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
@@ -2371,6 +2414,397 @@ function ZeroAttendanceRegistrationDialog(props: {
       </DialogContent>
     </Dialog>
   );
+}
+
+
+function AttendanceRequestDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  form: AttendanceRequestFormState;
+  schoolYears: SchoolYearRecord[];
+  events: AttendanceEvent[];
+  excludedEventIds: string[];
+  error: string;
+  isSaving: boolean;
+  isLoadingEvents: boolean;
+  onFieldChange: (
+    field: Exclude<
+      keyof AttendanceRequestFormState,
+      "selectedEventIds" | "evidenceByEvent"
+    >,
+    value: string,
+  ) => void;
+  onSchoolYearChange: (schoolYearId: string) => void;
+  onToggleEvent: (eventId: string, selected: boolean) => void;
+  onEvidenceChange: (eventId: string, value: string) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+}) {
+  const programOptions = getStudentProgramOptions(props.form.college);
+  const selectableSchoolYears = props.schoolYears;
+  const excludedEventIds = new Set(props.excludedEventIds);
+  const availableEvents = props.events.filter(
+    (event) => !excludedEventIds.has(event.id),
+  );
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Request Event Attendance Review</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="space-y-5">
+          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
+            Select every event you attended and paste an evidence link for each
+            event. You may use Google Drive, OneDrive, Dropbox, iCloud, or any
+            other accessible HTTP/HTTPS link. Make sure the sharing permission
+            allows authenticated officers or admins to open the evidence without
+            requesting access. Attendance is added only after an authenticated
+            reviewer approves the request.
+          </div>
+
+          {props.error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {props.error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-sm font-bold">
+              <span>Student ID</span>
+              <input
+                value={props.form.studentId}
+                onChange={(event) =>
+                  props.onFieldChange("studentId", event.target.value)
+                }
+                placeholder="Student ID"
+                className={textInputClassName}
+              />
+            </label>
+
+            <label className="space-y-2 text-sm font-bold">
+              <span>Name</span>
+              <input
+                value={props.form.name}
+                onChange={(event) =>
+                  props.onFieldChange("name", event.target.value)
+                }
+                placeholder="Full name"
+                className={textInputClassName}
+              />
+            </label>
+
+            <div className="min-w-0 space-y-2 text-sm font-bold sm:col-span-2">
+              <span>School Year / Semester</span>
+              <Select
+                value={props.form.schoolYearId}
+                onValueChange={props.onSchoolYearChange}
+              >
+                <SelectTrigger className="min-h-12 w-full rounded-2xl border bg-background px-4 text-left text-base font-semibold">
+                  <SelectValue placeholder="Select school year / semester" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {selectableSchoolYears.map((schoolYear) => (
+                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
+                      {getSchoolYearLabel(props.schoolYears, schoolYear.id)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0 space-y-2 text-sm font-bold">
+              <span>Year Level</span>
+              <Select
+                value={props.form.yearLevel}
+                onValueChange={(value) =>
+                  props.onFieldChange("yearLevel", value)
+                }
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select year level" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_YEAR_LEVEL_OPTIONS,
+                    props.form.yearLevel,
+                  )}
+                  {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                    <SelectItem key={yearLevel} value={yearLevel}>
+                      {yearLevel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                value={props.form.yearLevel}
+                onChange={(event) =>
+                  props.onFieldChange("yearLevel", event.target.value)
+                }
+                placeholder="Type custom year level if not listed"
+                className={customSelectInputClassName}
+              />
+            </div>
+
+            <div className="min-w-0 space-y-2 text-sm font-bold">
+              <span>College</span>
+              <Select
+                value={props.form.college}
+                onValueChange={(value) => props.onFieldChange("college", value)}
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select college" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_COLLEGE_OPTIONS,
+                    props.form.college,
+                  )}
+                  {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                    <SelectItem key={college} value={college}>
+                      {college}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                value={props.form.college}
+                onChange={(event) =>
+                  props.onFieldChange("college", event.target.value)
+                }
+                placeholder="Type custom college if not listed"
+                className={customSelectInputClassName}
+              />
+            </div>
+
+            <div className="min-w-0 space-y-2 text-sm font-bold">
+              <span>Program</span>
+              <Select
+                value={props.form.program}
+                onValueChange={(value) => props.onFieldChange("program", value)}
+                disabled={!props.form.college}
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue
+                    placeholder={
+                      props.form.college
+                        ? "Select program"
+                        : "Select college first"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  {renderCurrentStudentSelectOption(
+                    programOptions,
+                    props.form.program,
+                  )}
+                  {programOptions.map((program) => (
+                    <SelectItem key={program} value={program}>
+                      {program}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                value={props.form.program}
+                onChange={(event) =>
+                  props.onFieldChange("program", event.target.value)
+                }
+                placeholder={
+                  props.form.college
+                    ? "Type custom program if not listed"
+                    : "Select college before typing program"
+                }
+                disabled={!props.form.college}
+                className={customSelectInputClassName}
+              />
+            </div>
+
+            <div className="min-w-0 space-y-2 text-sm font-bold">
+              <span>Institution</span>
+              <Select
+                value={props.form.institution}
+                onValueChange={(value) =>
+                  props.onFieldChange("institution", value)
+                }
+              >
+                <SelectTrigger className={selectTriggerClassName}>
+                  <SelectValue placeholder="Select institution" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 max-w-80">
+                  {renderCurrentStudentSelectOption(
+                    QR_CODE_INSTITUTION_OPTIONS,
+                    props.form.institution,
+                  )}
+                  {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
+                    <SelectItem key={institution} value={institution}>
+                      {institution}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                value={props.form.institution}
+                onChange={(event) =>
+                  props.onFieldChange("institution", event.target.value)
+                }
+                placeholder="Type custom institution if not listed"
+                className={customSelectInputClassName}
+              />
+            </div>
+          </div>
+
+          <label className="block space-y-2 text-sm font-bold">
+            <span>Request note (optional)</span>
+            <textarea
+              value={props.form.note}
+              onChange={(event) =>
+                props.onFieldChange("note", event.target.value)
+              }
+              rows={3}
+              placeholder="Explain anything the reviewer should know about your attendance or evidence."
+              className="w-full rounded-2xl border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
+            />
+          </label>
+
+          <section className="space-y-3">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wide">
+                Events attended
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Select the event first, then paste a separate accessible evidence
+                link for that event.
+              </p>
+            </div>
+
+            {props.isLoadingEvents ? (
+              <div className="rounded-2xl border border-dashed bg-background p-5 text-center text-sm font-semibold text-muted-foreground">
+                Loading events for the selected school year / semester...
+              </div>
+            ) : availableEvents.length ? (
+              <div className="space-y-3">
+                {availableEvents.map((attendanceEvent) => {
+                  const selected = props.form.selectedEventIds.includes(
+                    attendanceEvent.id,
+                  );
+
+                  return (
+                    <article
+                      key={attendanceEvent.id}
+                      className={`rounded-2xl border p-4 ${
+                        selected ? "bg-muted/60" : "bg-background"
+                      }`}
+                    >
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(event) =>
+                            props.onToggleEvent(
+                              attendanceEvent.id,
+                              event.target.checked,
+                            )
+                          }
+                          className="mt-1 size-4 shrink-0"
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-black">
+                            {attendanceEvent.name}
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {formatDate(
+                              attendanceEvent.event_start_at ??
+                                attendanceEvent.created_at,
+                            )}
+                          </span>
+                        </span>
+                      </label>
+
+                      {selected ? (
+                        <label className="mt-4 block space-y-2 text-sm font-bold">
+                          <span>Evidence link</span>
+                          <input
+                            type="url"
+                            value={
+                              props.form.evidenceByEvent[attendanceEvent.id] ??
+                              ""
+                            }
+                            onChange={(event) =>
+                              props.onEvidenceChange(
+                                attendanceEvent.id,
+                                event.target.value,
+                              )
+                            }
+                            placeholder="https://drive.google.com/... or another accessible link"
+                            className={textInputClassName}
+                          />
+                        </label>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-5 text-center text-sm font-semibold text-muted-foreground">
+                No unclaimed attendance events are available for this school year
+                / semester.
+              </div>
+            )}
+          </section>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={props.isSaving}
+              onClick={() => props.onOpenChange(false)}
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={props.isSaving || props.isLoadingEvents}
+              className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
+            >
+              {props.isSaving ? "Submitting..." : "Submit Attendance Request"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+function manualAttendanceToLandingAttendanceRecord(
+  record: ManualAttendanceRecord,
+): AttendanceRecord {
+  return {
+    id: record.id,
+    school_year_id: record.school_year_id,
+    import_id: null,
+    event_id: record.event_id,
+    event_name: record.event_name ?? null,
+    event_order: record.event_order ?? null,
+    event_start_at: record.event_start_at ?? null,
+    event_end_at: record.event_end_at ?? null,
+    student_id: record.student_id,
+    name: record.name,
+    year_level: record.year_level,
+    college: record.college,
+    program: record.program,
+    institution: record.institution,
+    no_of_absences: record.no_of_absences,
+    remarks: record.remarks,
+    scanned_at: record.scanned_at,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+  };
 }
 
 async function listLandingAttendanceRecords(
@@ -2413,6 +2847,20 @@ export default function LandingPage() {
     useState<ZeroAttendanceFormState>(emptyZeroAttendanceForm);
   const [isSavingZeroAttendance, setIsSavingZeroAttendance] = useState(false);
   const [zeroAttendanceError, setZeroAttendanceError] = useState("");
+  const [attendanceRequestDialogOpen, setAttendanceRequestDialogOpen] =
+    useState(false);
+  const [attendanceRequestForm, setAttendanceRequestForm] =
+    useState<AttendanceRequestFormState>(emptyAttendanceRequestForm);
+  const [attendanceRequestEvents, setAttendanceRequestEvents] = useState<
+    AttendanceEvent[]
+  >([]);
+  const [attendanceRequestExcludedEventIds, setAttendanceRequestExcludedEventIds] =
+    useState<string[]>([]);
+  const [attendanceRequestError, setAttendanceRequestError] = useState("");
+  const [isSavingAttendanceRequest, setIsSavingAttendanceRequest] =
+    useState(false);
+  const [isLoadingAttendanceRequestEvents, setIsLoadingAttendanceRequestEvents] =
+    useState(false);
   const [error, setError] = useState("");
   const searchProgressPercent = useProgressivePercent(
     isSearching,
@@ -2430,6 +2878,10 @@ export default function LandingPage() {
         return activeSchoolYearId || current;
       });
       setZeroAttendanceForm((current) => ({
+        ...current,
+        schoolYearId: current.schoolYearId || activeSchoolYearId,
+      }));
+      setAttendanceRequestForm((current) => ({
         ...current,
         schoolYearId: current.schoolYearId || activeSchoolYearId,
       }));
@@ -2691,6 +3143,260 @@ export default function LandingPage() {
     }));
   }
 
+  async function loadAttendanceRequestEvents(schoolYearId: string) {
+    if (!schoolYearId) {
+      setAttendanceRequestEvents([]);
+      return;
+    }
+
+    setIsLoadingAttendanceRequestEvents(true);
+    try {
+      const rows = await listAttendanceEvents({
+        schoolYearId,
+        limit: 500,
+        offset: 0,
+      });
+      setAttendanceRequestEvents(rows);
+    } catch (requestError) {
+      setAttendanceRequestEvents([]);
+      setAttendanceRequestError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load attendance events.",
+      );
+    } finally {
+      setIsLoadingAttendanceRequestEvents(false);
+    }
+  }
+
+  function getExcludedAttendanceRequestEventIds(schoolYearId: string) {
+    if (!lookup || !schoolYearId) return [] as string[];
+
+    return Array.from(
+      new Set(
+        lookup.attendance
+          .filter(
+            (record) =>
+              getAttendanceRecordYear(record, attendanceEventById) ===
+              schoolYearId,
+          )
+          .map((record) => record.event_id)
+          .filter((eventId): eventId is string => Boolean(eventId)),
+      ),
+    );
+  }
+
+  function openAttendanceRequestReview(
+    initial: Partial<AttendanceRequestFormState>,
+    excludedEventIds: string[] = [],
+  ) {
+    const schoolYearId =
+      initial.schoolYearId ||
+      (resultYearFilter && resultYearFilter !== ALL_YEARS_VALUE
+        ? resultYearFilter
+        : "") ||
+      getLandingActiveSchoolYearId(schoolYears);
+
+    setAttendanceRequestError("");
+    setAttendanceRequestExcludedEventIds(excludedEventIds);
+    setAttendanceRequestForm({
+      ...emptyAttendanceRequestForm,
+      ...initial,
+      schoolYearId,
+      selectedEventIds: [],
+      evidenceByEvent: {},
+    });
+    setZeroAttendanceDialogOpen(false);
+    setResultDialogOpen(false);
+    setEventsDialogOpen(false);
+    setAttendanceRequestDialogOpen(true);
+    void loadAttendanceRequestEvents(schoolYearId);
+  }
+
+  function handleZeroAttendanceRequestReview() {
+    openAttendanceRequestReview({
+      studentId: zeroAttendanceForm.studentId,
+      schoolYearId: zeroAttendanceForm.schoolYearId,
+      name: zeroAttendanceForm.name,
+      yearLevel: zeroAttendanceForm.yearLevel,
+      college: zeroAttendanceForm.college,
+      program: zeroAttendanceForm.program,
+      institution: zeroAttendanceForm.institution,
+    });
+  }
+
+  function handleLookupAttendanceRequestReview() {
+    const profile = displayedAttendance[0] ?? lookup?.attendance[0];
+    const schoolYearId =
+      resultYearFilter && resultYearFilter !== ALL_YEARS_VALUE
+        ? resultYearFilter
+        : getLandingActiveSchoolYearId(lookup?.schoolYears ?? schoolYears);
+
+    openAttendanceRequestReview(
+      {
+        studentId: searchedId,
+        schoolYearId,
+        name: profile?.name || studentDisplayName || "",
+        yearLevel: profile?.year_level || "",
+        college: profile?.college || "",
+        program: profile?.program || "",
+        institution: profile?.institution || DEFAULT_STUDENT_INSTITUTION,
+      },
+      getExcludedAttendanceRequestEventIds(schoolYearId),
+    );
+  }
+
+  function handleAttendanceRequestFieldChange(
+    field: Exclude<
+      keyof AttendanceRequestFormState,
+      "selectedEventIds" | "evidenceByEvent"
+    >,
+    value: string,
+  ) {
+    setAttendanceRequestForm((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "college" ? { program: "" } : {}),
+    }));
+  }
+
+  function handleAttendanceRequestSchoolYearChange(schoolYearId: string) {
+    setAttendanceRequestError("");
+    setAttendanceRequestForm((current) => ({
+      ...current,
+      schoolYearId,
+      selectedEventIds: [],
+      evidenceByEvent: {},
+    }));
+    setAttendanceRequestExcludedEventIds(
+      getExcludedAttendanceRequestEventIds(schoolYearId),
+    );
+    void loadAttendanceRequestEvents(schoolYearId);
+  }
+
+  function handleAttendanceRequestEventToggle(
+    eventId: string,
+    selected: boolean,
+  ) {
+    setAttendanceRequestForm((current) => {
+      const selectedEventIds = selected
+        ? Array.from(new Set([...current.selectedEventIds, eventId]))
+        : current.selectedEventIds.filter((id) => id !== eventId);
+      const evidenceByEvent = { ...current.evidenceByEvent };
+      if (!selected) delete evidenceByEvent[eventId];
+
+      return {
+        ...current,
+        selectedEventIds,
+        evidenceByEvent,
+      };
+    });
+  }
+
+  function handleAttendanceRequestEvidenceChange(
+    eventId: string,
+    value: string,
+  ) {
+    setAttendanceRequestForm((current) => ({
+      ...current,
+      evidenceByEvent: {
+        ...current.evidenceByEvent,
+        [eventId]: value,
+      },
+    }));
+  }
+
+  async function handleAttendanceRequestSubmit(
+    event: SyntheticEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const studentIdValue = attendanceRequestForm.studentId.trim();
+    const name = attendanceRequestForm.name.trim();
+    const schoolYearId = attendanceRequestForm.schoolYearId.trim();
+
+    if (!studentIdValue) {
+      setAttendanceRequestError("Student ID is required.");
+      return;
+    }
+    if (!name) {
+      setAttendanceRequestError("Name is required.");
+      return;
+    }
+    if (!schoolYearId) {
+      setAttendanceRequestError("School year / semester is required.");
+      return;
+    }
+    if (!attendanceRequestForm.selectedEventIds.length) {
+      setAttendanceRequestError(
+        "Select at least one event you attended and provide an evidence link.",
+      );
+      return;
+    }
+
+    const events = attendanceRequestForm.selectedEventIds.map((eventId) => ({
+      eventId,
+      evidenceUrl: (attendanceRequestForm.evidenceByEvent[eventId] ?? "").trim(),
+    }));
+
+    const missingEvidence = events.find((item) => !item.evidenceUrl);
+    if (missingEvidence) {
+      const selectedEvent = attendanceRequestEvents.find(
+        (item) => item.id === missingEvidence.eventId,
+      );
+      setAttendanceRequestError(
+        `Provide an evidence link for ${selectedEvent?.name ?? "every selected event"}.`,
+      );
+      return;
+    }
+
+    for (const item of events) {
+      try {
+        const parsed = new URL(item.evidenceUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("Unsupported protocol");
+        }
+      } catch {
+        setAttendanceRequestError(
+          "Every evidence entry must be a valid HTTP/HTTPS link, such as Google Drive, OneDrive, Dropbox, iCloud, or another accessible link.",
+        );
+        return;
+      }
+    }
+
+    setIsSavingAttendanceRequest(true);
+    setAttendanceRequestError("");
+    try {
+      await createAttendanceRequest({
+        schoolYearId,
+        studentId: studentIdValue,
+        name,
+        yearLevel: attendanceRequestForm.yearLevel.trim(),
+        college: attendanceRequestForm.college.trim(),
+        program: attendanceRequestForm.program.trim(),
+        institution: attendanceRequestForm.institution.trim(),
+        note: attendanceRequestForm.note.trim(),
+        events,
+      });
+
+      setAttendanceRequestDialogOpen(false);
+      setAttendanceRequestForm(emptyAttendanceRequestForm);
+      setAttendanceRequestEvents([]);
+      setAttendanceRequestExcludedEventIds([]);
+      toast.success(
+        "Attendance request submitted. An authenticated officer or admin will review your evidence before attendance is added.",
+      );
+    } catch (requestError) {
+      setAttendanceRequestError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to submit attendance request.",
+      );
+    } finally {
+      setIsSavingAttendanceRequest(false);
+    }
+  }
+
   async function handleZeroAttendanceSubmit(
     event: SyntheticEvent<HTMLFormElement>,
   ) {
@@ -2864,16 +3570,26 @@ export default function LandingPage() {
     );
 
     try {
-      const attendancePromise = getStudentAttendanceRecords(
-        cleanStudentId,
-      ).then((attendance) => {
+      const attendancePromise = Promise.all([
+        getStudentAttendanceRecords(cleanStudentId),
+        listManualAttendanceRecords({
+          studentId: cleanStudentId,
+          limit: 500,
+          offset: 0,
+        }).catch(() => [] as ManualAttendanceRecord[]),
+      ]).then(([attendance, manualAttendance]) => {
+        const combinedAttendance = getUniqueDisplayAttendance([
+          ...attendance,
+          ...manualAttendance.map(manualAttendanceToLandingAttendanceRecord),
+        ]);
+
         markProgressStepComplete(
           25,
           "Student attendance loaded...",
-          `${attendance.length.toLocaleString()} attendance record/s matched this Student ID.`,
+          `${combinedAttendance.length.toLocaleString()} imported/manual attendance record/s matched this Student ID.`,
         );
 
-        return attendance;
+        return combinedAttendance;
       });
       const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
         markProgressStepComplete(
@@ -3222,7 +3938,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:w-auto">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:w-auto">
                 <div
                   className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}
                 >
@@ -3254,6 +3970,14 @@ export default function LandingPage() {
                   className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
                 >
                   View Attended Events
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleLookupAttendanceRequestReview}
+                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                >
+                  Request Attendance Review
                 </Button>
               </div>
 
@@ -3409,7 +4133,25 @@ export default function LandingPage() {
         error={zeroAttendanceError}
         isSaving={isSavingZeroAttendance}
         onFieldChange={handleZeroAttendanceFieldChange}
+        onRequestReview={handleZeroAttendanceRequestReview}
         onSubmit={handleZeroAttendanceSubmit}
+      />
+
+      <AttendanceRequestDialog
+        open={attendanceRequestDialogOpen}
+        onOpenChange={setAttendanceRequestDialogOpen}
+        form={attendanceRequestForm}
+        schoolYears={schoolYears}
+        events={attendanceRequestEvents}
+        excludedEventIds={attendanceRequestExcludedEventIds}
+        error={attendanceRequestError}
+        isSaving={isSavingAttendanceRequest}
+        isLoadingEvents={isLoadingAttendanceRequestEvents}
+        onFieldChange={handleAttendanceRequestFieldChange}
+        onSchoolYearChange={handleAttendanceRequestSchoolYearChange}
+        onToggleEvent={handleAttendanceRequestEventToggle}
+        onEvidenceChange={handleAttendanceRequestEvidenceChange}
+        onSubmit={handleAttendanceRequestSubmit}
       />
 
       <StudentAttendedEventsDialog
