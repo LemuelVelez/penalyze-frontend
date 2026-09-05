@@ -31,6 +31,8 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
+import { DateTimePicker } from "../../components/ui/date-time-picker";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
 
 const emptyEventForm = {
   schoolYearId: "",
@@ -463,14 +466,12 @@ export default function EventsPage() {
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label="Select all event records"
                       checked={allDisplayedEventsSelected}
-                      onChange={(event) =>
-                        handleSelectAllEvents(event.target.checked)
+                      onCheckedChange={(checked) =>
+                        handleSelectAllEvents(checked === true)
                       }
-                      className="size-4 rounded border"
                     />
                   </th>
                   <th className="px-4 py-3">Order</th>
@@ -487,17 +488,15 @@ export default function EventsPage() {
                   events.map((event, index) => (
                     <tr key={event.id} className="border-t">
                       <td className="px-4 py-3 align-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           aria-label={`Select ${event.name}`}
                           checked={selectedEventIds.includes(event.id)}
-                          onChange={(changeEvent) =>
+                          onCheckedChange={(checked) =>
                             handleEventSelection(
                               event.id,
-                              changeEvent.target.checked,
+                              checked === true,
                             )
                           }
-                          className="size-4 rounded border"
                         />
                       </td>
                       <td className="px-4 py-3 align-top text-base font-black">
@@ -633,22 +632,20 @@ export default function EventsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-bold">
                 <span>Start date and time</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={form.eventStartAt}
-                  onChange={(event) =>
-                    handleFieldChange("eventStartAt", event.target.value)
+                  onValueChange={(value) =>
+                    handleFieldChange("eventStartAt", value)
                   }
                   className="min-h-12 rounded-2xl"
                 />
               </label>
               <label className="space-y-2 text-sm font-bold">
                 <span>End date and time</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={form.eventEndAt}
-                  onChange={(event) =>
-                    handleFieldChange("eventEndAt", event.target.value)
+                  onValueChange={(value) =>
+                    handleFieldChange("eventEndAt", value)
                   }
                   className="min-h-12 rounded-2xl"
                 />
@@ -665,7 +662,7 @@ export default function EventsPage() {
 
             <label className="space-y-2 text-sm font-bold">
               <span>Description</span>
-              <textarea
+              <Textarea
                 value={form.description}
                 onChange={(event) =>
                   handleFieldChange("description", event.target.value)

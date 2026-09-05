@@ -21,6 +21,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -2053,18 +2054,17 @@ export default function CalculatePage() {
                 key={sourceOption.value}
                 className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selectedCalculationSources.includes(
                     sourceOption.value,
                   )}
-                  onChange={(event) =>
+                  onCheckedChange={(checked) =>
                     handleCalculationSourceToggle(
                       sourceOption.value,
-                      event.target.checked,
+                      checked === true,
                     )
                   }
-                  className="mt-1 size-4"
+                  className="mt-1"
                 />
                 <span className="min-w-0">
                   <span className="block truncate font-black">
@@ -2089,12 +2089,11 @@ export default function CalculatePage() {
                       : "cursor-not-allowed opacity-60"
                   }`}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedImportIds.includes(importRecord.id)}
                     disabled={!includesImportedSource}
-                    onChange={() => handleImportToggle(importRecord.id)}
-                    className="mt-1 size-4"
+                    onCheckedChange={() => handleImportToggle(importRecord.id)}
+                    className="mt-1"
                   />
                   <span className="min-w-0">
                     <span className="block truncate font-black">
@@ -2179,14 +2178,12 @@ export default function CalculatePage() {
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={allFilteredRowsSelected}
-                      onChange={(event) =>
-                        handleSelectAllCalculationRows(event.target.checked)
+                      onCheckedChange={(checked) =>
+                        handleSelectAllCalculationRows(checked === true)
                       }
                       aria-label="Select all calculation rows"
-                      className="size-4 rounded border"
                     />
                   </th>
                   <th className="px-4 py-3">Student</th>
@@ -2205,17 +2202,15 @@ export default function CalculatePage() {
                   filteredRows.map((row) => (
                     <tr key={row.key} className="border-t">
                       <td className="px-4 py-3 align-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={selectedCalculationRowKeys.includes(row.key)}
-                          onChange={(event) =>
+                          onCheckedChange={(checked) =>
                             handleCalculationRowSelection(
                               row.key,
-                              event.target.checked,
+                              checked === true,
                             )
                           }
                           aria-label={`Select calculation row for ${row.studentId}`}
-                          className="size-4 rounded border"
                         />
                       </td>
                       <td className="px-4 py-3 align-top">

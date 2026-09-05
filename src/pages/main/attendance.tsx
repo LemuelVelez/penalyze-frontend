@@ -37,6 +37,9 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
+import { DateTimePicker } from "../../components/ui/date-time-picker";
+import { FilePicker } from "../../components/ui/file-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -163,19 +166,6 @@ function formatDateTimeInputValue(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
-function handleDateTimePickerClick(event: SyntheticEvent<HTMLInputElement>) {
-  const input = event.currentTarget as HTMLInputElement & {
-    showPicker?: () => void;
-  };
-
-  input.focus();
-
-  try {
-    input.showPicker?.();
-  } catch {
-    return;
-  }
-}
 
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
@@ -1849,11 +1839,11 @@ export default function AttendancePage() {
               <DialogTitle>Upload attendance file</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
-              <label
+              <div
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex min-h-40 min-w-0 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
+                className={`flex min-h-40 min-w-0 flex-col items-center justify-center rounded-3xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
                   isDraggingFile ? "border-primary bg-primary/10" : ""
                 }`}
               >
@@ -1864,14 +1854,16 @@ export default function AttendancePage() {
                   TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, and ODS are
                   supported.
                 </span>
-                <Input
-                  type="file"
+                <FilePicker
                   accept={acceptedFileTypes}
                   onChange={handleFileChange}
                   disabled={isSaving}
-                  className="mt-4 min-h-12 rounded-2xl"
+                  buttonLabel={
+                    file ? "Choose a different file" : "Choose attendance file"
+                  }
+                  className="mt-4"
                 />
-              </label>
+              </div>
 
               <label className="space-y-2 lg:col-span-2">
                 <span className="text-sm font-bold">School year / semester</span>
@@ -1932,12 +1924,10 @@ export default function AttendancePage() {
 
               <label className="space-y-2 lg:col-span-5">
                 <span className="text-sm font-bold">Start date/time</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={uploadForm.eventStartAt}
-                  onClick={handleDateTimePickerClick}
-                  onChange={(event) =>
-                    handleUploadFieldChange("eventStartAt", event.target.value)
+                  onValueChange={(value) =>
+                    handleUploadFieldChange("eventStartAt", value)
                   }
                   disabled={isSaving}
                   className="min-h-12 w-full min-w-0 rounded-2xl"
@@ -1946,12 +1936,10 @@ export default function AttendancePage() {
 
               <label className="space-y-2 lg:col-span-5">
                 <span className="text-sm font-bold">End date/time</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={uploadForm.eventEndAt}
-                  onClick={handleDateTimePickerClick}
-                  onChange={(event) =>
-                    handleUploadFieldChange("eventEndAt", event.target.value)
+                  onValueChange={(value) =>
+                    handleUploadFieldChange("eventEndAt", value)
                   }
                   disabled={isSaving}
                   className="min-h-12 w-full min-w-0 rounded-2xl"
@@ -2112,15 +2100,10 @@ export default function AttendancePage() {
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">Latest scan</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={finalResultForm.latestScannedAt}
-                  onClick={handleDateTimePickerClick}
-                  onChange={(event) =>
-                    handleFinalResultFieldChange(
-                      "latestScannedAt",
-                      event.target.value,
-                    )
+                  onValueChange={(value) =>
+                    handleFinalResultFieldChange("latestScannedAt", value)
                   }
                   className="min-h-12 w-full min-w-0 rounded-2xl"
                 />
@@ -2284,14 +2267,12 @@ export default function AttendancePage() {
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={allDisplayedFinalResultsSelected}
-                      onChange={(event) =>
-                        handleSelectAllFinalResults(event.target.checked)
+                      onCheckedChange={(checked) =>
+                        handleSelectAllFinalResults(checked === true)
                       }
                       aria-label="Select all final attendance results"
-                      className="size-4 rounded border"
                     />
                   </th>
                   <th className="px-4 py-3">Student ID</th>
@@ -2316,17 +2297,15 @@ export default function AttendancePage() {
                     return (
                       <tr key={result.id} className="border-t">
                         <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={selectedFinalResultIds.includes(result.id)}
-                            onChange={(event) =>
+                            onCheckedChange={(checked) =>
                               handleFinalResultSelection(
                                 result.id,
-                                event.target.checked,
+                                checked === true,
                               )
                             }
                             aria-label={`Select final result for ${result.student_id}`}
-                            className="size-4 rounded border"
                           />
                         </td>
                         <td className="px-4 py-3 wrap-break-word font-black">

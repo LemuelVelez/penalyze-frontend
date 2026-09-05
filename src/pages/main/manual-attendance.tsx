@@ -36,6 +36,8 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
+import { DateTimePicker } from "../../components/ui/date-time-picker";
 import {
   Dialog,
   DialogContent,
@@ -973,11 +975,10 @@ export default function ManualAttendancePage() {
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">Scanned at</span>
-                <Input
-                  type="datetime-local"
+                <DateTimePicker
                   value={form.scannedAt}
-                  onChange={(event) =>
-                    handleFieldChange("scannedAt", event.target.value)
+                  onValueChange={(value) =>
+                    handleFieldChange("scannedAt", value)
                   }
                   className="min-h-12 rounded-2xl"
                 />
@@ -1174,18 +1175,15 @@ export default function ManualAttendancePage() {
                       const isSelected = form.eventIds.includes(eventItem.id);
 
                       return (
-                        <button
+                        <Button
                           key={eventItem.id}
                           type="button"
+                          variant={isSelected ? "default" : "outline"}
                           onClick={() => handleEventToggle(eventItem.id)}
-                          className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold transition ${
-                            isSelected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "bg-card hover:bg-muted"
-                          }`}
+                          className="h-auto min-h-12 justify-start whitespace-normal rounded-2xl px-4 py-3 text-left text-sm font-bold"
                         >
                           {getEventLabel(eventItem)}
-                        </button>
+                        </Button>
                       );
                     })
                   ) : (
@@ -1349,14 +1347,12 @@ export default function ManualAttendancePage() {
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label="Select all manual attendance records"
                       checked={allFilteredGroupsSelected}
-                      onChange={(event) =>
-                        handleSelectAllManualGroups(event.target.checked)
+                      onCheckedChange={(checked) =>
+                        handleSelectAllManualGroups(checked === true)
                       }
-                      className="size-4 rounded border"
                     />
                   </th>
                   <th className="px-4 py-3">Student ID</th>
@@ -1374,17 +1370,15 @@ export default function ManualAttendancePage() {
                   filteredGroups.map((group) => (
                     <tr key={group.key} className="border-t">
                       <td className="px-4 py-3 align-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           aria-label={`Select ${group.studentId}`}
                           checked={isManualGroupSelected(group)}
-                          onChange={(event) =>
+                          onCheckedChange={(checked) =>
                             handleManualGroupSelection(
                               group,
-                              event.target.checked,
+                              checked === true,
                             )
                           }
-                          className="size-4 rounded border"
                         />
                       </td>
                       <td className="px-4 py-3 font-black">

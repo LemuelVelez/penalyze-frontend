@@ -16,6 +16,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
+import { Textarea } from "../../components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -317,7 +318,7 @@ export default function AttendanceRequestsPage() {
                 <div className="space-y-3 rounded-2xl border bg-background p-4">
                   <label className="block space-y-2 text-sm font-bold">
                     <span>Reviewer note (optional)</span>
-                    <textarea
+                    <Textarea
                       value={reviewNotes[request.id] ?? ""}
                       onChange={(event) =>
                         setReviewNotes((current) => ({

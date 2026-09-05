@@ -38,6 +38,7 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -790,14 +791,12 @@ export default function FinesPage() {
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label="Select all penalty results"
                       checked={allDisplayedPenaltyResultsSelected}
-                      onChange={(event) =>
-                        handleSelectAllPenaltyResults(event.target.checked)
+                      onCheckedChange={(checked) =>
+                        handleSelectAllPenaltyResults(checked === true)
                       }
-                      className="size-4 rounded border"
                     />
                   </th>
                   <th className="px-4 py-3">Student ID</th>
@@ -815,17 +814,15 @@ export default function FinesPage() {
                   filteredPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
                       <td className="px-4 py-3 align-top">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           aria-label={`Select ${result.student_id}`}
                           checked={selectedPenaltyResultIds.includes(result.id)}
-                          onChange={(event) =>
+                          onCheckedChange={(checked) =>
                             handlePenaltyResultSelection(
                               result.id,
-                              event.target.checked,
+                              checked === true,
                             )
                           }
-                          className="size-4 rounded border"
                         />
                       </td>
                       <td className="px-4 py-3 font-black">

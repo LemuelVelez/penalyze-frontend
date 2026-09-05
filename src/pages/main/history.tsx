@@ -56,6 +56,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Checkbox } from "../../components/ui/checkbox";
+import { DateTimePicker } from "../../components/ui/date-time-picker";
 import { Input } from "../../components/ui/input";
 import {
   Select,
@@ -1630,13 +1631,13 @@ export default function HistoryPage() {
 
                 <label className="space-y-2">
                   <span className="text-sm font-bold">Start date</span>
-                  <Input
-                    type="date"
+                  <DateTimePicker
+                    mode="date"
                     value={form.startsAt}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       setForm((current) => ({
                         ...current,
-                        startsAt: event.target.value,
+                        startsAt: value,
                       }))
                     }
                     className="min-h-12 rounded-2xl"
@@ -1645,13 +1646,13 @@ export default function HistoryPage() {
 
                 <label className="space-y-2">
                   <span className="text-sm font-bold">End date</span>
-                  <Input
-                    type="date"
+                  <DateTimePicker
+                    mode="date"
                     value={form.endsAt}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       setForm((current) => ({
                         ...current,
-                        endsAt: event.target.value,
+                        endsAt: value,
                       }))
                     }
                     className="min-h-12 rounded-2xl"

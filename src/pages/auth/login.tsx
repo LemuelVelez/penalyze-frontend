@@ -4,6 +4,9 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { login } from "../../api/auth";
 import { LogoMark, navigateTo } from "../../components/layout";
+import { Button } from "../../components/ui/button";
+import { Checkbox } from "../../components/ui/checkbox";
+import { Input } from "../../components/ui/input";
 
 const AUTH_STORAGE_KEYS = [
   "penalyze.auth.session",
@@ -148,7 +151,7 @@ export default function LoginPage() {
             <label htmlFor="email" className="text-sm font-bold">
               Email
             </label>
-            <input
+            <Input
               id="email"
               type="email"
               value={email}
@@ -165,7 +168,7 @@ export default function LoginPage() {
               Password
             </label>
             <div className="relative mt-2">
-              <input
+              <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
@@ -175,10 +178,12 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 required
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute inset-y-0 right-3 inline-flex items-center justify-center px-2 text-muted-foreground transition hover:text-foreground focus:outline-none"
+                className="absolute inset-y-0 right-3 my-auto text-muted-foreground hover:text-foreground"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -186,16 +191,14 @@ export default function LoginPage() {
                 ) : (
                   <Eye className="size-5" aria-hidden="true" />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 
           <label className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 text-sm font-semibold">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={remember}
-              onChange={(event) => setRemember(event.target.checked)}
-              className="size-4 rounded border"
+              onCheckedChange={(checked) => setRemember(checked === true)}
             />
             Remember this device
           </label>
@@ -206,22 +209,23 @@ export default function LoginPage() {
             </div>
           ) : null}
 
-          <button
+          <Button
             type="submit"
             disabled={isSubmitting}
             className="inline-flex min-h-12 w-full items-center justify-center rounded-2xl bg-primary px-5 py-3 text-sm font-black text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Signing in..." : "Sign In"}
-          </button>
+          </Button>
         </form>
 
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => navigateTo("/")}
-          className="mt-5 inline-flex w-full items-center justify-center text-sm font-bold text-muted-foreground transition hover:text-foreground"
+          className="mt-5 w-full text-sm font-bold text-muted-foreground hover:text-foreground"
         >
           Back to student lookup
-        </button>
+        </Button>
       </section>
     </main>
   );

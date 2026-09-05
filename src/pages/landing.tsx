@@ -35,6 +35,9 @@ import {
 import type { SchoolYearRecord } from "../api/schoolYears";
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2209,7 +2212,7 @@ function ZeroAttendanceRegistrationDialog(props: {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm font-bold">
               <span>Student ID</span>
-              <input
+              <Input
                 value={props.form.studentId}
                 onChange={(event) =>
                   props.onFieldChange("studentId", event.target.value)
@@ -2221,7 +2224,7 @@ function ZeroAttendanceRegistrationDialog(props: {
             </label>
             <label className="space-y-2 text-sm font-bold">
               <span>Name</span>
-              <input
+              <Input
                 value={props.form.name}
                 onChange={(event) =>
                   props.onFieldChange("name", event.target.value)
@@ -2268,7 +2271,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.yearLevel}
                 onChange={(event) =>
                   props.onFieldChange("yearLevel", event.target.value)
@@ -2305,7 +2308,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.college}
                 onChange={(event) =>
                   props.onFieldChange("college", event.target.value)
@@ -2347,7 +2350,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.program}
                 onChange={(event) =>
                   props.onFieldChange("program", event.target.value)
@@ -2391,7 +2394,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.institution}
                 onChange={(event) =>
                   props.onFieldChange("institution", event.target.value)
@@ -2526,7 +2529,7 @@ function AttendanceRequestDialog(props: {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm font-bold">
               <span>Student ID</span>
-              <input
+              <Input
                 value={props.form.studentId}
                 onChange={(event) =>
                   props.onFieldChange("studentId", event.target.value)
@@ -2538,7 +2541,7 @@ function AttendanceRequestDialog(props: {
 
             <label className="space-y-2 text-sm font-bold">
               <span>Name</span>
-              <input
+              <Input
                 value={props.form.name}
                 onChange={(event) =>
                   props.onFieldChange("name", event.target.value)
@@ -2590,7 +2593,7 @@ function AttendanceRequestDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.yearLevel}
                 onChange={(event) =>
                   props.onFieldChange("yearLevel", event.target.value)
@@ -2621,7 +2624,7 @@ function AttendanceRequestDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.college}
                 onChange={(event) =>
                   props.onFieldChange("college", event.target.value)
@@ -2659,7 +2662,7 @@ function AttendanceRequestDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.program}
                 onChange={(event) =>
                   props.onFieldChange("program", event.target.value)
@@ -2697,7 +2700,7 @@ function AttendanceRequestDialog(props: {
                   ))}
                 </SelectContent>
               </Select>
-              <input
+              <Input
                 value={props.form.institution}
                 onChange={(event) =>
                   props.onFieldChange("institution", event.target.value)
@@ -2710,7 +2713,7 @@ function AttendanceRequestDialog(props: {
 
           <label className="block space-y-2 text-sm font-bold">
             <span>Request note (optional)</span>
-            <textarea
+            <Textarea
               value={props.form.note}
               onChange={(event) =>
                 props.onFieldChange("note", event.target.value)
@@ -2751,16 +2754,15 @@ function AttendanceRequestDialog(props: {
                       }`}
                     >
                       <label className="flex cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={selected}
-                          onChange={(event) =>
+                          onCheckedChange={(checked) =>
                             props.onToggleEvent(
                               attendanceEvent.id,
-                              event.target.checked,
+                              checked === true,
                             )
                           }
-                          className="mt-1 size-4 shrink-0"
+                          className="mt-1 shrink-0"
                         />
                         <span className="min-w-0">
                           <span className="block font-black">
@@ -2778,7 +2780,7 @@ function AttendanceRequestDialog(props: {
                       {selected ? (
                         <label className="mt-4 block space-y-2 text-sm font-bold">
                           <span>Evidence link</span>
-                          <input
+                          <Input
                             type="url"
                             value={
                               props.form.evidenceByEvent[attendanceEvent.id] ??
@@ -3841,7 +3843,7 @@ export default function LandingPage() {
               <label className="sr-only" htmlFor="student-id-search">
                 Student ID
               </label>
-              <input
+              <Input
                 id="student-id-search"
                 value={studentId}
                 onChange={(event) => setStudentId(event.target.value)}
