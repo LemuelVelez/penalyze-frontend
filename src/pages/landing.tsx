@@ -36,6 +36,16 @@ import type { SchoolYearRecord } from "../api/schoolYears";
 import { LogoMark } from "../components/layout";
 import { Button } from "../components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -2156,8 +2166,9 @@ function ZeroAttendanceRegistrationDialog(props: {
   isSaving: boolean;
   onFieldChange: (field: keyof ZeroAttendanceFormState, value: string) => void;
   onRequestReview: () => void;
-  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+  onSubmit: () => void;
 }) {
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
   const programOptions = getStudentProgramOptions(props.form.college);
   const schoolYearLabel =
     getSchoolYearLabel(props.schoolYears, props.form.schoolYearId) ||
@@ -2173,7 +2184,13 @@ function ZeroAttendanceRegistrationDialog(props: {
           <DialogTitle>Student ID not found</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={props.onSubmit} className="space-y-5">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setConfirmationOpen(true);
+          }}
+          className="space-y-5"
+        >
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
             This Student ID has no saved attendance or fine record. If you
             attended one or more events, use <strong>Request Event Review</strong>
@@ -2198,6 +2215,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   props.onFieldChange("studentId", event.target.value)
                 }
                 placeholder="Student ID"
+                required
                 className={textInputClassName}
               />
             </label>
@@ -2209,6 +2227,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                   props.onFieldChange("name", event.target.value)
                 }
                 placeholder="Full name"
+                required
                 className={textInputClassName}
               />
             </label>
@@ -2411,6 +2430,38 @@ function ZeroAttendanceRegistrationDialog(props: {
             </Button>
           </div>
         </form>
+
+        <AlertDialog
+          open={confirmationOpen}
+          onOpenChange={(open) => {
+            if (!props.isSaving) setConfirmationOpen(open);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm zero attendance?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You are about to record <strong>{props.form.studentId.trim()}</strong>{" "}
+                as having attended <strong>zero events</strong> for {schoolYearLabel}.
+                Only continue if you are certain the attendee did not attend any
+                event. If they attended at least one event, go back and use
+                <strong> Request Event Review</strong> instead.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={props.isSaving}>
+                Go Back
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={props.isSaving}
+                onClick={() => props.onSubmit()}
+                className="bg-destructive text-destructive-foreground hover:opacity-90"
+              >
+                {props.isSaving ? "Saving..." : "Confirm Zero Attendance"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
@@ -3397,11 +3448,7 @@ export default function LandingPage() {
     }
   }
 
-  async function handleZeroAttendanceSubmit(
-    event: SyntheticEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
+  async function handleZeroAttendanceSubmit() {
     const payload: ZeroAttendanceFinePayload = {
       studentId: zeroAttendanceForm.studentId.trim(),
       schoolYearId:
