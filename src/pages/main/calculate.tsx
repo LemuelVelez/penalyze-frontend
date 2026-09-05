@@ -1983,7 +1983,7 @@ export default function CalculatePage() {
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
-              School Year
+              School Year / Semester
             </p>
             <p className="mt-2 text-2xl font-black">
               {selectedSchoolYearLabel}

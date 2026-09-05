@@ -396,7 +396,7 @@ export default function EventsPage() {
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
-              School Year
+              School Year / Semester
             </p>
             <p className="mt-2 text-2xl font-black">
               {selectedSchoolYearLabel}
@@ -476,7 +476,7 @@ export default function EventsPage() {
                   <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Event</th>
                   <th className="px-4 py-3">Schedule</th>
-                  <th className="px-4 py-3">School Year</th>
+                  <th className="px-4 py-3">School Year / Semester</th>
                   <th className="px-4 py-3">Attendees</th>
                   <th className="px-4 py-3">Description</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -656,7 +656,7 @@ export default function EventsPage() {
             </div>
 
             <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>School year</span>
+              <span>School year / semester</span>
               <SchoolYearBadge
                 label={formSchoolYearLabel}
                 className="w-full justify-center"

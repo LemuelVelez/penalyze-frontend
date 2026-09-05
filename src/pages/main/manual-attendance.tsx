@@ -964,7 +964,7 @@ export default function ManualAttendancePage() {
               className="mt-5 grid gap-4 lg:grid-cols-4"
             >
               <label className="space-y-2">
-                <span className="text-sm font-bold">School year</span>
+                <span className="text-sm font-bold">School year / semester</span>
                 <SchoolYearBadge
                   label={formSchoolYearLabel}
                   className="w-full justify-center"

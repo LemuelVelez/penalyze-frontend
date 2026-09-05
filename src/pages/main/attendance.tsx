@@ -32,6 +32,7 @@ import {
   ALL_SCHOOL_YEARS_VALUE,
   getActiveSchoolYearId,
   getSchoolYearLabel,
+  getSchoolYearRecordLabel,
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
@@ -282,7 +283,7 @@ function resolveAttendanceMetadataSchoolYearId(
   const exactMatch = schoolYears.find((schoolYear) => {
     return (
       schoolYear.id.toLowerCase() === normalizedValue ||
-      schoolYear.name.toLowerCase() === normalizedValue
+      getSchoolYearRecordLabel(schoolYear).toLowerCase() === normalizedValue
     );
   });
 
@@ -291,12 +292,20 @@ function resolveAttendanceMetadataSchoolYearId(
   const years = cleanValue.match(/\d{4}/g) ?? [];
 
   if (years.length) {
-    const yearMatch = schoolYears.find((schoolYear) => {
+    const requestedSemester = normalizedValue.includes("second")
+      ? "second_semester"
+      : normalizedValue.includes("first")
+        ? "first_semester"
+        : "";
+    const yearMatches = schoolYears.filter((schoolYear) => {
       const normalizedName = schoolYear.name.toLowerCase();
-      return years.every((year) => normalizedName.includes(year));
+      return (
+        years.every((year) => normalizedName.includes(year)) &&
+        (!requestedSemester || schoolYear.semester === requestedSemester)
+      );
     });
 
-    if (yearMatch) return yearMatch.id;
+    if (yearMatches.length === 1) return yearMatches[0].id;
   }
 
   return "";
@@ -1759,7 +1768,7 @@ export default function AttendancePage() {
         <section className="grid gap-4 md:grid-cols-4">
           <div className="rounded-3xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
-              School Year
+              School Year / Semester
             </p>
             <p className="mt-2 text-2xl font-black">
               {selectedSchoolYearLabel}
@@ -1865,7 +1874,7 @@ export default function AttendancePage() {
               </label>
 
               <label className="space-y-2 lg:col-span-2">
-                <span className="text-sm font-bold">School year</span>
+                <span className="text-sm font-bold">School year / semester</span>
                 <SchoolYearBadge
                   label={uploadSchoolYearLabel}
                   className="w-full justify-center"

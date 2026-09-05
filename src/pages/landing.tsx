@@ -2179,7 +2179,7 @@ function ZeroAttendanceRegistrationDialog(props: {
               />
             </label>
             <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>School Year</span>
+              <span>School Year / Semester</span>
               <SchoolYearBadge
                 label={schoolYearLabel}
                 className="w-full justify-center"

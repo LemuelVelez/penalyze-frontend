@@ -24,12 +24,13 @@ import {
   deleteSchoolYearRecords,
   getActiveSchoolYearId,
   getSchoolYearLabel,
+  getSchoolYearRecordLabel,
   listSchoolYears,
   saveSchoolYear,
   transferSchoolYearRecords,
   updateSchoolYear,
 } from "../../api/schoolYears";
-import type { SchoolYearRecord } from "../../api/schoolYears";
+import type { SchoolSemester, SchoolYearRecord } from "../../api/schoolYears";
 import {
   deletePenaltyResultsByIds,
   deletePenaltyResultsBySchoolYear,
@@ -67,6 +68,7 @@ import { Switch } from "../../components/ui/switch";
 
 type SchoolYearFormState = {
   name: string;
+  semester: SchoolSemester;
   startsAt: string;
   endsAt: string;
   isActive: boolean;
@@ -89,6 +91,7 @@ type FilteredRecordGroupKey =
 
 const emptyForm: SchoolYearFormState = {
   name: "",
+  semester: "first_semester",
   startsAt: "",
   endsAt: "",
   isActive: false,
@@ -496,6 +499,7 @@ export default function HistoryPage() {
     setEditingSchoolYearId(selectedSchoolYear.id);
     setForm({
       name: selectedSchoolYear.name,
+      semester: selectedSchoolYear.semester,
       startsAt: toDateInputValue(selectedSchoolYear.starts_at),
       endsAt: toDateInputValue(selectedSchoolYear.ends_at),
       isActive: selectedSchoolYear.is_active,
@@ -524,6 +528,7 @@ export default function HistoryPage() {
     try {
       const payload = {
         name: form.name.trim(),
+        semester: form.semester,
         startsAt: form.startsAt,
         endsAt: form.endsAt,
         isActive: form.isActive,
@@ -629,6 +634,7 @@ export default function HistoryPage() {
     try {
       const saved = await updateSchoolYear(selectedSchoolYear.id, {
         name: selectedSchoolYear.name,
+        semester: selectedSchoolYear.semester,
         startsAt: toDateInputValue(selectedSchoolYear.starts_at),
         endsAt: toDateInputValue(selectedSchoolYear.ends_at),
         isActive: checked,
@@ -1331,11 +1337,11 @@ export default function HistoryPage() {
                 History
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-                School-year record history
+                School-year and semester record history
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Create, edit, delete, transfer, assign, and filter records by
-                school year.
+                school year and semester.
               </p>
             </div>
 
@@ -1344,12 +1350,12 @@ export default function HistoryPage() {
               onValueChange={handleSchoolYearChange}
             >
               <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl lg:w-64">
-                <SelectValue placeholder="Select school year" />
+                <SelectValue placeholder="Select school year / semester" />
               </SelectTrigger>
               <SelectContent>
                 {schoolYears.map((schoolYear) => (
                   <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                    {schoolYear.name}
+                    {getSchoolYearRecordLabel(schoolYear)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1360,7 +1366,7 @@ export default function HistoryPage() {
         <section className="grid gap-4 md:grid-cols-6">
           <div className="rounded-3xl border bg-card p-5 md:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
-              Selected School Year
+              Selected School Year / Semester
             </p>
             <p className="mt-2 text-2xl font-black">
               {selectedSchoolYearLabel}
@@ -1439,7 +1445,7 @@ export default function HistoryPage() {
               disabled={!selectedSchoolYearId}
               className="min-h-12 w-full rounded-2xl px-6 font-black"
             >
-              Edit Selected School Year
+              Edit Selected School Year / Semester
             </Button>
 
             <div className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border bg-background px-4 py-3">
@@ -1591,7 +1597,7 @@ export default function HistoryPage() {
               </div>
 
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2 sm:col-span-2">
+                <label className="space-y-2">
                   <span className="text-sm font-bold">School year name</span>
                   <Input
                     value={form.name}
@@ -1599,6 +1605,27 @@ export default function HistoryPage() {
                     placeholder="2025-2026"
                     className="min-h-12 rounded-2xl"
                   />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-bold">Semester</span>
+                  <Select
+                    value={form.semester}
+                    onValueChange={(value) =>
+                      setForm((current) => ({
+                        ...current,
+                        semester: value as SchoolSemester,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="min-h-12 rounded-2xl">
+                      <SelectValue placeholder="Select semester" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="first_semester">First Semester</SelectItem>
+                      <SelectItem value="second_semester">Second Semester</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </label>
 
                 <label className="space-y-2">
@@ -1662,12 +1689,12 @@ export default function HistoryPage() {
                 onValueChange={setTransferTargetSchoolYearId}
               >
                 <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl sm:w-64">
-                  <SelectValue placeholder="Target school year" />
+                  <SelectValue placeholder="Target school year / semester" />
                 </SelectTrigger>
                 <SelectContent>
                   {transferTargetOptions.map((schoolYear) => (
                     <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {schoolYear.name}
+                      {getSchoolYearRecordLabel(schoolYear)}
                     </SelectItem>
                   ))}
                 </SelectContent>

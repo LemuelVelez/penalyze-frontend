@@ -1,8 +1,11 @@
 export const ALL_SCHOOL_YEARS_VALUE = "__all_school_years__";
 
+export type SchoolSemester = "first_semester" | "second_semester";
+
 export type SchoolYearRecord = {
   id: string;
   name: string;
+  semester: SchoolSemester;
   starts_at: string;
   ends_at: string;
   is_active: boolean;
@@ -12,6 +15,7 @@ export type SchoolYearRecord = {
 
 export type SchoolYearInput = {
   name: string;
+  semester: SchoolSemester;
   startsAt?: string;
   endsAt?: string;
   isActive?: boolean;
@@ -164,12 +168,22 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   return payload as ApiEnvelope<T>;
 }
 
+export function getSemesterLabel(semester?: SchoolSemester | null) {
+  if (semester === "second_semester") return "Second Semester";
+  return "First Semester";
+}
+
+export function getSchoolYearRecordLabel(schoolYear: SchoolYearRecord) {
+  return `${schoolYear.name} / ${getSemesterLabel(schoolYear.semester)}`;
+}
+
 export function getSchoolYearLabel(
   schoolYears: SchoolYearRecord[],
   schoolYearId?: string | null,
 ) {
-  if (!schoolYearId || schoolYearId === ALL_SCHOOL_YEARS_VALUE) return "All school years";
-  return schoolYears.find((item) => item.id === schoolYearId)?.name ?? schoolYearId;
+  if (!schoolYearId || schoolYearId === ALL_SCHOOL_YEARS_VALUE) return "All school years / semesters";
+  const schoolYear = schoolYears.find((item) => item.id === schoolYearId);
+  return schoolYear ? getSchoolYearRecordLabel(schoolYear) : schoolYearId;
 }
 
 export function getActiveSchoolYears(schoolYears: SchoolYearRecord[]) {
