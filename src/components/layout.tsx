@@ -114,8 +114,10 @@ export default function AppLayout(props: LayoutProps) {
   if (!props.authenticated) {
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <div className="fixed right-4 top-4 z-50">
-          <ThemeToggle />
+        <div className="fixed right-28 top-4 z-[100] flex items-center rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur">
+          <div className="flex items-center rounded-xl border bg-background/95 p-1 shadow-sm">
+            <ThemeToggle />
+          </div>
         </div>
         {props.children}
       </div>
@@ -136,7 +138,9 @@ export default function AppLayout(props: LayoutProps) {
             <LogoMark textClassName="text-xl" />
           </Button>
 
-          <ThemeToggle />
+          <div className="flex items-center rounded-xl border bg-background/95 p-1 shadow-sm">
+            <ThemeToggle />
+          </div>
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Dashboard navigation">
             {visibleNavItems.map((item) => {
