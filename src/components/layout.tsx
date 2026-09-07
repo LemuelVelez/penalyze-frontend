@@ -111,7 +111,16 @@ export default function AppLayout(props: LayoutProps) {
     props.onLogout();
   }
 
-  if (!props.authenticated) return <>{props.children}</>;
+  if (!props.authenticated) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <div className="fixed right-4 top-4 z-50">
+          <ThemeToggle />
+        </div>
+        {props.children}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
