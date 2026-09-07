@@ -34,6 +34,7 @@ import {
 } from "../api/schoolYears";
 import type { SchoolYearRecord } from "../api/schoolYears";
 import { LogoMark } from "../components/layout";
+import ThemeToggle from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
@@ -3799,7 +3800,7 @@ export default function LandingPage() {
   if (isCheckingSession) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <LogoMark textClassName="text-2xl" />
+        <ThemeToggle />\n          <LogoMark textClassName="text-2xl" />
       </main>
     );
   }

@@ -4,6 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { login } from "../../api/auth";
 import { LogoMark, navigateTo } from "../../components/layout";
+import ThemeToggle from "../../components/theme-toggle";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
@@ -128,7 +129,7 @@ export default function LoginPage() {
   if (isCheckingSession) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-muted/40 text-foreground">
-        <LogoMark textClassName="text-3xl" />
+        <ThemeToggle />\n          <LogoMark textClassName="text-3xl" />
       </main>
     );
   }

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Menu, Moon, Sun } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { getStoredUser } from "../api/auth";
@@ -16,6 +16,7 @@ import {
   AlertDialogTrigger,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
+import ThemeToggle from "./theme-toggle";
 import {
   Sheet,
   SheetContent,
@@ -83,12 +84,7 @@ function LogoutConfirmation(props: {
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-    localStorage.setItem("theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
   const currentUser = useMemo(() => getStoredUser(), []);
   const isAdmin = currentUser?.role === "admin";
 
