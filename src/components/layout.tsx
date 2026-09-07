@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Moon, Sun } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { getStoredUser } from "../api/auth";
@@ -83,6 +83,12 @@ function LogoutConfirmation(props: {
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
   const currentUser = useMemo(() => getStoredUser(), []);
   const isAdmin = currentUser?.role === "admin";
 
@@ -123,6 +129,16 @@ export default function AppLayout(props: LayoutProps) {
             aria-label="Go to dashboard"
           >
             <LogoMark textClassName="text-xl" />
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => setDarkMode((value) => !value)}
+            aria-label="Toggle dark mode"
+          >
+            {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Dashboard navigation">
