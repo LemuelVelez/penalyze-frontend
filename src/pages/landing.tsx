@@ -3813,13 +3813,16 @@ export default function LandingPage() {
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
             </a>
-            <Button
-              asChild
-              variant="outline"
-              className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold"
-            >
-              <Link to="/login">SSG Login</Link>
-            </Button>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <Button
+                asChild
+                variant="outline"
+                className="min-h-11 rounded-xl px-5 py-2 text-sm font-bold"
+              >
+                <Link to="/login">SSG Login</Link>
+              </Button>
+            </div>
           </header>
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
