@@ -3823,19 +3823,9 @@ export default function LandingPage() {
           </header>
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
-            <p className="mx-auto mb-4 inline-flex rounded-full border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm">
-              Attendance and fines lookup by school year for students
-            </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
-              Search your Student ID and view attendance records by school year
-              instantly.
+              Search your Student ID and view attendance records instantly.
             </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">
-              Students can check perfect attendance, zero attendance, recorded
-              absences, and penalty status without logging in. Enter your
-              Student ID to see attendance entries and related fines separated
-              by school year.
-            </p>
 
             <form
               onSubmit={handleSearch}
@@ -3883,27 +3873,6 @@ export default function LandingPage() {
                 {error}
               </div>
             ) : null}
-
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">
-                  Fast lookup
-                </p>
-                <p className="mt-2 text-3xl font-black">Student ID</p>
-              </div>
-              <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">
-                  Segregated status
-                </p>
-                <p className="mt-2 text-3xl font-black">Perfect / Zero</p>
-              </div>
-              <div className="rounded-2xl border bg-card p-5 text-left shadow-sm">
-                <p className="text-sm font-semibold text-muted-foreground">
-                  School-year records
-                </p>
-                <p className="mt-2 text-3xl font-black">Attendance</p>
-              </div>
-            </div>
 
             <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/80 p-4 text-left shadow-xl shadow-black/5 sm:p-6">
               <div className="flex flex-col gap-2 text-center sm:text-left">
