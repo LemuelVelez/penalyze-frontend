@@ -215,3 +215,23 @@
     height: 0;
   }
 }
+
+
+/* theme-transition-fix */
+html {
+  color-scheme: light dark;
+}
+
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow;
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+html.theme-loading *,
+html.theme-loading *::before,
+html.theme-loading *::after {
+  transition: none !important;
+}
