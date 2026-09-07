@@ -127,15 +127,7 @@ export default function AppLayout(props: LayoutProps) {
             <LogoMark textClassName="text-xl" />
           </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => setDarkMode((value) => !value)}
-            aria-label="Toggle dark mode"
-          >
-            {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </Button>
+          <ThemeToggle />
 
           <nav className="hidden items-center gap-2 lg:flex" aria-label="Dashboard navigation">
             {visibleNavItems.map((item) => {
