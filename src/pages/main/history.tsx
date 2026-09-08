@@ -1041,7 +1041,7 @@ export default function HistoryPage() {
           onChange={(event) => setRecordDialogSearch(event.target.value)}
           placeholder={`Search ${title}`}
           aria-label={`Search ${title}`}
-          className="min-h-12 rounded-2xl"
+          className="min-h-10 rounded-xl"
         />
       </div>
     );
@@ -1070,7 +1070,7 @@ export default function HistoryPage() {
             disabled={!ids.length}
             aria-label={`Select all ${title}`}
           />
-          <span className="text-sm font-black">Select all</span>
+          <span className="text-sm font-semibold">Select all</span>
         </label>
         <p className="text-sm font-semibold text-muted-foreground">
           {selectedGroupCount.toLocaleString()} of {ids.length.toLocaleString()}{" "}
@@ -1099,12 +1099,12 @@ export default function HistoryPage() {
               type="button"
               variant="destructive"
               disabled={args.isDeleting || !args.selectedCount}
-              className="min-h-11 rounded-2xl px-5 font-black"
+              className="min-h-10 rounded-xl px-5 font-semibold"
             >
               {args.isDeleting ? "Deleting..." : "Delete Selected"}
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="rounded-3xl">
+          <AlertDialogContent className="rounded-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>{args.selectedTitle}</AlertDialogTitle>
               <AlertDialogDescription>
@@ -1129,12 +1129,12 @@ export default function HistoryPage() {
               type="button"
               variant="destructive"
               disabled={args.isDeleting || !args.totalCount}
-              className="min-h-11 rounded-2xl px-5 font-black"
+              className="min-h-10 rounded-xl px-5 font-semibold"
             >
               {args.isDeleting ? "Deleting..." : "Delete All"}
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="rounded-3xl">
+          <AlertDialogContent className="rounded-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle>{args.allTitle}</AlertDialogTitle>
               <AlertDialogDescription>
@@ -1174,7 +1174,7 @@ export default function HistoryPage() {
                 variant="destructive"
                 disabled={isDeletingUploadedFiles || !selectedRecords.importIds.length}
                 onClick={() => void openSelectedUploadDeleteDialog()}
-                className="min-h-11 rounded-2xl px-5 font-black"
+                className="min-h-10 rounded-xl px-5 font-semibold"
               >
                 {isDeletingUploadedFiles ? "Deleting..." : "Delete Selected"}
               </Button>
@@ -1187,7 +1187,7 @@ export default function HistoryPage() {
                   !selectedSchoolYearId
                 }
                 onClick={openAllUploadDeleteDialog}
-                className="min-h-11 rounded-2xl px-5 font-black"
+                className="min-h-10 rounded-xl px-5 font-semibold"
               >
                 {isDeletingUploadedFiles ? "Deleting..." : "Delete All"}
               </Button>
@@ -1232,7 +1232,7 @@ export default function HistoryPage() {
               <button
                 type="button"
                 onClick={() => setRecentlyDeletedOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 text-left font-black"
+                className="flex w-full items-center justify-between gap-3 text-left font-semibold"
               >
                 <span>Recently deleted ({recentlyDeletedImports.length})</span>
                 <span aria-hidden="true">{recentlyDeletedOpen ? "−" : "+"}</span>
@@ -1257,7 +1257,7 @@ export default function HistoryPage() {
                             variant="outline"
                             disabled={restoringImportId === item.id}
                             onClick={() => void handleRestoreUploadedFile(item.id)}
-                            className="rounded-xl font-black"
+                            className="rounded-xl font-semibold"
                           >
                             {restoringImportId === item.id ? "Restoring..." : "Restore"}
                           </Button>
@@ -1495,15 +1495,15 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+    <main className="min-h-screen bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 History
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
                 School-year and semester record history
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
@@ -1531,11 +1531,11 @@ export default function HistoryPage() {
         </section>
 
         <section className="grid gap-4 md:grid-cols-6">
-          <div className="rounded-3xl border bg-card p-5 md:col-span-2">
+          <div className="rounded-2xl border bg-card p-5 md:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               Selected School Year / Semester
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {selectedSchoolYearLabel}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -1545,7 +1545,7 @@ export default function HistoryPage() {
             </p>
             {selectedSchoolYear ? (
               <span
-                className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
                   selectedSchoolYear.is_active
                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                     : "border-slate-200 bg-slate-50 text-slate-600"
@@ -1555,42 +1555,42 @@ export default function HistoryPage() {
               </span>
             ) : null}
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Uploaded Files
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {summary.imports.toLocaleString()}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Final Results
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {summary.finalResults.toLocaleString()}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Penalty Results
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {summary.penaltyResults.toLocaleString()}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Manual Records
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {summary.manualRecords.toLocaleString()}
             </p>
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <h2 className="text-xl font-black">School-year actions</h2>
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
+          <h2 className="text-lg font-semibold">School-year actions</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             Edit the selected school year, assign unassigned records, or delete
             selected school-year data.
@@ -1600,7 +1600,7 @@ export default function HistoryPage() {
             <Button
               type="button"
               onClick={handleOpenCreateSchoolYearDialog}
-              className="min-h-12 w-full rounded-2xl px-6 font-black"
+              className="min-h-12 w-full rounded-2xl px-6 font-semibold"
             >
               Create School Year
             </Button>
@@ -1610,14 +1610,14 @@ export default function HistoryPage() {
               variant="outline"
               onClick={handleStartEditSchoolYear}
               disabled={!selectedSchoolYearId}
-              className="min-h-12 w-full rounded-2xl px-6 font-black"
+              className="min-h-12 w-full rounded-2xl px-6 font-semibold"
             >
               Edit Selected School Year / Semester
             </Button>
 
             <div className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border bg-background px-4 py-3">
               <div>
-                <p className="text-sm font-black">Active School Year</p>
+                <p className="text-sm font-semibold">Active School Year</p>
                 <p className="text-xs font-semibold text-muted-foreground">
                   {selectedSchoolYear?.is_active ? "Active" : "Inactive"}
                 </p>
@@ -1635,12 +1635,12 @@ export default function HistoryPage() {
                 <Button
                   type="button"
                   disabled={isAssigning || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full rounded-2xl px-6 font-semibold"
                 >
                   {isAssigning ? "Assigning..." : "Assign Current Records"}
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-3xl">
+              <AlertDialogContent className="rounded-2xl">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Assign current records?</AlertDialogTitle>
                   <AlertDialogDescription>
@@ -1664,12 +1664,12 @@ export default function HistoryPage() {
                   type="button"
                   variant="destructive"
                   disabled={isDeleting || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full rounded-2xl px-6 font-semibold"
                 >
                   {isDeleting ? "Deleting..." : "Delete Records by School Year"}
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-3xl">
+              <AlertDialogContent className="rounded-2xl">
                 <AlertDialogHeader>
                   <AlertDialogTitle>
                     Delete selected school-year records?
@@ -1695,12 +1695,12 @@ export default function HistoryPage() {
                   type="button"
                   variant="destructive"
                   disabled={isDeletingSchoolYear || !selectedSchoolYearId}
-                  className="min-h-12 w-full rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full rounded-2xl px-6 font-semibold"
                 >
                   {isDeletingSchoolYear ? "Deleting..." : "Delete School Year"}
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-3xl">
+              <AlertDialogContent className="rounded-2xl">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete this school year?</AlertDialogTitle>
                   <AlertDialogDescription>
@@ -1736,11 +1736,11 @@ export default function HistoryPage() {
             </DialogHeader>
             <form
               onSubmit={handleCreateSchoolYear}
-              className="rounded-3xl border bg-card p-5 shadow-sm"
+              className="rounded-2xl border bg-card p-5 shadow-sm"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-xl font-black">
+                  <h2 className="text-lg font-semibold">
                     {editingSchoolYearId
                       ? "Edit school year"
                       : "Create school year"}
@@ -1770,7 +1770,7 @@ export default function HistoryPage() {
                     value={form.name}
                     onChange={(event) => handleNameChange(event.target.value)}
                     placeholder="2025-2026"
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-10 rounded-xl"
                   />
                 </label>
 
@@ -1785,7 +1785,7 @@ export default function HistoryPage() {
                       }))
                     }
                   >
-                    <SelectTrigger className="min-h-12 rounded-2xl">
+                    <SelectTrigger className="min-h-10 rounded-xl">
                       <SelectValue placeholder="Select semester" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1806,7 +1806,7 @@ export default function HistoryPage() {
                         startsAt: value,
                       }))
                     }
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-10 rounded-xl"
                   />
                 </label>
 
@@ -1821,7 +1821,7 @@ export default function HistoryPage() {
                         endsAt: value,
                       }))
                     }
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-10 rounded-xl"
                   />
                 </label>
               </div>
@@ -1829,7 +1829,7 @@ export default function HistoryPage() {
               <Button
                 type="submit"
                 disabled={isSavingSchoolYear}
-                className="mt-5 min-h-12 rounded-2xl px-6 font-black"
+                className="mt-5 min-h-10 rounded-xl px-6 font-semibold"
               >
                 {isSavingSchoolYear
                   ? "Saving..."
@@ -1841,10 +1841,10 @@ export default function HistoryPage() {
           </DialogContent>
         </Dialog>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-xl font-black">Transfer selected records</h2>
+              <h2 className="text-lg font-semibold">Transfer selected records</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Selected records: {selectedRecordCount.toLocaleString()} from{" "}
                 {selectedSchoolYearLabel}.
@@ -1871,7 +1871,7 @@ export default function HistoryPage() {
                 variant="outline"
                 onClick={() => setSelectedRecords(emptySelectedRecords)}
                 disabled={!selectedRecordCount}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-10 rounded-xl px-6 font-semibold"
               >
                 Clear
               </Button>
@@ -1883,7 +1883,7 @@ export default function HistoryPage() {
                   !selectedRecordCount ||
                   !transferTargetSchoolYearId
                 }
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-10 rounded-xl px-6 font-semibold"
               >
                 {isTransferring ? "Transferring..." : "Transfer Selected"}
               </Button>
@@ -1891,10 +1891,10 @@ export default function HistoryPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-xl font-black">Filtered records</h2>
+              <h2 className="text-lg font-semibold">Filtered records</h2>
               <p className="text-sm text-muted-foreground">
                 Showing records assigned to {selectedSchoolYearLabel}.
               </p>
@@ -1909,7 +1909,7 @@ export default function HistoryPage() {
                 disabled={!allFilteredRecordCount}
                 aria-label="Select all filtered records"
               />
-              <span className="text-sm font-black">
+              <span className="text-sm font-semibold">
                 Select all filtered records
               </span>
             </label>
@@ -1922,7 +1922,7 @@ export default function HistoryPage() {
                 className="flex flex-col justify-between gap-5 rounded-2xl border bg-background p-4"
               >
                 <div>
-                  <h3 className="font-black">{group.title}</h3>
+                  <h3 className="font-semibold">{group.title}</h3>
                   <p className="mt-2 text-sm font-semibold text-muted-foreground">
                     {group.count.toLocaleString()} record/s •{" "}
                     {group.selectedCount.toLocaleString()} selected
@@ -1932,7 +1932,7 @@ export default function HistoryPage() {
                   type="button"
                   variant="outline"
                   onClick={() => handleOpenRecordsDialog(group.key)}
-                  className="min-h-11 w-full rounded-2xl px-5 font-black"
+                  className="min-h-11 w-full rounded-2xl px-5 font-semibold"
                 >
                   View Records
                 </Button>
@@ -1950,7 +1950,7 @@ export default function HistoryPage() {
               }
             }}
           >
-            <AlertDialogContent className="rounded-3xl">
+            <AlertDialogContent className="rounded-2xl">
               <AlertDialogHeader>
                 <AlertDialogTitle>
                   {uploadDeleteDialogMode === "all"

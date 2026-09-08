@@ -292,7 +292,7 @@ function getSchoolYearBadgeLabel(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-semibold ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -1649,15 +1649,15 @@ export default function AttendancePage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+    <main className="min-h-screen bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Attendance
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
                 File-upload attendance records
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
@@ -1676,44 +1676,44 @@ export default function AttendancePage() {
         </section>
 
         <section className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               School Year / Semester
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {selectedSchoolYearLabel}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Final Results
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {formatNumber(summary.totalStudents)}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Perfect Attendance
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {formatNumber(summary.perfectAttendance)}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="rounded-2xl border bg-card p-5">
             <p className="text-sm font-bold text-muted-foreground">
               Total Absences
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 text-2xl font-semibold">
               {formatNumber(summary.totalAbsences)}
             </p>
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black">Upload attendance file</h2>
+              <h2 className="text-lg font-semibold">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Drag and drop or choose one or more .xlsx files.
               </p>
@@ -1722,7 +1722,7 @@ export default function AttendancePage() {
               <Button
                 type="button"
                 onClick={() => setUploadDialogOpen(true)}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-10 rounded-xl px-6 font-semibold"
               >
                 Upload Attendance File
               </Button>
@@ -1731,7 +1731,7 @@ export default function AttendancePage() {
                 variant="outline"
                 onClick={handleRefreshFinalResults}
                 disabled={isSaving || isLoading}
-                className="min-h-12 rounded-2xl px-5 font-black"
+                className="min-h-10 rounded-xl px-5 font-semibold"
               >
                 Refresh Final Results
               </Button>
@@ -1762,11 +1762,11 @@ export default function AttendancePage() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex min-h-40 min-w-0 flex-col items-center justify-center rounded-3xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
+                className={`flex min-h-40 min-w-0 flex-col items-center justify-center rounded-2xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
                   isDraggingFile ? "border-primary bg-primary/10" : ""
                 }`}
               >
-                <span className="max-w-full break-all text-base font-black">
+                <span className="max-w-full break-all text-base font-semibold">
                   {files.length
                     ? `${files.length.toLocaleString()} attendance file/s selected`
                     : "Drop attendance files here"}
@@ -1792,7 +1792,7 @@ export default function AttendancePage() {
                             variant="outline"
                             disabled={isSaving}
                             onClick={() => removeAttendanceFile(fileKey)}
-                            className="h-8 rounded-lg px-2 text-xs font-black"
+                            className="h-8 rounded-lg px-2 text-xs font-semibold"
                           >
                             Remove
                           </Button>
@@ -1824,8 +1824,8 @@ export default function AttendancePage() {
               {files.length ? (
                 <div className="space-y-3 lg:col-span-5">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-black">Selected files</span>
-                    <span className="rounded-full border px-3 py-1 text-xs font-black">
+                    <span className="text-sm font-semibold">Selected files</span>
+                    <span className="rounded-full border px-3 py-1 text-xs font-semibold">
                       {files.length.toLocaleString()} total
                     </span>
                   </div>
@@ -1865,7 +1865,7 @@ export default function AttendancePage() {
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
-                            <p className="break-all text-sm font-black">
+                            <p className="break-all text-sm font-semibold">
                               {attendanceFile.name}
                             </p>
                             <p className="mt-1 text-xs font-semibold text-muted-foreground">
@@ -1878,7 +1878,7 @@ export default function AttendancePage() {
                             </p>
                           </div>
                           {matchedExistingEvent ? (
-                            <span className="rounded-full border px-3 py-1 text-xs font-black">
+                            <span className="rounded-full border px-3 py-1 text-xs font-semibold">
                               Existing event matched
                             </span>
                           ) : null}
@@ -1889,7 +1889,7 @@ export default function AttendancePage() {
                             <p className="text-xs font-bold text-muted-foreground">
                               Detected event
                             </p>
-                            <p className="mt-1 break-words text-sm font-black">
+                            <p className="mt-1 break-words text-sm font-semibold">
                               {details?.metadata.eventName || "—"}
                             </p>
                           </div>
@@ -1897,7 +1897,7 @@ export default function AttendancePage() {
                             <p className="text-xs font-bold text-muted-foreground">
                               Start
                             </p>
-                            <p className="mt-1 text-sm font-black">
+                            <p className="mt-1 text-sm font-semibold">
                               {formatDateTime(details?.metadata.eventStartAt) || "—"}
                             </p>
                           </div>
@@ -1905,7 +1905,7 @@ export default function AttendancePage() {
                             <p className="text-xs font-bold text-muted-foreground">
                               End
                             </p>
-                            <p className="mt-1 text-sm font-black">
+                            <p className="mt-1 text-sm font-semibold">
                               {formatDateTime(details?.metadata.eventEndAt) || "—"}
                             </p>
                           </div>
@@ -1922,7 +1922,7 @@ export default function AttendancePage() {
                             {suggestedExistingEvent ? (
                               <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="min-w-0">
-                                  <p className="text-xs font-black">
+                                  <p className="text-xs font-semibold">
                                     This looks like {suggestedExistingEvent.name} — attach to it?
                                   </p>
                                   <p className="mt-1 text-xs font-semibold text-muted-foreground">
@@ -1943,7 +1943,7 @@ export default function AttendancePage() {
                                       suggestedExistingEvent.id,
                                     )
                                   }
-                                  className="shrink-0 rounded-xl text-xs font-black"
+                                  className="shrink-0 rounded-xl text-xs font-semibold"
                                 >
                                   {matchedExistingEvent ? "Attached" : "Attach to it"}
                                 </Button>
@@ -2055,7 +2055,7 @@ export default function AttendancePage() {
                 <Button
                   type="submit"
                   disabled={isSaving || !files.length}
-                  className="min-h-12 w-full rounded-2xl font-black"
+                  className="min-h-12 w-full rounded-2xl font-semibold"
                 >
                   {isSaving ? "Saving..." : "Save Files"}
                 </Button>
@@ -2085,11 +2085,11 @@ export default function AttendancePage() {
                     className="rounded-2xl border bg-background p-4"
                   >
                     <div className="flex gap-3">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
                         {index + 1}
                       </span>
                       <div className="min-w-0">
-                        <p className="wrap-break-word font-black">
+                        <p className="wrap-break-word font-semibold">
                           {eventSummary.eventName}
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">
@@ -2136,7 +2136,7 @@ export default function AttendancePage() {
                       event.target.value,
                     )
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2147,7 +2147,7 @@ export default function AttendancePage() {
                   onChange={(event) =>
                     handleFinalResultFieldChange("name", event.target.value)
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2161,7 +2161,7 @@ export default function AttendancePage() {
                       event.target.value,
                     )
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2177,7 +2177,7 @@ export default function AttendancePage() {
                       event.target.value,
                     )
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2188,7 +2188,7 @@ export default function AttendancePage() {
                   onChange={(event) =>
                     handleFinalResultFieldChange("college", event.target.value)
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2199,7 +2199,7 @@ export default function AttendancePage() {
                   onChange={(event) =>
                     handleFinalResultFieldChange("program", event.target.value)
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2224,7 +2224,7 @@ export default function AttendancePage() {
                       event.target.value,
                     )
                   }
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-10 rounded-xl"
                 />
               </label>
 
@@ -2243,7 +2243,7 @@ export default function AttendancePage() {
                 <Button
                   type="submit"
                   disabled={isSavingFinalResult}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-10 rounded-xl px-6 font-semibold"
                 >
                   {isSavingFinalResult ? "Saving..." : "Update Final Result"}
                 </Button>
@@ -2252,7 +2252,7 @@ export default function AttendancePage() {
                   variant="outline"
                   disabled={isSavingFinalResult}
                   onClick={() => handleFinalResultDialogOpenChange(false)}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-10 rounded-xl px-6 font-semibold"
                 >
                   Cancel
                 </Button>
@@ -2261,10 +2261,10 @@ export default function AttendancePage() {
           </DialogContent>
         </Dialog>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-xl font-black">Final attendance results</h2>
+              <h2 className="text-lg font-semibold">Final attendance results</h2>
               <p className="text-sm text-muted-foreground">
                 Uploaded and manual attendance are merged by Student ID.
               </p>
@@ -2294,7 +2294,7 @@ export default function AttendancePage() {
                     disabled={
                       isDeletingFinalResults || !selectedFinalResultIds.length
                     }
-                    className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                    className="min-h-10 rounded-xl px-4 text-xs font-semibold"
                   >
                     Delete Selected
                   </Button>
@@ -2333,7 +2333,7 @@ export default function AttendancePage() {
                     disabled={
                       isDeletingFinalResults || !displayedFinalResults.length
                     }
-                    className="min-h-11 rounded-2xl px-4 text-xs font-black"
+                    className="min-h-10 rounded-xl px-4 text-xs font-semibold"
                   >
                     Delete All
                   </Button>
@@ -2413,7 +2413,7 @@ export default function AttendancePage() {
                             aria-label={`Select final result for ${result.student_id}`}
                           />
                         </td>
-                        <td className="px-4 py-3 wrap-break-word font-black">
+                        <td className="px-4 py-3 wrap-break-word font-semibold">
                           {result.student_id}
                         </td>
                         <td className="px-4 py-3 wrap-break-word font-semibold">
@@ -2430,14 +2430,14 @@ export default function AttendancePage() {
                             type="button"
                             variant="outline"
                             onClick={() => setEventsDialogResult(result)}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-semibold"
                           >
                             Events ({eventCount})
                           </Button>
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${getResultBadgeClassName(result.total_absences)}`}
+                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result.total_absences)}`}
                           >
                             {getResultLabel(result)}
                           </span>
@@ -2450,7 +2450,7 @@ export default function AttendancePage() {
                             type="button"
                             variant="outline"
                             onClick={() => handleOpenEditFinalResult(result)}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
+                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-semibold"
                           >
                             Edit
                           </Button>
@@ -2475,8 +2475,8 @@ export default function AttendancePage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <h2 className="text-xl font-black">Recent uploaded files</h2>
+        <section className="rounded-2xl border bg-card p-5 shadow-sm">
+          <h2 className="text-lg font-semibold">Recent uploaded files</h2>
           <div className="mt-4 grid gap-3">
             {imports.length ? (
               imports.map((item) => (
@@ -2486,7 +2486,7 @@ export default function AttendancePage() {
                 >
                   <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <p className="break-all font-black">{item.file_name}</p>
+                      <p className="break-all font-semibold">{item.file_name}</p>
                       <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
                         {formatDate(item.created_at)}
