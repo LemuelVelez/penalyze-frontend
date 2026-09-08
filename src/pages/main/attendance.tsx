@@ -168,6 +168,22 @@ function formatDateTimeInputValue(value?: string | null) {
 
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
+type AttendanceUploadFileDetails = {
+  metadata: AttendanceFileMetadata;
+  eventOptions: AttendanceEvent[];
+  matchedEventId: string;
+  schoolYearId: string;
+  eventId: string;
+  eventName: string;
+  eventStartAt: string;
+  eventEndAt: string;
+  previewError: string;
+};
+
+function getAttendanceUploadFileKey(file: File) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
 function cleanAttendanceMetadataValue(value: unknown) {
   return String(value ?? "")
     .replace(/[\u00A0\u202F]+/g, " ")
@@ -248,9 +264,9 @@ async function getAttendanceFileMetadata(
   file: File,
   schoolYears: SchoolYearRecord[],
 ) {
-  const preview = await previewAttendanceFile(file);
+  const previews = await previewAttendanceFile([file]);
   return extractAttendancePreviewMetadata(
-    preview?.detectedEvent ?? {},
+    previews[0]?.detectedEvent ?? {},
     schoolYears,
   );
 }
@@ -393,27 +409,6 @@ function findMatchingAttendanceEventFromFile(props: {
   });
 
   return dateMatchedEvent ?? matchingEvents[0];
-}
-
-function doesUploadFormUseDetectedFileEvent(
-  uploadForm: UploadFormState,
-  metadata: AttendanceFileMetadata,
-) {
-  const detectedEvent = getDetectedAttendanceFileEvent(
-    metadata,
-    uploadForm.schoolYearId,
-  );
-
-  if (!detectedEvent || uploadForm.eventId) return false;
-
-  return (
-    normalizeAttendanceIdentityValue(uploadForm.eventName) ===
-      normalizeAttendanceIdentityValue(detectedEvent.eventName) &&
-    getAttendanceEventDateTimeKey(uploadForm.eventStartAt) ===
-      getAttendanceEventDateTimeKey(detectedEvent.eventStartAt) &&
-    getAttendanceEventDateTimeKey(uploadForm.eventEndAt) ===
-      getAttendanceEventDateTimeKey(detectedEvent.eventEndAt)
-  );
 }
 
 function getAttendanceRecordTimestamp(record: AttendanceRecord) {
@@ -793,9 +788,10 @@ export default function AttendancePage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
-  const [detectedFileEventMetadata, setDetectedFileEventMetadata] =
-    useState<AttendanceFileMetadata>({});
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileDetails, setFileDetails] = useState<
+    Record<string, AttendanceUploadFileDetails>
+  >({});
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>(
@@ -838,34 +834,6 @@ export default function AttendancePage() {
       uploadForm.schoolYearId || selectedSchoolYearId,
     );
   }, [schoolYears, uploadForm.schoolYearId, selectedSchoolYearId]);
-
-  const uploadEventOptions = useMemo(() => {
-    return sortByBackendEventOrder(attendanceEvents);
-  }, [attendanceEvents]);
-
-  const detectedUploadFileEvent = useMemo(() => {
-    return getDetectedAttendanceFileEvent(
-      detectedFileEventMetadata,
-      uploadForm.schoolYearId || selectedSchoolYearId,
-    );
-  }, [
-    detectedFileEventMetadata,
-    selectedSchoolYearId,
-    uploadForm.schoolYearId,
-  ]);
-
-  const uploadFormUsesDetectedFileEvent = useMemo(() => {
-    return doesUploadFormUseDetectedFileEvent(
-      uploadForm,
-      detectedFileEventMetadata,
-    );
-  }, [detectedFileEventMetadata, uploadForm]);
-
-  const selectedUploadEventValue =
-    uploadForm.eventId ||
-    (uploadFormUsesDetectedFileEvent
-      ? FILE_UPLOAD_EVENT_VALUE
-      : CUSTOM_UPLOAD_EVENT_VALUE);
 
   const collegeOptions = useMemo(() => {
     const colleges = finalResults
@@ -1006,95 +974,99 @@ export default function AttendancePage() {
     void loadPageData();
   }, []);
 
-  async function selectAttendanceFile(nextFile: File | null) {
-    if (!nextFile) {
-      setFile(null);
-      setDetectedFileEventMetadata({});
+  async function selectAttendanceFiles(nextFiles: File[]) {
+    if (!nextFiles.length) {
+      setFiles([]);
+      setFileDetails({});
       return;
     }
 
-    if (!isAcceptedAttendanceFile(nextFile, acceptedFileTypes)) {
+    const acceptedFiles = nextFiles.filter((nextFile) =>
+      isAcceptedAttendanceFile(nextFile, acceptedFileTypes),
+    );
+    const rejectedCount = nextFiles.length - acceptedFiles.length;
+
+    if (rejectedCount > 0) {
       toast.error("Unsupported file. Please upload an .xlsx file.");
-      return;
     }
 
-    setFile(nextFile);
-    setDetectedFileEventMetadata({});
-    setUploadForm((current) => ({
-      ...current,
-      eventId: "",
-      eventName: "",
-      eventStartAt: "",
-      eventEndAt: "",
-    }));
+    if (!acceptedFiles.length) return;
 
-    try {
-      const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
+    setFiles(acceptedFiles);
+    setFileDetails({});
 
-      if (hasAttendanceFileMetadata(metadata)) {
-        const metadataSchoolYearId =
-          metadata.schoolYearId || selectedSchoolYearId;
-        const eventRowsForUpload =
-          metadataSchoolYearId && metadataSchoolYearId !== selectedSchoolYearId
-            ? await listAttendanceEvents({
-                schoolYearId: metadataSchoolYearId,
-                limit: 500,
-                offset: 0,
-              })
-            : attendanceEvents;
-        const sortedEventRowsForUpload = sortByBackendEventOrder(
-          eventRowsForUpload,
-        );
-        const matchingEvent = findMatchingAttendanceEventFromFile({
-          events: sortedEventRowsForUpload,
-          metadata,
-          fallbackSchoolYearId: metadataSchoolYearId || selectedSchoolYearId,
-        });
+    const fallbackSchoolYearId =
+      uploadForm.schoolYearId || selectedSchoolYearId;
+    const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
+    const detailsEntries = await Promise.all(
+      acceptedFiles.map(async (nextFile) => {
+        const fileKey = getAttendanceUploadFileKey(nextFile);
 
-        setAttendanceEvents(sortedEventRowsForUpload);
-        setDetectedFileEventMetadata(metadata);
-        setUploadForm((current) => {
-          const nextSchoolYearId =
-            metadata.schoolYearId ||
-            matchingEvent?.school_year_id ||
-            current.schoolYearId ||
-            selectedSchoolYearId;
-
-          if (matchingEvent) {
-            return {
-              ...current,
-              schoolYearId: nextSchoolYearId,
-              eventId: matchingEvent.id,
-              eventName: matchingEvent.name,
-              eventStartAt: formatDateTimeInputValue(
-                matchingEvent.event_start_at,
-              ),
-              eventEndAt: formatDateTimeInputValue(matchingEvent.event_end_at),
-            };
-          }
-
-          return {
-            ...current,
-            ...metadata,
-            eventId: "",
-            schoolYearId: nextSchoolYearId,
+        try {
+          const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
+          const metadataSchoolYearId =
+            metadata.schoolYearId || fallbackSchoolYearId;
+          const eventRowsForUpload =
+            metadataSchoolYearId && metadataSchoolYearId !== selectedSchoolYearId
+              ? await listAttendanceEvents({
+                  schoolYearId: metadataSchoolYearId,
+                  limit: 500,
+                  offset: 0,
+                })
+              : attendanceEvents;
+          const eventOptions = sortByBackendEventOrder(eventRowsForUpload);
+          const matchingEvent = findMatchingAttendanceEventFromFile({
+            events: eventOptions,
+            metadata,
+            fallbackSchoolYearId: metadataSchoolYearId,
+          });
+          const details: AttendanceUploadFileDetails = {
+            metadata,
+            eventOptions,
+            matchedEventId: matchingEvent?.id ?? "",
+            schoolYearId:
+              metadata.schoolYearId ||
+              matchingEvent?.school_year_id ||
+              fallbackSchoolYearId,
+            eventId: matchingEvent?.id ?? "",
+            eventName: matchingEvent?.name ?? metadata.eventName ?? "",
+            eventStartAt: matchingEvent
+              ? formatDateTimeInputValue(matchingEvent.event_start_at)
+              : metadata.eventStartAt ?? "",
+            eventEndAt: matchingEvent
+              ? formatDateTimeInputValue(matchingEvent.event_end_at)
+              : metadata.eventEndAt ?? "",
+            previewError: "",
           };
-        });
-        toast.success(
-          matchingEvent
-            ? "Matching existing event detected and selected."
-            : "Attendance file details detected. Review before saving.",
-        );
-      } else {
-        setDetectedFileEventMetadata({});
-      }
-    } catch {
-      return;
-    }
+
+          return [fileKey, details] as const;
+        } catch (error) {
+          const details: AttendanceUploadFileDetails = {
+            metadata: {},
+            eventOptions: defaultEventOptions,
+            matchedEventId: "",
+            schoolYearId: fallbackSchoolYearId,
+            eventId: "",
+            eventName: "",
+            eventStartAt: "",
+            eventEndAt: "",
+            previewError:
+              error instanceof Error
+                ? error.message
+                : "Unable to preview attendance file.",
+          };
+
+          return [fileKey, details] as const;
+        }
+      }),
+    );
+
+    setFileDetails(Object.fromEntries(detailsEntries));
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    void selectAttendanceFile(event.target.files?.[0] ?? null);
+    void selectAttendanceFiles(Array.from(event.target.files ?? []));
+    event.target.value = "";
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -1110,77 +1082,102 @@ export default function AttendancePage() {
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDraggingFile(false);
-    void selectAttendanceFile(event.dataTransfer.files?.[0] ?? null);
+    void selectAttendanceFiles(Array.from(event.dataTransfer.files));
   }
 
-  function handleUploadEventSelect(value: string) {
-    if (value === FILE_UPLOAD_EVENT_VALUE) {
-      const detectedEvent = getDetectedAttendanceFileEvent(
-        detectedFileEventMetadata,
-        uploadForm.schoolYearId || selectedSchoolYearId,
-      );
-
-      if (!detectedEvent) return;
-
-      setUploadForm((current) => ({
-        ...current,
-        schoolYearId: detectedEvent.schoolYearId || current.schoolYearId,
-        eventId: "",
-        eventName: detectedEvent.eventName,
-        eventStartAt: detectedEvent.eventStartAt,
-        eventEndAt: detectedEvent.eventEndAt,
-      }));
-      return;
-    }
-
-    if (value === CUSTOM_UPLOAD_EVENT_VALUE) {
-      setUploadForm((current) => ({
-        ...current,
-        eventId: "",
-        eventName: "",
-        eventStartAt: "",
-        eventEndAt: "",
-      }));
-      return;
-    }
-
-    const selectedEvent = uploadEventOptions.find(
-      (event) => event.id === value,
+  function removeAttendanceFile(fileKey: string) {
+    setFiles((current) =>
+      current.filter((currentFile) => getAttendanceUploadFileKey(currentFile) !== fileKey),
     );
+    setFileDetails((current) => {
+      const next = { ...current };
+      delete next[fileKey];
+      return next;
+    });
+  }
 
-    if (!selectedEvent) return;
+  function handleUploadEventSelect(fileKey: string, value: string) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      if (!details) return current;
 
-    setUploadForm((current) => ({
-      ...current,
-      eventId: selectedEvent.id,
-      eventName: selectedEvent.name,
-      eventStartAt: formatDateTimeInputValue(selectedEvent.event_start_at),
-      eventEndAt: formatDateTimeInputValue(selectedEvent.event_end_at),
-      schoolYearId: selectedEvent.school_year_id || current.schoolYearId,
-    }));
+      if (value === FILE_UPLOAD_EVENT_VALUE) {
+        const detectedEvent = getDetectedAttendanceFileEvent(
+          details.metadata,
+          details.schoolYearId || selectedSchoolYearId,
+        );
+        if (!detectedEvent) return current;
+
+        return {
+          ...current,
+          [fileKey]: {
+            ...details,
+            schoolYearId: detectedEvent.schoolYearId || details.schoolYearId,
+            eventId: "",
+            eventName: detectedEvent.eventName,
+            eventStartAt: detectedEvent.eventStartAt,
+            eventEndAt: detectedEvent.eventEndAt,
+          },
+        };
+      }
+
+      if (value === CUSTOM_UPLOAD_EVENT_VALUE) {
+        return {
+          ...current,
+          [fileKey]: {
+            ...details,
+            eventId: "",
+            eventName: "",
+            eventStartAt: "",
+            eventEndAt: "",
+          },
+        };
+      }
+
+      const selectedEvent = details.eventOptions.find(
+        (attendanceEvent) => attendanceEvent.id === value,
+      );
+      if (!selectedEvent) return current;
+
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          schoolYearId: selectedEvent.school_year_id || details.schoolYearId,
+          eventId: selectedEvent.id,
+          eventName: selectedEvent.name,
+          eventStartAt: formatDateTimeInputValue(selectedEvent.event_start_at),
+          eventEndAt: formatDateTimeInputValue(selectedEvent.event_end_at),
+        },
+      };
+    });
   }
 
   function handleUploadFieldChange(
-    field: keyof UploadFormState,
+    fileKey: string,
+    field: "eventName" | "eventStartAt" | "eventEndAt",
     value: string,
   ) {
-    const shouldClearSelectedEvent =
-      field === "eventName" ||
-      field === "eventStartAt" ||
-      field === "eventEndAt";
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      if (!details) return current;
 
-    setUploadForm((current) => ({
-      ...current,
-      [field]: value,
-      eventId: shouldClearSelectedEvent ? "" : current.eventId,
-    }));
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          [field]: value,
+          eventId: "",
+        },
+      };
+    });
   }
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!file) {
-      toast.error("Please choose an attendance file first.");
+    if (!files.length) {
+      toast.error("Please choose at least one attendance file first.");
       return;
     }
 
@@ -1196,64 +1193,114 @@ export default function AttendancePage() {
     });
 
     try {
-      const uploadSchoolYearId = getAttendanceImportSchoolYearKey(
-        uploadForm.schoolYearId || selectedSchoolYearId,
-      );
       const recentImports = await listAttendanceImports({
-        schoolYearId: uploadSchoolYearId || undefined,
         limit: 1000,
         offset: 0,
       });
-      const duplicateImport = findDuplicateAttendanceImportForUpload({
-        imports: recentImports,
-        file,
-        uploadForm,
-        selectedSchoolYearId,
-      });
+      const duplicateFiles: File[] = [];
+      const filesToSave: File[] = [];
 
-      if (duplicateImport) {
-        throw new Error(
-          `"${file.name}" has already been uploaded for this school year/event. Delete the existing uploaded file before uploading it again.`,
-        );
-      }
-
-      setImports(sortByBackendEventOrder(recentImports));
-      setProgress({
-        stage: "parsing",
-        percent: 3,
-        message: "Preparing uploaded attendance file...",
-        processedRows: 0,
-        totalRows: 0,
-        savedRecords: 0,
-        createdFines: 0,
-      });
-
-      const result = await saveAttendanceFile(file, {
-        schoolYearId: uploadForm.schoolYearId || undefined,
-        eventId: uploadForm.eventId || undefined,
-        eventName: uploadForm.eventName.trim() || undefined,
-        eventStartAt: uploadForm.eventStartAt || undefined,
-        eventEndAt: uploadForm.eventEndAt || undefined,
-        onProgress: setProgress,
-      });
-      const deletedDuplicateCount =
-        await deleteDuplicateUploadedAttendanceRecords({
-          schoolYearId: uploadForm.schoolYearId || undefined,
-          importId: result?.importId || undefined,
+      files.forEach((attendanceFile) => {
+        const fileKey = getAttendanceUploadFileKey(attendanceFile);
+        const details = fileDetails[fileKey];
+        const perFileUploadForm: UploadFormState = {
+          schoolYearId:
+            details?.schoolYearId || uploadForm.schoolYearId || selectedSchoolYearId,
+          eventId: details?.eventId ?? "",
+          eventName: details?.eventName ?? "",
+          eventStartAt: details?.eventStartAt ?? "",
+          eventEndAt: details?.eventEndAt ?? "",
+        };
+        const duplicateImport = findDuplicateAttendanceImportForUpload({
+          imports: recentImports,
+          file: attendanceFile,
+          uploadForm: perFileUploadForm,
+          selectedSchoolYearId,
         });
 
-      await refreshAttendanceFinalResults({
-        schoolYearId: uploadForm.schoolYearId || undefined,
-        importId: result?.importId,
+        if (duplicateImport) {
+          duplicateFiles.push(attendanceFile);
+        } else {
+          filesToSave.push(attendanceFile);
+        }
       });
 
-      toast.success(
-        deletedDuplicateCount > 0
-          ? `Attendance file saved, ${deletedDuplicateCount.toLocaleString()} duplicate same-student same-event record/s skipped, and final results updated.`
-          : "Attendance file saved and final results updated.",
+      let batchResult: Awaited<ReturnType<typeof saveAttendanceFile>> | null = null;
+
+      if (filesToSave.length) {
+        setProgress({
+          stage: "parsing",
+          percent: 3,
+          message: "Preparing attendance upload batch...",
+          processedRows: 0,
+          totalRows: 0,
+          savedRecords: 0,
+          createdFines: 0,
+        });
+
+        const fileOptions = filesToSave.map((attendanceFile, index) => {
+          const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
+
+          return {
+            index,
+            fileName: attendanceFile.name,
+            schoolYearId:
+              details?.schoolYearId || uploadForm.schoolYearId || undefined,
+            eventId: details?.eventId || undefined,
+            eventName: details?.eventName.trim() || undefined,
+            eventStartAt: details?.eventStartAt || undefined,
+            eventEndAt: details?.eventEndAt || undefined,
+          };
+        });
+
+        batchResult = await saveAttendanceFile(filesToSave, {
+          fileOptions,
+          onProgress: setProgress,
+        });
+      }
+
+      let deletedDuplicateRecordCount = 0;
+
+      if (batchResult) {
+        for (const [index, fileResult] of batchResult.files.entries()) {
+          if (fileResult.status !== "saved" || !fileResult.result) continue;
+
+          const attendanceFile = filesToSave[index];
+          const details = attendanceFile
+            ? fileDetails[getAttendanceUploadFileKey(attendanceFile)]
+            : undefined;
+          const schoolYearId =
+            details?.schoolYearId ||
+            fileResult.result.event?.school_year_id ||
+            undefined;
+          deletedDuplicateRecordCount +=
+            await deleteDuplicateUploadedAttendanceRecords({
+              schoolYearId,
+              importId: fileResult.result.importId,
+            });
+
+          await refreshAttendanceFinalResults({
+            schoolYearId,
+            importId: fileResult.result.importId,
+          });
+        }
+      }
+
+      const filesSaved = batchResult?.filesSaved ?? 0;
+      const filesFailed = batchResult?.filesFailed ?? 0;
+      const recordsSaved = Math.max(
+        0,
+        (batchResult?.recordsSaved ?? 0) - deletedDuplicateRecordCount,
       );
-      setFile(null);
-      setDetectedFileEventMetadata({});
+      const duplicatesSkipped =
+        duplicateFiles.length + deletedDuplicateRecordCount;
+
+      toast.success(
+        `${filesSaved.toLocaleString()} file/s saved, ${recordsSaved.toLocaleString()} record/s saved, ${duplicatesSkipped.toLocaleString()} duplicate/s skipped, ${filesFailed.toLocaleString()} file/s failed.`,
+      );
+
+      setFiles([]);
+      setFileDetails({});
       setUploadForm((current) => ({
         ...current,
         eventId: "",
@@ -1267,7 +1314,7 @@ export default function AttendancePage() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Unable to save attendance file.",
+          : "Unable to save attendance files.",
       );
     } finally {
       setIsSaving(false);
@@ -1588,7 +1635,7 @@ export default function AttendancePage() {
             <div>
               <h2 className="text-xl font-black">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Drag and drop or choose an .xlsx file.
+                Drag and drop or choose one or more .xlsx files.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -1640,110 +1687,260 @@ export default function AttendancePage() {
                 }`}
               >
                 <span className="max-w-full break-all text-base font-black">
-                  {file ? file.name : "Drop attendance file here"}
+                  {files.length
+                    ? `${files.length.toLocaleString()} attendance file/s selected`
+                    : "Drop attendance files here"}
                 </span>
                 <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
                   Only .xlsx files are supported.
                 </span>
+                {files.length ? (
+                  <div className="mt-4 w-full space-y-2 text-left">
+                    {files.map((attendanceFile) => {
+                      const fileKey = getAttendanceUploadFileKey(attendanceFile);
+
+                      return (
+                        <div
+                          key={fileKey}
+                          className="flex items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2"
+                        >
+                          <span className="min-w-0 flex-1 break-all text-xs font-bold">
+                            {attendanceFile.name}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSaving}
+                            onClick={() => removeAttendanceFile(fileKey)}
+                            className="h-8 rounded-lg px-2 text-xs font-black"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <FilePicker
                   accept={acceptedFileTypes}
+                  multiple
                   onChange={handleFileChange}
                   disabled={isSaving}
                   buttonLabel={
-                    file ? "Choose a different file" : "Choose attendance file"
+                    files.length ? "Choose different files" : "Choose attendance files"
                   }
                   className="mt-4"
                 />
               </div>
 
-              <label className="space-y-2 lg:col-span-2">
-                <span className="text-sm font-bold">School year / semester</span>
+              <label className="space-y-2 lg:col-span-5">
+                <span className="text-sm font-bold">Default school year / semester</span>
                 <SchoolYearBadge
                   label={uploadSchoolYearLabel}
                   className="w-full justify-center"
                 />
               </label>
 
-              <label className="space-y-2 lg:col-span-3">
-                <span className="text-sm font-bold">Select event</span>
-                <Select
-                  value={selectedUploadEventValue}
-                  onValueChange={handleUploadEventSelect}
-                  disabled={isSaving}
-                >
-                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
-                    <SelectValue placeholder="Select existing event" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {detectedUploadFileEvent ? (
-                      <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
-                        {`Create new event from file: ${getAttendanceEventSelectLabel(
-                          detectedUploadFileEvent.eventName,
-                          detectedUploadFileEvent.eventStartAt,
-                          detectedUploadFileEvent.eventEndAt,
-                        )}`}
-                      </SelectItem>
-                    ) : null}
-                    <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
-                      New blank event / manual input
-                    </SelectItem>
-                    {uploadEventOptions.map((event) => (
-                      <SelectItem key={event.id} value={event.id}>
-                        {`Use existing event: ${getAttendanceEventSelectLabel(
-                          event.name,
-                          event.event_start_at,
-                          event.event_end_at,
-                        )}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
+              {files.length ? (
+                <div className="space-y-3 lg:col-span-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-black">Selected files</span>
+                    <span className="rounded-full border px-3 py-1 text-xs font-black">
+                      {files.length.toLocaleString()} total
+                    </span>
+                  </div>
 
-              <label className="space-y-2 lg:col-span-5">
-                <span className="text-sm font-bold">Event name</span>
-                <Input
-                  value={uploadForm.eventName}
-                  onChange={(event) =>
-                    handleUploadFieldChange("eventName", event.target.value)
-                  }
-                  placeholder="Event name"
-                  disabled={isSaving}
-                  className="min-h-12 rounded-2xl"
-                />
-              </label>
+                  {files.map((attendanceFile) => {
+                    const fileKey = getAttendanceUploadFileKey(attendanceFile);
+                    const details = fileDetails[fileKey];
+                    const hasDetectedMetadata = details
+                      ? hasAttendanceFileMetadata(details.metadata)
+                      : false;
+                    const detectedEvent = details
+                      ? getDetectedAttendanceFileEvent(
+                          details.metadata,
+                          details.schoolYearId || selectedSchoolYearId,
+                        )
+                      : null;
+                    const selectedEventValue =
+                      details?.eventId ||
+                      (detectedEvent
+                        ? FILE_UPLOAD_EVENT_VALUE
+                        : CUSTOM_UPLOAD_EVENT_VALUE);
+                    const matchedExistingEvent = Boolean(
+                      details?.matchedEventId &&
+                        details.eventId === details.matchedEventId,
+                    );
 
-              <label className="space-y-2 lg:col-span-5">
-                <span className="text-sm font-bold">Start date/time</span>
-                <DateTimePicker
-                  value={uploadForm.eventStartAt}
-                  onValueChange={(value) =>
-                    handleUploadFieldChange("eventStartAt", value)
-                  }
-                  disabled={isSaving}
-                  className="min-h-12 w-full min-w-0 rounded-2xl"
-                />
-              </label>
+                    return (
+                      <div
+                        key={fileKey}
+                        className="rounded-2xl border bg-background p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="break-all text-sm font-black">
+                              {attendanceFile.name}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                              {details
+                                ? getSchoolYearBadgeLabel(
+                                    schoolYears,
+                                    details.schoolYearId,
+                                  )
+                                : "Reading workbook metadata..."}
+                            </p>
+                          </div>
+                          {matchedExistingEvent ? (
+                            <span className="rounded-full border px-3 py-1 text-xs font-black">
+                              Existing event matched
+                            </span>
+                          ) : null}
+                        </div>
 
-              <label className="space-y-2 lg:col-span-5">
-                <span className="text-sm font-bold">End date/time</span>
-                <DateTimePicker
-                  value={uploadForm.eventEndAt}
-                  onValueChange={(value) =>
-                    handleUploadFieldChange("eventEndAt", value)
-                  }
-                  disabled={isSaving}
-                  className="min-h-12 w-full min-w-0 rounded-2xl"
-                />
-              </label>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <div>
+                            <p className="text-xs font-bold text-muted-foreground">
+                              Detected event
+                            </p>
+                            <p className="mt-1 break-words text-sm font-black">
+                              {details?.metadata.eventName || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-muted-foreground">
+                              Start
+                            </p>
+                            <p className="mt-1 text-sm font-black">
+                              {formatDateTime(details?.metadata.eventStartAt) || "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-muted-foreground">
+                              End
+                            </p>
+                            <p className="mt-1 text-sm font-black">
+                              {formatDateTime(details?.metadata.eventEndAt) || "—"}
+                            </p>
+                          </div>
+                        </div>
+
+                        {details?.previewError ? (
+                          <p className="mt-3 text-xs font-semibold text-destructive">
+                            {details.previewError}
+                          </p>
+                        ) : null}
+
+                        {details ? (
+                          <div className="mt-4 space-y-3">
+                            <label className="space-y-2">
+                              <span className="text-xs font-bold">Event selection</span>
+                              <Select
+                                value={selectedEventValue}
+                                onValueChange={(value) =>
+                                  handleUploadEventSelect(fileKey, value)
+                                }
+                                disabled={isSaving}
+                              >
+                                <SelectTrigger className="min-h-11 w-full min-w-0 rounded-xl">
+                                  <SelectValue placeholder="Select event" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {detectedEvent ? (
+                                    <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
+                                      {`Create new event from file: ${getAttendanceEventSelectLabel(
+                                        detectedEvent.eventName,
+                                        detectedEvent.eventStartAt,
+                                        detectedEvent.eventEndAt,
+                                      )}`}
+                                    </SelectItem>
+                                  ) : null}
+                                  {!hasDetectedMetadata ? (
+                                    <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
+                                      New blank event / manual input
+                                    </SelectItem>
+                                  ) : null}
+                                  {details.eventOptions.map((attendanceEvent) => (
+                                    <SelectItem
+                                      key={attendanceEvent.id}
+                                      value={attendanceEvent.id}
+                                    >
+                                      {`Use existing event: ${getAttendanceEventSelectLabel(
+                                        attendanceEvent.name,
+                                        attendanceEvent.event_start_at,
+                                        attendanceEvent.event_end_at,
+                                      )}`}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </label>
+
+                            {!hasDetectedMetadata ? (
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <label className="space-y-2 md:col-span-3">
+                                  <span className="text-xs font-bold">Event name override</span>
+                                  <Input
+                                    value={details.eventName}
+                                    onChange={(event) =>
+                                      handleUploadFieldChange(
+                                        fileKey,
+                                        "eventName",
+                                        event.target.value,
+                                      )
+                                    }
+                                    placeholder="Optional event name"
+                                    disabled={isSaving}
+                                    className="min-h-11 rounded-xl"
+                                  />
+                                </label>
+                                <label className="space-y-2">
+                                  <span className="text-xs font-bold">Start override</span>
+                                  <DateTimePicker
+                                    value={details.eventStartAt}
+                                    onValueChange={(value) =>
+                                      handleUploadFieldChange(
+                                        fileKey,
+                                        "eventStartAt",
+                                        value,
+                                      )
+                                    }
+                                    disabled={isSaving}
+                                    className="min-h-11 w-full min-w-0 rounded-xl"
+                                  />
+                                </label>
+                                <label className="space-y-2 md:col-span-2">
+                                  <span className="text-xs font-bold">End override</span>
+                                  <DateTimePicker
+                                    value={details.eventEndAt}
+                                    onValueChange={(value) =>
+                                      handleUploadFieldChange(
+                                        fileKey,
+                                        "eventEndAt",
+                                        value,
+                                      )
+                                    }
+                                    disabled={isSaving}
+                                    className="min-h-11 w-full min-w-0 rounded-xl"
+                                  />
+                                </label>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
 
               <div className="flex items-end lg:col-span-5">
                 <Button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={isSaving || !files.length}
                   className="min-h-12 w-full rounded-2xl font-black"
                 >
-                  {isSaving ? "Saving..." : "Save File"}
+                  {isSaving ? "Saving..." : "Save Files"}
                 </Button>
               </div>
             </form>

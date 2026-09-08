@@ -226,6 +226,21 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
   createdFines: AttendanceFineRecord[];
 };
 
+export type AttendanceBatchFileSaveResult = {
+  fileName: string;
+  status: "saved" | "failed";
+  error: string | null;
+  result: SavedAttendanceImportResult | null;
+};
+
+export type AttendanceBatchSaveResult = {
+  files: AttendanceBatchFileSaveResult[];
+  filesSaved: number;
+  filesFailed: number;
+  recordsSaved: number;
+  finesCreated: number;
+};
+
 export type ManualAttendanceSaveResult = {
   event: AttendanceEvent | null;
   record: AttendanceRecord;
@@ -257,7 +272,9 @@ type ListOptions = {
   offset?: number;
 };
 
-export type AttendanceImportSaveOptions = {
+export type AttendanceFileSaveOption = {
+  index?: number;
+  fileName?: string;
   schoolYearId?: string;
   eventId?: string;
   eventName?: string;
@@ -265,6 +282,10 @@ export type AttendanceImportSaveOptions = {
   eventEndAt?: string;
   eventDescription?: string;
   resumeImportId?: string;
+};
+
+export type AttendanceImportSaveOptions = AttendanceFileSaveOption & {
+  fileOptions?: AttendanceFileSaveOption[];
   onProgress?: AttendanceImportProgressCallback;
   signal?: AbortSignal;
 };
@@ -547,6 +568,8 @@ function appendSaveOptions(
     body.set("eventDescription", options.eventDescription);
   if (options.resumeImportId)
     body.set("resumeImportId", options.resumeImportId);
+  if (options.fileOptions?.length)
+    body.set("fileOptions", JSON.stringify(options.fileOptions));
 }
 
 export function getAcceptedAttendanceFileTypes() {
@@ -907,11 +930,11 @@ export async function deleteManualAttendanceRecordsBySchoolYear(
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
-export async function previewAttendanceFile(file: File) {
+export async function previewAttendanceFile(files: File[]) {
   const body = new FormData();
-  body.set("file", file);
+  files.forEach((file) => body.append("files", file));
 
-  const response = await apiRequest<AttendancePreviewResult>(
+  const response = await apiRequest<AttendancePreviewResult[]>(
     "/api/attendance/import/preview",
     {
       method: "POST",
@@ -919,20 +942,20 @@ export async function previewAttendanceFile(file: File) {
     },
   );
 
-  return response.data;
+  return response.data ?? [];
 }
 
 export async function saveAttendanceFile(
-  file: File,
+  files: File[],
   options: AttendanceImportSaveOptions = {},
 ) {
   const { onProgress, signal, ...saveOptions } = options;
   const body = new FormData();
-  body.set("file", file);
+  files.forEach((file) => body.append("files", file));
   appendSaveOptions(body, saveOptions);
 
   const response = onProgress
-    ? await apiProgressRequest<SavedAttendanceImportResult>(
+    ? await apiProgressRequest<AttendanceBatchSaveResult>(
         "/api/attendance/import/save/progress",
         {
           method: "POST",
@@ -941,7 +964,7 @@ export async function saveAttendanceFile(
         },
         onProgress,
       )
-    : await apiRequest<SavedAttendanceImportResult>(
+    : await apiRequest<AttendanceBatchSaveResult>(
         "/api/attendance/import/save",
         {
           method: "POST",

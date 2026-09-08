@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 type FilePickerProps = {
   accept?: string;
   disabled?: boolean;
+  multiple?: boolean;
   onChange: React.ChangeEventHandler<HTMLInputElement>;
   buttonLabel?: string;
   className?: string;
@@ -15,6 +16,7 @@ type FilePickerProps = {
 export function FilePicker({
   accept,
   disabled = false,
+  multiple = false,
   onChange,
   buttonLabel = "Choose file",
   className,
@@ -28,6 +30,7 @@ export function FilePicker({
         type="file"
         accept={accept}
         disabled={disabled}
+        multiple={multiple}
         onChange={onChange}
         className="sr-only"
         tabIndex={-1}
