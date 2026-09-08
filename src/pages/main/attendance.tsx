@@ -26,7 +26,6 @@ import type {
   AttendanceRecord,
   ManualAttendanceInput,
   ManualAttendanceRecord,
-  ParsedAttendanceRow,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -169,96 +168,11 @@ function formatDateTimeInputValue(value?: string | null) {
 
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
-type AttendanceFileContents = {
-  text: string;
-  byteLength: number;
-};
-
-async function readAttendanceFileContents(
-  file: File,
-): Promise<AttendanceFileContents> {
-  const buffer = await file.arrayBuffer();
-
-  if (!buffer.byteLength) {
-    throw new Error("The uploaded attendance file is empty.");
-  }
-
-  const text = new TextDecoder("utf-8", { fatal: false })
-    .decode(buffer)
-    .replace(/\u0000/g, "");
-
-  return {
-    text,
-    byteLength: buffer.byteLength,
-  };
-}
-
 function cleanAttendanceMetadataValue(value: unknown) {
   return String(value ?? "")
     .replace(/[\u00A0\u202F]+/g, " ")
     .replace(/^["'\s]+|["'\s]+$/g, "")
     .trim();
-}
-
-function splitAttendanceMetadataRow(line: string) {
-  return line
-    .split(/\t|,|;/)
-    .map(cleanAttendanceMetadataValue)
-    .filter((cell) => cell.length > 0);
-}
-
-function getAttendanceMetadataKey(value: string) {
-  const key = value
-    .toLowerCase()
-    .replace(/["']/g, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (/^(s\.?\s*y\.?|school year|schoolyear|academic year)$/.test(key)) {
-    return "schoolYear";
-  }
-
-  if (/^(event|event name|activity|activity name)$/.test(key)) {
-    return "event";
-  }
-
-  if (
-    /^(start date\/time|start datetime|start date time|event start|event start at|event start date|event start date time|start date|date start)$/.test(
-      key,
-    )
-  ) {
-    return "start";
-  }
-
-  if (
-    /^(end date\/time|end datetime|end date time|event end|event end at|event end date|event end date time|end date|date end)$/.test(
-      key,
-    )
-  ) {
-    return "end";
-  }
-
-  return "";
-}
-
-function parseAttendanceMetadataDateTime(value: string) {
-  const cleanValue = cleanAttendanceMetadataValue(value);
-  if (!cleanValue) return "";
-
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(cleanValue)) {
-    return cleanValue.slice(0, 16);
-  }
-
-  const normalizedValue = cleanValue.replace(
-    /^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/,
-    "$1T$2",
-  );
-  const parsedDate = new Date(normalizedValue);
-
-  if (Number.isNaN(parsedDate.getTime())) return "";
-
-  return formatDateTimeInputValue(parsedDate.toISOString());
 }
 
 function resolveAttendanceMetadataSchoolYearId(
@@ -301,164 +215,44 @@ function resolveAttendanceMetadataSchoolYearId(
   return "";
 }
 
-function assignAttendanceMetadataValue(
-  metadata: AttendanceFileMetadata,
-  key: string,
-  value: string,
-  schoolYears: SchoolYearRecord[],
-) {
-  const cleanValue = cleanAttendanceMetadataValue(value);
-  if (!key || !cleanValue) return;
-
-  if (key === "schoolYear") {
-    const schoolYearId = resolveAttendanceMetadataSchoolYearId(
-      cleanValue,
-      schoolYears,
-    );
-    if (schoolYearId) metadata.schoolYearId = schoolYearId;
-    return;
-  }
-
-  if (key === "event") {
-    metadata.eventName = cleanValue;
-    return;
-  }
-
-  if (key === "start") {
-    const startValue = parseAttendanceMetadataDateTime(cleanValue);
-    if (startValue) metadata.eventStartAt = startValue;
-    return;
-  }
-
-  if (key === "end") {
-    const endValue = parseAttendanceMetadataDateTime(cleanValue);
-    if (endValue) metadata.eventEndAt = endValue;
-  }
-}
-
-function extractAttendanceFileMetadata(
-  fileText: string,
-  schoolYears: SchoolYearRecord[],
-) {
-  const metadata: AttendanceFileMetadata = {};
-  const rows = fileText
-    .replace(/\u0000/g, "")
-    .split(/\r?\n/)
-    .slice(0, 80)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  rows.forEach((line, rowIndex) => {
-    const cells = splitAttendanceMetadataRow(line);
-
-    cells.forEach((cell, cellIndex) => {
-      const keyValueMatch = cell.match(/^([^:=]+)\s*[:=]\s*(.+)$/);
-
-      if (keyValueMatch) {
-        assignAttendanceMetadataValue(
-          metadata,
-          getAttendanceMetadataKey(keyValueMatch[1]),
-          keyValueMatch[2],
-          schoolYears,
-        );
-        return;
-      }
-
-      const key = getAttendanceMetadataKey(cell);
-
-      if (key && cells[cellIndex + 1]) {
-        assignAttendanceMetadataValue(
-          metadata,
-          key,
-          cells[cellIndex + 1],
-          schoolYears,
-        );
-      }
-    });
-
-    const headerKeys = cells.map(getAttendanceMetadataKey);
-    const recognizedHeaderCount = headerKeys.filter(Boolean).length;
-    const nextCells = rows[rowIndex + 1]
-      ? splitAttendanceMetadataRow(rows[rowIndex + 1])
-      : [];
-
-    if (recognizedHeaderCount >= 2 && nextCells.length) {
-      headerKeys.forEach((key, cellIndex) => {
-        assignAttendanceMetadataValue(
-          metadata,
-          key,
-          nextCells[cellIndex] ?? "",
-          schoolYears,
-        );
-      });
-    }
-  });
-
-  return metadata;
-}
-
 function extractAttendancePreviewMetadata(
-  rows: ParsedAttendanceRow[],
+  detectedEvent: {
+    eventName?: string | null;
+    eventStartAt?: string | null;
+    eventEndAt?: string | null;
+    schoolYearLabel?: string | null;
+  },
   schoolYears: SchoolYearRecord[],
 ) {
   const metadata: AttendanceFileMetadata = {};
-  const metadataRow =
-    rows.find(
-      (row) =>
-        row.errors.length === 0 &&
-        (row.eventName || row.eventStartAt || row.eventEndAt),
-    ) ??
-    rows.find((row) => row.eventName || row.eventStartAt || row.eventEndAt);
+  const schoolYearId = resolveAttendanceMetadataSchoolYearId(
+    detectedEvent.schoolYearLabel ?? "",
+    schoolYears,
+  );
 
-  if (!metadataRow) return metadata;
+  if (schoolYearId) metadata.schoolYearId = schoolYearId;
 
-  if (metadataRow.schoolYearId) {
-    const schoolYearId = resolveAttendanceMetadataSchoolYearId(
-      metadataRow.schoolYearId,
-      schoolYears,
-    );
-    if (schoolYearId) metadata.schoolYearId = schoolYearId;
-  }
+  const eventName = cleanAttendanceMetadataValue(detectedEvent.eventName);
+  if (eventName) metadata.eventName = eventName;
 
-  if (metadataRow.eventName) metadata.eventName = metadataRow.eventName;
+  const eventStartAt = formatDateTimeInputValue(detectedEvent.eventStartAt);
+  if (eventStartAt) metadata.eventStartAt = eventStartAt;
 
-  if (metadataRow.eventStartAt) {
-    metadata.eventStartAt = formatDateTimeInputValue(metadataRow.eventStartAt);
-  }
-
-  if (metadataRow.eventEndAt) {
-    metadata.eventEndAt = formatDateTimeInputValue(metadataRow.eventEndAt);
-  }
+  const eventEndAt = formatDateTimeInputValue(detectedEvent.eventEndAt);
+  if (eventEndAt) metadata.eventEndAt = eventEndAt;
 
   return metadata;
-}
-
-async function getAttendanceFileTextMetadata(
-  file: File,
-  schoolYears: SchoolYearRecord[],
-) {
-  const { text } = await readAttendanceFileContents(file);
-
-  return extractAttendanceFileMetadata(text.slice(0, 120_000), schoolYears);
 }
 
 async function getAttendanceFileMetadata(
   file: File,
   schoolYears: SchoolYearRecord[],
 ) {
-  try {
-    const preview = await previewAttendanceFile(file);
-    const previewMetadata = extractAttendancePreviewMetadata(
-      preview?.rows ?? [],
-      schoolYears,
-    );
-
-    if (hasAttendanceFileMetadata(previewMetadata)) return previewMetadata;
-  } catch {
-    return getAttendanceFileTextMetadata(file, schoolYears);
-  }
-
-  return getAttendanceFileTextMetadata(file, schoolYears);
+  const preview = await previewAttendanceFile(file);
+  return extractAttendancePreviewMetadata(
+    preview?.detectedEvent ?? {},
+    schoolYears,
+  );
 }
 
 function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {
@@ -1225,6 +1019,14 @@ export default function AttendancePage() {
     }
 
     setFile(nextFile);
+    setDetectedFileEventMetadata({});
+    setUploadForm((current) => ({
+      ...current,
+      eventId: "",
+      eventName: "",
+      eventStartAt: "",
+      eventEndAt: "",
+    }));
 
     try {
       const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
@@ -1382,11 +1184,6 @@ export default function AttendancePage() {
       return;
     }
 
-    if (!uploadForm.eventName.trim()) {
-      toast.error("Please enter the event name for this uploaded file.");
-      return;
-    }
-
     setIsSaving(true);
     setProgress({
       stage: "preparing",
@@ -1424,19 +1221,17 @@ export default function AttendancePage() {
       setProgress({
         stage: "parsing",
         percent: 3,
-        message: "Reading uploaded attendance file contents...",
+        message: "Preparing uploaded attendance file...",
         processedRows: 0,
         totalRows: 0,
         savedRecords: 0,
         createdFines: 0,
       });
 
-      await readAttendanceFileContents(file);
-
       const result = await saveAttendanceFile(file, {
         schoolYearId: uploadForm.schoolYearId || undefined,
         eventId: uploadForm.eventId || undefined,
-        eventName: uploadForm.eventName.trim(),
+        eventName: uploadForm.eventName.trim() || undefined,
         eventStartAt: uploadForm.eventStartAt || undefined,
         eventEndAt: uploadForm.eventEndAt || undefined,
         onProgress: setProgress,
