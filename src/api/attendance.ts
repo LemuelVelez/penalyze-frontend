@@ -39,6 +39,9 @@ export type AttendanceRecord = {
   no_of_absences: number;
   remarks: string | null;
   scanned_at: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  delete_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -118,6 +121,18 @@ export type AttendanceImportRecord = {
   school_year_id: string | null;
   event_id: string | null;
   event_name: string | null;
+  event_name_snapshot: string | null;
+  needs_reattachment: boolean;
+  uploaded_by: string | null;
+  uploader_name?: string | null;
+  uploader_email?: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deleted_by_name?: string | null;
+  deleted_by_email?: string | null;
+  delete_reason: string | null;
+  purge_after?: string | null;
+  days_remaining?: number | null;
   file_name: string;
   file_type: string;
   rows_total: number;
@@ -125,6 +140,29 @@ export type AttendanceImportRecord = {
   rows_invalid: number;
   status: ImportStatus;
   created_at: string;
+};
+
+export type AttendanceImportDeleteImpact = {
+  importId: string;
+  fileName: string;
+  uploadedAt: string;
+  uploader: { id: string | null; name: string | null; email: string | null };
+  recordCount: number;
+  distinctStudentCount: number;
+  affectedEvents: Array<{
+    id: string | null;
+    name: string;
+    recordCount: number;
+  }>;
+  studentsGainingAbsence: number;
+  finesCreatedOrChanged: number;
+};
+
+export type RestoredAttendanceImportResult = {
+  import: AttendanceImportRecord;
+  restored: boolean;
+  reattachedEvent: AttendanceEvent | null;
+  needsReattachment: boolean;
 };
 
 export type DeletedAttendanceImportsResult = {
@@ -270,6 +308,7 @@ type ListOptions = {
   college?: string;
   limit?: number;
   offset?: number;
+  includeDeleted?: boolean;
 };
 
 export type AttendanceFileSaveOption = {
@@ -820,10 +859,14 @@ export async function listManualAttendanceRecords(options: ListOptions = {}) {
 }
 
 export async function listAttendanceImports(
-  options: Pick<ListOptions, "schoolYearId" | "limit" | "offset"> = {},
+  options: Pick<
+    ListOptions,
+    "schoolYearId" | "limit" | "offset" | "includeDeleted"
+  > = {},
 ) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
+    includeDeleted: options.includeDeleted ? "true" : undefined,
     limit: options.limit ?? 50,
     offset: options.offset ?? 0,
   });
@@ -866,16 +909,40 @@ export async function deleteAttendanceImportsByIds(importIds: string[]) {
   return response.data ?? { deletedCount: 0, deletedImports: [] };
 }
 
-export async function deleteAllAttendanceImports(schoolYearId?: string) {
+export async function deleteAllAttendanceImports(schoolYearId: string) {
   const response = await apiRequest<DeletedAttendanceImportsResult>(
     "/api/attendance/imports",
     {
       method: "DELETE",
-      body: schoolYearId ? JSON.stringify({ schoolYearId }) : undefined,
+      body: JSON.stringify({ schoolYearId }),
     },
   );
 
   return response.data ?? { deletedCount: 0, deletedImports: [] };
+}
+
+
+export async function getAttendanceImportDeleteImpact(importId: string) {
+  const response = await apiRequest<AttendanceImportDeleteImpact>(
+    `/api/attendance/imports/${encodeURIComponent(importId)}/delete-impact`,
+  );
+  return response.data ?? null;
+}
+
+export async function restoreAttendanceImport(importId: string) {
+  const response = await apiRequest<RestoredAttendanceImportResult>(
+    `/api/attendance/imports/${encodeURIComponent(importId)}/restore`,
+    { method: "POST" },
+  );
+  return response.data ?? null;
+}
+
+export async function purgeAttendanceImport(importId: string) {
+  const response = await apiRequest<AttendanceImportRecord>(
+    `/api/attendance/imports/${encodeURIComponent(importId)}/purge`,
+    { method: "DELETE" },
+  );
+  return response.data;
 }
 
 export async function deleteAttendanceFinalResultsByIds(

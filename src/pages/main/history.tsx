@@ -7,6 +7,8 @@ import {
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
   deleteAttendanceImportsByIds,
+  getAttendanceImportDeleteImpact,
+  restoreAttendanceImport,
   deleteManualAttendanceRecordsByIds,
   deleteManualAttendanceRecordsBySchoolYear,
   listAttendanceFinalResults,
@@ -15,6 +17,7 @@ import {
 } from "../../api/attendance";
 import type {
   AttendanceFinalResultRecord,
+  AttendanceImportDeleteImpact,
   AttendanceImportRecord,
   ManualAttendanceRecord,
 } from "../../api/attendance";
@@ -118,6 +121,21 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function toDateInputValue(value?: string | null) {
   if (!value) return "";
 
@@ -199,6 +217,9 @@ export default function HistoryPage() {
   const [transferTargetSchoolYearId, setTransferTargetSchoolYearId] =
     useState("");
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [recentlyDeletedImports, setRecentlyDeletedImports] = useState<
+    AttendanceImportRecord[]
+  >([]);
   const [finalResults, setFinalResults] = useState<
     AttendanceFinalResultRecord[]
   >([]);
@@ -226,6 +247,17 @@ export default function HistoryPage() {
     useState<FilteredRecordGroupKey | null>(null);
   const [isUpdatingSchoolYearActive, setIsUpdatingSchoolYearActive] =
     useState(false);
+  const [uploadDeleteDialogMode, setUploadDeleteDialogMode] = useState<
+    "selected" | "all" | null
+  >(null);
+  const [uploadDeleteConfirmation, setUploadDeleteConfirmation] = useState("");
+  const [uploadDeleteImpacts, setUploadDeleteImpacts] = useState<
+    AttendanceImportDeleteImpact[]
+  >([]);
+  const [isLoadingUploadDeleteImpact, setIsLoadingUploadDeleteImpact] =
+    useState(false);
+  const [recentlyDeletedOpen, setRecentlyDeletedOpen] = useState(false);
+  const [restoringImportId, setRestoringImportId] = useState("");
 
   const selectedSchoolYear = useMemo(() => {
     return (
@@ -396,7 +428,8 @@ export default function HistoryPage() {
           ? await Promise.all([
               listAttendanceImports({
                 schoolYearId: fallbackSchoolYearId,
-                limit: 100,
+                includeDeleted: true,
+                limit: 200,
                 offset: 0,
               }),
               listAttendanceFinalResults({
@@ -434,7 +467,10 @@ export default function HistoryPage() {
           )?.id ?? ""
         );
       });
-      setImports(importRows);
+      setImports(importRows.filter((item) => !item.deleted_at));
+      setRecentlyDeletedImports(
+        importRows.filter((item) => Boolean(item.deleted_at)),
+      );
       setFinalResults(finalRows);
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
@@ -759,32 +795,109 @@ export default function HistoryPage() {
     }
   }
 
+  function getSelectedUploadedFiles() {
+    const selectedIds = new Set(selectedRecords.importIds);
+    return imports.filter((item) => selectedIds.has(item.id));
+  }
+
+  async function openSelectedUploadDeleteDialog() {
+    const selectedFiles = getSelectedUploadedFiles();
+    if (!selectedFiles.length) {
+      toast.error("Please select at least one uploaded file to delete.");
+      return;
+    }
+
+    setUploadDeleteDialogMode("selected");
+    setUploadDeleteConfirmation("");
+    setUploadDeleteImpacts([]);
+    setIsLoadingUploadDeleteImpact(true);
+    try {
+      const impacts = await Promise.all(
+        selectedFiles.map((item) => getAttendanceImportDeleteImpact(item.id)),
+      );
+      setUploadDeleteImpacts(
+        impacts.filter(
+          (item): item is AttendanceImportDeleteImpact => Boolean(item),
+        ),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to preview delete impact.",
+      );
+      setUploadDeleteDialogMode(null);
+    } finally {
+      setIsLoadingUploadDeleteImpact(false);
+    }
+  }
+
+  function openAllUploadDeleteDialog() {
+    if (!selectedSchoolYearId || !selectedSchoolYear) {
+      toast.error("Please select a school year before deleting all uploaded files.");
+      return;
+    }
+
+    if (!imports.length) {
+      toast.error("No uploaded files to delete.");
+      return;
+    }
+
+    setUploadDeleteDialogMode("all");
+    setUploadDeleteConfirmation("");
+    setUploadDeleteImpacts([]);
+  }
+
   async function handleDeleteSelectedUploadedFiles() {
-    const existingImportIds = new Set(imports.map((item) => item.id));
-    const selectedImportIds = selectedRecords.importIds.filter((importId) =>
-      existingImportIds.has(importId),
-    );
+    const selectedImportIds = getSelectedUploadedFiles().map((item) => item.id);
 
     await deleteRecordGroupByIds({
       groupKey: "uploadedFiles",
       ids: selectedImportIds,
       emptyMessage: "Please select at least one uploaded file to delete.",
-      successMessage: "Selected uploaded files deleted.",
+      successMessage: "Selected uploaded files moved to Recently deleted.",
       deleteRecords: deleteAttendanceImportsByIds,
     });
+    setUploadDeleteDialogMode(null);
+    setUploadDeleteConfirmation("");
   }
 
   async function handleDeleteAllUploadedFiles() {
+    if (!selectedSchoolYearId) {
+      toast.error("Please select a school year before deleting all uploaded files.");
+      return;
+    }
+
     await deleteRecordGroup({
       groupKey: "uploadedFiles",
       count: imports.length,
       emptyMessage: "No uploaded files to delete.",
-      successMessage: "All uploaded files deleted.",
-      deleteRecords: () =>
-        selectedSchoolYearId
-          ? deleteAllAttendanceImports(selectedSchoolYearId)
-          : deleteAttendanceImportsByIds(imports.map((item) => item.id)),
+      successMessage: "Uploaded files moved to Recently deleted.",
+      deleteRecords: () => deleteAllAttendanceImports(selectedSchoolYearId),
     });
+    setUploadDeleteDialogMode(null);
+    setUploadDeleteConfirmation("");
+  }
+
+  async function handleRestoreUploadedFile(importId: string) {
+    setRestoringImportId(importId);
+    try {
+      const result = await restoreAttendanceImport(importId);
+      toast.success(
+        result?.needsReattachment
+          ? "Attendance file restored and needs event re-attachment."
+          : "Attendance file restored successfully.",
+      );
+      await loadHistory(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to restore attendance file.",
+      );
+    } finally {
+      setRestoringImportId("");
+    }
   }
 
   async function handleDeleteSelectedPenaltyResults() {
@@ -1055,19 +1168,30 @@ export default function HistoryPage() {
             </DialogHeader>
             {renderDialogSearchInput("uploaded files")}
             {renderDialogSelectAll("uploaded files", "importIds", ids)}
-            {renderDialogDeleteActions({
-              isDeleting: isDeletingUploadedFiles,
-              selectedCount: selectedRecords.importIds.length,
-              totalCount: imports.length,
-              selectedTitle: "Delete selected uploads?",
-              selectedDescription:
-                "This will delete the selected uploaded file records and their linked attendance data.",
-              allTitle: "Delete all uploads?",
-              allDescription:
-                "This will delete all uploaded files for the selected school year and their linked attendance data.",
-              onDeleteSelected: handleDeleteSelectedUploadedFiles,
-              onDeleteAll: handleDeleteAllUploadedFiles,
-            })}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isDeletingUploadedFiles || !selectedRecords.importIds.length}
+                onClick={() => void openSelectedUploadDeleteDialog()}
+                className="min-h-11 rounded-2xl px-5 font-black"
+              >
+                {isDeletingUploadedFiles ? "Deleting..." : "Delete Selected"}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={
+                  isDeletingUploadedFiles ||
+                  !imports.length ||
+                  !selectedSchoolYearId
+                }
+                onClick={openAllUploadDeleteDialog}
+                className="min-h-11 rounded-2xl px-5 font-black"
+              >
+                {isDeletingUploadedFiles ? "Deleting..." : "Delete All"}
+              </Button>
+            </div>
             <div className="mt-4 space-y-3">
               {imports.length ? (
                 filteredImports.length ? (
@@ -1103,6 +1227,48 @@ export default function HistoryPage() {
               ) : (
                 renderEmptyRecordState("No uploaded files for this school year.")
               )}
+            </div>
+            <div className="mt-5 rounded-2xl border bg-background p-4">
+              <button
+                type="button"
+                onClick={() => setRecentlyDeletedOpen((current) => !current)}
+                className="flex w-full items-center justify-between gap-3 text-left font-black"
+              >
+                <span>Recently deleted ({recentlyDeletedImports.length})</span>
+                <span aria-hidden="true">{recentlyDeletedOpen ? "−" : "+"}</span>
+              </button>
+              {recentlyDeletedOpen ? (
+                <div className="mt-4 space-y-3">
+                  {recentlyDeletedImports.length ? (
+                    recentlyDeletedImports.map((item) => (
+                      <article key={item.id} className="rounded-xl border bg-card p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-bold">{item.file_name}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Deleted by {item.deleted_by_name || item.deleted_by_email || "Unknown user"} • {formatDateTime(item.deleted_at)}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-muted-foreground">
+                              {Math.max(0, Number(item.days_remaining ?? 0))} day(s) remaining before permanent purge.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={restoringImportId === item.id}
+                            onClick={() => void handleRestoreUploadedFile(item.id)}
+                            className="rounded-xl font-black"
+                          >
+                            {restoringImportId === item.id ? "Restoring..." : "Restore"}
+                          </Button>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="text-sm font-semibold text-muted-foreground">No recently deleted files.</p>
+                  )}
+                </div>
+              ) : null}
             </div>
           </>
         );
@@ -1773,6 +1939,111 @@ export default function HistoryPage() {
               </div>
             ))}
           </div>
+
+          <AlertDialog
+            open={Boolean(uploadDeleteDialogMode)}
+            onOpenChange={(open) => {
+              if (!open && !isDeletingUploadedFiles) {
+                setUploadDeleteDialogMode(null);
+                setUploadDeleteConfirmation("");
+                setUploadDeleteImpacts([]);
+              }
+            }}
+          >
+            <AlertDialogContent className="rounded-3xl">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {uploadDeleteDialogMode === "all"
+                    ? "Delete all uploaded files for this school year?"
+                    : "Delete selected uploaded file(s)?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  Deleted files remain restorable during the retention window.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-4 text-sm text-muted-foreground">
+                {uploadDeleteDialogMode === "selected" ? (
+                  isLoadingUploadDeleteImpact ? (
+                    <p>Calculating attendance, absence, and fine impact...</p>
+                  ) : uploadDeleteImpacts.length ? (
+                    uploadDeleteImpacts.map((impact) => (
+                      <p key={impact.importId}>
+                        <span className="font-bold text-foreground">
+                          {impact.fileName}
+                        </span>{" "}
+                        contains {impact.recordCount.toLocaleString()} attendance
+                        record(s) for {impact.distinctStudentCount.toLocaleString()}
+                        student(s) across {impact.affectedEvents.length.toLocaleString()}
+                        event(s). Deleting it will add absences for{" "}
+                        {impact.studentsGainingAbsence.toLocaleString()} student(s)
+                        and create or change{" "}
+                        {impact.finesCreatedOrChanged.toLocaleString()} fine(s).
+                      </p>
+                    ))
+                  ) : (
+                    <p>Delete impact is unavailable. The destructive action remains disabled.</p>
+                  )
+                ) : (
+                  <p>
+                    This will move all {imports.length.toLocaleString()} uploaded
+                    file(s) for{" "}
+                    <span className="font-bold text-foreground">
+                      {selectedSchoolYearLabel}
+                    </span>{" "}
+                    to Recently deleted.
+                  </p>
+                )}
+
+                <p className="font-semibold text-foreground">
+                  {uploadDeleteDialogMode === "all"
+                    ? `Type the school year label exactly: ${selectedSchoolYearLabel}`
+                    : getSelectedUploadedFiles().length === 1
+                      ? `Type the file name exactly: ${getSelectedUploadedFiles()[0]?.file_name ?? ""}`
+                      : "Type each selected file name exactly, one per line, in the order shown."}
+                </p>
+                <Input
+                  value={uploadDeleteConfirmation}
+                  onChange={(event) =>
+                    setUploadDeleteConfirmation(event.target.value)
+                  }
+                  autoComplete="off"
+                  aria-label="Destructive action confirmation"
+                />
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeletingUploadedFiles}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={
+                    isDeletingUploadedFiles ||
+                    isLoadingUploadDeleteImpact ||
+                    (uploadDeleteDialogMode === "selected" &&
+                      !uploadDeleteImpacts.length) ||
+                    uploadDeleteConfirmation !==
+                      (uploadDeleteDialogMode === "all"
+                        ? selectedSchoolYearLabel
+                        : getSelectedUploadedFiles()
+                            .map((item) => item.file_name)
+                            .join("\n"))
+                  }
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (uploadDeleteDialogMode === "all") {
+                      void handleDeleteAllUploadedFiles();
+                    } else {
+                      void handleDeleteSelectedUploadedFiles();
+                    }
+                  }}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isDeletingUploadedFiles ? "Deleting..." : "Delete"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <Dialog
             open={Boolean(activeRecordsDialog)}

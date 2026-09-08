@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   getAcceptedAttendanceFileTypes,
   deleteAttendanceImport,
+  getAttendanceImportDeleteImpact,
   deleteAttendanceRecord,
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
@@ -21,6 +22,7 @@ import {
 import type {
   AttendanceEvent,
   AttendanceFinalResultRecord,
+  AttendanceImportDeleteImpact,
   AttendanceImportProgress,
   AttendanceImportRecord,
   AttendanceRecord,
@@ -868,6 +870,13 @@ export default function AttendancePage() {
   const [isSavingFinalResult, setIsSavingFinalResult] = useState(false);
   const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
   const [deletingImportId, setDeletingImportId] = useState("");
+  const [deleteImportTarget, setDeleteImportTarget] =
+    useState<AttendanceImportRecord | null>(null);
+  const [deleteImportImpact, setDeleteImportImpact] =
+    useState<AttendanceImportDeleteImpact | null>(null);
+  const [deleteImportConfirmation, setDeleteImportConfirmation] = useState("");
+  const [isLoadingDeleteImportImpact, setIsLoadingDeleteImportImpact] =
+    useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [progress, setProgress] = useState<AttendanceImportProgress | null>(
@@ -1468,20 +1477,40 @@ export default function AttendancePage() {
     }
   }
 
-  async function handleDeleteAttendanceImport(item: AttendanceImportRecord) {
+  async function handleOpenDeleteAttendanceImport(item: AttendanceImportRecord) {
+    setDeleteImportTarget(item);
+    setDeleteImportImpact(null);
+    setDeleteImportConfirmation("");
+    setIsLoadingDeleteImportImpact(true);
+
+    try {
+      const impact = await getAttendanceImportDeleteImpact(item.id);
+      setDeleteImportImpact(impact);
+    } catch (error) {
+      setDeleteImportTarget(null);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to preview the delete impact.",
+      );
+    } finally {
+      setIsLoadingDeleteImportImpact(false);
+    }
+  }
+
+  async function handleDeleteAttendanceImport() {
+    const item = deleteImportTarget;
+    if (!item || deleteImportConfirmation !== item.file_name) return;
+
     setDeletingImportId(item.id);
 
     try {
       await deleteAttendanceImport(item.id);
-      await refreshAttendanceFinalResults({
-        schoolYearId:
-          item.school_year_id ||
-          (selectedSchoolYearId === ALL_YEARS_VALUE
-            ? undefined
-            : selectedSchoolYearId),
-      });
       await loadPageData(selectedSchoolYearId);
-      toast.success("Uploaded attendance file deleted.");
+      setDeleteImportTarget(null);
+      setDeleteImportImpact(null);
+      setDeleteImportConfirmation("");
+      toast.success("Uploaded attendance file moved to Recently deleted.");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -2468,65 +2497,34 @@ export default function AttendancePage() {
                         {formatNumber(item.rows_valid)} valid /{" "}
                         {formatNumber(item.rows_total)} total
                       </p>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={Boolean(deletingImportId) || isSaving}
-                            aria-label={`Delete uploaded file ${item.file_name}`}
-                            title="Delete uploaded file"
-                            className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="size-4"
-                              aria-hidden="true"
-                            >
-                              <path d="M3 6h18" />
-                              <path d="M8 6V4h8v2" />
-                              <path d="M19 6l-1 14H6L5 6" />
-                              <path d="M10 11v6" />
-                              <path d="M14 11v6" />
-                            </svg>
-                            <span className="sr-only">Delete uploaded file</span>
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Delete uploaded attendance file?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete "{item.file_name}"
-                              and refresh the final attendance results. This
-                              action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel
-                              disabled={Boolean(deletingImportId) || isSaving}
-                            >
-                              Cancel
-                            </AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() =>
-                                void handleDeleteAttendanceImport(item)
-                              }
-                              disabled={Boolean(deletingImportId) || isSaving}
-                              className="bg-destructive text-destructive-foreground hover:opacity-90"
-                            >
-                              Delete File
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleOpenDeleteAttendanceImport(item)}
+                        disabled={Boolean(deletingImportId) || isSaving}
+                        aria-label={`Delete uploaded file ${item.file_name}`}
+                        title="Delete uploaded file"
+                        className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="size-4"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 6h18" />
+                          <path d="M8 6V4h8v2" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                        <span className="sr-only">Delete uploaded file</span>
+                      </Button>
                     </div>
                   </div>
                 </article>
@@ -2539,6 +2537,81 @@ export default function AttendancePage() {
           </div>
         </section>
       </div>
+
+      <AlertDialog
+        open={Boolean(deleteImportTarget)}
+        onOpenChange={(open) => {
+          if (open || deletingImportId) return;
+          setDeleteImportTarget(null);
+          setDeleteImportImpact(null);
+          setDeleteImportConfirmation("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete uploaded attendance file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The file will be moved to Recently deleted and can be restored
+              during the retention window.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {deleteImportTarget ? (
+            <div className="grid gap-4 text-sm">
+              <div className="rounded-2xl border bg-muted/30 p-4">
+                {isLoadingDeleteImportImpact ? (
+                  <p className="font-semibold text-muted-foreground">
+                    Calculating attendance and fine impact...
+                  </p>
+                ) : deleteImportImpact ? (
+                  <div className="grid gap-2">
+                    <p className="font-bold">
+                      This file contains {formatNumber(deleteImportImpact.recordCount)} attendance
+                      records for {formatNumber(deleteImportImpact.distinctStudentCount)} students
+                      across {formatNumber(deleteImportImpact.affectedEvents.length)} event
+                      {deleteImportImpact.affectedEvents.length === 1 ? "" : "s"}.
+                    </p>
+                    <p className="text-muted-foreground">
+                      Deleting it will add absences for {formatNumber(deleteImportImpact.studentsGainingAbsence)} students
+                      and create or change {formatNumber(deleteImportImpact.finesCreatedOrChanged)} fines.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="grid gap-2 font-semibold">
+                <span>Type the file name exactly: {deleteImportTarget.file_name}</span>
+                <Input
+                  value={deleteImportConfirmation}
+                  onChange={(event) => setDeleteImportConfirmation(event.target.value)}
+                  disabled={Boolean(deletingImportId)}
+                  autoComplete="off"
+                  aria-label="Delete file confirmation"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingImportId)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleDeleteAttendanceImport()}
+              disabled={
+                Boolean(deletingImportId) ||
+                isLoadingDeleteImportImpact ||
+                !deleteImportImpact ||
+                !deleteImportTarget ||
+                deleteImportConfirmation !== deleteImportTarget.file_name
+              }
+              className="bg-destructive text-destructive-foreground hover:opacity-90"
+            >
+              {deletingImportId ? "Deleting..." : "Delete File"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

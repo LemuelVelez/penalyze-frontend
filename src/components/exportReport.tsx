@@ -100,45 +100,47 @@ function getReportRows(
   const rows = new Map<string, ReportRow>();
   const rowsByStudentId = new Map<string, ReportRow[]>();
 
-  attendanceRecords.forEach((record) => {
-    const studentId = cleanValue(record.student_id);
-    const college = cleanValue(record.college) || "No college";
-    const key = `${normalizeValue(studentId) || `record-${record.id}`}::${normalizeValue(college)}`;
-    const current = rows.get(key);
-    const recordDate = record.scanned_at ?? record.created_at ?? null;
-    const recordTime = getRecordTime(recordDate);
+  attendanceRecords
+    .filter((record) => !record.deleted_at)
+    .forEach((record) => {
+      const studentId = cleanValue(record.student_id);
+      const college = cleanValue(record.college) || "No college";
+      const key = `${normalizeValue(studentId) || `record-${record.id}`}::${normalizeValue(college)}`;
+      const current = rows.get(key);
+      const recordDate = record.scanned_at ?? record.created_at ?? null;
+      const recordTime = getRecordTime(recordDate);
 
-    if (!current) {
-      const row: ReportRow = {
-        key,
-        college,
-        studentId,
-        name: cleanValue(record.name) || "No name",
-        fines: [],
-        latestDate: recordDate ?? "",
-      };
+      if (!current) {
+        const row: ReportRow = {
+          key,
+          college,
+          studentId,
+          name: cleanValue(record.name) || "No name",
+          fines: [],
+          latestDate: recordDate ?? "",
+        };
 
-      rows.set(key, row);
+        rows.set(key, row);
 
-      const studentKey = normalizeValue(studentId);
-      if (studentKey) {
-        rowsByStudentId.set(studentKey, [
-          ...(rowsByStudentId.get(studentKey) ?? []),
-          row,
-        ]);
+        const studentKey = normalizeValue(studentId);
+        if (studentKey) {
+          rowsByStudentId.set(studentKey, [
+            ...(rowsByStudentId.get(studentKey) ?? []),
+            row,
+          ]);
+        }
+
+        return;
       }
 
-      return;
-    }
+      if (!current.name && record.name) current.name = cleanValue(record.name);
 
-    if (!current.name && record.name) current.name = cleanValue(record.name);
-
-    const latestTime = getRecordTime(current.latestDate);
-    if (recordTime >= latestTime) {
-      current.latestDate = recordDate ?? current.latestDate;
-      if (record.name) current.name = cleanValue(record.name);
-    }
-  });
+      const latestTime = getRecordTime(current.latestDate);
+      if (recordTime >= latestTime) {
+        current.latestDate = recordDate ?? current.latestDate;
+        if (record.name) current.name = cleanValue(record.name);
+      }
+    });
 
   fines.forEach((fine) => {
     const studentKey = normalizeValue(fine.student_id);
