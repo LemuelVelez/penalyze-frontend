@@ -317,6 +317,42 @@ function normalizeAttendanceIdentityValue(value: unknown) {
     .trim();
 }
 
+function normalizeAttendanceEventNameForMatching(value: unknown) {
+  return cleanAttendanceMetadataValue(value)
+    .replace(/\s*\([^()]*\)\s*$/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getAttendanceEventNameMatchScore(left: unknown, right: unknown) {
+  const leftName = normalizeAttendanceEventNameForMatching(left);
+  const rightName = normalizeAttendanceEventNameForMatching(right);
+
+  if (!leftName || !rightName) return 0;
+  if (leftName === rightName) return 1;
+
+  const leftTokens = new Set(leftName.split(" ").filter(Boolean));
+  const rightTokens = new Set(rightName.split(" ").filter(Boolean));
+  const intersectionCount = Array.from(leftTokens).filter((token) =>
+    rightTokens.has(token),
+  ).length;
+
+  if (!intersectionCount) return 0;
+
+  const minTokenCount = Math.min(leftTokens.size, rightTokens.size);
+  const unionTokenCount = new Set([...leftTokens, ...rightTokens]).size;
+  const containmentScore = intersectionCount / Math.max(1, minTokenCount);
+  const jaccardScore = intersectionCount / Math.max(1, unionTokenCount);
+
+  if (containmentScore === 1 && minTokenCount >= 2) return 0.92;
+
+  return containmentScore * 0.65 + jaccardScore * 0.35;
+}
+
+const ATTENDANCE_EVENT_FUZZY_MATCH_THRESHOLD = 0.88;
+
 function getAttendanceEventDateTimeKey(value?: string | null) {
   if (!value) return "";
 
@@ -378,37 +414,52 @@ function findMatchingAttendanceEventFromFile(props: {
 
   if (!detectedEvent) return null;
 
-  const eventNameKey = normalizeAttendanceIdentityValue(
-    detectedEvent.eventName,
-  );
   const eventStartAtKey = getAttendanceEventDateTimeKey(
     detectedEvent.eventStartAt,
   );
   const eventEndAtKey = getAttendanceEventDateTimeKey(detectedEvent.eventEndAt);
-  const matchingEvents = sortByBackendEventOrder(props.events).filter(
-    (event) => {
+  const matchingEvents = sortByBackendEventOrder(props.events)
+    .map((event, index) => {
       const sameSchoolYear =
         !detectedEvent.schoolYearId ||
         event.school_year_id === detectedEvent.schoolYearId;
-      const sameEventName =
-        normalizeAttendanceIdentityValue(event.name) === eventNameKey;
+      if (!sameSchoolYear) return null;
 
-      return sameSchoolYear && sameEventName;
-    },
-  );
+      const nameScore = getAttendanceEventNameMatchScore(
+        detectedEvent.eventName,
+        event.name,
+      );
+      if (nameScore < ATTENDANCE_EVENT_FUZZY_MATCH_THRESHOLD) return null;
+
+      const eventStartKey = getAttendanceEventDateTimeKey(event.event_start_at);
+      const eventEndKey = getAttendanceEventDateTimeKey(event.event_end_at);
+      let scheduleAdjustment = 0;
+
+      if (eventStartAtKey && eventStartKey) {
+        scheduleAdjustment += eventStartAtKey === eventStartKey ? 0.06 : -0.06;
+      }
+
+      if (eventEndAtKey && eventEndKey) {
+        scheduleAdjustment += eventEndAtKey === eventEndKey ? 0.04 : -0.04;
+      }
+
+      return {
+        event,
+        score: nameScore + scheduleAdjustment,
+        index,
+      };
+    })
+    .filter(
+      (
+        candidate,
+      ): candidate is { event: AttendanceEvent; score: number; index: number } =>
+        Boolean(candidate),
+    )
+    .sort((left, right) => right.score - left.score || left.index - right.index);
 
   if (!matchingEvents.length) return null;
 
-  const dateMatchedEvent = matchingEvents.find((event) => {
-    const eventStartKey = getAttendanceEventDateTimeKey(event.event_start_at);
-    const eventEndKey = getAttendanceEventDateTimeKey(event.event_end_at);
-    const startMatches = !eventStartAtKey || eventStartKey === eventStartAtKey;
-    const endMatches = !eventEndAtKey || eventEndKey === eventEndAtKey;
-
-    return startMatches && endMatches;
-  });
-
-  return dateMatchedEvent ?? matchingEvents[0];
+  return matchingEvents[0].event;
 }
 
 function getAttendanceRecordTimestamp(record: AttendanceRecord) {
@@ -1771,6 +1822,12 @@ export default function AttendancePage() {
                       details?.matchedEventId &&
                         details.eventId === details.matchedEventId,
                     );
+                    const suggestedExistingEvent = details?.matchedEventId
+                      ? details.eventOptions.find(
+                          (attendanceEvent) =>
+                            attendanceEvent.id === details.matchedEventId,
+                        ) ?? null
+                      : null;
 
                     return (
                       <div
@@ -1833,6 +1890,37 @@ export default function AttendancePage() {
 
                         {details ? (
                           <div className="mt-4 space-y-3">
+                            {suggestedExistingEvent ? (
+                              <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-black">
+                                    This looks like {suggestedExistingEvent.name} — attach to it?
+                                  </p>
+                                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                    {getAttendanceEventSelectLabel(
+                                      suggestedExistingEvent.name,
+                                      suggestedExistingEvent.event_start_at,
+                                      suggestedExistingEvent.event_end_at,
+                                    )}
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant={matchedExistingEvent ? "default" : "outline"}
+                                  disabled={isSaving || matchedExistingEvent}
+                                  onClick={() =>
+                                    handleUploadEventSelect(
+                                      fileKey,
+                                      suggestedExistingEvent.id,
+                                    )
+                                  }
+                                  className="shrink-0 rounded-xl text-xs font-black"
+                                >
+                                  {matchedExistingEvent ? "Attached" : "Attach to it"}
+                                </Button>
+                              </div>
+                            ) : null}
+
                             <label className="space-y-2">
                               <span className="text-xs font-bold">Event selection</span>
                               <Select
@@ -1846,20 +1934,6 @@ export default function AttendancePage() {
                                   <SelectValue placeholder="Select event" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {detectedEvent ? (
-                                    <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
-                                      {`Create new event from file: ${getAttendanceEventSelectLabel(
-                                        detectedEvent.eventName,
-                                        detectedEvent.eventStartAt,
-                                        detectedEvent.eventEndAt,
-                                      )}`}
-                                    </SelectItem>
-                                  ) : null}
-                                  {!hasDetectedMetadata ? (
-                                    <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
-                                      New blank event / manual input
-                                    </SelectItem>
-                                  ) : null}
                                   {details.eventOptions.map((attendanceEvent) => (
                                     <SelectItem
                                       key={attendanceEvent.id}
@@ -1872,6 +1946,20 @@ export default function AttendancePage() {
                                       )}`}
                                     </SelectItem>
                                   ))}
+                                  {detectedEvent ? (
+                                    <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
+                                      {`Create a separate new event from file: ${getAttendanceEventSelectLabel(
+                                        detectedEvent.eventName,
+                                        detectedEvent.eventStartAt,
+                                        detectedEvent.eventEndAt,
+                                      )}`}
+                                    </SelectItem>
+                                  ) : null}
+                                  {!hasDetectedMetadata ? (
+                                    <SelectItem value={CUSTOM_UPLOAD_EVENT_VALUE}>
+                                      New blank event / manual input
+                                    </SelectItem>
+                                  ) : null}
                                 </SelectContent>
                               </Select>
                             </label>
