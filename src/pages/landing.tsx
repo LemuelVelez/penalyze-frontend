@@ -2856,6 +2856,9 @@ function manualAttendanceToLandingAttendanceRecord(
     no_of_absences: record.no_of_absences,
     remarks: record.remarks,
     scanned_at: record.scanned_at,
+    deleted_at: null,
+    deleted_by: null,
+    delete_reason: null,
     created_at: record.created_at,
     updated_at: record.updated_at,
   };
