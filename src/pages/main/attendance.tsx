@@ -1220,9 +1220,7 @@ export default function AttendancePage() {
     }
 
     if (!isAcceptedAttendanceFile(nextFile, acceptedFileTypes)) {
-      toast.error(
-        "Please upload a TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, or ODS file.",
-      );
+      toast.error("Unsupported file. Please upload an .xlsx file.");
       return;
     }
 
@@ -1795,8 +1793,7 @@ export default function AttendancePage() {
             <div>
               <h2 className="text-xl font-black">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Drag and drop or choose TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX,
-                XLTM, or ODS.
+                Drag and drop or choose an .xlsx file.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -1851,8 +1848,7 @@ export default function AttendancePage() {
                   {file ? file.name : "Drop attendance file here"}
                 </span>
                 <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
-                  TXT, CSV, XLS, XLSX, XLSM, XLSB, XLTX, XLTM, and ODS are
-                  supported.
+                  Only .xlsx files are supported.
                 </span>
                 <FilePicker
                   accept={acceptedFileTypes}
