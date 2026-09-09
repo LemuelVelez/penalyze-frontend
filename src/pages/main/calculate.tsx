@@ -20,6 +20,17 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
@@ -1434,7 +1445,7 @@ export default function CalculatePage() {
       });
       await yieldCalculationProgressFrame();
 
-      const nextRows = await buildCalculationRows(
+      const localRows = await buildCalculationRows(
         {
           attendanceRecords: selectedAttendanceRows,
           manualRecords: manualRows,
@@ -1444,21 +1455,58 @@ export default function CalculatePage() {
         },
         (progress) => {
           updateCalculationProgress(taskId, {
-            detail: `Calculated ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s from ${progress.sourceRecords.toLocaleString()} source record/s`,
+            detail: `Prepared source records for ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s`,
             percent: getProgressRangePercent(
               progress.processedStudents,
               progress.totalStudents,
               calculationStartPercent,
-              calculationEndPercent,
+              calculationEndPercent - 4,
             ),
             processed: progress.processedStudents,
             total: progress.totalStudents,
           });
         },
       );
+      const localRowsByStudent = new Map(
+        localRows.map((row) => [
+          `${row.schoolYearId ?? "unassigned"}::${normalizeStudentId(row.studentId)}`,
+          row,
+        ]),
+      );
 
       updateCalculationProgress(taskId, {
-        detail: `Prepared ${nextRows.length.toLocaleString()} calculation row/s`,
+        detail: "Verifying preview with the saved-results calculation engine",
+        percent: calculationEndPercent - 2,
+        processed: 0,
+        total: localRows.length,
+      });
+      await yieldCalculationProgressFrame();
+
+      const previewResults = await attendanceApi.previewCalculationResults({
+        schoolYearId: requestSchoolYearId,
+        importIds: effectiveImportIds,
+        sourceTypes: normalizedSourceTypes,
+      });
+      const nextRows = previewResults.map((result) => {
+        const sourceRow = localRowsByStudent.get(
+          `${result.school_year_id ?? "unassigned"}::${normalizeStudentId(result.student_id)}`,
+        );
+        const resultRow = calculationResultToRow(result);
+
+        return {
+          ...resultRow,
+          key:
+            sourceRow?.key ??
+            `preview-${getCalculationScopeKey(effectiveImportIds, normalizedSourceTypes)}-${result.school_year_id ?? "all"}-${normalizeStudentId(result.student_id)}`,
+          resultId: undefined,
+          attendanceRecords: sourceRow?.attendanceRecords ?? [],
+          manualRecords: sourceRow?.manualRecords ?? [],
+          isSavedResult: false,
+        } satisfies CalculationRow;
+      });
+
+      updateCalculationProgress(taskId, {
+        detail: `Prepared ${nextRows.length.toLocaleString()} calculation row/s using the server calculation engine`,
         percent: 98,
         processed: nextRows.length,
         total: nextRows.length,
@@ -2149,27 +2197,73 @@ export default function CalculatePage() {
                 placeholder="Search student, college, program, or penalty"
                 className="min-h-12 rounded-2xl lg:max-w-md"
               />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={
-                  isDeletingCalculationRows ||
-                  !selectedCalculationRowKeys.length
-                }
-                onClick={handleDeleteSelectedCalculationRows}
-                className="min-h-12 rounded-2xl px-4 text-xs font-black"
-              >
-                Delete Selected
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isDeletingCalculationRows || !calculationRows.length}
-                onClick={handleDeleteAllCalculationRows}
-                className="min-h-12 rounded-2xl px-4 text-xs font-black"
-              >
-                Delete All
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      isDeletingCalculationRows ||
+                      !selectedCalculationRowKeys.length
+                    }
+                    className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                  >
+                    Delete Selected
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete selected calculation rows?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete {selectedCalculationRowKeys.length.toLocaleString()} selected calculation row(s). Saved calculation records will also be removed when applicable. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingCalculationRows}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteSelectedCalculationRows()}
+                      disabled={isDeletingCalculationRows}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingCalculationRows ? "Deleting..." : "Delete Selected"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={isDeletingCalculationRows || !calculationRows.length}
+                    className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                  >
+                    Delete All
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all calculation rows?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all {calculationRows.length.toLocaleString()} calculation row(s) currently loaded. Saved calculation records will also be removed when applicable. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingCalculationRows}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteAllCalculationRows()}
+                      disabled={isDeletingCalculationRows}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingCalculationRows ? "Deleting..." : "Delete All"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 

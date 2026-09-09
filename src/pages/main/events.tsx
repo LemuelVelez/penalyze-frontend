@@ -662,34 +662,80 @@ export default function EventsPage() {
                 onChange={(event) => setToDate(event.target.value)}
                 className="min-h-11 rounded-2xl sm:w-40"
               />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleDeleteSelectedEvents}
-                disabled={
-                  !selectedEventIds.length ||
-                  isSaving ||
-                  isDeletingEvents ||
-                  Boolean(deletingEventId)
-                }
-                className="min-h-11 rounded-2xl px-5 text-xs font-black"
-              >
-                {isDeletingEvents ? "Deleting..." : "Delete Selected"}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDeleteAllEvents}
-                disabled={
-                  !displayedEventIds.length ||
-                  isSaving ||
-                  isDeletingEvents ||
-                  Boolean(deletingEventId)
-                }
-                className="min-h-11 rounded-2xl px-5 text-xs font-black"
-              >
-                {isDeletingEvents ? "Deleting..." : "Delete All"}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      !selectedEventIds.length ||
+                      isSaving ||
+                      isDeletingEvents ||
+                      Boolean(deletingEventId)
+                    }
+                    className="min-h-11 rounded-2xl px-5 text-xs font-black"
+                  >
+                    {isDeletingEvents ? "Deleting..." : "Delete Selected"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete selected events?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete {selectedEventIds.length.toLocaleString()} selected event record(s). This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingEvents}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteSelectedEvents()}
+                      disabled={isDeletingEvents}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingEvents ? "Deleting..." : "Delete Selected"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      !displayedEventIds.length ||
+                      isSaving ||
+                      isDeletingEvents ||
+                      Boolean(deletingEventId)
+                    }
+                    className="min-h-11 rounded-2xl px-5 text-xs font-black"
+                  >
+                    {isDeletingEvents ? "Deleting..." : "Delete All"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all matching events?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete all {displayedEventIds.length.toLocaleString()} event record(s) matching the current filters. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingEvents}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteAllEvents()}
+                      disabled={isDeletingEvents}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingEvents ? "Deleting..." : "Delete All"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 

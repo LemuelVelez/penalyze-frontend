@@ -1420,32 +1420,78 @@ export default function ManualAttendancePage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleDeleteSelectedManualRecords}
-                disabled={
-                  !selectedManualRecordIds.length ||
-                  isSaving ||
-                  isDeletingManualRecords
-                }
-                className="min-h-11 rounded-2xl px-5 text-xs font-black"
-              >
-                {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDeleteAllManualRecords}
-                disabled={
-                  !filteredGroupRecordIds.length ||
-                  isSaving ||
-                  isDeletingManualRecords
-                }
-                className="min-h-11 rounded-2xl px-5 text-xs font-black"
-              >
-                {isDeletingManualRecords ? "Deleting..." : "Delete All"}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      !selectedManualRecordIds.length ||
+                      isSaving ||
+                      isDeletingManualRecords
+                    }
+                    className="min-h-11 rounded-2xl px-5 text-xs font-black"
+                  >
+                    {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete selected manual attendance?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete {selectedManualRecordIds.length.toLocaleString()} selected manual attendance record(s). This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingManualRecords}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteSelectedManualRecords()}
+                      disabled={isDeletingManualRecords}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      !filteredGroupRecordIds.length ||
+                      isSaving ||
+                      isDeletingManualRecords
+                    }
+                    className="min-h-11 rounded-2xl px-5 text-xs font-black"
+                  >
+                    {isDeletingManualRecords ? "Deleting..." : "Delete All"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-3xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all matching manual attendance?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete all {filteredGroupRecordIds.length.toLocaleString()} manual attendance record(s) matching the current filters. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeletingManualRecords}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void handleDeleteAllManualRecords()}
+                      disabled={isDeletingManualRecords}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {isDeletingManualRecords ? "Deleting..." : "Delete All"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 
