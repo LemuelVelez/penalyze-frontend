@@ -210,11 +210,25 @@ export type ParsedAttendanceRow = AttendanceImportInput & {
   raw: Record<string, unknown>;
 };
 
+export type AttendanceEventMergeCandidate = {
+  source: "existing" | "batch";
+  eventId: string | null;
+  batchFileIndex: number | null;
+  eventName: string;
+  eventStartAt: string | null;
+  eventEndAt: string | null;
+  attendeesCount: number;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  reasons: string[];
+};
+
 export type AttendanceDetectedEventMetadata = {
   eventName: string | null;
   eventStartAt: string | null;
   eventEndAt: string | null;
   schoolYearLabel: string | null;
+  mergeCandidates?: AttendanceEventMergeCandidate[];
 };
 
 export type AttendancePreviewResult = {
@@ -321,6 +335,35 @@ export type AttendanceFileSaveOption = {
   eventEndAt?: string;
   eventDescription?: string;
   resumeImportId?: string;
+  mergeIntoEventId?: string;
+  mergeIntoBatchIndex?: number;
+  forceCreateEvent?: boolean;
+  keepEventName?: "existing" | "incoming";
+  keepEventSchedule?: "existing" | "incoming";
+};
+
+export type AttendanceEventDuplicateGroup = {
+  schoolYearId: string | null;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  reasons: string[];
+  events: AttendanceEvent[];
+};
+
+export type AttendanceEventMergeImpact = {
+  targetEvent: AttendanceEvent;
+  sourceEvents: AttendanceEvent[];
+  movedCounts: {
+    attendanceRecords: number;
+    attendanceImports: number;
+    manualAttendanceRecords: number;
+    attendanceRequestEvents: number;
+  };
+  affectedStudents: number;
+};
+
+export type AttendanceEventMergeResult = AttendanceEventMergeImpact & {
+  sourceEventIds: string[];
 };
 
 export type AttendanceImportSaveOptions = AttendanceFileSaveOption & {
@@ -344,7 +387,7 @@ export type AttendanceRowsSaveInput = {
   signal?: AbortSignal;
 };
 
-const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx";
+const ACCEPTED_ATTENDANCE_FILE_TYPES = ".xlsx,.csv";
 const LOCAL_API_BASE_URL = "http://localhost:3000";
 
 function normalizeBaseUrl(value: unknown) {
@@ -634,6 +677,44 @@ export async function listAttendanceEvents(
     `/api/attendance/events${query}`,
   );
   return response.data ?? [];
+}
+
+export async function listAttendanceEventDuplicateGroups(options: {
+  schoolYearId?: string;
+} = {}) {
+  const query = buildSearchParams({ schoolYearId: options.schoolYearId });
+  const response = await apiRequest<AttendanceEventDuplicateGroup[]>(
+    `/api/attendance/events/duplicates${query}`,
+  );
+  return response.data ?? [];
+}
+
+export async function getAttendanceEventMergeImpact(
+  targetEventId: string,
+  sourceEventIds: string[],
+) {
+  const response = await apiRequest<AttendanceEventMergeImpact>(
+    "/api/attendance/events/merge-impact",
+    {
+      method: "POST",
+      body: JSON.stringify({ targetEventId, sourceEventIds }),
+    },
+  );
+  return response.data;
+}
+
+export async function mergeAttendanceEvents(input: {
+  targetEventId: string;
+  sourceEventIds: string[];
+  targetName?: string;
+  targetEventStartAt?: string;
+  targetEventEndAt?: string;
+}) {
+  const response = await apiRequest<AttendanceEventMergeResult>(
+    "/api/attendance/events/merge",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data;
 }
 
 export async function saveAttendanceEvent(input: AttendanceEventInput) {

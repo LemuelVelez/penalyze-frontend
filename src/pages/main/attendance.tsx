@@ -6,7 +6,6 @@ import {
   getAcceptedAttendanceFileTypes,
   deleteAttendanceImport,
   getAttendanceImportDeleteImpact,
-  deleteAttendanceRecord,
   deleteAttendanceFinalResultsByIds,
   deleteAttendanceFinalResultsBySchoolYear,
   listAllAttendanceRecords,
@@ -21,6 +20,7 @@ import {
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceEventMergeCandidate,
   AttendanceFinalResultRecord,
   AttendanceImportDeleteImpact,
   AttendanceImportProgress,
@@ -180,6 +180,14 @@ type AttendanceUploadFileDetails = {
   eventStartAt: string;
   eventEndAt: string;
   previewError: string;
+  rowsTotal: number;
+  mergeCandidates: AttendanceEventMergeCandidate[];
+  mergeDecisionConfirmed: boolean;
+  mergeIntoEventId: string;
+  mergeIntoBatchIndex: number | null;
+  forceCreateEvent: boolean;
+  keepEventName: "existing" | "incoming";
+  keepEventSchedule: "existing" | "incoming";
 };
 
 function getAttendanceUploadFileKey(file: File) {
@@ -262,17 +270,6 @@ function extractAttendancePreviewMetadata(
   return metadata;
 }
 
-async function getAttendanceFileMetadata(
-  file: File,
-  schoolYears: SchoolYearRecord[],
-) {
-  const previews = await previewAttendanceFile([file]);
-  return extractAttendancePreviewMetadata(
-    previews[0]?.detectedEvent ?? {},
-    schoolYears,
-  );
-}
-
 function hasAttendanceFileMetadata(metadata: AttendanceFileMetadata) {
   return Boolean(
     metadata.schoolYearId ||
@@ -319,50 +316,6 @@ function normalizeAttendanceIdentityValue(value: unknown) {
     .trim();
 }
 
-function normalizeAttendanceEventNameForMatching(value: unknown) {
-  return cleanAttendanceMetadataValue(value)
-    .replace(/\s*\([^()]*\)\s*$/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getAttendanceEventNameMatchScore(left: unknown, right: unknown) {
-  const leftName = normalizeAttendanceEventNameForMatching(left);
-  const rightName = normalizeAttendanceEventNameForMatching(right);
-
-  if (!leftName || !rightName) return 0;
-  if (leftName === rightName) return 1;
-
-  const leftTokens = new Set(leftName.split(" ").filter(Boolean));
-  const rightTokens = new Set(rightName.split(" ").filter(Boolean));
-  const intersectionCount = Array.from(leftTokens).filter((token) =>
-    rightTokens.has(token),
-  ).length;
-
-  if (!intersectionCount) return 0;
-
-  const minTokenCount = Math.min(leftTokens.size, rightTokens.size);
-  const unionTokenCount = new Set([...leftTokens, ...rightTokens]).size;
-  const containmentScore = intersectionCount / Math.max(1, minTokenCount);
-  const jaccardScore = intersectionCount / Math.max(1, unionTokenCount);
-
-  if (containmentScore === 1 && minTokenCount >= 2) return 0.92;
-
-  return containmentScore * 0.65 + jaccardScore * 0.35;
-}
-
-const ATTENDANCE_EVENT_FUZZY_MATCH_THRESHOLD = 0.88;
-
-function getAttendanceEventDateTimeKey(value?: string | null) {
-  if (!value) return "";
-
-  const formattedValue = formatDateTimeInputValue(value);
-
-  return formattedValue || cleanAttendanceMetadataValue(value).slice(0, 16);
-}
-
 function getAttendanceEventScheduleLabel(
   startAt?: string | null,
   endAt?: string | null,
@@ -402,66 +355,6 @@ function getDetectedAttendanceFileEvent(
     eventStartAt: metadata.eventStartAt || "",
     eventEndAt: metadata.eventEndAt || "",
   };
-}
-
-function findMatchingAttendanceEventFromFile(props: {
-  events: AttendanceEvent[];
-  metadata: AttendanceFileMetadata;
-  fallbackSchoolYearId: string;
-}) {
-  const detectedEvent = getDetectedAttendanceFileEvent(
-    props.metadata,
-    props.fallbackSchoolYearId,
-  );
-
-  if (!detectedEvent) return null;
-
-  const eventStartAtKey = getAttendanceEventDateTimeKey(
-    detectedEvent.eventStartAt,
-  );
-  const eventEndAtKey = getAttendanceEventDateTimeKey(detectedEvent.eventEndAt);
-  const matchingEvents = sortByBackendEventOrder(props.events)
-    .map((event, index) => {
-      const sameSchoolYear =
-        !detectedEvent.schoolYearId ||
-        event.school_year_id === detectedEvent.schoolYearId;
-      if (!sameSchoolYear) return null;
-
-      const nameScore = getAttendanceEventNameMatchScore(
-        detectedEvent.eventName,
-        event.name,
-      );
-      if (nameScore < ATTENDANCE_EVENT_FUZZY_MATCH_THRESHOLD) return null;
-
-      const eventStartKey = getAttendanceEventDateTimeKey(event.event_start_at);
-      const eventEndKey = getAttendanceEventDateTimeKey(event.event_end_at);
-      let scheduleAdjustment = 0;
-
-      if (eventStartAtKey && eventStartKey) {
-        scheduleAdjustment += eventStartAtKey === eventStartKey ? 0.06 : -0.06;
-      }
-
-      if (eventEndAtKey && eventEndKey) {
-        scheduleAdjustment += eventEndAtKey === eventEndKey ? 0.04 : -0.04;
-      }
-
-      return {
-        event,
-        score: nameScore + scheduleAdjustment,
-        index,
-      };
-    })
-    .filter(
-      (
-        candidate,
-      ): candidate is { event: AttendanceEvent; score: number; index: number } =>
-        Boolean(candidate),
-    )
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-
-  if (!matchingEvents.length) return null;
-
-  return matchingEvents[0].event;
 }
 
 function getAttendanceRecordTimestamp(record: AttendanceRecord) {
@@ -530,31 +423,6 @@ function deduplicateUploadedAttendanceRecordsByStudentEvent(
   if (!duplicates.size) return records;
 
   return records.filter((record) => !duplicates.has(String(record.id ?? "")));
-}
-
-async function deleteDuplicateUploadedAttendanceRecords(props: {
-  schoolYearId?: string;
-  importId?: string;
-}) {
-  if (!props.importId) return 0;
-
-  const records = await listAllAttendanceRecords({
-    schoolYearId: props.schoolYearId,
-    pageSize: 500,
-    maxPages: 100,
-  });
-  const importRecords = records.filter((record) => {
-    return String(record.import_id ?? "").trim() === props.importId;
-  });
-  const duplicateIds = getDuplicateUploadedAttendanceRecordIds(importRecords);
-
-  if (!duplicateIds.length) return 0;
-
-  await Promise.all(
-    duplicateIds.map((recordId) => deleteAttendanceRecord(recordId)),
-  );
-
-  return duplicateIds.length;
 }
 
 function getStudentEventSummaryTimestamp(summary: StudentEventSummary) {
@@ -652,77 +520,6 @@ function isAcceptedAttendanceFile(file: File, acceptedFileTypes: string) {
     .filter(Boolean);
 
   return acceptedExtensions.includes(extension);
-}
-
-function normalizeAttendanceFileName(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
-}
-
-function getAttendanceImportEventKey(importRecord: AttendanceImportRecord) {
-  const eventId = String(importRecord.event_id ?? "").trim();
-  if (eventId) return `event-id:${eventId}`;
-
-  const eventName = normalizeAttendanceIdentityValue(importRecord.event_name);
-  return eventName ? `event-name:${eventName}` : "";
-}
-
-function getUploadFormEventKey(uploadForm: UploadFormState) {
-  const eventId = uploadForm.eventId.trim();
-  if (eventId) return `event-id:${eventId}`;
-
-  const eventName = normalizeAttendanceIdentityValue(uploadForm.eventName);
-  return eventName ? `event-name:${eventName}` : "";
-}
-
-function getAttendanceImportSchoolYearKey(value?: string | null) {
-  const schoolYearId = String(value ?? "").trim();
-
-  if (!schoolYearId || schoolYearId === ALL_YEARS_VALUE) return "";
-
-  return schoolYearId;
-}
-
-function findDuplicateAttendanceImportForUpload(props: {
-  imports: AttendanceImportRecord[];
-  file: File;
-  uploadForm: UploadFormState;
-  selectedSchoolYearId: string;
-}) {
-  const uploadFileName = normalizeAttendanceFileName(props.file.name);
-  const uploadSchoolYearId = getAttendanceImportSchoolYearKey(
-    props.uploadForm.schoolYearId || props.selectedSchoolYearId,
-  );
-  const uploadEventKey = getUploadFormEventKey(props.uploadForm);
-
-  if (!uploadFileName) return null;
-
-  return (
-    props.imports.find((importRecord) => {
-      if (
-        normalizeAttendanceFileName(importRecord.file_name) !== uploadFileName
-      ) {
-        return false;
-      }
-
-      const importSchoolYearId = getAttendanceImportSchoolYearKey(
-        importRecord.school_year_id,
-      );
-      const isSameSchoolYear =
-        !uploadSchoolYearId ||
-        !importSchoolYearId ||
-        uploadSchoolYearId === importSchoolYearId;
-
-      if (!isSameSchoolYear) return false;
-
-      const importEventKey = getAttendanceImportEventKey(importRecord);
-
-      if (!uploadEventKey || !importEventKey) return true;
-
-      return uploadEventKey === importEventKey;
-    }) ?? null
-  );
 }
 
 function getUploadedRecordEventName(record: AttendanceRecord) {
@@ -845,6 +642,14 @@ export default function AttendancePage() {
   const [fileDetails, setFileDetails] = useState<
     Record<string, AttendanceUploadFileDetails>
   >({});
+  const [mergeDialogFileKey, setMergeDialogFileKey] = useState("");
+  const [mergeDialogCandidateIndex, setMergeDialogCandidateIndex] = useState(0);
+  const [mergeKeepEventName, setMergeKeepEventName] = useState<
+    "existing" | "incoming"
+  >("existing");
+  const [mergeKeepEventSchedule, setMergeKeepEventSchedule] = useState<
+    "existing" | "incoming"
+  >("existing");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>(
@@ -883,6 +688,23 @@ export default function AttendancePage() {
     null,
   );
   const acceptedFileTypes = getAcceptedAttendanceFileTypes();
+  const mergeDialogFileIndex = files.findIndex(
+    (file) => getAttendanceUploadFileKey(file) === mergeDialogFileKey,
+  );
+  const mergeDialogFile =
+    mergeDialogFileIndex >= 0 ? files[mergeDialogFileIndex] : null;
+  const mergeDialogDetails = mergeDialogFileKey
+    ? fileDetails[mergeDialogFileKey]
+    : undefined;
+  const mergeDialogCandidates = (mergeDialogDetails?.mergeCandidates ?? []).filter(
+    (candidate) =>
+      candidate.confidence !== "low" &&
+      (candidate.source === "existing" ||
+        (candidate.batchFileIndex !== null &&
+          candidate.batchFileIndex < mergeDialogFileIndex)),
+  );
+  const selectedMergeCandidate =
+    mergeDialogCandidates[mergeDialogCandidateIndex] ?? null;
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1047,7 +869,7 @@ export default function AttendancePage() {
     const rejectedCount = nextFiles.length - acceptedFiles.length;
 
     if (rejectedCount > 0) {
-      toast.error("Unsupported file. Please upload an .xlsx file.");
+      toast.error("Unsupported file. Please upload an .xlsx or .csv file.");
     }
 
     if (!acceptedFiles.length) return;
@@ -1055,17 +877,22 @@ export default function AttendancePage() {
     setFiles(acceptedFiles);
     setFileDetails({});
 
-    const fallbackSchoolYearId =
-      uploadForm.schoolYearId || selectedSchoolYearId;
+    const fallbackSchoolYearId = uploadForm.schoolYearId || selectedSchoolYearId;
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
-    const detailsEntries = await Promise.all(
-      acceptedFiles.map(async (nextFile) => {
-        const fileKey = getAttendanceUploadFileKey(nextFile);
 
-        try {
-          const metadata = await getAttendanceFileMetadata(nextFile, schoolYears);
-          const metadataSchoolYearId =
-            metadata.schoolYearId || fallbackSchoolYearId;
+    try {
+      const previews = await previewAttendanceFile(acceptedFiles);
+      const detailsEntries = await Promise.all(
+        acceptedFiles.map(async (nextFile, index) => {
+          const fileKey = getAttendanceUploadFileKey(nextFile);
+          const preview = previews[index];
+          if (!preview) throw new Error(`No preview returned for ${nextFile.name}.`);
+
+          const metadata = extractAttendancePreviewMetadata(
+            preview.detectedEvent ?? {},
+            schoolYears,
+          );
+          const metadataSchoolYearId = metadata.schoolYearId || fallbackSchoolYearId;
           const eventRowsForUpload =
             metadataSchoolYearId && metadataSchoolYearId !== selectedSchoolYearId
               ? await listAttendanceEvents({
@@ -1075,33 +902,50 @@ export default function AttendancePage() {
                 })
               : attendanceEvents;
           const eventOptions = sortByBackendEventOrder(eventRowsForUpload);
-          const matchingEvent = findMatchingAttendanceEventFromFile({
-            events: eventOptions,
-            metadata,
-            fallbackSchoolYearId: metadataSchoolYearId,
-          });
+          const mergeCandidates = (preview.detectedEvent?.mergeCandidates ?? []).filter(
+            (candidate) =>
+              candidate.source === "existing" ||
+              candidate.batchFileIndex === null ||
+              candidate.batchFileIndex < index,
+          );
+          const topExistingCandidate = mergeCandidates.find(
+            (candidate) => candidate.source === "existing" && candidate.eventId,
+          );
           const details: AttendanceUploadFileDetails = {
             metadata,
             eventOptions,
-            matchedEventId: matchingEvent?.id ?? "",
-            schoolYearId:
-              metadata.schoolYearId ||
-              matchingEvent?.school_year_id ||
-              fallbackSchoolYearId,
-            eventId: matchingEvent?.id ?? "",
-            eventName: matchingEvent?.name ?? metadata.eventName ?? "",
-            eventStartAt: matchingEvent
-              ? formatDateTimeInputValue(matchingEvent.event_start_at)
-              : metadata.eventStartAt ?? "",
-            eventEndAt: matchingEvent
-              ? formatDateTimeInputValue(matchingEvent.event_end_at)
-              : metadata.eventEndAt ?? "",
+            matchedEventId: topExistingCandidate?.eventId ?? "",
+            schoolYearId: metadataSchoolYearId,
+            eventId: "",
+            eventName: metadata.eventName ?? "",
+            eventStartAt: metadata.eventStartAt ?? "",
+            eventEndAt: metadata.eventEndAt ?? "",
             previewError: "",
+            rowsTotal: preview.rowsTotal,
+            mergeCandidates,
+            mergeDecisionConfirmed: !mergeCandidates.some(
+              (candidate) => candidate.confidence !== "low",
+            ),
+            mergeIntoEventId: "",
+            mergeIntoBatchIndex: null,
+            forceCreateEvent: false,
+            keepEventName: "existing",
+            keepEventSchedule: "existing",
           };
 
           return [fileKey, details] as const;
-        } catch (error) {
-          const details: AttendanceUploadFileDetails = {
+        }),
+      );
+
+      setFileDetails(Object.fromEntries(detailsEntries));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to preview attendance files.";
+      toast.error(message);
+      const fallbackDetails = Object.fromEntries(
+        acceptedFiles.map((nextFile) => [
+          getAttendanceUploadFileKey(nextFile),
+          {
             metadata: {},
             eventOptions: defaultEventOptions,
             matchedEventId: "",
@@ -1110,18 +954,20 @@ export default function AttendancePage() {
             eventName: "",
             eventStartAt: "",
             eventEndAt: "",
-            previewError:
-              error instanceof Error
-                ? error.message
-                : "Unable to preview attendance file.",
-          };
-
-          return [fileKey, details] as const;
-        }
-      }),
-    );
-
-    setFileDetails(Object.fromEntries(detailsEntries));
+            previewError: message,
+            rowsTotal: 0,
+            mergeCandidates: [],
+            mergeDecisionConfirmed: true,
+            mergeIntoEventId: "",
+            mergeIntoBatchIndex: null,
+            forceCreateEvent: false,
+            keepEventName: "existing" as const,
+            keepEventSchedule: "existing" as const,
+          },
+        ]),
+      );
+      setFileDetails(fallbackDetails);
+    }
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1177,6 +1023,10 @@ export default function AttendancePage() {
             eventName: detectedEvent.eventName,
             eventStartAt: detectedEvent.eventStartAt,
             eventEndAt: detectedEvent.eventEndAt,
+            mergeDecisionConfirmed: true,
+            mergeIntoEventId: "",
+            mergeIntoBatchIndex: null,
+            forceCreateEvent: true,
           },
         };
       }
@@ -1190,6 +1040,10 @@ export default function AttendancePage() {
             eventName: "",
             eventStartAt: "",
             eventEndAt: "",
+            mergeDecisionConfirmed: true,
+            mergeIntoEventId: "",
+            mergeIntoBatchIndex: null,
+            forceCreateEvent: true,
           },
         };
       }
@@ -1208,6 +1062,12 @@ export default function AttendancePage() {
           eventName: selectedEvent.name,
           eventStartAt: formatDateTimeInputValue(selectedEvent.event_start_at),
           eventEndAt: formatDateTimeInputValue(selectedEvent.event_end_at),
+          mergeDecisionConfirmed: true,
+          mergeIntoEventId: selectedEvent.id,
+          mergeIntoBatchIndex: null,
+          forceCreateEvent: false,
+          keepEventName: "existing",
+          keepEventSchedule: "existing",
         },
       };
     });
@@ -1228,9 +1088,87 @@ export default function AttendancePage() {
           ...details,
           [field]: value,
           eventId: "",
+          mergeDecisionConfirmed: true,
+          mergeIntoEventId: "",
+          mergeIntoBatchIndex: null,
+          forceCreateEvent: true,
         },
       };
     });
+  }
+
+  function openMergeDecisionDialog(fileKey: string) {
+    const details = fileDetails[fileKey];
+    if (!details) return;
+
+    const fileIndex = files.findIndex(
+      (file) => getAttendanceUploadFileKey(file) === fileKey,
+    );
+    const actionableCandidates = details.mergeCandidates.filter(
+      (candidate) =>
+        candidate.confidence !== "low" &&
+        (candidate.source === "existing" ||
+          (candidate.batchFileIndex !== null &&
+            candidate.batchFileIndex < fileIndex)),
+    );
+    if (!actionableCandidates.length) return;
+
+    setMergeDialogCandidateIndex(0);
+    setMergeKeepEventName("existing");
+    setMergeKeepEventSchedule("existing");
+    setMergeDialogFileKey(fileKey);
+  }
+
+  function handleConfirmMergeDecision() {
+    const details = fileDetails[mergeDialogFileKey];
+    if (!details) return;
+    const fileIndex = files.findIndex(
+      (file) => getAttendanceUploadFileKey(file) === mergeDialogFileKey,
+    );
+    const candidates = details.mergeCandidates.filter(
+      (candidate) =>
+        candidate.confidence !== "low" &&
+        (candidate.source === "existing" ||
+          (candidate.batchFileIndex !== null && candidate.batchFileIndex < fileIndex)),
+    );
+    const candidate = candidates[mergeDialogCandidateIndex];
+    if (!candidate) return;
+
+    setFileDetails((current) => ({
+      ...current,
+      [mergeDialogFileKey]: {
+        ...details,
+        eventId: "",
+        mergeDecisionConfirmed: true,
+        mergeIntoEventId: candidate.source === "existing" ? candidate.eventId ?? "" : "",
+        mergeIntoBatchIndex:
+          candidate.source === "batch" ? candidate.batchFileIndex : null,
+        forceCreateEvent: false,
+        keepEventName: mergeKeepEventName,
+        keepEventSchedule: mergeKeepEventSchedule,
+      },
+    }));
+    setMergeDialogFileKey("");
+  }
+
+  function handleCreateSeparateEventDecision() {
+    const details = fileDetails[mergeDialogFileKey];
+    if (!details) return;
+
+    setFileDetails((current) => ({
+      ...current,
+      [mergeDialogFileKey]: {
+        ...details,
+        eventId: "",
+        mergeDecisionConfirmed: true,
+        mergeIntoEventId: "",
+        mergeIntoBatchIndex: null,
+        forceCreateEvent: true,
+        keepEventName: "incoming",
+        keepEventSchedule: "incoming",
+      },
+    }));
+    setMergeDialogFileKey("");
   }
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
@@ -1241,11 +1179,29 @@ export default function AttendancePage() {
       return;
     }
 
+    const unresolvedFile = files.find((attendanceFile, index) => {
+      const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
+      if (!details || details.mergeDecisionConfirmed) return false;
+
+      return details.mergeCandidates.some(
+        (candidate) =>
+          candidate.confidence !== "low" &&
+          (candidate.source === "existing" ||
+            (candidate.batchFileIndex !== null &&
+              candidate.batchFileIndex < index)),
+      );
+    });
+
+    if (unresolvedFile) {
+      openMergeDecisionDialog(getAttendanceUploadFileKey(unresolvedFile));
+      return;
+    }
+
     setIsSaving(true);
     setProgress({
       stage: "preparing",
       percent: 1,
-      message: "Checking recent attendance uploads...",
+      message: "Preparing atomic attendance upload batch...",
       processedRows: 0,
       totalRows: 0,
       savedRecords: 0,
@@ -1253,110 +1209,39 @@ export default function AttendancePage() {
     });
 
     try {
-      const recentImports = await listAttendanceImports({
-        limit: 1000,
-        offset: 0,
-      });
-      const duplicateFiles: File[] = [];
-      const filesToSave: File[] = [];
+      const fileOptions = files.map((attendanceFile, index) => {
+        const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
 
-      files.forEach((attendanceFile) => {
-        const fileKey = getAttendanceUploadFileKey(attendanceFile);
-        const details = fileDetails[fileKey];
-        const perFileUploadForm: UploadFormState = {
+        return {
+          index,
+          fileName: attendanceFile.name,
           schoolYearId:
-            details?.schoolYearId || uploadForm.schoolYearId || selectedSchoolYearId,
-          eventId: details?.eventId ?? "",
-          eventName: details?.eventName ?? "",
-          eventStartAt: details?.eventStartAt ?? "",
-          eventEndAt: details?.eventEndAt ?? "",
+            details?.schoolYearId || uploadForm.schoolYearId || undefined,
+          eventId: details?.eventId || undefined,
+          eventName: details?.eventName.trim() || undefined,
+          eventStartAt: details?.eventStartAt || undefined,
+          eventEndAt: details?.eventEndAt || undefined,
+          mergeIntoEventId: details?.mergeIntoEventId || undefined,
+          mergeIntoBatchIndex:
+            details?.mergeIntoBatchIndex === null ||
+            details?.mergeIntoBatchIndex === undefined
+              ? undefined
+              : details.mergeIntoBatchIndex,
+          forceCreateEvent: details?.forceCreateEvent || undefined,
+          keepEventName: details?.keepEventName,
+          keepEventSchedule: details?.keepEventSchedule,
         };
-        const duplicateImport = findDuplicateAttendanceImportForUpload({
-          imports: recentImports,
-          file: attendanceFile,
-          uploadForm: perFileUploadForm,
-          selectedSchoolYearId,
-        });
-
-        if (duplicateImport) {
-          duplicateFiles.push(attendanceFile);
-        } else {
-          filesToSave.push(attendanceFile);
-        }
       });
 
-      let batchResult: Awaited<ReturnType<typeof saveAttendanceFile>> | null = null;
-
-      if (filesToSave.length) {
-        setProgress({
-          stage: "parsing",
-          percent: 3,
-          message: "Preparing attendance upload batch...",
-          processedRows: 0,
-          totalRows: 0,
-          savedRecords: 0,
-          createdFines: 0,
-        });
-
-        const fileOptions = filesToSave.map((attendanceFile, index) => {
-          const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
-
-          return {
-            index,
-            fileName: attendanceFile.name,
-            schoolYearId:
-              details?.schoolYearId || uploadForm.schoolYearId || undefined,
-            eventId: details?.eventId || undefined,
-            eventName: details?.eventName.trim() || undefined,
-            eventStartAt: details?.eventStartAt || undefined,
-            eventEndAt: details?.eventEndAt || undefined,
-          };
-        });
-
-        batchResult = await saveAttendanceFile(filesToSave, {
-          fileOptions,
-          onProgress: setProgress,
-        });
-      }
-
-      let deletedDuplicateRecordCount = 0;
-
-      if (batchResult) {
-        for (const [index, fileResult] of batchResult.files.entries()) {
-          if (fileResult.status !== "saved" || !fileResult.result) continue;
-
-          const attendanceFile = filesToSave[index];
-          const details = attendanceFile
-            ? fileDetails[getAttendanceUploadFileKey(attendanceFile)]
-            : undefined;
-          const schoolYearId =
-            details?.schoolYearId ||
-            fileResult.result.event?.school_year_id ||
-            undefined;
-          deletedDuplicateRecordCount +=
-            await deleteDuplicateUploadedAttendanceRecords({
-              schoolYearId,
-              importId: fileResult.result.importId,
-            });
-
-          await refreshAttendanceFinalResults({
-            schoolYearId,
-            importId: fileResult.result.importId,
-          });
-        }
-      }
-
+      const batchResult = await saveAttendanceFile(files, {
+        fileOptions,
+        onProgress: setProgress,
+      });
       const filesSaved = batchResult?.filesSaved ?? 0;
-      const filesFailed = batchResult?.filesFailed ?? 0;
-      const recordsSaved = Math.max(
-        0,
-        (batchResult?.recordsSaved ?? 0) - deletedDuplicateRecordCount,
-      );
-      const duplicatesSkipped =
-        duplicateFiles.length + deletedDuplicateRecordCount;
+      const recordsSaved = batchResult?.recordsSaved ?? 0;
 
       toast.success(
-        `${filesSaved.toLocaleString()} file/s saved, ${recordsSaved.toLocaleString()} record/s saved, ${duplicatesSkipped.toLocaleString()} duplicate/s skipped, ${filesFailed.toLocaleString()} file/s failed.`,
+        `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
       );
 
       setFiles([]);
@@ -1843,13 +1728,15 @@ export default function AttendancePage() {
                         )
                       : null;
                     const selectedEventValue =
+                      details?.mergeIntoEventId ||
                       details?.eventId ||
                       (detectedEvent
                         ? FILE_UPLOAD_EVENT_VALUE
                         : CUSTOM_UPLOAD_EVENT_VALUE);
                     const matchedExistingEvent = Boolean(
-                      details?.matchedEventId &&
-                        details.eventId === details.matchedEventId,
+                      details?.mergeDecisionConfirmed &&
+                        details.mergeIntoEventId &&
+                        details.mergeIntoEventId === details.matchedEventId,
                     );
                     const suggestedExistingEvent = details?.matchedEventId
                       ? details.eventOptions.find(
@@ -1876,6 +1763,11 @@ export default function AttendancePage() {
                                   )
                                 : "Reading workbook metadata..."}
                             </p>
+                            {details ? (
+                              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                {details.rowsTotal.toLocaleString()} incoming row/s
+                              </p>
+                            ) : null}
                           </div>
                           {matchedExistingEvent ? (
                             <span className="rounded-full border px-3 py-1 text-xs font-semibold">
@@ -1937,15 +1829,10 @@ export default function AttendancePage() {
                                   type="button"
                                   variant={matchedExistingEvent ? "default" : "outline"}
                                   disabled={isSaving || matchedExistingEvent}
-                                  onClick={() =>
-                                    handleUploadEventSelect(
-                                      fileKey,
-                                      suggestedExistingEvent.id,
-                                    )
-                                  }
+                                  onClick={() => openMergeDecisionDialog(fileKey)}
                                   className="shrink-0 rounded-xl text-xs font-semibold"
                                 >
-                                  {matchedExistingEvent ? "Attached" : "Attach to it"}
+                                  {matchedExistingEvent ? "Merge confirmed" : "Review merge"}
                                 </Button>
                               </div>
                             ) : null}
@@ -2061,6 +1948,148 @@ export default function AttendancePage() {
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(mergeDialogFileKey)}
+          onOpenChange={(open) => {
+            if (!open) setMergeDialogFileKey("");
+          }}
+        >
+          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Confirm attendance event merge</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border bg-muted/30 p-4">
+                <p className="text-xs font-bold uppercase text-muted-foreground">Incoming file</p>
+                <p className="mt-1 break-all font-semibold">{mergeDialogFile?.name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {(mergeDialogDetails?.rowsTotal ?? 0).toLocaleString()} row/s • {mergeDialogDetails?.metadata.eventName || "Unnamed event"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {getAttendanceEventScheduleLabel(
+                    mergeDialogDetails?.metadata.eventStartAt,
+                    mergeDialogDetails?.metadata.eventEndAt,
+                  ) || "No detected schedule"}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-bold">Possible matching event</p>
+                {mergeDialogCandidates.map((candidate, index) => (
+                  <button
+                    key={`${candidate.source}-${candidate.eventId ?? candidate.batchFileIndex}-${index}`}
+                    type="button"
+                    onClick={() => setMergeDialogCandidateIndex(index)}
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                      index === mergeDialogCandidateIndex
+                        ? "border-primary ring-2 ring-primary/20"
+                        : "hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold">{candidate.eventName}</p>
+                      <span className="rounded-full border px-2.5 py-1 text-xs font-bold">
+                        {Math.round(candidate.score * 100)}% {candidate.confidence}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {getAttendanceEventScheduleLabel(
+                        candidate.eventStartAt,
+                        candidate.eventEndAt,
+                      ) || "No saved schedule"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {candidate.source === "existing"
+                        ? `${candidate.attendeesCount.toLocaleString()} current attendee/s`
+                        : `Earlier file in this batch${
+                            candidate.batchFileIndex === null
+                              ? ""
+                              : ` (#${candidate.batchFileIndex + 1})`
+                          }`}
+                    </p>
+                    {candidate.reasons.length ? (
+                      <p className="mt-2 text-xs font-semibold text-muted-foreground">
+                        {candidate.reasons.join(" • ")}
+                      </p>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+
+              {selectedMergeCandidate ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm font-bold">
+                    <span>Name to keep</span>
+                    <Select
+                      value={mergeKeepEventName}
+                      onValueChange={(value) =>
+                        setMergeKeepEventName(value as "existing" | "incoming")
+                      }
+                    >
+                      <SelectTrigger className="min-h-11 rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="existing">
+                          Existing: {selectedMergeCandidate.eventName}
+                        </SelectItem>
+                        <SelectItem value="incoming">
+                          Incoming: {mergeDialogDetails?.metadata.eventName || "Unnamed event"}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+
+                  <label className="space-y-2 text-sm font-bold">
+                    <span>Start/end time to keep</span>
+                    <Select
+                      value={mergeKeepEventSchedule}
+                      onValueChange={(value) =>
+                        setMergeKeepEventSchedule(
+                          value as "existing" | "incoming",
+                        )
+                      }
+                    >
+                      <SelectTrigger className="min-h-11 rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="existing">Existing event times</SelectItem>
+                        <SelectItem value="incoming">Incoming file times</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                </div>
+              ) : null}
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMergeDialogFileKey("")}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCreateSeparateEventDecision}
+                >
+                  Create as a separate event
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!selectedMergeCandidate}
+                  onClick={handleConfirmMergeDecision}
+                >
+                  Merge into this event
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 

@@ -4,13 +4,18 @@ import { toast } from "sonner";
 
 import {
   deleteAttendanceEvent,
+  getAttendanceEventMergeImpact,
+  listAttendanceEventDuplicateGroups,
   listAttendanceEvents,
+  mergeAttendanceEvents,
   saveAttendanceEvent,
   updateAttendanceEvent,
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceEventDuplicateGroup,
   AttendanceEventInput,
+  AttendanceEventMergeImpact,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -146,6 +151,14 @@ export default function EventsPage() {
   const [deletingEventId, setDeletingEventId] = useState("");
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [isDeletingEvents, setIsDeletingEvents] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<
+    AttendanceEventDuplicateGroup[]
+  >([]);
+  const [mergeImpact, setMergeImpact] = useState<AttendanceEventMergeImpact | null>(
+    null,
+  );
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [isMergingEvents, setIsMergingEvents] = useState(false);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -189,17 +202,23 @@ export default function EventsPage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : getActiveSchoolYearId(schoolYearRows);
-      const rows = fallbackSchoolYearId
-        ? await listAttendanceEvents({
-            schoolYearId: fallbackSchoolYearId,
-            limit: 500,
-            offset: 0,
-          })
-        : [];
+      const [rows, groups] = fallbackSchoolYearId
+        ? await Promise.all([
+            listAttendanceEvents({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 500,
+              offset: 0,
+            }),
+            listAttendanceEventDuplicateGroups({
+              schoolYearId: fallbackSchoolYearId,
+            }),
+          ])
+        : [[], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
       setEvents(rows);
+      setDuplicateGroups(groups);
       setSelectedEventIds([]);
     } catch (error) {
       toast.error(
@@ -361,6 +380,47 @@ export default function EventsPage() {
     }
   }
 
+  async function handleOpenMergeDialog(group: AttendanceEventDuplicateGroup) {
+    const [targetEvent, ...sourceEvents] = group.events;
+    if (!targetEvent || !sourceEvents.length) return;
+
+    try {
+      const impact = await getAttendanceEventMergeImpact(
+        targetEvent.id,
+        sourceEvents.map((event) => event.id),
+      );
+      if (!impact) throw new Error("Unable to calculate merge impact.");
+      setMergeImpact(impact);
+      setMergeDialogOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to inspect event merge.",
+      );
+    }
+  }
+
+  async function handleConfirmMergeEvents() {
+    if (!mergeImpact) return;
+
+    setIsMergingEvents(true);
+    try {
+      await mergeAttendanceEvents({
+        targetEventId: mergeImpact.targetEvent.id,
+        sourceEventIds: mergeImpact.sourceEvents.map((event) => event.id),
+      });
+      toast.success("Duplicate attendance events merged.");
+      setMergeDialogOpen(false);
+      setMergeImpact(null);
+      await loadEvents(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to merge attendance events.",
+      );
+    } finally {
+      setIsMergingEvents(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -420,6 +480,62 @@ export default function EventsPage() {
             </p>
           </div>
         </section>
+
+        {duplicateGroups.length ? (
+          <section className="rounded-3xl border bg-card p-5 shadow-sm">
+            <div>
+              <h2 className="text-xl font-black">Likely duplicate events</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Review these candidates before merging. Nothing is moved until you confirm.
+              </p>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {duplicateGroups.map((group, groupIndex) => (
+                <article
+                  key={`${group.schoolYearId ?? "none"}-${group.events.map((event) => event.id).join("-")}`}
+                  className="rounded-2xl border bg-background p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-black">Candidate #{groupIndex + 1}</p>
+                        <span className="rounded-full border px-2.5 py-1 text-xs font-black">
+                          {Math.round(group.score * 100)}% {group.confidence}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {group.events.map((attendanceEvent) => (
+                          <div key={attendanceEvent.id} className="rounded-xl bg-muted/40 p-3">
+                            <p className="font-bold">{attendanceEvent.name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {formatDateTime(attendanceEvent.event_start_at)} to {formatDateTime(attendanceEvent.event_end_at)}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                              {Number(attendanceEvent.attendees_count || 0).toLocaleString()} attendee/s
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      {group.reasons.length ? (
+                        <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                          {group.reasons.join(" • ")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleOpenMergeDialog(group)}
+                      className="shrink-0 rounded-xl font-black"
+                    >
+                      Review Merge
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -591,6 +707,87 @@ export default function EventsPage() {
           </div>
         </section>
       </div>
+
+      <Dialog
+        open={mergeDialogOpen}
+        onOpenChange={(open) => {
+          setMergeDialogOpen(open);
+          if (!open) setMergeImpact(null);
+        }}
+      >
+        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Confirm duplicate event merge</DialogTitle>
+          </DialogHeader>
+
+          {mergeImpact ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border bg-muted/30 p-4">
+                <p className="text-xs font-black uppercase text-muted-foreground">Keep as target</p>
+                <p className="mt-1 font-black">{mergeImpact.targetEvent.name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {formatDateTime(mergeImpact.targetEvent.event_start_at)} to {formatDateTime(mergeImpact.targetEvent.event_end_at)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm font-black">Source event/s to remove after moving data</p>
+                <div className="mt-2 grid gap-2">
+                  {mergeImpact.sourceEvents.map((sourceEvent) => (
+                    <div key={sourceEvent.id} className="rounded-xl border p-3">
+                      <p className="font-bold">{sourceEvent.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatDateTime(sourceEvent.event_start_at)} to {formatDateTime(sourceEvent.event_end_at)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border p-3">
+                  <p className="text-xs font-bold text-muted-foreground">Attendance records moved</p>
+                  <p className="mt-1 text-xl font-black">{mergeImpact.movedCounts.attendanceRecords.toLocaleString()}</p>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <p className="text-xs font-bold text-muted-foreground">Imports repointed</p>
+                  <p className="mt-1 text-xl font-black">{mergeImpact.movedCounts.attendanceImports.toLocaleString()}</p>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <p className="text-xs font-bold text-muted-foreground">Manual records moved</p>
+                  <p className="mt-1 text-xl font-black">{mergeImpact.movedCounts.manualAttendanceRecords.toLocaleString()}</p>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <p className="text-xs font-bold text-muted-foreground">Request links repointed</p>
+                  <p className="mt-1 text-xl font-black">{mergeImpact.movedCounts.attendanceRequestEvents.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <p className="text-sm font-semibold text-muted-foreground">
+                {mergeImpact.affectedStudents.toLocaleString()} student/s will have absences, fines, and downstream results recalculated. The merge is logged before source events are removed.
+              </p>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isMergingEvents}
+                  onClick={() => setMergeDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isMergingEvents}
+                  onClick={() => void handleConfirmMergeEvents()}
+                >
+                  {isMergingEvents ? "Merging..." : "Merge Events"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
         <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
