@@ -1272,6 +1272,7 @@ export default function AttendancePage() {
       savedRecords: 0,
       createdFines: 0,
     });
+    setUploadDialogOpen(false);
 
     try {
       const fileOptions = files.map((attendanceFile, index) => {
@@ -1318,7 +1319,6 @@ export default function AttendancePage() {
         eventStartAt: "",
         eventEndAt: "",
       }));
-      setUploadDialogOpen(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
       toast.error(
