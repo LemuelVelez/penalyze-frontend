@@ -23,6 +23,7 @@ import type {
   AttendanceFinalResultRecord,
   AttendanceImportDeleteImpact,
   AttendanceImportProgress,
+  AttendanceImportReconciliation,
   AttendanceImportRecord,
   AttendanceRecord,
   ManualAttendanceInput,
@@ -376,74 +377,6 @@ function getDetectedAttendanceFileEvent(
   };
 }
 
-function getAttendanceRecordTimestamp(record: AttendanceRecord) {
-  const value = record.scanned_at ?? record.created_at;
-  const time = value ? new Date(value).getTime() : 0;
-
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function getAttendanceRecordEventIdentity(record: AttendanceRecord) {
-  const eventId = String(record.event_id ?? "").trim();
-  if (eventId) return `event-id:${eventId}`;
-
-  const eventName = normalizeAttendanceIdentityValue(record.event_name);
-  if (eventName) return `event-name:${eventName}`;
-
-  return "";
-}
-
-function getUploadedAttendanceRecordDeduplicationKey(record: AttendanceRecord) {
-  const studentId = normalizeStudentId(record.student_id);
-  const eventIdentity = getAttendanceRecordEventIdentity(record);
-
-  if (!studentId || !eventIdentity) return "";
-
-  return [record.school_year_id ?? "", studentId, eventIdentity].join("::");
-}
-
-function getDuplicateUploadedAttendanceRecordIds(records: AttendanceRecord[]) {
-  const savedByStudentEvent = new Map<string, AttendanceRecord>();
-  const duplicateIds: string[] = [];
-
-  records.forEach((record) => {
-    const key = getUploadedAttendanceRecordDeduplicationKey(record);
-    const recordId = String(record.id ?? "").trim();
-
-    if (!key || !recordId) return;
-
-    const savedRecord = savedByStudentEvent.get(key);
-
-    if (!savedRecord) {
-      savedByStudentEvent.set(key, record);
-      return;
-    }
-
-    const savedTime = getAttendanceRecordTimestamp(savedRecord);
-    const recordTime = getAttendanceRecordTimestamp(record);
-
-    if (recordTime > 0 && savedTime > 0 && recordTime < savedTime) {
-      duplicateIds.push(String(savedRecord.id));
-      savedByStudentEvent.set(key, record);
-      return;
-    }
-
-    duplicateIds.push(recordId);
-  });
-
-  return Array.from(new Set(duplicateIds));
-}
-
-function deduplicateUploadedAttendanceRecordsByStudentEvent(
-  records: AttendanceRecord[],
-) {
-  const duplicates = new Set(getDuplicateUploadedAttendanceRecordIds(records));
-
-  if (!duplicates.size) return records;
-
-  return records.filter((record) => !duplicates.has(String(record.id ?? "")));
-}
-
 function getStudentEventSummaryTimestamp(summary: StudentEventSummary) {
   const time = summary.scannedAt ? new Date(summary.scannedAt).getTime() : 0;
 
@@ -711,6 +644,9 @@ export default function AttendancePage() {
   const [progress, setProgress] = useState<AttendanceImportProgress | null>(
     null,
   );
+  const [reconciliationReports, setReconciliationReports] = useState<
+    Array<{ fileName: string; reconciliation: AttendanceImportReconciliation }>
+  >([]);
   const acceptedFileTypes = getAcceptedAttendanceFileTypes();
   const mergeDialogFileIndex = files.findIndex(
     (file) => getAttendanceUploadFileKey(file) === mergeDialogFileKey,
@@ -890,9 +826,7 @@ export default function AttendancePage() {
       setImports(sortByBackendEventOrder(importRows));
       setFinalResults(sortByBackendEventOrder(resultRows));
       setSelectedFinalResultIds([]);
-      setUploadedAttendanceRecords(
-        deduplicateUploadedAttendanceRecordsByStudentEvent(uploadedRows),
-      );
+      setUploadedAttendanceRecords(uploadedRows);
       setManualAttendanceRecords(manualRows);
       setUploadForm((current) => ({
         ...current,
@@ -1261,6 +1195,7 @@ export default function AttendancePage() {
     }
 
     setIsSaving(true);
+    setReconciliationReports([]);
     setProgress({
       stage: "preparing",
       percent: 1,
@@ -1303,6 +1238,14 @@ export default function AttendancePage() {
       });
       const filesSaved = batchResult?.filesSaved ?? 0;
       const recordsSaved = batchResult?.recordsSaved ?? 0;
+      setReconciliationReports(
+        (batchResult?.files ?? [])
+          .filter((item) => item.result?.reconciliation)
+          .map((item) => ({
+            fileName: item.fileName,
+            reconciliation: item.result!.reconciliation,
+          })),
+      );
 
       toast.success(
         `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
@@ -1689,11 +1632,49 @@ export default function AttendancePage() {
               </div>
               <Progress value={progress.percent} className="mt-3 h-3" />
               <p className="mt-2 text-xs font-semibold text-muted-foreground">
-                {formatNumber(progress.savedRecords)} saved record/s from{" "}
-                {formatNumber(progress.totalRows)} parsed row/s
+                {progress.stageCounts
+                  ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)} → distinct final results ${formatNumber(progress.stageCounts.distinctFinalResults)}`
+                  : `${formatNumber(progress.savedRecords)} saved record/s from ${formatNumber(progress.totalRows)} row/s`}
               </p>
             </div>
           ) : null}
+          {reconciliationReports.map(({ fileName, reconciliation }) => {
+            const mergedCount = reconciliation.rowsMerged.reduce(
+              (total, item) => total + Math.max(0, item.sourceRowNumbers.length - 1),
+              0,
+            );
+            const hasWarning =
+              reconciliation.rowsSaved !== reconciliation.rowsInSource ||
+              reconciliation.rowsInvalid.length > 0 ||
+              reconciliation.rowsMerged.length > 0;
+            if (!hasWarning) return null;
+
+            return (
+              <details key={fileName} className="mt-4 rounded-2xl border bg-background p-4">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  {fileName}: {reconciliation.rowsInSource.toLocaleString()} rows in file, {reconciliation.rowsSaved.toLocaleString()} saved
+                  {mergedCount ? ` — ${mergedCount} row/s merged` : ""}
+                  {reconciliation.rowsInvalid.length ? ` — ${reconciliation.rowsInvalid.length} invalid/conflict row/s` : ""}
+                </summary>
+                <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                  <p>
+                    parsed {reconciliation.stageCounts.parsed} → normalized {reconciliation.stageCounts.normalized} → valid {reconciliation.stageCounts.valid} → merged {reconciliation.stageCounts.merged} → saved {reconciliation.stageCounts.saved} → distinct final results {reconciliation.stageCounts.distinctFinalResults}
+                  </p>
+                  {reconciliation.rowsMerged.map((item) => (
+                    <p key={`${item.mergeKey}-${item.sourceRowNumbers.join("-")}`}>
+                      Merged duplicate: Student ID {item.studentId || "—"} on rows {item.sourceRowNumbers.join(" and ")}
+                      {item.names.length ? ` (${item.names.join(" / ")})` : ""}.
+                    </p>
+                  ))}
+                  {reconciliation.rowsInvalid.map((item) => (
+                    <p key={`invalid-${item.rowNumber}-${item.studentId}`}>
+                      Row {item.rowNumber}{item.studentId ? ` (${item.studentId})` : ""}: {item.errors.join(" ")}
+                    </p>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
         </section>
 
         <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>

@@ -6,7 +6,9 @@ import {
   createPenalty,
   deletePenalty,
   deletePenaltyResultsByIds,
+  getPenaltyResultAbsentEvents,
   listPenalties,
+  listPenaltyResultColleges,
   listPenaltyResults,
   refreshPenaltyResults,
   seedDefaultPenalties,
@@ -19,6 +21,7 @@ import type {
   FineStatus,
   PenaltyRecord,
   PenaltyResultRecord,
+  PenaltyResultAbsentEvents,
 } from "../../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -112,6 +115,16 @@ function formatDate(value?: string | null) {
     year: "numeric",
     month: "short",
     day: "2-digit",
+  }).format(date);
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
   }).format(date);
 }
 
@@ -254,6 +267,10 @@ export default function FinesPage() {
     [],
   );
   const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
+  const [penaltyResultColleges, setPenaltyResultColleges] = useState<Array<string | null>>([]);
+  const [absentEventsResult, setAbsentEventsResult] = useState<PenaltyResultAbsentEvents | null>(null);
+  const [absentEventsStudentName, setAbsentEventsStudentName] = useState("");
+  const [isLoadingAbsentEvents, setIsLoadingAbsentEvents] = useState(false);
   const [penaltyForm, setPenaltyForm] =
     useState<PenaltyFormState>(emptyPenaltyForm);
   const [isLoading, setIsLoading] = useState(true);
@@ -275,15 +292,13 @@ export default function FinesPage() {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
 
-  const collegeOptions = useMemo(() => {
-    const colleges = penaltyResults
-      .map(getPenaltyResultCollege)
-      .filter(Boolean);
-
-    return Array.from(new Set(colleges)).sort((left, right) =>
-      left.localeCompare(right),
-    );
-  }, [penaltyResults]);
+  const collegeOptions = useMemo(() =>
+    penaltyResultColleges
+      .filter((college): college is string => Boolean(college?.trim()))
+      .map((college) => college.trim())
+      .sort((left, right) => left.localeCompare(right)),
+  [penaltyResultColleges]);
+  const hasUnassignedCollege = penaltyResultColleges.some((college) => !college?.trim());
 
   const filteredPenaltyResults = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
@@ -292,9 +307,12 @@ export default function FinesPage() {
       (result) => {
         const matchesStatus =
           statusFilter === "all" || result.status === statusFilter;
+        const resultCollege = getPenaltyResultCollege(result);
         const matchesCollege =
           collegeFilter === "__all_colleges__" ||
-          getPenaltyResultCollege(result) === collegeFilter;
+          (collegeFilter === "__unassigned_college__"
+            ? !resultCollege
+            : resultCollege === collegeFilter);
         const matchesDate = matchesDateRange(
           result.updated_at,
           fromDate,
@@ -389,17 +407,21 @@ export default function FinesPage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : (schoolYearRows[0]?.id ?? "");
-      const penaltyResultRows = fallbackSchoolYearId
-        ? await listPenaltyResults({
-            schoolYearId: fallbackSchoolYearId,
-            limit: 500,
-            offset: 0,
-          })
-        : [];
+      const [penaltyResultRows, collegeRows] = fallbackSchoolYearId
+        ? await Promise.all([
+            listPenaltyResults({
+              schoolYearId: fallbackSchoolYearId,
+              limit: 5000,
+              offset: 0,
+            }),
+            listPenaltyResultColleges(fallbackSchoolYearId),
+          ])
+        : [[], [] as Array<string | null>];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
       setPenalties(penaltyRows);
+      setPenaltyResultColleges(collegeRows);
       setPenaltyResults(
         sortPenaltyResultsByBackendEventOrder(penaltyResultRows),
       );
@@ -439,6 +461,20 @@ export default function FinesPage() {
       );
     } finally {
       setIsRefreshingResults(false);
+    }
+  }
+
+  async function handleOpenAbsentEvents(result: PenaltyResultRecord) {
+    setAbsentEventsStudentName(result.name || result.student_id);
+    setAbsentEventsResult(null);
+    setIsLoadingAbsentEvents(true);
+    try {
+      setAbsentEventsResult(await getPenaltyResultAbsentEvents(result.id));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load absent events.");
+      setAbsentEventsStudentName("");
+    } finally {
+      setIsLoadingAbsentEvents(false);
     }
   }
 
@@ -801,6 +837,9 @@ export default function FinesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all_colleges__">All colleges</SelectItem>
+                  {hasUnassignedCollege ? (
+                    <SelectItem value="__unassigned_college__">Unassigned college</SelectItem>
+                  ) : null}
                   {collegeOptions.map((college) => (
                     <SelectItem key={college} value={college}>
                       {college}
@@ -981,8 +1020,15 @@ export default function FinesPage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {getPenaltyResultCollege(result) || "—"}
                       </td>
-                      <td className="px-4 py-3 font-black">
-                        {result.no_of_absences}
+                      <td className="px-4 py-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handleOpenAbsentEvents(result)}
+                          className="min-h-9 rounded-xl px-3 text-xs font-black"
+                        >
+                          Absences ({result.no_of_absences})
+                        </Button>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {result.prescribed_penalty}
@@ -1284,6 +1330,53 @@ export default function FinesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        <Dialog
+          open={Boolean(absentEventsStudentName)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAbsentEventsStudentName("");
+              setAbsentEventsResult(null);
+            }
+          }}
+        >
+          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Absent events for {absentEventsStudentName}</DialogTitle>
+            </DialogHeader>
+            {isLoadingAbsentEvents ? (
+              <div className="rounded-2xl border border-dashed p-6 text-center text-sm font-semibold text-muted-foreground">
+                Loading absent events...
+              </div>
+            ) : absentEventsResult ? (
+              <div className="space-y-3">
+                {absentEventsResult.absentEvents.map((event, index) => (
+                  <article key={`${event.eventId ?? event.eventName}-${index}`} className="rounded-2xl border bg-background p-4">
+                    <div className="flex gap-3">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">{index + 1}</span>
+                      <div className="min-w-0">
+                        <p className="wrap-break-word font-semibold">
+                          {event.eventOrder ? `${event.eventOrder}. ` : ""}{event.eventName}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {event.source} • {formatDateTime(event.eventStartAt)} to {formatDateTime(event.eventEndAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+                {absentEventsResult.unattributedAbsences > 0 ? (
+                  <div className="rounded-2xl border border-dashed bg-muted/30 p-4 text-sm font-semibold text-muted-foreground">
+                    {absentEventsResult.unattributedAbsences} absence{absentEventsResult.unattributedAbsences === 1 ? "" : "s"} recorded from uploaded/manual totals — no specific event on record.
+                  </div>
+                ) : null}
+                {!absentEventsResult.absentEvents.length && absentEventsResult.unattributedAbsences === 0 ? (
+                  <div className="rounded-2xl border border-dashed p-6 text-center text-sm font-semibold text-muted-foreground">No absent events found.</div>
+                ) : null}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
         <Dialog
           open={penaltyDialogOpen}
           onOpenChange={handlePenaltyDialogOpenChange}

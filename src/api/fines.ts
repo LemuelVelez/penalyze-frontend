@@ -45,6 +45,22 @@ export type PenaltyResultRecord = {
   updated_at: string;
 };
 
+export type PenaltyResultAbsentEvents = {
+  studentId: string;
+  name: string;
+  college: string | null;
+  totalAbsences: number;
+  absentEvents: Array<{
+    eventId: string | null;
+    eventName: string;
+    eventOrder: number | null;
+    eventStartAt: string | null;
+    eventEndAt: string | null;
+    source: "roster" | "manual" | "imported_count";
+  }>;
+  unattributedAbsences: number;
+};
+
 export type DeletedPenaltyResultsResult = {
   deletedCount: number;
   deletedRecords: PenaltyResultRecord[];
@@ -268,7 +284,7 @@ export async function listPenaltyResults(options: ListFineOptions = {}) {
     schoolYearId: options.schoolYearId,
     status: options.status || undefined,
     studentId: options.studentId,
-    limit: options.limit ?? 100,
+    limit: options.limit ?? 5000,
     offset: options.offset ?? 0,
   });
 
@@ -276,6 +292,23 @@ export async function listPenaltyResults(options: ListFineOptions = {}) {
     `/api/fines/penalty-results${query}`,
   );
   return response.data ?? [];
+}
+
+
+export async function listPenaltyResultColleges(schoolYearId?: string) {
+  const query = buildSearchParams({ schoolYearId });
+  const response = await apiRequest<Array<string | null>>(
+    `/api/fines/penalty-results/colleges${query}`,
+  );
+  return response.data ?? [];
+}
+
+export async function getPenaltyResultAbsentEvents(id: string) {
+  const response = await apiRequest<PenaltyResultAbsentEvents>(
+    `/api/fines/penalty-results/${encodeURIComponent(id)}/absent-events`,
+  );
+  if (!response.data) throw new Error("Absent events were not returned.");
+  return response.data;
 }
 
 export async function refreshPenaltyResults(
