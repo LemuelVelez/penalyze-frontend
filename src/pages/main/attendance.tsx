@@ -1654,18 +1654,23 @@ export default function AttendancePage() {
                 <summary className="cursor-pointer text-sm font-semibold">
                   {fileName}: {reconciliation.rowsInSource.toLocaleString()} rows in file, {reconciliation.rowsSaved.toLocaleString()} saved
                   {mergedCount ? ` — ${mergedCount} row/s merged` : ""}
-                  {reconciliation.rowsInvalid.length ? ` — ${reconciliation.rowsInvalid.length} invalid/conflict row/s` : ""}
+                  {reconciliation.rowsInvalid.length ? ` — ${reconciliation.rowsInvalid.length} invalid row/s` : ""}
                 </summary>
                 <div className="mt-3 space-y-2 text-xs text-muted-foreground">
                   <p>
                     parsed {reconciliation.stageCounts.parsed} → normalized {reconciliation.stageCounts.normalized} → valid {reconciliation.stageCounts.valid} → merged {reconciliation.stageCounts.merged} → saved {reconciliation.stageCounts.saved} → distinct final results {reconciliation.stageCounts.distinctFinalResults}
                   </p>
-                  {reconciliation.rowsMerged.map((item) => (
-                    <p key={`${item.mergeKey}-${item.sourceRowNumbers.join("-")}`}>
-                      Merged duplicate: Student ID {item.studentId || "—"} on rows {item.sourceRowNumbers.join(" and ")}
-                      {item.names.length ? ` (${item.names.join(" / ")})` : ""}.
-                    </p>
-                  ))}
+                  {reconciliation.rowsMerged.map((item) => {
+                    const hasNameMismatch = item.names.length > 1;
+
+                    return (
+                      <p key={`${item.mergeKey}-${item.sourceRowNumbers.join("-")}`}>
+                        {hasNameMismatch
+                          ? `Name mismatch warning: Student ID ${item.studentId || "—"} on rows ${item.sourceRowNumbers.join(" and ")} used different names (${item.names.join(" / ")}); merged as one attendee because Student ID is the source of truth.`
+                          : `Merged duplicate: Student ID ${item.studentId || "—"} on rows ${item.sourceRowNumbers.join(" and ")}${item.names.length ? ` (${item.names.join(" / ")})` : ""}.`}
+                      </p>
+                    );
+                  })}
                   {reconciliation.rowsInvalid.map((item) => (
                     <p key={`invalid-${item.rowNumber}-${item.studentId}`}>
                       Row {item.rowNumber}{item.studentId ? ` (${item.studentId})` : ""}: {item.errors.join(" ")}
