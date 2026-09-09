@@ -73,6 +73,27 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+
+function matchesDateRange(
+  value: string | null | undefined,
+  fromDate: string,
+  toDate: string,
+) {
+  if (!fromDate && !toDate) return true;
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const localDate = [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
+}
+
 function toDateTimeLocalValue(value?: string | null) {
   if (!value) return "";
 
@@ -141,6 +162,8 @@ export default function EventsPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState("");
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<AttendanceEvent | null>(
     null,
@@ -171,22 +194,34 @@ export default function EventsPage() {
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
+  const filteredEvents = useMemo(() => {
+    return events.filter((event) =>
+      matchesDateRange(
+        event.event_start_at ?? event.event_end_at ?? event.updated_at,
+        fromDate,
+        toDate,
+      ),
+    );
+  }, [events, fromDate, toDate]);
+
   const summary = useMemo(() => {
     return {
-      events: events.length,
-      attendees: events.reduce(
+      events: filteredEvents.length,
+      attendees: filteredEvents.reduce(
         (total, event) => total + Number(event.attendees_count || 0),
         0,
       ),
-      scheduled: events.filter(
+      scheduled: filteredEvents.filter(
         (event) => event.event_start_at || event.event_end_at,
       ).length,
     };
-  }, [events]);
+  }, [filteredEvents]);
 
   const displayedEventIds = useMemo<string[]>(() => {
-    return events.map((event) => String(event.id ?? "").trim()).filter(Boolean);
-  }, [events]);
+    return filteredEvents
+      .map((event) => String(event.id ?? "").trim())
+      .filter(Boolean);
+  }, [filteredEvents]);
 
   const allDisplayedEventsSelected =
     displayedEventIds.length > 0 &&
@@ -542,10 +577,26 @@ export default function EventsPage() {
             <div>
               <h2 className="text-xl font-black">Event records</h2>
               <p className="text-sm text-muted-foreground">
-                Showing {events.length.toLocaleString()} event record/s.
+                Showing {filteredEvents.length.toLocaleString()} event record/s.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <Input
+                type="date"
+                aria-label="Events from date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="min-h-11 rounded-2xl sm:w-40"
+              />
+              <Input
+                type="date"
+                aria-label="Events to date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(event) => setToDate(event.target.value)}
+                className="min-h-11 rounded-2xl sm:w-40"
+              />
               <Button
                 type="button"
                 variant="outline"
@@ -600,8 +651,8 @@ export default function EventsPage() {
                 </tr>
               </thead>
               <tbody>
-                {events.length ? (
-                  events.map((event, index) => (
+                {filteredEvents.length ? (
+                  filteredEvents.map((event, index) => (
                     <tr key={event.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <Checkbox

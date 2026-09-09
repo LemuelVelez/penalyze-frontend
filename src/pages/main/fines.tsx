@@ -115,6 +115,26 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function matchesDateRange(
+  value: string | null | undefined,
+  fromDate: string,
+  toDate: string,
+) {
+  if (!fromDate && !toDate) return true;
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const localDate = [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
+}
+
 function getStatusBadgeClassName(status: FineStatus) {
   const styles: Record<FineStatus, string> = {
     unpaid: "border-red-200 bg-red-50 text-red-700",
@@ -225,6 +245,8 @@ export default function FinesPage() {
     useState(ALL_YEARS_VALUE);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
@@ -268,11 +290,16 @@ export default function FinesPage() {
         const matchesCollege =
           collegeFilter === "__all_colleges__" ||
           getPenaltyResultCollege(result) === collegeFilter;
+        const matchesDate = matchesDateRange(
+          result.updated_at,
+          fromDate,
+          toDate,
+        );
 
-        return matchesStatus && matchesCollege;
+        return matchesStatus && matchesCollege && matchesDate;
       },
     );
-  }, [penaltyResults, statusFilter, collegeFilter]);
+  }, [penaltyResults, statusFilter, collegeFilter, fromDate, toDate]);
 
   const displayedPenaltyResultIds = useMemo<string[]>(() => {
     return filteredPenaltyResults
@@ -691,6 +718,25 @@ export default function FinesPage() {
                   ))}
                 </SelectContent>
               </Select>
+
+              <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+                <Input
+                  type="date"
+                  aria-label="Fines from date"
+                  value={fromDate}
+                  max={toDate || undefined}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="min-h-12 rounded-2xl"
+                />
+                <Input
+                  type="date"
+                  aria-label="Fines to date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="min-h-12 rounded-2xl"
+                />
+              </div>
 
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
                 <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">

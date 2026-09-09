@@ -167,6 +167,26 @@ function formatDateTimeInputValue(value?: string | null) {
   return localDate.toISOString().slice(0, 16);
 }
 
+function matchesDateRange(
+  value: string | null | undefined,
+  fromDate: string,
+  toDate: string,
+) {
+  if (!fromDate && !toDate) return true;
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const localDate = [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
+}
+
 
 type AttendanceFileMetadata = Partial<UploadFormState>;
 
@@ -635,6 +655,8 @@ export default function AttendancePage() {
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
   const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
@@ -728,14 +750,19 @@ export default function AttendancePage() {
   }, [finalResults]);
 
   const displayedFinalResults = useMemo(() => {
-    const rows = sortByBackendEventOrder(finalResults);
+    return sortByBackendEventOrder(finalResults).filter((row) => {
+      const matchesCollege =
+        collegeFilter === "__all_colleges__" ||
+        String(row.college ?? "").trim() === collegeFilter;
+      const matchesDate = matchesDateRange(
+        row.latest_scanned_at ?? row.updated_at,
+        fromDate,
+        toDate,
+      );
 
-    if (collegeFilter === "__all_colleges__") return rows;
-
-    return rows.filter(
-      (row) => String(row.college ?? "").trim() === collegeFilter,
-    );
-  }, [finalResults, collegeFilter]);
+      return matchesCollege && matchesDate;
+    });
+  }, [finalResults, collegeFilter, fromDate, toDate]);
 
   const displayedFinalResultIds = useMemo(
     () => displayedFinalResults.map((result) => result.id),
@@ -2299,6 +2326,24 @@ export default function AttendancePage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="date"
+                  aria-label="Attendance from date"
+                  value={fromDate}
+                  max={toDate || undefined}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="min-h-11 rounded-2xl"
+                />
+                <Input
+                  type="date"
+                  aria-label="Attendance to date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="min-h-11 rounded-2xl"
+                />
+              </div>
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
                 <SelectTrigger className="min-h-11 w-full min-w-0 max-w-64 rounded-2xl">
                   <SelectValue placeholder="College" />

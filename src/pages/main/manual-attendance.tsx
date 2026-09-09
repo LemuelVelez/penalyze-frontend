@@ -150,6 +150,26 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+function matchesDateRange(
+  value: string | null | undefined,
+  fromDate: string,
+  toDate: string,
+) {
+  if (!fromDate && !toDate) return true;
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const localDate = [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
+}
+
 function formatDateTimeInputValue(value = new Date()) {
   const offset = value.getTimezoneOffset();
   const localDate = new Date(value.getTime() - offset * 60 * 1000);
@@ -431,6 +451,8 @@ export default function ManualAttendancePage() {
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
   const [collegeFilter, setCollegeFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
@@ -458,10 +480,17 @@ export default function ManualAttendancePage() {
     const targetCollege = collegeFilter.trim().toLowerCase();
 
     return studentGroups.filter((group) => {
-      if (!targetCollege) return true;
-      return group.college.trim().toLowerCase() === targetCollege;
+      const matchesCollege =
+        !targetCollege || group.college.trim().toLowerCase() === targetCollege;
+      const matchesDate = matchesDateRange(
+        group.latestScannedAt,
+        fromDate,
+        toDate,
+      );
+
+      return matchesCollege && matchesDate;
     });
-  }, [studentGroups, collegeFilter]);
+  }, [studentGroups, collegeFilter, fromDate, toDate]);
 
   const filteredGroupRecordIds = useMemo<string[]>(() => {
     return filteredGroups.flatMap((group) =>
@@ -907,6 +936,25 @@ export default function ManualAttendancePage() {
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center"
               />
+
+              <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+                <Input
+                  type="date"
+                  aria-label="Manual attendance from date"
+                  value={fromDate}
+                  max={toDate || undefined}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="min-h-12 rounded-2xl"
+                />
+                <Input
+                  type="date"
+                  aria-label="Manual attendance to date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="min-h-12 rounded-2xl"
+                />
+              </div>
 
               <Select
                 value={collegeFilter || "__all_colleges__"}

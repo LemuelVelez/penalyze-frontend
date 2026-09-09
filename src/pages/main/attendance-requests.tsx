@@ -16,6 +16,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import {
   Select,
@@ -36,6 +37,26 @@ function formatDate(value?: string | null) {
   return parsed.toLocaleString();
 }
 
+function matchesDateRange(
+  value: string | null | undefined,
+  fromDate: string,
+  toDate: string,
+) {
+  if (!fromDate && !toDate) return true;
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const localDate = [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
+}
+
 function getStatusClassName(status: AttendanceRequestStatus) {
   if (status === "approved") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -53,13 +74,23 @@ export default function AttendanceRequestsPage() {
   const [schoolYearFilter, setSchoolYearFilter] = useState(
     ALL_SCHOOL_YEARS_VALUE,
   );
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [reviewingId, setReviewingId] = useState("");
 
+  const filteredRequests = useMemo(
+    () =>
+      requests.filter((request) =>
+        matchesDateRange(request.created_at, fromDate, toDate),
+      ),
+    [requests, fromDate, toDate],
+  );
+
   const pendingCount = useMemo(
-    () => requests.filter((request) => request.status === "pending").length,
-    [requests],
+    () => filteredRequests.filter((request) => request.status === "pending").length,
+    [filteredRequests],
   );
 
   const loadRequests = useCallback(async () => {
@@ -152,7 +183,7 @@ export default function AttendanceRequestsPage() {
           <p className="text-xs font-bold uppercase text-muted-foreground">
             Loaded requests
           </p>
-          <p className="mt-1 text-3xl font-black">{requests.length}</p>
+          <p className="mt-1 text-3xl font-black">{filteredRequests.length}</p>
         </div>
         <div className="rounded-2xl border bg-background p-4">
           <p className="text-xs font-bold uppercase text-muted-foreground">
@@ -173,7 +204,7 @@ export default function AttendanceRequestsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 sm:p-5">
+      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
         <div className="space-y-2">
           <label className="text-sm font-bold">Status</label>
           <Select
@@ -190,6 +221,28 @@ export default function AttendanceRequestsPage() {
               <SelectItem value={ALL_STATUSES}>All statuses</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-bold">From date</label>
+          <Input
+            type="date"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(event) => setFromDate(event.target.value)}
+            className="min-h-11 rounded-xl"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-bold">To date</label>
+          <Input
+            type="date"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(event) => setToDate(event.target.value)}
+            className="min-h-11 rounded-xl"
+          />
         </div>
 
         <div className="space-y-2">
@@ -216,9 +269,9 @@ export default function AttendanceRequestsPage() {
         <div className="rounded-3xl border bg-card p-8 text-center text-sm font-semibold text-muted-foreground">
           Loading attendance requests...
         </div>
-      ) : requests.length ? (
+      ) : filteredRequests.length ? (
         <section className="space-y-4">
-          {requests.map((request) => (
+          {filteredRequests.map((request) => (
             <article
               key={request.id}
               className="space-y-5 rounded-3xl border bg-card p-5 shadow-sm"
