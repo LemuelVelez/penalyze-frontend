@@ -50,7 +50,7 @@ const emptyUserForm: UserFormState = {
   name: "",
   email: "",
   password: "",
-  role: "admin",
+  role: "officer",
 };
 
 const userRoleOptions: { value: UserRole; label: string }[] = [
