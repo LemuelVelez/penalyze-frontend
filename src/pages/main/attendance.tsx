@@ -7,9 +7,9 @@ import {
   deleteAttendanceImport,
   getAttendanceImportDeleteImpact,
   deleteAttendanceFinalResultsByIds,
+  listAllAttendanceFinalResults,
   listAllAttendanceRecords,
   listAttendanceEvents,
-  listAttendanceFinalResults,
   listAttendanceImports,
   listManualAttendanceRecords,
   previewAttendanceFile,
@@ -868,10 +868,8 @@ export default function AttendancePage() {
                 limit: 50,
                 offset: 0,
               }),
-              listAttendanceFinalResults({
+              listAllAttendanceFinalResults({
                 schoolYearId: fallbackSchoolYearId,
-                limit: 1000,
-                offset: 0,
               }),
               listAllAttendanceRecords({
                 schoolYearId: fallbackSchoolYearId,

@@ -845,6 +845,36 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
   return response.data ?? [];
 }
 
+type ListAllAttendanceFinalResultsOptions = Omit<
+  ListOptions,
+  "limit" | "offset"
+> & {
+  pageSize?: number;
+};
+
+export async function listAllAttendanceFinalResults(
+  options: ListAllAttendanceFinalResultsOptions = {},
+) {
+  const pageSize = options.pageSize ?? 500;
+  const results: AttendanceFinalResultRecord[] = [];
+  let offset = 0;
+
+  while (true) {
+    const pageRows = await listAttendanceFinalResults({
+      ...options,
+      limit: pageSize,
+      offset,
+    });
+
+    results.push(...pageRows);
+
+    if (pageRows.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return results;
+}
+
 export async function refreshAttendanceFinalResults(
   options: {
     schoolYearId?: string;
