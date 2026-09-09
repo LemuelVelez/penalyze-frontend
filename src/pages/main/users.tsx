@@ -50,7 +50,7 @@ const emptyUserForm: UserFormState = {
   name: "",
   email: "",
   password: "",
-  role: "officer",
+  role: "admin",
 };
 
 const userRoleOptions: { value: UserRole; label: string }[] = [
@@ -612,12 +612,10 @@ export default function UsersPage() {
                     autoComplete="new-password"
                     required={!isEditing}
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon"
                     onClick={() => setShowPassword((current) => !current)}
-                    className="absolute right-1 top-1/2 size-8 -translate-y-1/2 rounded-lg text-muted-foreground hover:text-foreground"
+                    className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     aria-label={
                       showPassword ? "Hide password" : "Show password"
                     }
@@ -627,7 +625,7 @@ export default function UsersPage() {
                     ) : (
                       <Eye className="size-4" aria-hidden="true" />
                     )}
-                  </Button>
+                  </button>
                 </div>
               </div>
 

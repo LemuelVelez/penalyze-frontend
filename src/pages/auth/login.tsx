@@ -179,12 +179,10 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 required
               />
-              <Button
+              <button
                 type="button"
-                variant="ghost"
-                size="icon"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-1.5 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -192,7 +190,7 @@ export default function LoginPage() {
                 ) : (
                   <Eye className="size-5" aria-hidden="true" />
                 )}
-              </Button>
+              </button>
             </div>
           </div>
 
