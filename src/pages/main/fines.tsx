@@ -247,6 +247,9 @@ export default function FinesPage() {
   const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
@@ -283,6 +286,8 @@ export default function FinesPage() {
   }, [penaltyResults]);
 
   const filteredPenaltyResults = useMemo(() => {
+    const normalizedSearch = studentSearch.trim().toLowerCase();
+
     return sortPenaltyResultsByBackendEventOrder(penaltyResults).filter(
       (result) => {
         const matchesStatus =
@@ -295,17 +300,56 @@ export default function FinesPage() {
           fromDate,
           toDate,
         );
+        const matchesStudent =
+          !normalizedSearch ||
+          String(result.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
+          String(result.name ?? "").toLowerCase().includes(normalizedSearch);
 
-        return matchesStatus && matchesCollege && matchesDate;
+        return matchesStatus && matchesCollege && matchesDate && matchesStudent;
       },
     );
-  }, [penaltyResults, statusFilter, collegeFilter, fromDate, toDate]);
+  }, [penaltyResults, statusFilter, collegeFilter, fromDate, toDate, studentSearch]);
 
-  const displayedPenaltyResultIds = useMemo<string[]>(() => {
+  const penaltyResultsTotalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(filteredPenaltyResults.length / Number(rowsPerPage)));
+  }, [filteredPenaltyResults.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, penaltyResultsTotalPages));
+  }, [penaltyResultsTotalPages]);
+
+  const paginatedPenaltyResults = useMemo(() => {
+    if (rowsPerPage === "all") return filteredPenaltyResults;
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredPenaltyResults.slice(startIndex, startIndex + pageSize);
+  }, [filteredPenaltyResults, currentPage, rowsPerPage]);
+
+  const filteredPenaltyResultIds = useMemo<string[]>(() => {
     return filteredPenaltyResults
       .map((result) => String(result.id ?? "").trim())
       .filter(Boolean);
   }, [filteredPenaltyResults]);
+
+  const displayedPenaltyResultIds = useMemo<string[]>(() => {
+    return paginatedPenaltyResults
+      .map((result) => String(result.id ?? "").trim())
+      .filter(Boolean);
+  }, [paginatedPenaltyResults]);
+
+  const penaltyRangeStart = filteredPenaltyResults.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const penaltyRangeEnd = rowsPerPage === "all"
+    ? filteredPenaltyResults.length
+    : Math.min(currentPage * Number(rowsPerPage), filteredPenaltyResults.length);
 
   const allDisplayedPenaltyResultsSelected =
     displayedPenaltyResultIds.length > 0 &&
@@ -407,7 +451,11 @@ export default function FinesPage() {
   }
 
   function handleSelectAllPenaltyResults(checked: boolean) {
-    setSelectedPenaltyResultIds(checked ? displayedPenaltyResultIds : []);
+    setSelectedPenaltyResultIds((current) => {
+      const pageIds = new Set(displayedPenaltyResultIds);
+      if (!checked) return current.filter((id) => !pageIds.has(id));
+      return Array.from(new Set([...current, ...displayedPenaltyResultIds]));
+    });
   }
 
   async function handleDeleteSelectedPenaltyResults() {
@@ -439,7 +487,7 @@ export default function FinesPage() {
   }
 
   async function handleDeleteAllPenaltyResults() {
-    const resultIds = Array.from(new Set(displayedPenaltyResultIds));
+    const resultIds = Array.from(new Set(filteredPenaltyResultIds));
 
     if (!resultIds.length) {
       toast.error("No penalty results to delete.");
@@ -701,6 +749,15 @@ export default function FinesPage() {
                 className="w-full justify-center"
               />
 
+              <Input
+                type="search"
+                aria-label="Search student by name or ID"
+                placeholder="Search student name or ID..."
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                className="min-h-12 rounded-2xl sm:col-span-2 xl:col-span-2"
+              />
+
               <Select
                 value={statusFilter}
                 onValueChange={(value) =>
@@ -811,7 +868,7 @@ export default function FinesPage() {
                 variant="destructive"
                 onClick={handleDeleteAllPenaltyResults}
                 disabled={
-                  !displayedPenaltyResultIds.length ||
+                  !filteredPenaltyResultIds.length ||
                   isRefreshingResults ||
                   isDeletingPenaltyResults
                 }
@@ -856,8 +913,8 @@ export default function FinesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredPenaltyResults.length ? (
-                  filteredPenaltyResults.map((result) => (
+                {paginatedPenaltyResults.length ? (
+                  paginatedPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <Checkbox
@@ -943,6 +1000,29 @@ export default function FinesPage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {penaltyRangeStart.toLocaleString()}–{penaltyRangeEnd.toLocaleString()} of {filteredPenaltyResults.length.toLocaleString()} result/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" disabled={currentPage <= 1 || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="h-10 rounded-xl px-4 text-xs font-black">Previous</Button>
+              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {penaltyResultsTotalPages}</span>
+              <Button type="button" variant="outline" disabled={currentPage >= penaltyResultsTotalPages || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.min(penaltyResultsTotalPages, page + 1))} className="h-10 rounded-xl px-4 text-xs font-black">Next</Button>
+            </div>
           </div>
         </section>
 

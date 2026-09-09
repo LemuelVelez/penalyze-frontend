@@ -164,6 +164,9 @@ export default function EventsPage() {
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [eventSearch, setEventSearch] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<AttendanceEvent | null>(
     null,
@@ -195,14 +198,51 @@ export default function EventsPage() {
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
   const filteredEvents = useMemo(() => {
-    return events.filter((event) =>
-      matchesDateRange(
+    const normalizedSearch = eventSearch.trim().toLowerCase();
+
+    return events.filter((event) => {
+      const matchesDate = matchesDateRange(
         event.event_start_at ?? event.event_end_at ?? event.updated_at,
         fromDate,
         toDate,
-      ),
-    );
-  }, [events, fromDate, toDate]);
+      );
+      const matchesSearch =
+        !normalizedSearch ||
+        String(event.name ?? "").toLowerCase().includes(normalizedSearch) ||
+        String(event.description ?? "").toLowerCase().includes(normalizedSearch);
+
+      return matchesDate && matchesSearch;
+    });
+  }, [events, fromDate, toDate, eventSearch]);
+
+  const eventsTotalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(filteredEvents.length / Number(rowsPerPage)));
+  }, [filteredEvents.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [fromDate, toDate, eventSearch, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, eventsTotalPages));
+  }, [eventsTotalPages]);
+
+  const paginatedEvents = useMemo(() => {
+    if (rowsPerPage === "all") return filteredEvents;
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredEvents.slice(startIndex, startIndex + pageSize);
+  }, [filteredEvents, currentPage, rowsPerPage]);
+
+  const eventRangeStart = filteredEvents.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const eventRangeEnd = rowsPerPage === "all"
+    ? filteredEvents.length
+    : Math.min(currentPage * Number(rowsPerPage), filteredEvents.length);
 
   const summary = useMemo(() => {
     return {
@@ -223,9 +263,15 @@ export default function EventsPage() {
       .filter(Boolean);
   }, [filteredEvents]);
 
+  const paginatedEventIds = useMemo<string[]>(() => {
+    return paginatedEvents
+      .map((event) => String(event.id ?? "").trim())
+      .filter(Boolean);
+  }, [paginatedEvents]);
+
   const allDisplayedEventsSelected =
-    displayedEventIds.length > 0 &&
-    displayedEventIds.every((eventId) => selectedEventIds.includes(eventId));
+    paginatedEventIds.length > 0 &&
+    paginatedEventIds.every((eventId) => selectedEventIds.includes(eventId));
 
   async function loadEvents(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -293,7 +339,11 @@ export default function EventsPage() {
   }
 
   function handleSelectAllEvents(checked: boolean) {
-    setSelectedEventIds(checked ? displayedEventIds : []);
+    setSelectedEventIds((current) => {
+      const pageIds = new Set(paginatedEventIds);
+      if (!checked) return current.filter((id) => !pageIds.has(id));
+      return Array.from(new Set([...current, ...paginatedEventIds]));
+    });
   }
 
   async function handleSaveEvent(event: SyntheticEvent<HTMLFormElement>) {
@@ -582,6 +632,14 @@ export default function EventsPage() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <Input
+                type="search"
+                aria-label="Search events"
+                placeholder="Search event..."
+                value={eventSearch}
+                onChange={(event) => setEventSearch(event.target.value)}
+                className="min-h-11 rounded-2xl sm:w-64"
+              />
+              <Input
                 type="date"
                 aria-label="Events from date"
                 value={fromDate}
@@ -651,8 +709,8 @@ export default function EventsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredEvents.length ? (
-                  filteredEvents.map((event, index) => (
+                {paginatedEvents.length ? (
+                  paginatedEvents.map((event, index) => (
                     <tr key={event.id} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <Checkbox
@@ -667,7 +725,7 @@ export default function EventsPage() {
                         />
                       </td>
                       <td className="px-4 py-3 align-top text-base font-black">
-                        {(event.event_order || index + 1).toLocaleString()}
+                        {(event.event_order || (rowsPerPage === "all" ? index + 1 : (currentPage - 1) * Number(rowsPerPage) + index + 1)).toLocaleString()}
                       </td>
                       <td className="px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
@@ -755,6 +813,29 @@ export default function EventsPage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {eventRangeStart.toLocaleString()}–{eventRangeEnd.toLocaleString()} of {filteredEvents.length.toLocaleString()} event/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" disabled={currentPage <= 1 || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="h-10 rounded-xl px-4 text-xs font-black">Previous</Button>
+              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {eventsTotalPages}</span>
+              <Button type="button" variant="outline" disabled={currentPage >= eventsTotalPages || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.min(eventsTotalPages, page + 1))} className="h-10 rounded-xl px-4 text-xs font-black">Next</Button>
+            </div>
           </div>
         </section>
       </div>

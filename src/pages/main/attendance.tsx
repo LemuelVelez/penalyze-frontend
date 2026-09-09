@@ -7,7 +7,6 @@ import {
   deleteAttendanceImport,
   getAttendanceImportDeleteImpact,
   deleteAttendanceFinalResultsByIds,
-  deleteAttendanceFinalResultsBySchoolYear,
   listAllAttendanceRecords,
   listAttendanceEvents,
   listAttendanceFinalResults,
@@ -657,6 +656,9 @@ export default function AttendancePage() {
   const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
@@ -750,6 +752,8 @@ export default function AttendancePage() {
   }, [finalResults]);
 
   const displayedFinalResults = useMemo(() => {
+    const normalizedSearch = studentSearch.trim().toLowerCase();
+
     return sortByBackendEventOrder(finalResults).filter((row) => {
       const matchesCollege =
         collegeFilter === "__all_colleges__" ||
@@ -759,15 +763,49 @@ export default function AttendancePage() {
         fromDate,
         toDate,
       );
+      const matchesStudent =
+        !normalizedSearch ||
+        String(row.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
+        String(row.name ?? "").toLowerCase().includes(normalizedSearch);
 
-      return matchesCollege && matchesDate;
+      return matchesCollege && matchesDate && matchesStudent;
     });
-  }, [finalResults, collegeFilter, fromDate, toDate]);
+  }, [finalResults, collegeFilter, fromDate, toDate, studentSearch]);
+
+  const finalResultsTotalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(displayedFinalResults.length / Number(rowsPerPage)));
+  }, [displayedFinalResults.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, finalResultsTotalPages));
+  }, [finalResultsTotalPages]);
+
+  const paginatedFinalResults = useMemo(() => {
+    if (rowsPerPage === "all") return displayedFinalResults;
+
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return displayedFinalResults.slice(startIndex, startIndex + pageSize);
+  }, [displayedFinalResults, currentPage, rowsPerPage]);
 
   const displayedFinalResultIds = useMemo(
-    () => displayedFinalResults.map((result) => result.id),
-    [displayedFinalResults],
+    () => paginatedFinalResults.map((result) => result.id),
+    [paginatedFinalResults],
   );
+
+  const finalResultsRangeStart = displayedFinalResults.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const finalResultsRangeEnd = rowsPerPage === "all"
+    ? displayedFinalResults.length
+    : Math.min(currentPage * Number(rowsPerPage), displayedFinalResults.length);
 
   const allDisplayedFinalResultsSelected = useMemo(() => {
     if (!displayedFinalResultIds.length) return false;
@@ -1368,13 +1406,9 @@ export default function AttendancePage() {
     setIsDeletingFinalResults(true);
 
     try {
-      if (selectedSchoolYearId !== ALL_YEARS_VALUE) {
-        await deleteAttendanceFinalResultsBySchoolYear(selectedSchoolYearId);
-      } else {
-        await deleteAttendanceFinalResultsByIds(
-          displayedFinalResults.map((result) => result.id),
-        );
-      }
+      await deleteAttendanceFinalResultsByIds(
+        displayedFinalResults.map((result) => result.id),
+      );
 
       await loadPageData(selectedSchoolYearId);
       toast.success("All final attendance results deleted.");
@@ -2325,7 +2359,15 @@ export default function AttendancePage() {
                 Uploaded and manual attendance are merged by Student ID.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <Input
+                type="search"
+                aria-label="Search student by name or ID"
+                placeholder="Search student name or ID..."
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                className="min-h-11 rounded-2xl sm:min-w-64"
+              />
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="date"
@@ -2465,8 +2507,8 @@ export default function AttendancePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedFinalResults.length ? (
-                  displayedFinalResults.map((result) => {
+                {paginatedFinalResults.length ? (
+                  paginatedFinalResults.map((result) => {
                     const eventCount = getStudentEventSummaries(
                       result,
                       uploadedAttendanceRecords,
@@ -2546,6 +2588,47 @@ export default function AttendancePage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {formatNumber(finalResultsRangeStart)}–{formatNumber(finalResultsRangeEnd)} of {formatNumber(displayedFinalResults.length)} result/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={currentPage <= 1 || rowsPerPage === "all"}
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                className="h-10 rounded-xl px-4 text-xs font-bold"
+              >
+                Previous
+              </Button>
+              <span className="min-w-20 text-center text-xs font-bold text-muted-foreground">
+                Page {currentPage} of {finalResultsTotalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={currentPage >= finalResultsTotalPages || rowsPerPage === "all"}
+                onClick={() => setCurrentPage((page) => Math.min(finalResultsTotalPages, page + 1))}
+                className="h-10 rounded-xl px-4 text-xs font-bold"
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </section>
 

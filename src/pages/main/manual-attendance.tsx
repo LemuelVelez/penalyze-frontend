@@ -453,6 +453,9 @@ export default function ManualAttendancePage() {
   const [collegeFilter, setCollegeFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
@@ -478,6 +481,7 @@ export default function ManualAttendancePage() {
 
   const filteredGroups = useMemo(() => {
     const targetCollege = collegeFilter.trim().toLowerCase();
+    const normalizedSearch = studentSearch.trim().toLowerCase();
 
     return studentGroups.filter((group) => {
       const matchesCollege =
@@ -487,10 +491,35 @@ export default function ManualAttendancePage() {
         fromDate,
         toDate,
       );
+      const matchesStudent =
+        !normalizedSearch ||
+        group.studentId.toLowerCase().includes(normalizedSearch) ||
+        group.name.toLowerCase().includes(normalizedSearch);
 
-      return matchesCollege && matchesDate;
+      return matchesCollege && matchesDate && matchesStudent;
     });
-  }, [studentGroups, collegeFilter, fromDate, toDate]);
+  }, [studentGroups, collegeFilter, fromDate, toDate, studentSearch]);
+
+  const manualAttendanceTotalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(filteredGroups.length / Number(rowsPerPage)));
+  }, [filteredGroups.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, manualAttendanceTotalPages));
+  }, [manualAttendanceTotalPages]);
+
+  const paginatedGroups = useMemo(() => {
+    if (rowsPerPage === "all") return filteredGroups;
+
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredGroups.slice(startIndex, startIndex + pageSize);
+  }, [filteredGroups, currentPage, rowsPerPage]);
 
   const filteredGroupRecordIds = useMemo<string[]>(() => {
     return filteredGroups.flatMap((group) =>
@@ -500,11 +529,28 @@ export default function ManualAttendancePage() {
     );
   }, [filteredGroups]);
 
+  const paginatedGroupRecordIds = useMemo<string[]>(() => {
+    return paginatedGroups.flatMap((group) =>
+      group.records
+        .map((record) => String(record.id ?? "").trim())
+        .filter(Boolean),
+    );
+  }, [paginatedGroups]);
+
   const allFilteredGroupsSelected =
-    filteredGroupRecordIds.length > 0 &&
-    filteredGroupRecordIds.every((recordId) =>
+    paginatedGroupRecordIds.length > 0 &&
+    paginatedGroupRecordIds.every((recordId) =>
       selectedManualRecordIds.includes(recordId),
     );
+
+  const manualRangeStart = filteredGroups.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const manualRangeEnd = rowsPerPage === "all"
+    ? filteredGroups.length
+    : Math.min(currentPage * Number(rowsPerPage), filteredGroups.length);
 
   const selectedEventRecords = useMemo(
     () => getSelectedEventRecords(records, form.eventIds),
@@ -653,7 +699,11 @@ export default function ManualAttendancePage() {
   }
 
   function handleSelectAllManualGroups(checked: boolean) {
-    setSelectedManualRecordIds(checked ? filteredGroupRecordIds : []);
+    setSelectedManualRecordIds((current) => {
+      const pageIds = new Set(paginatedGroupRecordIds);
+      if (!checked) return current.filter((id) => !pageIds.has(id));
+      return Array.from(new Set([...current, ...paginatedGroupRecordIds]));
+    });
   }
 
   function handleOpenCreateDialog() {
@@ -955,6 +1005,15 @@ export default function ManualAttendancePage() {
                   className="min-h-12 rounded-2xl"
                 />
               </div>
+
+              <Input
+                type="search"
+                aria-label="Search student by name or ID"
+                placeholder="Search student name or ID..."
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                className="min-h-12 rounded-2xl sm:col-span-2"
+              />
 
               <Select
                 value={collegeFilter || "__all_colleges__"}
@@ -1414,8 +1473,8 @@ export default function ManualAttendancePage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredGroups.length ? (
-                  filteredGroups.map((group) => (
+                {paginatedGroups.length ? (
+                  paginatedGroups.map((group) => (
                     <tr key={group.key} className="border-t">
                       <td className="px-4 py-3 align-top">
                         <Checkbox
@@ -1517,6 +1576,29 @@ export default function ManualAttendancePage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {manualRangeStart.toLocaleString()}–{manualRangeEnd.toLocaleString()} of {filteredGroups.length.toLocaleString()} attendee/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" disabled={currentPage <= 1 || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="h-10 rounded-xl px-4 text-xs font-black">Previous</Button>
+              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {manualAttendanceTotalPages}</span>
+              <Button type="button" variant="outline" disabled={currentPage >= manualAttendanceTotalPages || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.min(manualAttendanceTotalPages, page + 1))} className="h-10 rounded-xl px-4 text-xs font-black">Next</Button>
+            </div>
           </div>
         </section>
       </div>

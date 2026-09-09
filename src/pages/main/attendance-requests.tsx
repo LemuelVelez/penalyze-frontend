@@ -76,17 +76,55 @@ export default function AttendanceRequestsPage() {
   );
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [reviewingId, setReviewingId] = useState("");
 
-  const filteredRequests = useMemo(
-    () =>
-      requests.filter((request) =>
-        matchesDateRange(request.created_at, fromDate, toDate),
-      ),
-    [requests, fromDate, toDate],
-  );
+  const filteredRequests = useMemo(() => {
+    const normalizedSearch = studentSearch.trim().toLowerCase();
+
+    return requests.filter((request) => {
+      const matchesDate = matchesDateRange(request.created_at, fromDate, toDate);
+      const matchesStudent =
+        !normalizedSearch ||
+        String(request.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
+        String(request.name ?? "").toLowerCase().includes(normalizedSearch);
+
+      return matchesDate && matchesStudent;
+    });
+  }, [requests, fromDate, toDate, studentSearch]);
+
+  const requestsTotalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(filteredRequests.length / Number(rowsPerPage)));
+  }, [filteredRequests.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, schoolYearFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, requestsTotalPages));
+  }, [requestsTotalPages]);
+
+  const paginatedRequests = useMemo(() => {
+    if (rowsPerPage === "all") return filteredRequests;
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredRequests.slice(startIndex, startIndex + pageSize);
+  }, [filteredRequests, currentPage, rowsPerPage]);
+
+  const requestRangeStart = filteredRequests.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const requestRangeEnd = rowsPerPage === "all"
+    ? filteredRequests.length
+    : Math.min(currentPage * Number(rowsPerPage), filteredRequests.length);
 
   const pendingCount = useMemo(
     () => filteredRequests.filter((request) => request.status === "pending").length,
@@ -204,7 +242,18 @@ export default function AttendanceRequestsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
+      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5 sm:p-5">
+        <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+          <label className="text-sm font-bold">Search student</label>
+          <Input
+            type="search"
+            placeholder="Search student name or ID..."
+            value={studentSearch}
+            onChange={(event) => setStudentSearch(event.target.value)}
+            className="min-h-11 rounded-xl"
+          />
+        </div>
+
         <div className="space-y-2">
           <label className="text-sm font-bold">Status</label>
           <Select
@@ -271,7 +320,7 @@ export default function AttendanceRequestsPage() {
         </div>
       ) : filteredRequests.length ? (
         <section className="space-y-4">
-          {filteredRequests.map((request) => (
+          {paginatedRequests.map((request) => (
             <article
               key={request.id}
               className="space-y-5 rounded-3xl border bg-card p-5 shadow-sm"
@@ -423,6 +472,27 @@ export default function AttendanceRequestsPage() {
               )}
             </article>
           ))}
+
+          <div className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {requestRangeStart.toLocaleString()}–{requestRangeEnd.toLocaleString()} of {filteredRequests.length.toLocaleString()} request/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button type="button" variant="outline" disabled={currentPage <= 1 || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="h-10 rounded-xl px-4 text-xs font-black">Previous</Button>
+              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {requestsTotalPages}</span>
+              <Button type="button" variant="outline" disabled={currentPage >= requestsTotalPages || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.min(requestsTotalPages, page + 1))} className="h-10 rounded-xl px-4 text-xs font-black">Next</Button>
+            </div>
+          </div>
         </section>
       ) : (
         <div className="rounded-3xl border border-dashed bg-card p-8 text-center text-sm font-semibold text-muted-foreground">
