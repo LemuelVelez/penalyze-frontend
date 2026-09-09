@@ -617,15 +617,15 @@ export default function UsersPage() {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShowPassword((current) => !current)}
-                    className="absolute inset-y-1 right-2 size-10 text-muted-foreground hover:text-foreground"
+                    className="absolute right-1 top-1/2 size-8 -translate-y-1/2 rounded-lg text-muted-foreground hover:text-foreground"
                     aria-label={
                       showPassword ? "Hide password" : "Show password"
                     }
                   >
                     {showPassword ? (
-                      <EyeOff className="size-5" aria-hidden="true" />
+                      <EyeOff className="size-4" aria-hidden="true" />
                     ) : (
-                      <Eye className="size-5" aria-hidden="true" />
+                      <Eye className="size-4" aria-hidden="true" />
                     )}
                   </Button>
                 </div>

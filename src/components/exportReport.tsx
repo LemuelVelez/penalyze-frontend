@@ -411,7 +411,7 @@ export default function ExportReport(props: ExportReportProps) {
           disabled={props.isLoading}
           className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
         >
-          <Eye className="mr-2 size-4" aria-hidden="true" />
+          <Eye className="size-4" aria-hidden="true" />
           Preview & Export
         </Button>
       </DialogTrigger>
@@ -545,7 +545,7 @@ export default function ExportReport(props: ExportReportProps) {
             onClick={handleExport}
             className="min-h-11 rounded-2xl px-5 py-2 text-sm font-black"
           >
-            <Download className="mr-2 size-4" aria-hidden="true" />
+            <Download className="size-4" aria-hidden="true" />
             Export Excel
           </Button>
         </div>
