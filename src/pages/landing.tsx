@@ -8,10 +8,12 @@ import {
   getStudentAttendanceRecords,
   listAllAttendanceRecords,
   listAttendanceEvents,
+  listAttendanceFinalResults,
   listManualAttendanceRecords,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceFinalResultRecord,
   AttendanceRecord,
   ManualAttendanceRecord,
 } from "../api/attendance";
@@ -66,6 +68,7 @@ import {
 
 type LookupState = {
   attendance: AttendanceRecord[];
+  finalResults: AttendanceFinalResultRecord[];
   attendanceEvents: AttendanceEvent[];
   attendanceRecords: AttendanceRecord[];
   schoolYears: SchoolYearRecord[];
@@ -619,6 +622,7 @@ function getFineRecordYear(
 
 function getLookupYearOptions(
   attendance: AttendanceRecord[],
+  finalResults: AttendanceFinalResultRecord[],
   fines: FineRecord[],
   schoolYears: SchoolYearRecord[],
   eventById?: Map<string, AttendanceEvent>,
@@ -631,6 +635,7 @@ function getLookupYearOptions(
         ...attendance.map((record) =>
           getAttendanceRecordYear(record, eventById),
         ),
+        ...finalResults.map((result) => result.school_year_id || ""),
         ...fines.map((fine) =>
           getFineRecordYear(fine, eventById, attendanceRecordById),
         ),
@@ -1436,6 +1441,7 @@ function getStudentAbsentEventSummaries(
   fines: FineRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
   allAttendanceRecords: AttendanceRecord[] = [],
+  authoritativeAbsenceCount = 0,
 ) {
   const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(
     attendance,
@@ -1443,7 +1449,35 @@ function getStudentAbsentEventSummaries(
     attendanceEvents,
   );
 
-  if (collegeLinkedAbsentEvents !== null) return collegeLinkedAbsentEvents;
+  if (collegeLinkedAbsentEvents !== null) {
+    const verifiedAbsenceCount = Math.max(
+      getTotalAbsences(attendance, fines),
+      Math.max(0, authoritativeAbsenceCount),
+    );
+    const linkedAbsenceCount = getAbsentEventsAbsenceCount(
+      collegeLinkedAbsentEvents,
+    );
+
+    if (verifiedAbsenceCount <= linkedAbsenceCount) {
+      return collegeLinkedAbsentEvents;
+    }
+
+    return [
+      ...collegeLinkedAbsentEvents,
+      {
+        key: "unresolved-saved-absence-total",
+        eventName: "Unresolved absence record",
+        latestScannedAt: null,
+        eventOrder: null,
+        eventDate: null,
+        records: [],
+        remarks: [
+          "The saved absence total includes absence(s) that are not linked to a specific event record.",
+        ],
+        totalAbsences: verifiedAbsenceCount - linkedAbsenceCount,
+      },
+    ];
+  }
 
   const summaries = new Map<string, StudentAbsentEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
@@ -1462,7 +1496,10 @@ function getStudentAbsentEventSummaries(
   );
   const usedAbsentRecordIds = new Set<string>();
   const hasLinkedFineEvent = absenceFines.some(hasFineLinkedAttendanceEvent);
-  const verifiedAbsenceCount = getTotalAbsences(uniqueAttendance, absenceFines);
+  const verifiedAbsenceCount = Math.max(
+    getTotalAbsences(uniqueAttendance, absenceFines),
+    Math.max(0, authoritativeAbsenceCount),
+  );
 
   absenceFines.forEach((fine) => {
     const matchingRecords = explicitAbsentRecords.filter((record) =>
@@ -1606,7 +1643,7 @@ function getFallbackAbsenceCount(
   );
 
   if (collegeLinkedAbsentEvents !== null)
-    return collegeLinkedAbsentEvents.length;
+    return getAbsentEventsAbsenceCount(collegeLinkedAbsentEvents);
 
   if (attendance.some(isZeroAttendanceRecord))
     return getTotalAbsences(attendance);
@@ -1639,17 +1676,18 @@ function getVerifiedTotalAbsences(props: {
     );
   }
 
+  const summarizedAbsenceCount = props.absentEvents.reduce(
+    (total, eventSummary) => total + getAbsentSummaryAbsenceCount(eventSummary),
+    0,
+  );
+
   if (props.hasCollegeAttendanceScope) {
-    return props.absentEvents.reduce((total, eventSummary) => {
-      return total + getAbsentSummaryAbsenceCount(eventSummary);
-    }, 0);
+    return Math.max(recordedAbsenceCount, summarizedAbsenceCount);
   }
 
   if (!props.absentEvents.length) return recordedAbsenceCount;
 
-  return props.absentEvents.reduce((total, eventSummary) => {
-    return total + getAbsentSummaryAbsenceCount(eventSummary);
-  }, 0);
+  return Math.max(recordedAbsenceCount, summarizedAbsenceCount);
 }
 
 function getAbsentEventKeySet(absentEvents: StudentAbsentEventSummary[]) {
@@ -1697,7 +1735,7 @@ function shouldDisplayFine(
     );
   }
 
-  if (collegeAttendanceScope?.hasScope) return absentEvents.length > 0;
+  if (collegeAttendanceScope?.hasScope && absentEvents.length > 0) return true;
 
   return getFineAbsenceCount(fine) > 0;
 }
@@ -2047,6 +2085,7 @@ function normalizeManualAttendanceFineForDisplay(
 
 function getResultClassification(props: {
   lookup: LookupState | null;
+  finalResult: AttendanceFinalResultRecord | null;
   displayedFines: FineRecord[];
   totalAbsences: number;
   attendedEvents: StudentAttendedEventSummary[];
@@ -2058,6 +2097,21 @@ function getResultClassification(props: {
     props.displayedFines.some(isZeroAttendanceFine);
 
   if (hasZeroAttendanceRecord) return "Zero attendance";
+  if (props.totalAbsences > 0) return "With absences";
+
+  if (props.finalResult) {
+    if (Number(props.finalResult.total_absences || 0) > 0) {
+      return "With absences";
+    }
+
+    if (
+      props.finalResult.attendance_status === "perfect_attendance" ||
+      Number(props.finalResult.attended_events || 0) > 0
+    ) {
+      return "Perfect attendance";
+    }
+  }
+
   if (
     props.attendedEvents.length > 0 &&
     props.totalAbsences === 0 &&
@@ -2983,6 +3037,7 @@ export default function LandingPage() {
     return lookup
       ? getLookupYearOptions(
           lookup.attendance,
+          lookup.finalResults,
           lookupFines,
           lookup.schoolYears,
           attendanceEventById,
@@ -3028,6 +3083,22 @@ export default function LandingPage() {
       ),
     );
   }, [lookup, resultYearFilter, attendanceEventById]);
+
+  const displayedFinalResult = useMemo(() => {
+    if (!lookup) return null;
+
+    const matchingResults = lookup.finalResults
+      .filter((result) =>
+        matchesSelectedYear(result.school_year_id || "", resultYearFilter),
+      )
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at || left.created_at).getTime();
+        const rightTime = new Date(right.updated_at || right.created_at).getTime();
+        return rightTime - leftTime;
+      });
+
+    return matchingResults[0] ?? null;
+  }, [lookup, resultYearFilter]);
 
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
@@ -3084,17 +3155,25 @@ export default function LandingPage() {
       allDisplayedFines,
       lookup?.attendanceEvents ?? [],
       displayedCollegeAttendanceRecords,
+      Number(displayedFinalResult?.total_absences || 0),
     );
   }, [
     displayedAttendance,
     allDisplayedFines,
     displayedCollegeAttendanceRecords,
+    displayedFinalResult,
     lookup,
   ]);
   const hasZeroAttendanceForDisplay = useMemo(() => {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
   const displayedFines = useMemo(() => {
+    const authoritativeAbsenceCount = displayedFinalResult
+      ? Math.max(0, Number(displayedFinalResult.total_absences || 0))
+      : null;
+
+    if (authoritativeAbsenceCount === 0) return [];
+
     const visibleFines = mergeStudentFineRecords(
       allDisplayedFines.filter((fine) =>
         shouldDisplayFine(
@@ -3125,20 +3204,28 @@ export default function LandingPage() {
     lookup,
     searchedId,
     displayedAttendance,
+    displayedFinalResult,
   ]);
   const fallbackFineActive = displayedFines.some(isFallbackFine);
   const totalAbsences = useMemo(() => {
-    return getVerifiedTotalAbsences({
+    const verifiedAbsences = getVerifiedTotalAbsences({
       attendance: displayedAttendance,
       fines: displayedFines,
       absentEvents,
       hasCollegeAttendanceScope: collegeAttendanceScope.hasScope,
     });
+
+    if (displayedFinalResult) {
+      return Math.max(0, Number(displayedFinalResult.total_absences || 0));
+    }
+
+    return verifiedAbsences;
   }, [
     displayedAttendance,
     displayedFines,
     absentEvents,
     collegeAttendanceScope,
+    displayedFinalResult,
   ]);
 
   const unpaidFines = useMemo(() => {
@@ -3146,6 +3233,8 @@ export default function LandingPage() {
   }, [displayedFines]);
 
   const studentDisplayName = useMemo(() => {
+    if (displayedFinalResult?.name) return displayedFinalResult.name;
+
     return lookup
       ? getStudentDisplayName(
           displayedAttendance,
@@ -3153,17 +3242,30 @@ export default function LandingPage() {
           searchedId,
         )
       : searchedId;
-  }, [lookup, displayedAttendance, allDisplayedFines, searchedId]);
+  }, [
+    lookup,
+    displayedAttendance,
+    allDisplayedFines,
+    searchedId,
+    displayedFinalResult,
+  ]);
   const totalAbsencesLabel = formatAbsenceCount(totalAbsences);
   const resultClassification = useMemo(
     () =>
       getResultClassification({
         lookup,
+        finalResult: displayedFinalResult,
         displayedFines,
         totalAbsences,
         attendedEvents,
       }),
-    [lookup, displayedFines, totalAbsences, attendedEvents],
+    [
+      lookup,
+      displayedFinalResult,
+      displayedFines,
+      totalAbsences,
+      attendedEvents,
+    ],
   );
   const resultClassificationClassName =
     getClassificationStyle(resultClassification);
@@ -3488,14 +3590,21 @@ export default function LandingPage() {
         throw new Error("Unable to save zero attendance record.");
       }
 
-      const [attendanceEvents, allAttendanceRecords] = await Promise.all([
-        listAttendanceEvents({
-          schoolYearId: payload.schoolYearId,
-          limit: 500,
-          offset: 0,
-        }).catch(() => [] as AttendanceEvent[]),
-        listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
-      ]);
+      const [attendanceEvents, allAttendanceRecords, finalResults] =
+        await Promise.all([
+          listAttendanceEvents({
+            schoolYearId: payload.schoolYearId,
+            limit: 500,
+            offset: 0,
+          }).catch(() => [] as AttendanceEvent[]),
+          listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
+          listAttendanceFinalResults({
+            schoolYearId: payload.schoolYearId,
+            studentId: payload.studentId,
+            limit: 100,
+            offset: 0,
+          }).catch(() => [] as AttendanceFinalResultRecord[]),
+        ]);
 
       const savedZeroAttendanceRecord = {
         ...result.attendanceRecord,
@@ -3531,6 +3640,7 @@ export default function LandingPage() {
       );
       setLookup({
         attendance: [attendanceRecord],
+        finalResults,
         attendanceEvents,
         attendanceRecords,
         schoolYears,
@@ -3644,6 +3754,11 @@ export default function LandingPage() {
 
         return combinedAttendance;
       });
+      const finalResultsPromise = listAttendanceFinalResults({
+        studentId: cleanStudentId,
+        limit: 1000,
+        offset: 0,
+      }).catch(() => [] as AttendanceFinalResultRecord[]);
       const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
         markProgressStepComplete(
           20,
@@ -3722,12 +3837,14 @@ export default function LandingPage() {
 
       const [
         attendance,
+        finalResults,
         fines,
         schoolYearRows,
         attendanceEvents,
         attendanceRecords,
       ] = await Promise.all([
         attendancePromise,
+        finalResultsPromise,
         finesPromise,
         schoolYearsPromise,
         attendanceEventsPromise,
@@ -3742,7 +3859,7 @@ export default function LandingPage() {
         "Classifying attendance status and checking related fines.",
       );
 
-      if (!attendance.length && !fines.length) {
+      if (!attendance.length && !finalResults.length && !fines.length) {
         updateProgress(
           100,
           "No saved student record found.",
@@ -3752,10 +3869,24 @@ export default function LandingPage() {
         return;
       }
 
-      const fallbackAbsenceCount = getFallbackAbsenceCount(
-        attendance,
-        attendanceRecords,
-        attendanceEvents,
+      const activeSchoolYearId = getLandingActiveSchoolYearId(schoolYearRows);
+      const authoritativeAbsenceCount = finalResults
+        .filter(
+          (result) =>
+            !activeSchoolYearId || result.school_year_id === activeSchoolYearId,
+        )
+        .reduce(
+          (highestAbsenceCount, result) =>
+            Math.max(highestAbsenceCount, Number(result.total_absences || 0)),
+          0,
+        );
+      const fallbackAbsenceCount = Math.max(
+        authoritativeAbsenceCount,
+        getFallbackAbsenceCount(
+          attendance,
+          attendanceRecords,
+          attendanceEvents,
+        ),
       );
       const shouldBuildFallbackFine =
         fines.length === 0 && fallbackAbsenceCount > 0;
@@ -3768,9 +3899,10 @@ export default function LandingPage() {
           )
         : null;
 
-      setResultYearFilter(getLandingActiveSchoolYearId(schoolYearRows));
+      setResultYearFilter(activeSchoolYearId);
       setLookup({
         attendance,
+        finalResults,
         attendanceEvents,
         attendanceRecords,
         schoolYears: schoolYearRows,

@@ -879,6 +879,24 @@ export async function listCalculationResults(options: ListOptions = {}) {
   return response.data ?? [];
 }
 
+export async function previewCalculationResults(
+  options: {
+    schoolYearId?: string;
+    importIds?: string[];
+    sourceTypes?: CalculationSourceType[];
+  } = {},
+) {
+  const response = await apiRequest<CalculationResultRecord[]>(
+    "/api/attendance/calculation-results/preview",
+    {
+      method: "POST",
+      body: JSON.stringify(options),
+    },
+  );
+
+  return response.data ?? [];
+}
+
 export async function refreshCalculationResults(
   options: {
     schoolYearId?: string;
