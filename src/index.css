@@ -243,21 +243,18 @@
 }
 
 
-/* theme-transition-fix */
+/* Keep theme changes atomic while preserving normal component transitions. */
 html {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
-*,
-*::before,
-*::after {
-  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow;
-  transition-duration: 180ms;
-  transition-timing-function: ease;
+html.dark {
+  color-scheme: dark;
 }
 
-html.theme-loading *,
-html.theme-loading *::before,
-html.theme-loading *::after {
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
   transition: none !important;
 }
