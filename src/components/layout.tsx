@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Calculator,
   CalendarDays,
+  ChevronDown,
   ClipboardCheck,
   FileClock,
   History,
@@ -53,8 +54,16 @@ type LayoutProps = {
 type NavItem = {
   path: string;
   label: string;
+  description: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+};
+
+type NavGroup = {
+  id: string;
+  label: string;
+  items: NavItem[];
+  showPendingBadge?: boolean;
 };
 
 export function navigateTo(path: string) {
@@ -100,27 +109,117 @@ function LogoutConfirmation(props: {
   );
 }
 
+function PendingBadge(props: { count: number; className?: string }) {
+  if (props.count <= 0) return null;
+
+  return (
+    <span
+      className={`inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground ${props.className ?? ""}`}
+      aria-label={`${props.count} pending request${props.count === 1 ? "" : "s"}`}
+    >
+      {props.count > 99 ? "99+" : props.count}
+    </span>
+  );
+}
+
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopGroupOpen, setDesktopGroupOpen] = useState<string | null>(null);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const currentUser = useMemo(() => getStoredUser(), []);
   const isAdmin = currentUser?.role === "admin";
 
-  const navItems: NavItem[] = [
-    { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { path: "/attendance", label: "Attendance", icon: ClipboardCheck },
-    { path: "/attendance-requests", label: "Requests", icon: FileClock },
-    { path: "/manual-attendance", label: "Manual", icon: UserCheck },
-    { path: "/events", label: "Events", icon: CalendarDays },
-    { path: "/history", label: "History", icon: History },
-    { path: "/calculate", label: "Calculate", icon: Calculator },
-    { path: "/fines", label: "Fines", icon: ReceiptText },
-    { path: "/users", label: "Users", icon: Users, adminOnly: true },
-    { path: "/audit-log", label: "Audit Log", icon: ScrollText, adminOnly: true },
-  ];
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+  const dashboardItem: NavItem = {
+    path: "/dashboard",
+    label: "Dashboard",
+    description: "Overview and activity",
+    icon: LayoutDashboard,
+  };
+
+  const navGroups: NavGroup[] = [
+    {
+      id: "attendance",
+      label: "Attendance",
+      showPendingBadge: true,
+      items: [
+        {
+          path: "/attendance",
+          label: "Attendance",
+          description: "Record and review attendance",
+          icon: ClipboardCheck,
+        },
+        {
+          path: "/attendance-requests",
+          label: "Requests",
+          description: "Review pending submissions",
+          icon: FileClock,
+        },
+        {
+          path: "/manual-attendance",
+          label: "Manual",
+          description: "Add attendance manually",
+          icon: UserCheck,
+        },
+        {
+          path: "/events",
+          label: "Events",
+          description: "Manage attendance events",
+          icon: CalendarDays,
+        },
+      ],
+    },
+    {
+      id: "records",
+      label: "Records",
+      items: [
+        {
+          path: "/history",
+          label: "History",
+          description: "Browse attendance history",
+          icon: History,
+        },
+        {
+          path: "/calculate",
+          label: "Calculate",
+          description: "Calculate attendance totals",
+          icon: Calculator,
+        },
+        {
+          path: "/fines",
+          label: "Fines",
+          description: "Review and export fines",
+          icon: ReceiptText,
+        },
+      ],
+    },
+    {
+      id: "administration",
+      label: "Admin",
+      items: [
+        {
+          path: "/users",
+          label: "Users",
+          description: "Manage user access",
+          icon: Users,
+          adminOnly: true,
+        },
+        {
+          path: "/audit-log",
+          label: "Audit Log",
+          description: "Review accountable actions",
+          icon: ScrollText,
+          adminOnly: true,
+        },
+      ],
+    },
+  ]
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+    }))
+    .filter((group) => group.items.length > 0);
 
   useEffect(() => {
     let active = true;
@@ -146,13 +245,41 @@ export default function AppLayout(props: LayoutProps) {
     };
   }, []);
 
+  useEffect(() => {
+    setDesktopGroupOpen(null);
+  }, [props.currentPath]);
+
+  useEffect(() => {
+    if (!desktopGroupOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (target instanceof Element && !target.closest("[data-desktop-nav-group]")) {
+        setDesktopGroupOpen(null);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setDesktopGroupOpen(null);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [desktopGroupOpen]);
 
   function handleNavigate(path: string) {
+    setDesktopGroupOpen(null);
     setMobileMenuOpen(false);
     navigate(path);
   }
 
   function handleLogout() {
+    setDesktopGroupOpen(null);
     setMobileMenuOpen(false);
     props.onLogout();
   }
@@ -175,7 +302,7 @@ export default function AppLayout(props: LayoutProps) {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => navigate("/dashboard")}
+            onClick={() => handleNavigate("/dashboard")}
             className="h-10 shrink-0 justify-start rounded-xl px-1.5 hover:bg-muted/60"
             aria-label="Go to dashboard"
           >
@@ -183,33 +310,106 @@ export default function AppLayout(props: LayoutProps) {
           </Button>
 
           <nav
-            className="hidden min-w-0 flex-1 items-center justify-center gap-1 xl:flex"
+            className="hidden min-w-0 flex-1 items-center justify-center gap-1.5 xl:flex"
             aria-label="Dashboard navigation"
           >
-            {visibleNavItems.map((item) => {
-              const active = props.currentPath === item.path;
-              const Icon = item.icon;
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleNavigate(dashboardItem.path)}
+              className={`h-9 rounded-lg px-3 text-sm font-medium transition-colors ${
+                props.currentPath === dashboardItem.path
+                  ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <LayoutDashboard className="size-4" aria-hidden="true" />
+              Dashboard
+            </Button>
+
+            {navGroups.map((group) => {
+              const active = group.items.some((item) => item.path === props.currentPath);
+              const open = desktopGroupOpen === group.id;
 
               return (
-                <Button
-                  key={item.path}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => navigate(item.path)}
-                  className={`h-9 rounded-lg px-2.5 text-xs font-medium transition-colors 2xl:px-3 2xl:text-sm ${
-                    active
-                      ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <Icon className="size-4" aria-hidden="true" />
-                  <span>{item.label}</span>
-                  {item.path === "/attendance-requests" && pendingRequestCount > 0 ? (
-                    <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground">
-                      {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
-                    </span>
+                <div key={group.id} className="relative" data-desktop-nav-group>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      setDesktopGroupOpen((current) =>
+                        current === group.id ? null : group.id,
+                      )
+                    }
+                    className={`h-9 rounded-lg px-3 text-sm font-medium transition-colors ${
+                      active || open
+                        ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                  >
+                    <span>{group.label}</span>
+                    {group.showPendingBadge ? (
+                      <PendingBadge count={pendingRequestCount} className="ml-0.5" />
+                    ) : null}
+                    <ChevronDown
+                      className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </Button>
+
+                  {open ? (
+                    <div
+                      role="menu"
+                      aria-label={`${group.label} menu`}
+                      className="absolute left-1/2 top-full z-50 mt-2 w-72 -translate-x-1/2 rounded-2xl border bg-popover p-1.5 text-popover-foreground shadow-xl ring-1 ring-foreground/5"
+                    >
+                      <div className="px-3 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {group.label}
+                      </div>
+                      {group.items.map((item) => {
+                        const itemActive = props.currentPath === item.path;
+                        const Icon = item.icon;
+
+                        return (
+                          <button
+                            key={item.path}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => handleNavigate(item.path)}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                              itemActive
+                                ? "bg-primary/10 text-primary"
+                                : "hover:bg-muted/70"
+                            }`}
+                          >
+                            <span
+                              className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${
+                                itemActive
+                                  ? "border-primary/20 bg-primary/10"
+                                  : "bg-background"
+                              }`}
+                            >
+                              <Icon className="size-4" aria-hidden="true" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2 text-sm font-semibold">
+                                {item.label}
+                                {item.path === "/attendance-requests" ? (
+                                  <PendingBadge count={pendingRequestCount} />
+                                ) : null}
+                              </span>
+                              <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                                {item.description}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   ) : null}
-                </Button>
+                </div>
               );
             })}
           </nav>
@@ -248,7 +448,7 @@ export default function AppLayout(props: LayoutProps) {
 
               <SheetContent
                 side="right"
-                className="h-svh min-h-svh w-80 border-l bg-background px-4 py-5 sm:px-5 xl:hidden"
+                className="h-svh min-h-svh w-80 overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 xl:hidden"
               >
                 <SheetHeader className="mb-5 border-b pb-4 text-left">
                   <SheetTitle>
@@ -256,35 +456,72 @@ export default function AppLayout(props: LayoutProps) {
                   </SheetTitle>
                 </SheetHeader>
 
-                <nav className="flex flex-col gap-1" aria-label="Mobile dashboard navigation">
-                  {visibleNavItems.map((item) => {
-                    const active = props.currentPath === item.path;
-                    const Icon = item.icon;
+                <nav className="flex flex-col gap-4" aria-label="Mobile dashboard navigation">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => handleNavigate(dashboardItem.path)}
+                    className={`h-11 justify-start rounded-xl px-3 text-sm font-medium ${
+                      props.currentPath === dashboardItem.path
+                        ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <LayoutDashboard className="size-4" aria-hidden="true" />
+                    Dashboard
+                  </Button>
+
+                  {navGroups.map((group) => {
+                    const groupActive = group.items.some(
+                      (item) => item.path === props.currentPath,
+                    );
 
                     return (
-                      <Button
-                        key={item.path}
-                        type="button"
-                        variant="ghost"
-                        onClick={() => handleNavigate(item.path)}
-                        className={`h-11 justify-start rounded-xl px-3 text-sm font-medium ${
-                          active
-                            ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      <section
+                        key={group.id}
+                        className={`rounded-2xl border p-1.5 ${
+                          groupActive ? "bg-primary/[0.035]" : "bg-muted/20"
                         }`}
+                        aria-label={`${group.label} navigation`}
                       >
-                        <Icon className="size-4" aria-hidden="true" />
-                        <span>{item.label}</span>
-                        {item.path === "/attendance-requests" && pendingRequestCount > 0 ? (
-                          <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground">
-                            {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                        <div className="flex items-center justify-between px-2.5 pb-1.5 pt-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            {group.label}
                           </span>
-                        ) : null}
-                      </Button>
+                          {group.showPendingBadge ? (
+                            <PendingBadge count={pendingRequestCount} />
+                          ) : null}
+                        </div>
+
+                        <div className="flex flex-col gap-0.5">
+                          {group.items.map((item) => {
+                            const active = props.currentPath === item.path;
+                            const Icon = item.icon;
+
+                            return (
+                              <Button
+                                key={item.path}
+                                type="button"
+                                variant="ghost"
+                                onClick={() => handleNavigate(item.path)}
+                                className={`h-11 justify-start rounded-xl px-3 text-sm font-medium ${
+                                  active
+                                    ? "bg-background text-primary shadow-sm hover:bg-background hover:text-primary"
+                                    : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
+                                }`}
+                              >
+                                <Icon className="size-4" aria-hidden="true" />
+                                <span>{item.label}</span>
+                                {item.path === "/attendance-requests" ? (
+                                  <PendingBadge count={pendingRequestCount} className="ml-auto" />
+                                ) : null}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </section>
                     );
                   })}
-
-                  <div className="my-3 border-t" />
 
                   <LogoutConfirmation
                     onConfirm={handleLogout}
