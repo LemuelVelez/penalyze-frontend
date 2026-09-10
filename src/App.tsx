@@ -25,6 +25,7 @@ import EventsPage from "./pages/main/events";
 import DashboardPage from "./pages/main/dashboard";
 import FinesPage from "./pages/main/fines";
 import UsersPage from "./pages/main/users";
+import AuditLogPage from "./pages/main/audit-log";
 import LandingPage from "./pages/landing";
 import NotFoundPage from "./pages/notfound";
 
@@ -95,6 +96,7 @@ function AppRoutes() {
       { path: "/calculate", element: <CalculatePage /> },
       { path: "/fines", element: <FinesPage /> },
       { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },
+      { path: "/audit-log", element: <AuditLogPage />, allowedRoles: ["admin"] as UserRole[] },
     ],
     [],
   );

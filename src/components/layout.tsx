@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   ReceiptText,
+  ScrollText,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -112,6 +113,7 @@ export default function AppLayout(props: LayoutProps) {
     { path: "/calculate", label: "Calculate", icon: Calculator },
     { path: "/fines", label: "Fines", icon: ReceiptText },
     { path: "/users", label: "Users", icon: Users, adminOnly: true },
+    { path: "/audit-log", label: "Audit Log", icon: ScrollText, adminOnly: true },
   ];
   const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
 
