@@ -138,7 +138,7 @@ export default function AppLayout(props: LayoutProps) {
     icon: LayoutDashboard,
   };
 
-  const navGroups: NavGroup[] = [
+  const rawNavGroups: NavGroup[] = [
     {
       id: "attendance",
       label: "Attendance",
@@ -214,7 +214,9 @@ export default function AppLayout(props: LayoutProps) {
         },
       ],
     },
-  ]
+  ];
+
+  const navGroups = rawNavGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => !item.adminOnly || isAdmin),
