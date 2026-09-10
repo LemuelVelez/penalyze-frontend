@@ -234,7 +234,13 @@ function zipStore(entries: Array<{ name: string; content: string }>) {
     ...u32(centralSize), ...u32(offset), ...u16(0),
   ]);
 
-  return new Blob([...localParts, ...centralParts, end], {
+  const blobParts: ArrayBuffer[] = [...localParts, ...centralParts, end].map((part) => {
+    const copy = new Uint8Array(part.byteLength);
+    copy.set(part);
+    return copy.buffer;
+  });
+
+  return new Blob(blobParts, {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 }
