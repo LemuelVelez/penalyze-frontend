@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -18,6 +18,10 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { getStoredUser } from "../api/auth";
+import {
+  ATTENDANCE_REQUESTS_UPDATED_EVENT,
+  listAttendanceRequests,
+} from "../api/attendanceRequests";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,6 +103,7 @@ function LogoutConfirmation(props: {
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const currentUser = useMemo(() => getStoredUser(), []);
   const isAdmin = currentUser?.role === "admin";
@@ -116,6 +121,31 @@ export default function AppLayout(props: LayoutProps) {
     { path: "/audit-log", label: "Audit Log", icon: ScrollText, adminOnly: true },
   ];
   const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshPendingRequestCount() {
+      try {
+        const rows = await listAttendanceRequests({ status: "pending" });
+        if (active) setPendingRequestCount(rows.length);
+      } catch {
+        if (active) setPendingRequestCount(0);
+      }
+    }
+
+    const handleRequestsUpdated = () => void refreshPendingRequestCount();
+    void refreshPendingRequestCount();
+    window.addEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
+    const intervalId = window.setInterval(refreshPendingRequestCount, 30_000);
+
+    return () => {
+      active = false;
+      window.removeEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
 
   function handleNavigate(path: string) {
     setMobileMenuOpen(false);
@@ -174,6 +204,11 @@ export default function AppLayout(props: LayoutProps) {
                 >
                   <Icon className="size-4" aria-hidden="true" />
                   <span>{item.label}</span>
+                  {item.path === "/attendance-requests" && pendingRequestCount > 0 ? (
+                    <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground">
+                      {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                    </span>
+                  ) : null}
                 </Button>
               );
             })}
@@ -239,7 +274,12 @@ export default function AppLayout(props: LayoutProps) {
                         }`}
                       >
                         <Icon className="size-4" aria-hidden="true" />
-                        {item.label}
+                        <span>{item.label}</span>
+                        {item.path === "/attendance-requests" && pendingRequestCount > 0 ? (
+                          <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground">
+                            {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                          </span>
+                        ) : null}
                       </Button>
                     );
                   })}

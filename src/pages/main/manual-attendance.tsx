@@ -463,6 +463,8 @@ export default function ManualAttendancePage() {
     useState(false);
   const [eventsDialogGroup, setEventsDialogGroup] =
     useState<ManualAttendanceStudentGroup | null>(null);
+  const [selectedRecordsDialogOpen, setSelectedRecordsDialogOpen] = useState(false);
+  const [manualUpdateConfirmOpen, setManualUpdateConfirmOpen] = useState(false);
 
   const studentGroups = useMemo(
     () => mergeManualAttendanceByStudent(records),
@@ -782,67 +784,51 @@ export default function ManualAttendancePage() {
     };
   }
 
-  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function getEditingDeletePlan() {
+    const selectedEventIds = Array.from(new Set(form.eventIds));
+    const editingGroup = editingGroupKey
+      ? studentGroups.find((group) => group.key === editingGroupKey)
+      : null;
+    const existingByEventId = new Map<string, ManualAttendanceRecord>();
 
-    if (!form.schoolYearId) {
-      toast.error("Active school year is required.");
-      return;
+    if (!editingGroup) {
+      return { selectedEventIds, editingGroup: null, existingByEventId, recordsToDelete: [] as ManualAttendanceRecord[] };
     }
 
-    if (!form.studentId.trim() || !form.name.trim()) {
-      toast.error("Student ID and name are required.");
-      return;
-    }
+    const duplicateEventRecordsToDelete: ManualAttendanceRecord[] = [];
+    sortByBackendEventOrder(editingGroup.records).forEach((record) => {
+      const eventId = String(record.event_id ?? "").trim();
+      if (!eventId) return;
+      if (existingByEventId.has(eventId)) {
+        duplicateEventRecordsToDelete.push(record);
+        return;
+      }
+      existingByEventId.set(eventId, record);
+    });
 
+    const selectedEventIdSet = new Set(selectedEventIds);
+    const duplicateRecordIds = new Set(duplicateEventRecordsToDelete.map((record) => record.id));
+    const recordsToDelete = editingGroup.records.filter((record) => {
+      const eventId = String(record.event_id ?? "").trim();
+      return !eventId || !selectedEventIdSet.has(eventId) || duplicateRecordIds.has(record.id);
+    });
+
+    return { selectedEventIds, editingGroup, existingByEventId, recordsToDelete };
+  }
+
+  async function saveManualAttendance() {
     setIsSaving(true);
 
     try {
-      const selectedEventIds = Array.from(new Set(form.eventIds));
-      const editingGroup = editingGroupKey
-        ? studentGroups.find((group) => group.key === editingGroupKey)
-        : null;
+      const { selectedEventIds, editingGroup, existingByEventId, recordsToDelete } = getEditingDeletePlan();
 
       if (editingGroup) {
-        const existingRecords = editingGroup.records;
-        const existingByEventId = new Map<string, ManualAttendanceRecord>();
-        const duplicateEventRecordsToDelete: ManualAttendanceRecord[] = [];
-
-        sortByBackendEventOrder(existingRecords).forEach((record) => {
-          const eventId = String(record.event_id ?? "").trim();
-          if (!eventId) return;
-
-          if (existingByEventId.has(eventId)) {
-            duplicateEventRecordsToDelete.push(record);
-            return;
-          }
-
-          existingByEventId.set(eventId, record);
-        });
-
-        const selectedEventIdSet = new Set(selectedEventIds);
-        const duplicateRecordIds = new Set(
-          duplicateEventRecordsToDelete.map((record) => record.id),
-        );
-        const recordsToDelete = existingRecords.filter((record) => {
-          const eventId = String(record.event_id ?? "").trim();
-
-          return (
-            !eventId ||
-            !selectedEventIdSet.has(eventId) ||
-            duplicateRecordIds.has(record.id)
-          );
-        });
-
-        await Promise.all(
-          recordsToDelete.map((record) => deleteAttendanceRecord(record.id)),
-        );
+        await Promise.all(recordsToDelete.map((record) => deleteAttendanceRecord(record.id)));
 
         await Promise.all(
           selectedEventIds.map((eventId) => {
             const existingRecord = existingByEventId.get(eventId);
             const payload = buildManualPayload(eventId);
-
             return existingRecord
               ? updateAttendanceRecord(existingRecord.id, payload)
               : saveManualAttendanceRecord(payload);
@@ -859,26 +845,41 @@ export default function ManualAttendancePage() {
           await saveManualAttendanceRecord(buildManualPayload());
         } else {
           await Promise.all(
-            selectedEventIds.map((eventId) =>
-              saveManualAttendanceRecord(buildManualPayload(eventId)),
-            ),
+            selectedEventIds.map((eventId) => saveManualAttendanceRecord(buildManualPayload(eventId))),
           );
         }
-
         toast.success("Manual attendance saved.");
       }
 
       handleDialogOpenChange(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to save manual attendance.",
-      );
+      toast.error(error instanceof Error ? error.message : "Unable to save manual attendance.");
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!form.schoolYearId) {
+      toast.error("Active school year is required.");
+      return;
+    }
+
+    if (!form.studentId.trim() || !form.name.trim()) {
+      toast.error("Student ID and name are required.");
+      return;
+    }
+
+    const { recordsToDelete } = getEditingDeletePlan();
+    if (recordsToDelete.length) {
+      setManualUpdateConfirmOpen(true);
+      return;
+    }
+
+    await saveManualAttendance();
   }
 
   async function handleDeleteGroup(group: ManualAttendanceStudentGroup) {
@@ -1315,20 +1316,15 @@ export default function ManualAttendancePage() {
               </label>
 
               {selectedEventRecords.length ? (
-                <div className="rounded-2xl border bg-background p-4 text-sm lg:col-span-4">
-                  <p className="font-black">
-                    Currently selected existing records
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedEventRecords.map((record) => (
-                      <span
-                        key={record.id}
-                        className="rounded-full border bg-muted px-3 py-1 text-xs font-black"
-                      >
-                        {getRecordEventLabel(record)}
-                      </span>
-                    ))}
-                  </div>
+                <div className="lg:col-span-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSelectedRecordsDialogOpen(true)}
+                    className="min-h-11 rounded-2xl px-5 font-black"
+                  >
+                    View selected records ({selectedEventRecords.length.toLocaleString()})
+                  </Button>
                 </div>
               ) : null}
 
@@ -1357,6 +1353,53 @@ export default function ManualAttendancePage() {
                 ) : null}
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={manualUpdateConfirmOpen} onOpenChange={setManualUpdateConfirmOpen}>
+          <AlertDialogContent className="rounded-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Update and delete attendance records?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This update will permanently delete {getEditingDeletePlan().recordsToDelete.length.toLocaleString()} existing manual attendance record(s) that are no longer selected or are duplicates. The remaining selected event records will be updated or created. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setManualUpdateConfirmOpen(false);
+                  void saveManualAttendance();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isSaving ? "Saving..." : "Update and Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
+          <DialogContent className="flex max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
+            <DialogHeader className="shrink-0">
+              <DialogTitle>Currently selected existing records</DialogTitle>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-background p-3">
+              <div className="grid gap-2">
+                {selectedEventRecords.map((record, index) => (
+                  <div key={record.id} className="flex items-start gap-3 rounded-xl border bg-card p-3">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-black">
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 break-words text-sm font-semibold">
+                      {getRecordEventLabel(record)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -1590,8 +1633,7 @@ export default function ManualAttendancePage() {
                                   Delete manual attendance?
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This removes all manual attendance records for
-                                  the selected Student ID.
+                                  This will permanently delete all {group.records.length.toLocaleString()} manual attendance record(s) for Student ID {group.studentId}. This action cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>

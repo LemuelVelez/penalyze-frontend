@@ -2249,13 +2249,19 @@ function ZeroAttendanceRegistrationDialog(props: {
           }}
           className="space-y-5"
         >
-          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
-            This Student ID has no saved attendance or fine record. If you
-            attended one or more events, use <strong>Request Event Review</strong>
-            and attach an accessible evidence link for every event you claim.
-            Authenticated officers or admins will review the evidence before
-            attendance is added. Use <strong>Save Zero Attendance</strong> only
-            when you did not attend any event.
+          <div className="space-y-3 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
+            <p>
+              This Student ID has no saved attendance or fine record. If you attended one or more events, use{" "}
+              <strong>Request Event Review</strong>{" "}
+              and attach an accessible evidence link for every event you claim.
+            </p>
+            <p>
+              Authenticated officers or admins will review the evidence before attendance is added.
+            </p>
+            <p>
+              Use <strong>Save Zero Attendance</strong>{" "}
+              only when you did not attend any event.
+            </p>
           </div>
 
           {props.error ? (
@@ -2502,8 +2508,9 @@ function ZeroAttendanceRegistrationDialog(props: {
                 You are about to record <strong>{props.form.studentId.trim()}</strong>{" "}
                 as having attended <strong>zero events</strong> for {schoolYearLabel}.
                 Only continue if you are certain the attendee did not attend any
-                event. If they attended at least one event, go back and use
-                <strong> Request Event Review</strong> instead.
+                event. If they attended at least one event, go back and use{" "}
+                <strong>Request Event Review</strong>{" "}
+                instead.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

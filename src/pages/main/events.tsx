@@ -836,8 +836,7 @@ export default function EventsPage() {
                                   Delete this event?
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will delete the selected attendance event
-                                  record.
+                                  This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -949,7 +948,7 @@ export default function EventsPage() {
               </div>
 
               <p className="text-sm font-semibold text-muted-foreground">
-                {mergeImpact.affectedStudents.toLocaleString()} student/s will have absences, fines, and downstream results recalculated. The merge is logged before source events are removed.
+                This merge will permanently delete {mergeImpact.sourceEvents.length.toLocaleString()} source event record(s) after moving their linked data. {mergeImpact.affectedStudents.toLocaleString()} student(s) will have absences, fines, and downstream results recalculated. The merge is logged before source events are removed.
               </p>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

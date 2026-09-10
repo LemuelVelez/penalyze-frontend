@@ -26,6 +26,7 @@ import {
   deleteSchoolYear,
   deleteSchoolYearRecords,
   getActiveSchoolYearId,
+  getSchoolYearDeleteImpact,
   getSchoolYearLabel,
   getSchoolYearRecordLabel,
   listSchoolYears,
@@ -33,7 +34,7 @@ import {
   transferSchoolYearRecords,
   updateSchoolYear,
 } from "../../api/schoolYears";
-import type { SchoolSemester, SchoolYearRecord } from "../../api/schoolYears";
+import type { SchoolSemester, SchoolYearDeleteImpact, SchoolYearRecord } from "../../api/schoolYears";
 import {
   deletePenaltyResultsByIds,
   deletePenaltyResultsBySchoolYear,
@@ -258,6 +259,7 @@ export default function HistoryPage() {
     useState(false);
   const [recentlyDeletedOpen, setRecentlyDeletedOpen] = useState(false);
   const [restoringImportId, setRestoringImportId] = useState("");
+  const [schoolYearDeleteImpact, setSchoolYearDeleteImpact] = useState<SchoolYearDeleteImpact | null>(null);
 
   const selectedSchoolYear = useMemo(() => {
     return (
@@ -266,6 +268,26 @@ export default function HistoryPage() {
       ) ?? null
     );
   }, [schoolYears, selectedSchoolYearId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSchoolYearDeleteImpact() {
+      if (!selectedSchoolYearId) {
+        setSchoolYearDeleteImpact(null);
+        return;
+      }
+      try {
+        const impact = await getSchoolYearDeleteImpact(selectedSchoolYearId);
+        if (active) setSchoolYearDeleteImpact(impact ?? null);
+      } catch {
+        if (active) setSchoolYearDeleteImpact(null);
+      }
+    }
+
+    void loadSchoolYearDeleteImpact();
+    return () => { active = false; };
+  }, [selectedSchoolYearId, imports.length, finalResults.length, manualRecords.length, penaltyResults.length]);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1675,14 +1697,18 @@ export default function HistoryPage() {
                     Delete selected school-year records?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This deletes attendance imports, attendance records, final
-                    results, manual records, fines, and penalty results assigned
-                    to this school year.
+                    {schoolYearDeleteImpact ? (
+                      <>
+                        This will permanently delete {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). The school-year record itself will remain.
+                      </>
+                    ) : (
+                      "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
+                    )}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDeleteSchoolYearRecords}>
+                  <AlertDialogAction disabled={!schoolYearDeleteImpact} onClick={handleDeleteSchoolYearRecords}>
                     Delete Records
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -1704,14 +1730,18 @@ export default function HistoryPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete this school year?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This deletes the school year and all linked attendance,
-                    final result, manual, fine, and penalty result records under
-                    it.
+                    {schoolYearDeleteImpact ? (
+                      <>
+                        This will permanently delete 1 school-year record plus {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). This action cannot be undone.
+                      </>
+                    ) : (
+                      "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
+                    )}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDeleteSchoolYear}>
+                  <AlertDialogAction disabled={!schoolYearDeleteImpact} onClick={handleDeleteSchoolYear}>
                     Delete School Year
                   </AlertDialogAction>
                 </AlertDialogFooter>

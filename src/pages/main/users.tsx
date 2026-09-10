@@ -388,8 +388,7 @@ export default function UsersPage() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete user?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently delete {user.name}. This
-                                action cannot be undone.
+                                This will permanently delete 1 user record: {user.name}. This action cannot be undone.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -480,8 +479,7 @@ export default function UsersPage() {
                                       Delete user?
                                     </AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      This will permanently delete {user.name}.
-                                      This action cannot be undone.
+                                      This will permanently delete 1 user record: {user.name}. This action cannot be undone.
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>

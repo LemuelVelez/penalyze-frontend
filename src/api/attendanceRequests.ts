@@ -1,6 +1,14 @@
 import { getApiBaseUrl, getAuthToken } from "./auth";
 import type { SchoolSemester } from "./schoolYears";
 
+export const ATTENDANCE_REQUESTS_UPDATED_EVENT = "attendance-requests-updated";
+
+function notifyAttendanceRequestsUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(ATTENDANCE_REQUESTS_UPDATED_EVENT));
+  }
+}
+
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
 
 export type AttendanceRequestEvent = {
@@ -100,6 +108,7 @@ export async function createAttendanceRequest(
       body: JSON.stringify(input),
     },
   );
+  notifyAttendanceRequestsUpdated();
   return response.data ?? null;
 }
 
@@ -130,5 +139,6 @@ export async function reviewAttendanceRequest(
     method: "PATCH",
     body: JSON.stringify(input),
   });
+  notifyAttendanceRequestsUpdated();
   return response.data ?? null;
 }

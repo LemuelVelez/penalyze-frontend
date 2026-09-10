@@ -47,6 +47,18 @@ export type TransferSchoolYearRecordsResult = {
   penaltyResultsUpdated?: number;
 };
 
+export type SchoolYearDeleteImpact = {
+  schoolYear: SchoolYearRecord;
+  events: number;
+  imports: number;
+  attendanceRecords: number;
+  fines: number;
+  finalResults: number;
+  manualRecords: number;
+  penaltyResults: number;
+  linkedRecordsTotal: number;
+};
+
 export type SchoolYearRecordActionResult = {
   schoolYear: SchoolYearRecord;
   eventsUpdated?: number;
@@ -226,6 +238,13 @@ export async function updateSchoolYear(id: string, input: SchoolYearInput) {
     body: JSON.stringify(input),
   });
 
+  return response.data;
+}
+
+export async function getSchoolYearDeleteImpact(id: string) {
+  const response = await apiRequest<SchoolYearDeleteImpact>(
+    `/api/school-years/${encodeURIComponent(id)}/delete-impact`,
+  );
   return response.data;
 }
 

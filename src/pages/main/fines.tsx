@@ -45,6 +45,8 @@ import { Checkbox } from "../../components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -57,6 +59,11 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import {
+  downloadFinesReportXlsx,
+  formatFineReportCurrency,
+  getFineReportAmount,
+} from "../../components/finesReport";
 
 type PenaltyFormState = {
   id: string;
@@ -287,6 +294,7 @@ export default function FinesPage() {
   const [isDeletingPenaltyResults, setIsDeletingPenaltyResults] =
     useState(false);
   const [updatingStatusId, setUpdatingStatusId] = useState("");
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -751,6 +759,24 @@ export default function FinesPage() {
     if (!open) setPenaltyForm(emptyPenaltyForm);
   }
 
+
+  function handleDownloadFinesReport() {
+    if (!filteredPenaltyResults.length) {
+      toast.error("No fine records are available for this report.");
+      return;
+    }
+
+    const safeSchoolYear = selectedSchoolYearLabel
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+
+    downloadFinesReportXlsx(
+      filteredPenaltyResults,
+      `fines-report-${safeSchoolYear || "all"}.xlsx`,
+    );
+  }
+
   function handleEditPenalty(penalty: PenaltyRecord) {
     setPenaltyForm({
       id: penalty.id,
@@ -889,6 +915,15 @@ export default function FinesPage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!filteredPenaltyResults.length}
+                onClick={() => setReportDialogOpen(true)}
+                className="min-h-12 rounded-2xl px-5 text-xs font-black"
+              >
+                Fines Report
+              </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
@@ -1187,9 +1222,7 @@ export default function FinesPage() {
                               Delete penalty rule?
                             </AlertDialogTitle>
                             <AlertDialogDescription>
-                              This removes the selected rule. Existing penalty
-                              results keep their saved prescribed penalty text
-                              until refreshed.
+                              This will permanently delete 1 penalty rule for {penalty.no_of_absences} absence(s). Existing penalty results keep their saved prescribed penalty text until refreshed. This action cannot be undone.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -1213,6 +1246,57 @@ export default function FinesPage() {
             )}
           </div>
         </section>
+        <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+          <DialogContent className="flex max-h-[90svh] min-w-0 flex-col overflow-hidden sm:max-w-5xl">
+            <DialogHeader className="shrink-0">
+              <DialogTitle>Fines report preview</DialogTitle>
+              <DialogDescription>
+                {filteredPenaltyResults.length.toLocaleString()} record(s) matching the current fines filters.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border">
+              <table className="w-max min-w-full text-left text-xs">
+                <thead className="sticky top-0 z-10 bg-primary text-primary-foreground">
+                  <tr>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2">Student ID</th>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2">Name</th>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2">College</th>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Absences</th>
+                    <th className="min-w-80 border-b border-r px-3 py-2">Prescribed Penalty</th>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Fine Amount</th>
+                    <th className="whitespace-nowrap border-b border-r px-3 py-2">Status</th>
+                    <th className="whitespace-nowrap border-b px-3 py-2">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPenaltyResults.map((result, index) => (
+                    <tr key={result.id} className={index % 2 ? "bg-muted/35" : "bg-background"}>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2 font-semibold">{result.student_id}</td>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2">{result.name}</td>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2">{getPenaltyResultCollege(result) || "—"}</td>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{Number(result.no_of_absences || 0).toLocaleString()}</td>
+                      <td className="border-b border-r px-3 py-2">{result.prescribed_penalty || "—"}</td>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{formatFineReportCurrency(getFineReportAmount(result))}</td>
+                      <td className="whitespace-nowrap border-b border-r px-3 py-2 font-semibold uppercase">{result.status}</td>
+                      <td className="whitespace-nowrap border-b px-3 py-2">{formatDateTime(result.updated_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <DialogFooter className="shrink-0">
+              <Button type="button" variant="outline" onClick={() => setReportDialogOpen(false)}>
+                Close
+              </Button>
+              <Button type="button" onClick={handleDownloadFinesReport}>
+                Download .xlsx
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog
           open={penaltyResultDialogOpen}
           onOpenChange={handlePenaltyResultDialogOpenChange}
