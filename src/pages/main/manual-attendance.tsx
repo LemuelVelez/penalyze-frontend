@@ -24,17 +24,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -1356,30 +1346,21 @@ export default function ManualAttendancePage() {
           </DialogContent>
         </Dialog>
 
-        <AlertDialog open={manualUpdateConfirmOpen} onOpenChange={setManualUpdateConfirmOpen}>
-          <AlertDialogContent className="rounded-3xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Update and delete attendance records?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This update will permanently delete {getEditingDeletePlan().recordsToDelete.length.toLocaleString()} existing manual attendance record(s) that are no longer selected or are duplicates. The remaining selected event records will be updated or created. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={isSaving}
-                onClick={(event) => {
-                  event.preventDefault();
-                  setManualUpdateConfirmOpen(false);
-                  void saveManualAttendance();
-                }}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {isSaving ? "Saving..." : "Update and Delete"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <ProtectedDeleteDialog
+          open={manualUpdateConfirmOpen}
+          onOpenChange={setManualUpdateConfirmOpen}
+          title="Update and delete attendance records?"
+          description={
+            <>
+              This update will permanently delete {getEditingDeletePlan().recordsToDelete.length.toLocaleString()} existing manual attendance record(s) that are no longer selected or are duplicates. The remaining selected event records will be updated or created. This action cannot be undone.
+            </>
+          }
+          confirmationPhrase="UPDATE AND DELETE"
+          confirmLabel="Update and Delete"
+          pendingLabel="Saving..."
+          isPending={isSaving}
+          onConfirm={saveManualAttendance}
+        />
 
         <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
           <DialogContent className="flex max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
@@ -1463,8 +1444,8 @@ export default function ManualAttendancePage() {
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -1477,30 +1458,20 @@ export default function ManualAttendancePage() {
                   >
                     {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected manual attendance?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {selectedManualRecordIds.length.toLocaleString()} selected manual attendance record(s). This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingManualRecords}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteSelectedManualRecords()}
-                      disabled={isDeletingManualRecords}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingManualRecords ? "Deleting..." : "Delete Selected"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+                }
+                title="Delete selected manual attendance?"
+                description={
+                  <>
+                    This will permanently delete {selectedManualRecordIds.length.toLocaleString()} selected manual attendance record(s). This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE SELECTED"
+                confirmLabel="Delete Selected"
+                isPending={isDeletingManualRecords}
+                onConfirm={handleDeleteSelectedManualRecords}
+              />
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="destructive"
@@ -1513,28 +1484,18 @@ export default function ManualAttendancePage() {
                   >
                     {isDeletingManualRecords ? "Deleting..." : "Delete All"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all matching manual attendance?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete all {filteredGroupRecordIds.length.toLocaleString()} manual attendance record(s) matching the current filters. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingManualRecords}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteAllManualRecords()}
-                      disabled={isDeletingManualRecords}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingManualRecords ? "Deleting..." : "Delete All"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Delete all matching manual attendance?"
+                description={
+                  <>
+                    This will permanently delete all {filteredGroupRecordIds.length.toLocaleString()} manual attendance record(s) matching the current filters. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE ALL"
+                confirmLabel="Delete All"
+                isPending={isDeletingManualRecords}
+                onConfirm={handleDeleteAllManualRecords}
+              />
             </div>
           </div>
 
@@ -1617,35 +1578,28 @@ export default function ManualAttendancePage() {
                           >
                             Edit
                           </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
+                          <ProtectedDeleteDialog
+                            trigger={
                               <Button
                                 type="button"
                                 variant="destructive"
+                                disabled={isSaving || isDeletingManualRecords}
                                 className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                               >
-                                Delete
+                                {isSaving ? "Deleting..." : "Delete"}
                               </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="rounded-3xl">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Delete manual attendance?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This will permanently delete all {group.records.length.toLocaleString()} manual attendance record(s) for Student ID {group.studentId}. This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteGroup(group)}
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                            }
+                            title="Delete manual attendance?"
+                            description={
+                              <>
+                                This will permanently delete all {group.records.length.toLocaleString()} manual attendance record(s) for Student ID {group.studentId}. This action cannot be undone.
+                              </>
+                            }
+                            confirmationPhrase="DELETE"
+                            confirmLabel="Delete"
+                            isPending={isSaving}
+                            onConfirm={() => handleDeleteGroup(group)}
+                          />
                         </div>
                       </td>
                     </tr>

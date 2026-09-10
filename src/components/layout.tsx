@@ -289,7 +289,7 @@ export default function AppLayout(props: LayoutProps) {
   if (!props.authenticated) {
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <div className="fixed right-4 top-4 z-[100] rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <div className="fixed right-4 top-4 z-100 rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
           <ThemeToggle />
         </div>
         {props.children}
@@ -300,7 +300,7 @@ export default function AppLayout(props: LayoutProps) {
   return (
     <div className="min-h-screen bg-muted/20 text-foreground">
       <header className="fixed inset-x-0 top-0 z-40 border-b bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-400 items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Button
             type="button"
             variant="ghost"

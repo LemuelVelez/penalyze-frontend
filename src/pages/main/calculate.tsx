@@ -20,17 +20,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
@@ -2197,8 +2187,8 @@ export default function CalculatePage() {
                 placeholder="Search student, college, program, or penalty"
                 className="min-h-12 rounded-2xl lg:max-w-md"
               />
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -2210,30 +2200,20 @@ export default function CalculatePage() {
                   >
                     Delete Selected
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected calculation rows?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will delete {selectedCalculationRowKeys.length.toLocaleString()} selected calculation row(s). Saved calculation records will also be removed when applicable. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingCalculationRows}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteSelectedCalculationRows()}
-                      disabled={isDeletingCalculationRows}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingCalculationRows ? "Deleting..." : "Delete Selected"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+                }
+                title="Delete selected calculation rows?"
+                description={
+                  <>
+                    This will delete {selectedCalculationRowKeys.length.toLocaleString()} selected calculation row(s). Saved calculation records will also be removed when applicable. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE SELECTED"
+                confirmLabel="Delete Selected"
+                isPending={isDeletingCalculationRows}
+                onConfirm={handleDeleteSelectedCalculationRows}
+              />
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="destructive"
@@ -2242,28 +2222,18 @@ export default function CalculatePage() {
                   >
                     Delete All
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all calculation rows?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will delete all {calculationRows.length.toLocaleString()} calculation row(s) currently loaded. Saved calculation records will also be removed when applicable. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingCalculationRows}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteAllCalculationRows()}
-                      disabled={isDeletingCalculationRows}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingCalculationRows ? "Deleting..." : "Delete All"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Delete all calculation rows?"
+                description={
+                  <>
+                    This will delete all {calculationRows.length.toLocaleString()} calculation row(s) currently loaded. Saved calculation records will also be removed when applicable. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE ALL"
+                confirmLabel="Delete All"
+                isPending={isDeletingCalculationRows}
+                onConfirm={handleDeleteAllCalculationRows}
+              />
             </div>
           </div>
 

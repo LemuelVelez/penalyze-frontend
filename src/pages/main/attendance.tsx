@@ -37,6 +37,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -50,7 +51,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import {
   Dialog,
@@ -2386,8 +2386,8 @@ export default function AttendancePage() {
               <p className="text-sm font-bold text-muted-foreground">
                 {formatNumber(displayedFinalResults.length)} result/s
               </p>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -2398,35 +2398,23 @@ export default function AttendancePage() {
                   >
                     Delete Selected
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      Delete selected final attendance results?
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {formatNumber(
-                        selectedFinalResultIds.length,
-                      )} selected final attendance result/s. This action cannot
-                      be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingFinalResults}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteSelectedFinalResults()}
-                      disabled={isDeletingFinalResults}
-                      className="bg-destructive text-destructive-foreground hover:opacity-90"
-                    >
-                      Delete Selected
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+                }
+                title="Delete selected final attendance results?"
+                description={
+                  <>
+                    This will permanently delete {formatNumber(
+                      selectedFinalResultIds.length,
+                    )} selected final attendance result/s. This action cannot
+                    be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE SELECTED"
+                confirmLabel="Delete Selected"
+                isPending={isDeletingFinalResults}
+                onConfirm={handleDeleteSelectedFinalResults}
+              />
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -2437,33 +2425,21 @@ export default function AttendancePage() {
                   >
                     Delete All
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      Delete all final attendance results?
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete all {formatNumber(
-                        displayedFinalResults.length,
-                      )} displayed final attendance result/s. This action cannot
-                      be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingFinalResults}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteAllFinalResults()}
-                      disabled={isDeletingFinalResults}
-                      className="bg-destructive text-destructive-foreground hover:opacity-90"
-                    >
-                      Delete All
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Delete all final attendance results?"
+                description={
+                  <>
+                    This will permanently delete all {formatNumber(
+                      displayedFinalResults.length,
+                    )} displayed final attendance result/s. This action cannot
+                    be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE ALL"
+                confirmLabel="Delete All"
+                isPending={isDeletingFinalResults}
+                onConfirm={handleDeleteAllFinalResults}
+              />
             </div>
           </div>
 

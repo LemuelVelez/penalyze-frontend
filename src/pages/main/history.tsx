@@ -52,6 +52,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -1115,8 +1116,8 @@ export default function HistoryPage() {
   }) {
     return (
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
+        <ProtectedDeleteDialog
+          trigger={
             <Button
               type="button"
               variant="destructive"
@@ -1125,28 +1126,18 @@ export default function HistoryPage() {
             >
               {args.isDeleting ? "Deleting..." : "Delete Selected"}
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent className="rounded-2xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{args.selectedTitle}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {args.selectedDescription}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={args.onDeleteSelected}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete Selected
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          }
+          title={args.selectedTitle}
+          description={args.selectedDescription}
+          confirmationPhrase="DELETE SELECTED"
+          confirmLabel="Delete Selected"
+          isPending={args.isDeleting}
+          contentClassName="rounded-2xl"
+          onConfirm={args.onDeleteSelected}
+        />
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
+        <ProtectedDeleteDialog
+          trigger={
             <Button
               type="button"
               variant="destructive"
@@ -1155,25 +1146,15 @@ export default function HistoryPage() {
             >
               {args.isDeleting ? "Deleting..." : "Delete All"}
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent className="rounded-2xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{args.allTitle}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {args.allDescription}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={args.onDeleteAll}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete All
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          }
+          title={args.allTitle}
+          description={args.allDescription}
+          confirmationPhrase="DELETE ALL"
+          confirmLabel="Delete All"
+          isPending={args.isDeleting}
+          contentClassName="rounded-2xl"
+          onConfirm={args.onDeleteAll}
+        />
       </div>
     );
   }
@@ -1680,8 +1661,8 @@ export default function HistoryPage() {
               </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
+            <ProtectedDeleteDialog
+              trigger={
                 <Button
                   type="button"
                   variant="destructive"
@@ -1690,33 +1671,27 @@ export default function HistoryPage() {
                 >
                   {isDeleting ? "Deleting..." : "Delete Records by School Year"}
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Delete selected school-year records?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {schoolYearDeleteImpact ? (
-                      <>
-                        This will permanently delete {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). The school-year record itself will remain.
-                      </>
-                    ) : (
-                      "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction disabled={!schoolYearDeleteImpact} onClick={handleDeleteSchoolYearRecords}>
-                    Delete Records
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              }
+              title="Delete selected school-year records?"
+              description={
+                schoolYearDeleteImpact ? (
+                  <>
+                    This will permanently delete {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). The school-year record itself will remain.
+                  </>
+                ) : (
+                  "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
+                )
+              }
+              confirmationPhrase="DELETE RECORDS"
+              confirmLabel="Delete Records"
+              isPending={isDeleting}
+              confirmDisabled={!schoolYearDeleteImpact}
+              contentClassName="rounded-2xl"
+              onConfirm={handleDeleteSchoolYearRecords}
+            />
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
+            <ProtectedDeleteDialog
+              trigger={
                 <Button
                   type="button"
                   variant="destructive"
@@ -1725,28 +1700,24 @@ export default function HistoryPage() {
                 >
                   {isDeletingSchoolYear ? "Deleting..." : "Delete School Year"}
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this school year?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {schoolYearDeleteImpact ? (
-                      <>
-                        This will permanently delete 1 school-year record plus {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). This action cannot be undone.
-                      </>
-                    ) : (
-                      "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction disabled={!schoolYearDeleteImpact} onClick={handleDeleteSchoolYear}>
-                    Delete School Year
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              }
+              title="Delete this school year?"
+              description={
+                schoolYearDeleteImpact ? (
+                  <>
+                    This will permanently delete 1 school-year record plus {schoolYearDeleteImpact.linkedRecordsTotal.toLocaleString()} linked record(s): {schoolYearDeleteImpact.events.toLocaleString()} event(s), {schoolYearDeleteImpact.imports.toLocaleString()} import(s), {schoolYearDeleteImpact.attendanceRecords.toLocaleString()} attendance record(s), {schoolYearDeleteImpact.finalResults.toLocaleString()} final result(s), {schoolYearDeleteImpact.manualRecords.toLocaleString()} manual record(s), {schoolYearDeleteImpact.fines.toLocaleString()} fine(s), and {schoolYearDeleteImpact.penaltyResults.toLocaleString()} penalty result(s). This action cannot be undone.
+                  </>
+                ) : (
+                  "Unable to calculate the delete impact. Deletion is disabled until the affected record count is available."
+                )
+              }
+              confirmationPhrase="DELETE SCHOOL YEAR"
+              confirmLabel="Delete School Year"
+              isPending={isDeletingSchoolYear}
+              confirmDisabled={!schoolYearDeleteImpact}
+              contentClassName="rounded-2xl"
+              onConfirm={handleDeleteSchoolYear}
+            />
           </div>
         </section>
 

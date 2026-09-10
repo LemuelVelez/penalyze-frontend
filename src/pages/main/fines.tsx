@@ -29,17 +29,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
@@ -924,8 +914,8 @@ export default function FinesPage() {
               >
                 Fines Report
               </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -938,30 +928,20 @@ export default function FinesPage() {
                   >
                     {isDeletingPenaltyResults ? "Deleting..." : "Delete Selected"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected penalty results?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {selectedPenaltyResultIds.length.toLocaleString()} selected penalty result(s). Penalty rules are not deleted. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingPenaltyResults}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteSelectedPenaltyResults()}
-                      disabled={isDeletingPenaltyResults}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingPenaltyResults ? "Deleting..." : "Delete Selected"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+                }
+                title="Delete selected penalty results?"
+                description={
+                  <>
+                    This will permanently delete {selectedPenaltyResultIds.length.toLocaleString()} selected penalty result(s). Penalty rules are not deleted. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE SELECTED"
+                confirmLabel="Delete Selected"
+                isPending={isDeletingPenaltyResults}
+                onConfirm={handleDeleteSelectedPenaltyResults}
+              />
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="destructive"
@@ -974,28 +954,18 @@ export default function FinesPage() {
                   >
                     {isDeletingPenaltyResults ? "Deleting..." : "Delete All"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all matching penalty results?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete all {filteredPenaltyResultIds.length.toLocaleString()} penalty result(s) matching the current filters. Penalty rules are not deleted. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingPenaltyResults}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteAllPenaltyResults()}
-                      disabled={isDeletingPenaltyResults}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingPenaltyResults ? "Deleting..." : "Delete All"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Delete all matching penalty results?"
+                description={
+                  <>
+                    This will permanently delete all {filteredPenaltyResultIds.length.toLocaleString()} penalty result(s) matching the current filters. Penalty rules are not deleted. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE ALL"
+                confirmLabel="Delete All"
+                isPending={isDeletingPenaltyResults}
+                onConfirm={handleDeleteAllPenaltyResults}
+              />
               <Button
                 type="button"
                 onClick={handleRefreshPenaltyResults}
@@ -1206,8 +1176,8 @@ export default function FinesPage() {
                         Edit
                       </Button>
 
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
+                      <ProtectedDeleteDialog
+                        trigger={
                           <Button
                             type="button"
                             variant="destructive"
@@ -1215,26 +1185,17 @@ export default function FinesPage() {
                           >
                             Delete
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent className="rounded-3xl">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Delete penalty rule?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete 1 penalty rule for {penalty.no_of_absences} absence(s). Existing penalty results keep their saved prescribed penalty text until refreshed. This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDeletePenalty(penalty)}
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        }
+                        title="Delete penalty rule?"
+                        description={
+                          <>
+                            This will permanently delete 1 penalty rule for {penalty.no_of_absences} absence(s). Existing penalty results keep their saved prescribed penalty text until refreshed. This action cannot be undone.
+                          </>
+                        }
+                        confirmationPhrase="DELETE"
+                        confirmLabel="Delete"
+                        onConfirm={() => handleDeletePenalty(penalty)}
+                      />
                     </div>
                   </div>
                 </article>

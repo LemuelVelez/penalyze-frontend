@@ -24,17 +24,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -662,8 +652,8 @@ export default function EventsPage() {
                 onChange={(event) => setToDate(event.target.value)}
                 className="min-h-11 rounded-2xl sm:w-40"
               />
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="outline"
@@ -677,30 +667,20 @@ export default function EventsPage() {
                   >
                     {isDeletingEvents ? "Deleting..." : "Delete Selected"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected events?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {selectedEventIds.length.toLocaleString()} selected event record(s). This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingEvents}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteSelectedEvents()}
-                      disabled={isDeletingEvents}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingEvents ? "Deleting..." : "Delete Selected"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+                }
+                title="Delete selected events?"
+                description={
+                  <>
+                    This will permanently delete {selectedEventIds.length.toLocaleString()} selected event record(s). This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE SELECTED"
+                confirmLabel="Delete Selected"
+                isPending={isDeletingEvents}
+                onConfirm={handleDeleteSelectedEvents}
+              />
+              <ProtectedDeleteDialog
+                trigger={
                   <Button
                     type="button"
                     variant="destructive"
@@ -714,28 +694,18 @@ export default function EventsPage() {
                   >
                     {isDeletingEvents ? "Deleting..." : "Delete All"}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete all matching events?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete all {displayedEventIds.length.toLocaleString()} event record(s) matching the current filters. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeletingEvents}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDeleteAllEvents()}
-                      disabled={isDeletingEvents}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {isDeletingEvents ? "Deleting..." : "Delete All"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                }
+                title="Delete all matching events?"
+                description={
+                  <>
+                    This will permanently delete all {displayedEventIds.length.toLocaleString()} event record(s) matching the current filters. This action cannot be undone.
+                  </>
+                }
+                confirmationPhrase="DELETE ALL"
+                confirmLabel="Delete All"
+                isPending={isDeletingEvents}
+                onConfirm={handleDeleteAllEvents}
+              />
             </div>
           </div>
 
@@ -817,8 +787,8 @@ export default function EventsPage() {
                             Edit
                           </Button>
 
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
+                          <ProtectedDeleteDialog
+                            trigger={
                               <Button
                                 type="button"
                                 variant="destructive"
@@ -829,26 +799,14 @@ export default function EventsPage() {
                                   ? "Deleting..."
                                   : "Delete"}
                               </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="rounded-3xl">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Delete this event?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteEvent(event)}
-                                >
-                                  Delete Event
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                            }
+                            title="Delete this event?"
+                            description="This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated."
+                            confirmationPhrase="DELETE"
+                            confirmLabel="Delete Event"
+                            isPending={deletingEventId === event.id}
+                            onConfirm={() => handleDeleteEvent(event)}
+                          />
                         </div>
                       </td>
                     </tr>

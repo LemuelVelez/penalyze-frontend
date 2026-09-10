@@ -11,17 +11,7 @@ import {
   updateUser,
 } from "../../api/auth";
 import type { AuthUser, RegisterInput, UserRole } from "../../api/auth";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "../../components/ui/alert-dialog";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -369,8 +359,8 @@ export default function UsersPage() {
                         >
                           Edit
                         </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                        <ProtectedDeleteDialog
+                          trigger={
                             <Button
                               type="button"
                               variant="destructive"
@@ -383,25 +373,18 @@ export default function UsersPage() {
                                 ? "Deleting..."
                                 : "Delete"}
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete user?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete 1 user record: {user.name}. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="bg-destructive text-destructive-foreground hover:opacity-90"
-                              >
-                                Delete User
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                          }
+                          title="Delete user?"
+                          description={
+                            <>
+                              This will permanently delete 1 user record: {user.name}. This action cannot be undone.
+                            </>
+                          }
+                          confirmationPhrase="DELETE"
+                          confirmLabel="Delete User"
+                          isPending={deletingUserId === user.id}
+                          onConfirm={() => handleDeleteUser(user.id)}
+                        />
                       </div>
                     </article>
                   );
@@ -457,8 +440,8 @@ export default function UsersPage() {
                               >
                                 Edit
                               </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
+                              <ProtectedDeleteDialog
+                                trigger={
                                   <Button
                                     type="button"
                                     variant="destructive"
@@ -472,29 +455,18 @@ export default function UsersPage() {
                                       ? "Deleting..."
                                       : "Delete"}
                                   </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Delete user?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This will permanently delete 1 user record: {user.name}. This action cannot be undone.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => handleDeleteUser(user.id)}
-                                      className="bg-destructive text-destructive-foreground hover:opacity-90"
-                                    >
-                                      Delete User
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                                }
+                                title="Delete user?"
+                                description={
+                                  <>
+                                    This will permanently delete 1 user record: {user.name}. This action cannot be undone.
+                                  </>
+                                }
+                                confirmationPhrase="DELETE"
+                                confirmLabel="Delete User"
+                                isPending={deletingUserId === user.id}
+                                onConfirm={() => handleDeleteUser(user.id)}
+                              />
                             </div>
                           </td>
                         </tr>
