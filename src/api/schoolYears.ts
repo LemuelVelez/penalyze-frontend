@@ -23,6 +23,7 @@ export type SchoolYearInput = {
 
 export type ListSchoolYearsOptions = {
   activeOnly?: boolean;
+  signal?: AbortSignal;
 };
 
 export type TransferSchoolYearRecordsPayload = {
@@ -214,7 +215,9 @@ export function getActiveSchoolYearId(schoolYears: SchoolYearRecord[]) {
 
 export async function listSchoolYears(options: ListSchoolYearsOptions = {}) {
   const query = options.activeOnly ? "?activeOnly=true" : "";
-  const response = await apiRequest<SchoolYearRecord[]>(`/api/school-years${query}`);
+  const response = await apiRequest<SchoolYearRecord[]>(`/api/school-years${query}`, {
+    signal: options.signal,
+  });
   return response.data ?? [];
 }
 

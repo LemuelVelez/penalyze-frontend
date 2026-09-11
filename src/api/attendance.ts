@@ -356,6 +356,7 @@ type ListOptions = {
   limit?: number;
   offset?: number;
   includeDeleted?: boolean;
+  signal?: AbortSignal;
 };
 
 export type AttendanceFileSaveOption = {
@@ -798,6 +799,7 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
 
   const response = await apiRequest<AttendanceRecord[]>(
     `/api/attendance${query}`,
+    { signal: options.signal },
   );
   const rows = response.data ?? [];
 
@@ -938,6 +940,7 @@ export async function listCalculationResults(options: ListOptions = {}) {
 
   const response = await apiRequest<CalculationResultRecord[]>(
     `/api/attendance/calculation-results${query}`,
+    { signal: options.signal },
   );
   return response.data ?? [];
 }
@@ -947,13 +950,16 @@ export async function previewCalculationResults(
     schoolYearId?: string;
     importIds?: string[];
     sourceTypes?: CalculationSourceType[];
+    signal?: AbortSignal;
   } = {},
 ) {
+  const { signal, ...payload } = options;
   const response = await apiRequest<CalculationResultRecord[]>(
     "/api/attendance/calculation-results/preview",
     {
       method: "POST",
-      body: JSON.stringify(options),
+      body: JSON.stringify(payload),
+      signal,
     },
   );
 
@@ -965,13 +971,16 @@ export async function refreshCalculationResults(
     schoolYearId?: string;
     importIds?: string[];
     sourceTypes?: CalculationSourceType[];
+    signal?: AbortSignal;
   } = {},
 ) {
+  const { signal, ...payload } = options;
   const response = await apiRequest<CalculationResultRecord[]>(
     "/api/attendance/calculation-results/refresh",
     {
       method: "POST",
-      body: JSON.stringify(options),
+      body: JSON.stringify(payload),
+      signal,
     },
   );
 
@@ -1016,6 +1025,7 @@ export async function listManualAttendanceRecords(options: ListOptions = {}) {
 
   const response = await apiRequest<ManualAttendanceRecord[]>(
     `/api/attendance/manual-records${query}`,
+    { signal: options.signal },
   );
   return response.data ?? [];
 }
@@ -1023,7 +1033,7 @@ export async function listManualAttendanceRecords(options: ListOptions = {}) {
 export async function listAttendanceImports(
   options: Pick<
     ListOptions,
-    "schoolYearId" | "limit" | "offset" | "includeDeleted"
+    "schoolYearId" | "limit" | "offset" | "includeDeleted" | "signal"
   > = {},
 ) {
   const query = buildSearchParams({
@@ -1035,6 +1045,7 @@ export async function listAttendanceImports(
 
   const response = await apiRequest<AttendanceImportRecord[]>(
     `/api/attendance/imports${query}`,
+    { signal: options.signal },
   );
   return response.data ?? [];
 }

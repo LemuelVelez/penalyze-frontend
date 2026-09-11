@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -11,7 +18,6 @@ import type {
   ManualAttendanceInput,
   ManualAttendanceRecord,
 } from "../../api/attendance";
-import { listPenalties } from "../../api/fines";
 import type { PenaltyRecord } from "../../api/fines";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -31,6 +37,13 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Progress } from "../../components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 
 const ZERO_ATTENDANCE_REMARK =
   "Zero attendance registration from landing page.";
@@ -67,6 +80,7 @@ type CalculationRow = {
   schoolYearId: string | null;
   calculationScopeKey?: string;
   importIds: string[];
+  sourceTypes?: CalculationSourceType[];
   studentId: string;
   name: string;
   yearLevel: string | null;
@@ -81,8 +95,6 @@ type CalculationRow = {
   prescribedPenalty: string | null;
   penalty: PenaltyRecord | null;
   sourceRecordCount: number;
-  attendanceRecords: AttendanceRecord[];
-  manualRecords: ManualAttendanceRecord[];
   calculatedAt?: string;
   isSavedResult: boolean;
 };
@@ -124,42 +136,6 @@ type CalculationProgressPatch = Partial<
   >
 >;
 
-type ImportedAttendanceLoadProgress = {
-  loadedRecords: number;
-  selectedRecords: number;
-  page: number;
-  pageSize: number;
-  isComplete: boolean;
-};
-
-type ManualAttendanceLoadProgress = {
-  loadedRecords: number;
-  page: number;
-  pageSize: number;
-  isComplete: boolean;
-};
-
-type BuildCalculationRowsProgress = {
-  processedStudents: number;
-  totalStudents: number;
-  sourceRecords: number;
-};
-
-type SelectedImportProgressSummary = {
-  selectedImports: AttendanceImportRecord[];
-  expectedImportedRecords: number;
-};
-
-type PaginatedAttendanceApi = typeof attendanceApi & {
-  listAttendanceRecords?: (options: {
-    schoolYearId?: string;
-    limit?: number;
-    offset?: number;
-  }) => Promise<AttendanceRecord[]>;
-};
-
-const attendanceApiWithPagination = attendanceApi as PaginatedAttendanceApi;
-
 const CALCULATION_PROGRESS_STORAGE_KEY = "penalyze.calculate.progress";
 const CALCULATION_PROGRESS_STALE_MS = 1000 * 60 * 60;
 
@@ -186,36 +162,6 @@ function getProgressRangePercent(
   return clampProgressPercent(
     startPercent + ratio * (endPercent - startPercent),
   );
-}
-
-function getSelectedImportProgressSummary(
-  imports: AttendanceImportRecord[],
-  selectedImportIds: string[],
-): SelectedImportProgressSummary {
-  const selectedIds = new Set(selectedImportIds);
-  const selectedImports = imports.filter((importRecord) =>
-    selectedIds.has(importRecord.id),
-  );
-  const expectedImportedRecords = selectedImports.reduce(
-    (totalRows, importRecord) => {
-      const validRows = Number(importRecord.rows_valid ?? 0);
-      const totalImportedRows = Number(importRecord.rows_total ?? 0);
-      const bestKnownRows =
-        Number.isFinite(validRows) && validRows > 0
-          ? validRows
-          : totalImportedRows;
-
-      if (!Number.isFinite(bestKnownRows)) return totalRows;
-
-      return totalRows + Math.max(0, bestKnownRows);
-    },
-    0,
-  );
-
-  return {
-    selectedImports,
-    expectedImportedRecords,
-  };
 }
 
 function readStoredCalculationProgress() {
@@ -357,13 +303,6 @@ function getCalculationSourceLabel(sourceType: CalculationSourceType) {
   );
 }
 
-function getRecordTimestamp(record: AttendanceRecord | ManualAttendanceRecord) {
-  const value = record.scanned_at ?? record.created_at;
-  const time = value ? new Date(value).getTime() : 0;
-
-  return Number.isNaN(time) ? 0 : time;
-}
-
 type BackendEventOrderedRecord = {
   id?: string | null;
   event_order?: number | string | null;
@@ -421,77 +360,6 @@ function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
   records: T[],
 ) {
   return [...records].sort(compareByBackendEventOrder);
-}
-
-function getAbsenceCount(value: unknown) {
-  const numericValue = Number(value ?? 0);
-
-  if (!Number.isFinite(numericValue)) return 0;
-
-  return Math.max(0, numericValue);
-}
-
-type CalculationEventRecord = AttendanceRecord | ManualAttendanceRecord;
-
-function getCalculationRecordImportId(record: CalculationEventRecord) {
-  return "import_id" in record ? record.import_id : null;
-}
-
-function getAttendedEventKey(record: CalculationEventRecord) {
-  if ("attendance_type" in record) {
-    if (isZeroManualAttendanceRecord(record)) return "";
-  } else if (isZeroAttendanceRecord(record)) {
-    return "";
-  }
-
-  return normalizeValue(
-    record.event_id ||
-      record.event_name ||
-      getCalculationRecordImportId(record) ||
-      record.id,
-  );
-}
-
-function getCalculationSchoolYearKey(record: CalculationEventRecord) {
-  return record.school_year_id ?? "unassigned";
-}
-
-function getCalculationStudentGroupKey(record: CalculationEventRecord) {
-  return `${getCalculationSchoolYearKey(record)}::${normalizeStudentId(
-    record.student_id,
-  )}`;
-}
-
-function getBestTextValue(...values: Array<string | null | undefined>) {
-  return values.map(normalizeValue).find(Boolean) ?? "";
-}
-
-function getBestStudentRecord(
-  records: AttendanceRecord[],
-  manualRecords: ManualAttendanceRecord[],
-) {
-  const combined = [...records, ...manualRecords].sort(
-    (leftRecord, rightRecord) => {
-      return getRecordTimestamp(rightRecord) - getRecordTimestamp(leftRecord);
-    },
-  );
-
-  return combined[0] ?? null;
-}
-
-function matchPenaltyForAbsences(
-  penalties: PenaltyRecord[],
-  totalAbsences: number,
-) {
-  return (
-    [...penalties]
-      .filter((penalty) => Number(penalty.no_of_absences) <= totalAbsences)
-      .sort(
-        (leftPenalty, rightPenalty) =>
-          Number(rightPenalty.no_of_absences) -
-          Number(leftPenalty.no_of_absences),
-      )[0] ?? null
-  );
 }
 
 function formatDateTime(value?: string | null) {
@@ -553,13 +421,16 @@ function toSourceRecordEditForm(
   };
 }
 
-function buildRecordEditForms(row: CalculationRow) {
+function buildRecordEditForms(
+  attendanceRecords: AttendanceRecord[],
+  manualRecords: ManualAttendanceRecord[],
+) {
   return [
-    ...row.attendanceRecords.map((record) => ({
+    ...attendanceRecords.map((record) => ({
       record,
       recordType: "imported" as const,
     })),
-    ...row.manualRecords.map((record) => ({
+    ...manualRecords.map((record) => ({
       record,
       recordType: "manual" as const,
     })),
@@ -595,314 +466,134 @@ function buildAttendanceInput(
   return input;
 }
 
-async function listSelectedImportedAttendanceRecords(
-  options: {
-    schoolYearId?: string;
-    importIds: string[];
-    includeImported?: boolean;
-    includeZeroAttendance?: boolean;
-  } = { importIds: [] },
-  onProgress?: (progress: ImportedAttendanceLoadProgress) => void,
-) {
-  const pageSize = 500;
-  const maxPages = 100;
-  const selectedImportIds = new Set(options.importIds);
-  const includeImported = options.includeImported ?? true;
-  const includeZeroAttendance = options.includeZeroAttendance ?? true;
-  const rows: AttendanceRecord[] = [];
-  let loadedRecords = 0;
-
-  const appendSelectedRows = (pageRows: AttendanceRecord[]) => {
-    pageRows.forEach((record) => {
-      if (isZeroAttendanceRecord(record)) {
-        if (includeZeroAttendance) rows.push(record);
-        return;
-      }
-
-      if (!includeImported || !record.import_id) return;
-      if (selectedImportIds.size && !selectedImportIds.has(record.import_id)) {
-        return;
-      }
-
-      rows.push(record);
-    });
-  };
-
-  const emitProgress = (pageRows: AttendanceRecord[], page: number) => {
-    loadedRecords += pageRows.length;
-
-    const isComplete = pageRows.length < pageSize || page >= maxPages;
-
-    onProgress?.({
-      loadedRecords,
-      selectedRecords: rows.length,
-      page,
-      pageSize,
-      isComplete,
-    });
-
-    return isComplete;
-  };
-
-  const paginatedListAttendanceRecords =
-    attendanceApiWithPagination.listAttendanceRecords;
-
-  if (!paginatedListAttendanceRecords) {
-    const allRows = await attendanceApi.listAllAttendanceRecords({
-      schoolYearId: options.schoolYearId,
-      pageSize,
-      maxPages,
-    });
-
-    for (let page = 0; page < maxPages; page += 1) {
-      const pageRows = allRows.slice(page * pageSize, (page + 1) * pageSize);
-
-      appendSelectedRows(pageRows);
-
-      const isComplete = emitProgress(pageRows, page + 1);
-
-      await yieldCalculationProgressFrame();
-
-      if (isComplete) break;
-    }
-
-    return rows;
-  }
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const pageRows = await paginatedListAttendanceRecords({
-      schoolYearId: options.schoolYearId,
-      limit: pageSize,
-      offset: page * pageSize,
-    });
-
-    appendSelectedRows(pageRows);
-
-    const isComplete = emitProgress(pageRows, page + 1);
-
-    await yieldCalculationProgressFrame();
-
-    if (isComplete) break;
-  }
-
-  return rows;
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
-async function listAllManualAttendanceRecords(
-  options: {
-    schoolYearId?: string;
-    includeManual?: boolean;
-    includeZeroAttendance?: boolean;
-  } = {},
-  onProgress?: (progress: ManualAttendanceLoadProgress) => void,
-) {
+async function listAllAttendanceImports(options: {
+  schoolYearId?: string;
+  signal: AbortSignal;
+}) {
   const pageSize = 500;
-  const includeManual = options.includeManual ?? true;
-  const includeZeroAttendance = options.includeZeroAttendance ?? true;
+  const rows: AttendanceImportRecord[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const pageRows = await attendanceApi.listAttendanceImports({
+      schoolYearId: options.schoolYearId,
+      limit: pageSize,
+      offset,
+      signal: options.signal,
+    });
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageSize) return rows;
+  }
+}
+
+async function listAllCalculationResults(options: {
+  schoolYearId?: string;
+  importIds?: string[];
+  sourceTypes: CalculationSourceType[];
+  signal: AbortSignal;
+}) {
+  const pageSize = 1000;
+  const rows: CalculationResultRecord[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const pageRows = await attendanceApi.listCalculationResults({
+      schoolYearId: options.schoolYearId,
+      importIds: options.importIds,
+      sourceTypes: options.sourceTypes,
+      limit: pageSize,
+      offset,
+      signal: options.signal,
+    });
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageSize) return rows;
+  }
+}
+
+async function listStudentAttendanceRecords(options: {
+  studentId: string;
+  schoolYearId?: string;
+  importIds?: string[];
+  signal: AbortSignal;
+}) {
+  const pageSize = 500;
+  const rows: AttendanceRecord[] = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    const pageRows = await attendanceApi.listAttendanceRecords({
+      studentId: options.studentId,
+      schoolYearId: options.schoolYearId,
+      importIds: options.importIds,
+      limit: pageSize,
+      offset,
+      signal: options.signal,
+    });
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageSize) return rows;
+  }
+}
+
+async function listStudentManualAttendanceRecords(options: {
+  studentId: string;
+  schoolYearId?: string;
+  signal: AbortSignal;
+}) {
+  const pageSize = 500;
   const rows: ManualAttendanceRecord[] = [];
 
-  for (let page = 0; page < 100; page += 1) {
+  for (let offset = 0; ; offset += pageSize) {
     const pageRows = await attendanceApi.listManualAttendanceRecords({
+      studentId: options.studentId,
       schoolYearId: options.schoolYearId,
       limit: pageSize,
-      offset: page * pageSize,
+      offset,
+      signal: options.signal,
     });
+    rows.push(...pageRows);
 
-    rows.push(
-      ...pageRows.filter((record) => {
-        const isZeroAttendance = isZeroManualAttendanceRecord(record);
-
-        return isZeroAttendance ? includeZeroAttendance : includeManual;
-      }),
-    );
-
-    const isComplete = pageRows.length < pageSize;
-
-    onProgress?.({
-      loadedRecords: rows.length,
-      page: page + 1,
-      pageSize,
-      isComplete,
-    });
-
-    await yieldCalculationProgressFrame();
-
-    if (isComplete) break;
+    if (pageRows.length < pageSize) return rows;
   }
-
-  return rows;
 }
 
-async function buildCalculationRows(
-  props: {
-    attendanceRecords: AttendanceRecord[];
-    manualRecords: ManualAttendanceRecord[];
-    penalties: PenaltyRecord[];
-    importIds: string[];
-    sourceTypes: CalculationSourceType[];
-  },
-  onProgress?: (progress: BuildCalculationRowsProgress) => void,
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+  onCompleted?: (completed: number) => void,
 ) {
-  const selectedImportIds = new Set(props.importIds);
-  const selectedSourceTypes = new Set(
-    normalizeCalculationSourceTypes(props.sourceTypes),
+  if (!items.length) return;
+
+  let nextIndex = 0;
+  let completed = 0;
+  let firstError: unknown;
+  let hasError = false;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (!hasError) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+
+        try {
+          await worker(items[index], index);
+          completed += 1;
+          onCompleted?.(completed);
+        } catch (error) {
+          if (!hasError) firstError = error;
+          hasError = true;
+        }
+      }
+    }),
   );
-  const includeImported = selectedSourceTypes.has("imported");
-  const includeManual = selectedSourceTypes.has("manual");
-  const includeZeroAttendance = selectedSourceTypes.has("zero_attendance");
-  const importedRecords = props.attendanceRecords.filter((record) => {
-    if (isZeroAttendanceRecord(record)) return includeZeroAttendance;
-    if (!includeImported || !record.import_id) return false;
-    if (!selectedImportIds.size) return true;
 
-    return selectedImportIds.has(record.import_id);
-  });
-  const manualRecords = props.manualRecords.filter((record) => {
-    const isZeroAttendance = isZeroManualAttendanceRecord(record);
-
-    return isZeroAttendance ? includeZeroAttendance : includeManual;
-  });
-  const groupedRecords = new Map<string, AttendanceRecord[]>();
-  const groupedManualRecords = new Map<string, ManualAttendanceRecord[]>();
-  const expectedEventKeysBySchoolYear = new Map<string, Set<string>>();
-
-  [...importedRecords, ...manualRecords].forEach((record) => {
-    const eventKey = getAttendedEventKey(record);
-    if (!eventKey) return;
-
-    const schoolYearKey = getCalculationSchoolYearKey(record);
-    const eventKeys =
-      expectedEventKeysBySchoolYear.get(schoolYearKey) ?? new Set<string>();
-    eventKeys.add(eventKey);
-    expectedEventKeysBySchoolYear.set(schoolYearKey, eventKeys);
-  });
-
-  importedRecords.forEach((record) => {
-    const studentId = normalizeStudentId(record.student_id);
-    if (!studentId) return;
-
-    const groupKey = getCalculationStudentGroupKey(record);
-    const rows = groupedRecords.get(groupKey) ?? [];
-    rows.push(record);
-    groupedRecords.set(groupKey, rows);
-  });
-
-  manualRecords.forEach((record) => {
-    const studentId = normalizeStudentId(record.student_id);
-    if (!studentId) return;
-
-    const groupKey = getCalculationStudentGroupKey(record);
-    const rows = groupedManualRecords.get(groupKey) ?? [];
-    rows.push(record);
-    groupedManualRecords.set(groupKey, rows);
-  });
-
-  const studentKeys = Array.from(
-    new Set([...groupedRecords.keys(), ...groupedManualRecords.keys()]),
-  );
-  const totalStudents = studentKeys.length;
-  const sourceRecords = importedRecords.length + manualRecords.length;
-  const rows: CalculationRow[] = [];
-
-  if (!totalStudents) {
-    onProgress?.({
-      processedStudents: 0,
-      totalStudents: 0,
-      sourceRecords,
-    });
-
-    return rows;
-  }
-
-  for (let index = 0; index < studentKeys.length; index += 1) {
-    const studentKey = studentKeys[index];
-    const attendanceGroup = sortByBackendEventOrder(
-      groupedRecords.get(studentKey) ?? [],
-    );
-    const manualGroup = sortByBackendEventOrder(
-      groupedManualRecords.get(studentKey) ?? [],
-    );
-    const bestRecord = getBestStudentRecord(attendanceGroup, manualGroup);
-    const schoolYearKey = studentKey.split("::")[0] || "unassigned";
-    const expectedEventCount =
-      expectedEventKeysBySchoolYear.get(schoolYearKey)?.size ?? 0;
-    const attendedEventKeys = new Set(
-      [...attendanceGroup, ...manualGroup]
-        .map(getAttendedEventKey)
-        .filter(Boolean),
-    );
-    const explicitImportedAbsences = attendanceGroup.reduce(
-      (highestCount, record) => {
-        return Math.max(highestCount, getAbsenceCount(record.no_of_absences));
-      },
-      0,
-    );
-    const manualAbsences = manualGroup.reduce((total, record) => {
-      return total + getAbsenceCount(record.no_of_absences);
-    }, 0);
-    const eventAbsenceDeficit = Math.max(
-      0,
-      expectedEventCount - attendedEventKeys.size - manualAbsences,
-    );
-    const importedAbsences = Math.max(
-      explicitImportedAbsences,
-      eventAbsenceDeficit,
-    );
-    const totalAbsences = importedAbsences + manualAbsences;
-    const penalty = matchPenaltyForAbsences(props.penalties, totalAbsences);
-
-    rows.push({
-      key: `preview-${getCalculationScopeKey(props.importIds, props.sourceTypes)}-${bestRecord?.school_year_id ?? "all"}-${studentKey}`,
-      schoolYearId: bestRecord?.school_year_id ?? null,
-      calculationScopeKey: getCalculationScopeKey(
-        props.importIds,
-        props.sourceTypes,
-      ),
-      importIds: [...props.importIds],
-      studentId: bestRecord?.student_id ?? studentKey,
-      name: getBestTextValue(bestRecord?.name, studentKey),
-      yearLevel: getBestTextValue(bestRecord?.year_level) || null,
-      college: getBestTextValue(bestRecord?.college) || null,
-      program: getBestTextValue(bestRecord?.program) || null,
-      institution: getBestTextValue(bestRecord?.institution) || null,
-      attendedEvents: attendedEventKeys.size,
-      importedAbsences,
-      manualAbsences,
-      totalAbsences,
-      attendanceStatus:
-        totalAbsences > 0 ? "with_absences" : "perfect_attendance",
-      prescribedPenalty:
-        totalAbsences > 0
-          ? (penalty?.prescribed_penalty ?? "No prescribed penalty configured.")
-          : null,
-      penalty,
-      sourceRecordCount: attendanceGroup.length + manualGroup.length,
-      attendanceRecords: attendanceGroup,
-      manualRecords: manualGroup,
-      calculatedAt: new Date().toISOString(),
-      isSavedResult: false,
-    } satisfies CalculationRow);
-
-    const processedStudents = index + 1;
-
-    onProgress?.({
-      processedStudents,
-      totalStudents,
-      sourceRecords,
-    });
-
-    await yieldCalculationProgressFrame();
-  }
-
-  return rows.sort((leftRow, rightRow) => {
-    const absenceDifference = rightRow.totalAbsences - leftRow.totalAbsences;
-    if (absenceDifference !== 0) return absenceDifference;
-
-    return leftRow.studentId.localeCompare(rightRow.studentId, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-  });
+  if (hasError) throw firstError;
 }
 
 function SchoolYearBadge(props: { label: string; className?: string }) {
@@ -946,12 +637,93 @@ function calculationResultToRow(result: CalculationResultRecord) {
           }
         : null,
     sourceRecordCount: Number(result.source_record_count || 0),
-    attendanceRecords: [],
-    manualRecords: [],
     calculatedAt: result.calculated_at,
     isSavedResult: true,
   } satisfies CalculationRow;
 }
+
+type CalculationTableRowProps = {
+  row: CalculationRow;
+  selected: boolean;
+  onSelect: (key: string, checked: boolean) => void;
+  onEdit: (row: CalculationRow) => void;
+};
+
+const CalculationTableRow = memo(function CalculationTableRow({
+  row,
+  selected,
+  onSelect,
+  onEdit,
+}: CalculationTableRowProps) {
+  return (
+    <tr className="border-t">
+      <td className="px-4 py-3 align-top">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onSelect(row.key, checked === true)}
+          aria-label={`Select calculation row for ${row.studentId}`}
+        />
+      </td>
+      <td className="px-4 py-3 align-top">
+        <p className="font-black">{row.studentId}</p>
+        <p className="text-muted-foreground">{row.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {row.sourceRecordCount} source record/s
+        </p>
+      </td>
+      <td className="px-4 py-3 align-top">
+        <p className="font-semibold">{row.college || "—"}</p>
+        <p className="text-muted-foreground">{row.program || "—"}</p>
+        <p className="text-xs text-muted-foreground">{row.yearLevel || "—"}</p>
+      </td>
+      <td className="px-4 py-3 align-top font-bold">
+        {row.attendedEvents.toLocaleString()}
+      </td>
+      <td className="px-4 py-3 align-top font-bold">
+        {row.importedAbsences.toLocaleString()}
+      </td>
+      <td className="px-4 py-3 align-top font-bold">
+        {row.manualAbsences.toLocaleString()}
+      </td>
+      <td className="px-4 py-3 align-top text-base font-black">
+        {row.totalAbsences.toLocaleString()}
+      </td>
+      <td className="px-4 py-3 align-top">
+        {row.totalAbsences > 0 ? (
+          <p className="font-semibold">
+            {row.prescribedPenalty ??
+              row.penalty?.prescribed_penalty ??
+              "No prescribed penalty configured."}
+          </p>
+        ) : (
+          <p className="font-semibold text-emerald-700">No fine</p>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top">
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
+            row.attendanceStatus === "perfect_attendance"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          {row.attendanceStatus.replace(/_/g, " ")}
+        </span>
+      </td>
+      <td className="px-4 py-3 align-top text-right">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onEdit(row)}
+          disabled={row.isSavedResult}
+          className="min-h-10 rounded-xl px-4 text-xs font-black"
+        >
+          Edit
+        </Button>
+      </td>
+    </tr>
+  );
+});
 
 export default function CalculatePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
@@ -969,8 +741,10 @@ export default function CalculatePage() {
   const [selectedCalculationRowKeys, setSelectedCalculationRowKeys] = useState<
     string[]
   >([]);
-  const [penalties, setPenalties] = useState<PenaltyRecord[]>([]);
   const [searchText, setSearchText] = useState("");
+  const [debouncedSearchText, setDebouncedSearchText] = useState("");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   const [lastCalculatedAt, setLastCalculatedAt] = useState("");
   const [calculationMode, setCalculationMode] = useState<"saved" | "preview">(
     "saved",
@@ -985,6 +759,7 @@ export default function CalculatePage() {
   const [isDeletingCalculationRows, setIsDeletingCalculationRows] =
     useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isLoadingEditRecords, setIsLoadingEditRecords] = useState(false);
   const [calculationProgress, setCalculationProgress] =
     useState<CalculationProgressState | null>(() =>
       readStoredCalculationProgress(),
@@ -993,6 +768,10 @@ export default function CalculatePage() {
   const progressClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const activeRequestIdRef = useRef(0);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const editRequestIdRef = useRef(0);
+  const editRequestControllerRef = useRef<AbortController | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1018,12 +797,18 @@ export default function CalculatePage() {
     selectedCalculationSources.length > 0 &&
     (!includesImportedSource || selectedImportIds.length > 0);
 
-  const filteredRows = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    if (!query) return calculationRows;
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 200);
 
-    return calculationRows.filter((row) => {
-      return [
+    return () => window.clearTimeout(timeoutId);
+  }, [searchText]);
+
+  const searchableRows = useMemo(() => {
+    return calculationRows.map((row) => ({
+      row,
+      searchText: [
         row.studentId,
         row.name,
         row.college,
@@ -1032,22 +817,64 @@ export default function CalculatePage() {
         row.prescribedPenalty,
       ]
         .join(" ")
-        .toLowerCase()
-        .includes(query);
-    });
-  }, [calculationRows, searchText]);
+        .toLowerCase(),
+    }));
+  }, [calculationRows]);
+
+  const filteredRows = useMemo(() => {
+    const query = debouncedSearchText.trim().toLowerCase();
+    if (!query) return calculationRows;
+
+    return searchableRows
+      .filter((searchableRow) => searchableRow.searchText.includes(query))
+      .map((searchableRow) => searchableRow.row);
+  }, [calculationRows, debouncedSearchText, searchableRows]);
+
+  const totalPages = useMemo(() => {
+    if (rowsPerPage === "all") return 1;
+    return Math.max(1, Math.ceil(filteredRows.length / Number(rowsPerPage)));
+  }, [filteredRows.length, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchText, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
+  const paginatedRows = useMemo(() => {
+    if (rowsPerPage === "all") return filteredRows;
+    const pageSize = Number(rowsPerPage);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredRows.slice(startIndex, startIndex + pageSize);
+  }, [currentPage, filteredRows, rowsPerPage]);
+
+  const rangeStart = filteredRows.length
+    ? rowsPerPage === "all"
+      ? 1
+      : (currentPage - 1) * Number(rowsPerPage) + 1
+    : 0;
+  const rangeEnd =
+    rowsPerPage === "all"
+      ? filteredRows.length
+      : Math.min(currentPage * Number(rowsPerPage), filteredRows.length);
 
   const filteredRowKeys = useMemo(
     () => filteredRows.map((row) => row.key),
     [filteredRows],
   );
 
+  const selectedCalculationRowKeySet = useMemo(
+    () => new Set(selectedCalculationRowKeys),
+    [selectedCalculationRowKeys],
+  );
+
   const allFilteredRowsSelected = useMemo(() => {
     if (!filteredRowKeys.length) return false;
 
-    const selectedKeys = new Set(selectedCalculationRowKeys);
-    return filteredRowKeys.every((key) => selectedKeys.has(key));
-  }, [filteredRowKeys, selectedCalculationRowKeys]);
+    return filteredRowKeys.every((key) => selectedCalculationRowKeySet.has(key));
+  }, [filteredRowKeys, selectedCalculationRowKeySet]);
 
   const summary = useMemo(() => {
     return {
@@ -1170,358 +997,251 @@ export default function CalculatePage() {
     [updateCalculationProgress],
   );
 
-  async function loadSavedResults(
-    nextSchoolYearId = selectedSchoolYearId,
-    nextImportIds = selectedImportIds,
-    nextSourceTypes = selectedCalculationSources,
-    progressTaskId?: string,
-  ) {
-    const taskId =
-      progressTaskId ??
-      startCalculationProgress(
-        "Loading saved calculation results",
-        "Loading school years and penalties",
-      );
+  const beginRequestRun = useCallback(() => {
+    activeRequestControllerRef.current?.abort();
 
-    setIsLoading(true);
-    updateCalculationProgress(taskId, {
-      detail: "Loading school years and penalties",
-      percent: progressTaskId ? 72 : 8,
-      processed: 0,
-      total: 0,
-    });
-    await yieldCalculationProgressFrame();
+    const controller = new AbortController();
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+    activeRequestControllerRef.current = controller;
 
-    try {
-      const [schoolYearRows, penaltyRows] = await Promise.all([
-        listSchoolYears({ activeOnly: true }),
-        listPenalties(),
-      ]);
-      const fallbackSchoolYearId =
-        nextSchoolYearId &&
-        nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
-        schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
-          ? nextSchoolYearId
-          : getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE;
+    return { requestId, controller };
+  }, []);
+
+  const loadSavedResults = useCallback(
+    async (
+      nextSchoolYearId: string,
+      nextImportIds: string[],
+      nextSourceTypes: CalculationSourceType[],
+      progressTaskId?: string,
+    ) => {
+      const { requestId, controller } = beginRequestRun();
+      const { signal } = controller;
+      const isCurrentRun = () =>
+        activeRequestIdRef.current === requestId && !signal.aborted;
+      const taskId =
+        progressTaskId ??
+        startCalculationProgress(
+          "Loading saved calculation results",
+          "Loading school years",
+        );
+
+      setIsPreviewing(false);
+      setIsLoading(true);
+      updateCalculationProgress(taskId, {
+        detail: "Loading school years",
+        percent: progressTaskId ? 72 : 8,
+        processed: 0,
+        total: 0,
+      });
+      await yieldCalculationProgressFrame();
+
+      try {
+        const schoolYearRows = await listSchoolYears({
+          activeOnly: true,
+          signal,
+        });
+        if (!isCurrentRun()) return;
+
+        const fallbackSchoolYearId =
+          nextSchoolYearId &&
+          nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
+          schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+            ? nextSchoolYearId
+            : getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE;
+        const requestSchoolYearId =
+          fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+            ? undefined
+            : fallbackSchoolYearId || undefined;
+        const normalizedSourceTypes =
+          normalizeCalculationSourceTypes(nextSourceTypes);
+        const requestImportIds =
+          normalizedSourceTypes.includes("imported") && nextImportIds.length
+            ? nextImportIds
+            : undefined;
+
+        updateCalculationProgress(taskId, {
+          detail: "Loading imports and saved calculation rows",
+          percent: progressTaskId ? 78 : 32,
+          processed: 0,
+          total: 0,
+        });
+        await yieldCalculationProgressFrame();
+
+        const [importRows, resultRows] = await Promise.all([
+          listAllAttendanceImports({
+            schoolYearId: requestSchoolYearId,
+            signal,
+          }),
+          listAllCalculationResults({
+            schoolYearId: requestSchoolYearId,
+            importIds: requestImportIds,
+            sourceTypes: normalizedSourceTypes,
+            signal,
+          }),
+        ]);
+        if (!isCurrentRun()) return;
+
+        const savedRows = resultRows.map(calculationResultToRow);
+        const calculatedDates = savedRows
+          .map((row) => row.calculatedAt)
+          .filter(Boolean)
+          .sort();
+        const latestCalculatedAt =
+          calculatedDates[calculatedDates.length - 1] ?? "";
+
+        updateCalculationProgress(taskId, {
+          detail: `Loaded ${savedRows.length.toLocaleString()} saved calculation row/s`,
+          percent: progressTaskId ? 92 : 82,
+          processed: savedRows.length,
+          total: savedRows.length,
+        });
+        await yieldCalculationProgressFrame();
+        if (!isCurrentRun()) return;
+
+        setSchoolYears(schoolYearRows);
+        setSelectedSchoolYearId(fallbackSchoolYearId);
+        setSelectedCalculationSources(normalizedSourceTypes);
+        setAttendanceImports(sortByBackendEventOrder(importRows));
+        setCalculationRows(savedRows);
+        setLastCalculatedAt(latestCalculatedAt ?? "");
+        setCalculationMode("saved");
+
+        finishCalculationProgress(taskId, "Saved calculation results loaded.");
+      } catch (error) {
+        if (isAbortError(error) || !isCurrentRun()) return;
+
+        failCalculationProgress(
+          taskId,
+          error instanceof Error
+            ? error.message
+            : "Unable to load saved calculation results.",
+        );
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to load saved calculation results.",
+        );
+      } finally {
+        if (activeRequestIdRef.current === requestId) {
+          setIsLoading(false);
+          activeRequestControllerRef.current = null;
+        }
+      }
+    },
+    [
+      beginRequestRun,
+      failCalculationProgress,
+      finishCalculationProgress,
+      startCalculationProgress,
+      updateCalculationProgress,
+    ],
+  );
+
+  const loadPreviewRows = useCallback(
+    async (
+      nextSchoolYearId: string,
+      nextImportIds: string[],
+      nextSourceTypes: CalculationSourceType[],
+      progressTaskId?: string,
+    ) => {
+      const { requestId, controller } = beginRequestRun();
+      const { signal } = controller;
+      const isCurrentRun = () =>
+        activeRequestIdRef.current === requestId && !signal.aborted;
+      const taskId =
+        progressTaskId ??
+        startCalculationProgress(
+          "Calculating attendance fines",
+          "Preparing calculation",
+        );
       const requestSchoolYearId =
-        fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+        nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
-          : fallbackSchoolYearId || undefined;
+          : nextSchoolYearId;
       const normalizedSourceTypes =
         normalizeCalculationSourceTypes(nextSourceTypes);
-      const requestImportIds =
-        normalizedSourceTypes.includes("imported") && nextImportIds.length
-          ? nextImportIds
-          : undefined;
+      const includeImported = normalizedSourceTypes.includes("imported");
+      const effectiveImportIds = includeImported ? nextImportIds : [];
+      const calculationScopeKey = getCalculationScopeKey(
+        effectiveImportIds,
+        normalizedSourceTypes,
+      );
 
+      setIsPreviewing(true);
       updateCalculationProgress(taskId, {
-        detail: "Loading imports and saved calculation rows",
-        percent: progressTaskId ? 78 : 32,
+        label: "Calculating attendance fines",
+        detail: "Requesting calculation preview from the server",
+        percent: progressTaskId ? 62 : 18,
         processed: 0,
         total: 0,
       });
       await yieldCalculationProgressFrame();
 
-      const [importRows, resultRows] = await Promise.all([
-        attendanceApi.listAttendanceImports({
+      try {
+        const previewResults = await attendanceApi.previewCalculationResults({
           schoolYearId: requestSchoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-        attendanceApi.listCalculationResults({
-          schoolYearId: requestSchoolYearId,
-          importIds: requestImportIds,
-          sourceTypes: normalizedSourceTypes,
-          limit: 1000,
-          offset: 0,
-        }),
-      ]);
-      const savedRows = resultRows.map(calculationResultToRow);
-      const calculatedDates = savedRows
-        .map((row) => row.calculatedAt)
-        .filter(Boolean)
-        .sort();
-      const latestCalculatedAt =
-        calculatedDates[calculatedDates.length - 1] ?? "";
-
-      updateCalculationProgress(taskId, {
-        detail: `Loaded ${savedRows.length.toLocaleString()} saved calculation row/s`,
-        percent: progressTaskId ? 92 : 82,
-        processed: savedRows.length,
-        total: savedRows.length,
-      });
-      await yieldCalculationProgressFrame();
-
-      setSchoolYears(schoolYearRows);
-      setSelectedSchoolYearId(fallbackSchoolYearId);
-      setSelectedCalculationSources(normalizedSourceTypes);
-      setAttendanceImports(sortByBackendEventOrder(importRows));
-      setPenalties(penaltyRows);
-      setCalculationRows(savedRows);
-      setLastCalculatedAt(latestCalculatedAt ?? "");
-      setCalculationMode("saved");
-
-      finishCalculationProgress(taskId, "Saved calculation results loaded.");
-    } catch (error) {
-      failCalculationProgress(
-        taskId,
-        error instanceof Error
-          ? error.message
-          : "Unable to load saved calculation results.",
-      );
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to load saved calculation results.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function loadPreviewRows(
-    nextSchoolYearId = selectedSchoolYearId,
-    nextImportIds = selectedImportIds,
-    nextSourceTypes = selectedCalculationSources,
-    progressTaskId?: string,
-  ) {
-    const taskId =
-      progressTaskId ??
-      startCalculationProgress(
-        "Calculating attendance fines",
-        "Preparing calculation",
-      );
-    const requestSchoolYearId =
-      nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
-        ? undefined
-        : nextSchoolYearId;
-    const normalizedSourceTypes =
-      normalizeCalculationSourceTypes(nextSourceTypes);
-    const selectedSourceTypes = new Set(normalizedSourceTypes);
-    const includeImported = selectedSourceTypes.has("imported");
-    const includeManual = selectedSourceTypes.has("manual");
-    const includeZeroAttendance = selectedSourceTypes.has("zero_attendance");
-    const effectiveImportIds = includeImported ? nextImportIds : [];
-    const { selectedImports, expectedImportedRecords } =
-      getSelectedImportProgressSummary(attendanceImports, effectiveImportIds);
-    const selectedImportCount =
-      selectedImports.length || effectiveImportIds.length;
-    const selectedSourceLabels =
-      normalizedSourceTypes.map(getCalculationSourceLabel);
-    const importedStartPercent = progressTaskId ? 58 : 8;
-    const importedRequestPercent = progressTaskId ? 62 : 18;
-    const importedEndPercent = progressTaskId ? 68 : 46;
-    const manualStartPercent = progressTaskId ? 68 : 48;
-    const manualEndPercent = progressTaskId ? 78 : 68;
-    const calculationStartPercent = progressTaskId ? 80 : 72;
-    const calculationEndPercent = 96;
-
-    updateCalculationProgress(taskId, {
-      label: "Calculating attendance fines",
-      detail: expectedImportedRecords
-        ? `Preparing ${expectedImportedRecords.toLocaleString()} expected imported row/s from ${selectedImportCount.toLocaleString()} selected file/s`
-        : `Preparing ${selectedSourceLabels.join(", ") || "selected attendance source/s"}`,
-      percent: importedStartPercent,
-      processed: 0,
-      total: expectedImportedRecords,
-    });
-    await yieldCalculationProgressFrame();
-
-    updateCalculationProgress(taskId, {
-      detail: expectedImportedRecords
-        ? `Requesting ${expectedImportedRecords.toLocaleString()} imported attendance row/s`
-        : "Requesting selected attendance records",
-      percent: importedRequestPercent,
-      processed: 0,
-      total: expectedImportedRecords,
-    });
-    await yieldCalculationProgressFrame();
-
-    try {
-      const shouldLoadAttendanceRecords =
-        includeImported || includeZeroAttendance;
-      const selectedAttendanceRows = shouldLoadAttendanceRecords
-        ? await listSelectedImportedAttendanceRecords(
-            {
-              schoolYearId: requestSchoolYearId,
-              importIds: effectiveImportIds,
-              includeImported,
-              includeZeroAttendance,
-            },
-            (progress) => {
-              const importedProgressTotal =
-                expectedImportedRecords ||
-                Math.max(
-                  progress.selectedRecords,
-                  progress.page * progress.pageSize,
-                );
-              const pagePercent = Math.min(
-                importedEndPercent,
-                importedRequestPercent + progress.page * 2,
-              );
-              const rowPercent = getProgressRangePercent(
-                progress.selectedRecords,
-                importedProgressTotal,
-                importedRequestPercent,
-                importedEndPercent,
-              );
-
-              updateCalculationProgress(taskId, {
-                detail: progress.isComplete
-                  ? `Loaded ${progress.selectedRecords.toLocaleString()} selected attendance record/s from ${progress.page.toLocaleString()} page/s`
-                  : `Loaded page ${progress.page.toLocaleString()} with ${progress.selectedRecords.toLocaleString()} selected attendance row/s from ${progress.loadedRecords.toLocaleString()} fetched row/s`,
-                percent: progress.isComplete
-                  ? importedEndPercent
-                  : Math.max(pagePercent, rowPercent),
-                processed: progress.selectedRecords,
-                total: expectedImportedRecords || importedProgressTotal,
-              });
-            },
-          )
-        : [];
-      const selectedAttendanceRecordCount = selectedAttendanceRows.length;
-      const importedRecordProgressTotal =
-        expectedImportedRecords || selectedAttendanceRecordCount;
-
-      updateCalculationProgress(taskId, {
-        detail: `Loaded ${selectedAttendanceRecordCount.toLocaleString()} selected attendance record/s`,
-        percent: importedEndPercent,
-        processed: selectedAttendanceRecordCount,
-        total: importedRecordProgressTotal,
-      });
-      await yieldCalculationProgressFrame();
-
-      updateCalculationProgress(taskId, {
-        detail: "Loading manual attendance records",
-        percent: manualStartPercent,
-        processed: 0,
-        total: 0,
-      });
-      await yieldCalculationProgressFrame();
-
-      const shouldLoadManualRecords = includeManual || includeZeroAttendance;
-      const manualRows = shouldLoadManualRecords
-        ? await listAllManualAttendanceRecords(
-            {
-              schoolYearId: requestSchoolYearId,
-              includeManual,
-              includeZeroAttendance,
-            },
-            (progress) => {
-              const pagePercent = Math.min(
-                manualEndPercent,
-                manualStartPercent + progress.page * 2,
-              );
-
-              updateCalculationProgress(taskId, {
-                detail: `Loaded ${progress.loadedRecords.toLocaleString()} manual/zero attendance record/s from ${progress.page.toLocaleString()} page/s`,
-                percent: progress.isComplete ? manualEndPercent : pagePercent,
-                processed: progress.loadedRecords,
-                total: progress.isComplete
-                  ? progress.loadedRecords
-                  : Math.max(progress.loadedRecords, progress.pageSize),
-              });
-            },
-          )
-        : [];
-      const totalSourceRecords =
-        selectedAttendanceRecordCount + manualRows.length;
-
-      updateCalculationProgress(taskId, {
-        detail: `Calculating ${totalSourceRecords.toLocaleString()} source record/s`,
-        percent: calculationStartPercent,
-        processed: 0,
-        total: totalSourceRecords,
-      });
-      await yieldCalculationProgressFrame();
-
-      const localRows = await buildCalculationRows(
-        {
-          attendanceRecords: selectedAttendanceRows,
-          manualRecords: manualRows,
-          penalties,
           importIds: effectiveImportIds,
           sourceTypes: normalizedSourceTypes,
-        },
-        (progress) => {
-          updateCalculationProgress(taskId, {
-            detail: `Prepared source records for ${progress.processedStudents.toLocaleString()} of ${progress.totalStudents.toLocaleString()} student/s`,
-            percent: getProgressRangePercent(
-              progress.processedStudents,
-              progress.totalStudents,
-              calculationStartPercent,
-              calculationEndPercent - 4,
-            ),
-            processed: progress.processedStudents,
-            total: progress.totalStudents,
-          });
-        },
-      );
-      const localRowsByStudent = new Map(
-        localRows.map((row) => [
-          `${row.schoolYearId ?? "unassigned"}::${normalizeStudentId(row.studentId)}`,
-          row,
-        ]),
-      );
+          signal,
+        });
+        if (!isCurrentRun()) return null;
 
-      updateCalculationProgress(taskId, {
-        detail: "Verifying preview with the saved-results calculation engine",
-        percent: calculationEndPercent - 2,
-        processed: 0,
-        total: localRows.length,
-      });
-      await yieldCalculationProgressFrame();
+        const nextRows = previewResults.map((result) => {
+          const resultRow = calculationResultToRow(result);
 
-      const previewResults = await attendanceApi.previewCalculationResults({
-        schoolYearId: requestSchoolYearId,
-        importIds: effectiveImportIds,
-        sourceTypes: normalizedSourceTypes,
-      });
-      const nextRows = previewResults.map((result) => {
-        const sourceRow = localRowsByStudent.get(
-          `${result.school_year_id ?? "unassigned"}::${normalizeStudentId(result.student_id)}`,
+          return {
+            ...resultRow,
+            key: `preview-${calculationScopeKey}-${result.school_year_id ?? "all"}-${normalizeStudentId(result.student_id)}`,
+            resultId: undefined,
+            sourceTypes: normalizedSourceTypes,
+            isSavedResult: false,
+          } satisfies CalculationRow;
+        });
+
+        updateCalculationProgress(taskId, {
+          detail: `Prepared ${nextRows.length.toLocaleString()} calculation row/s using the server calculation engine`,
+          percent: 98,
+          processed: nextRows.length,
+          total: nextRows.length,
+        });
+        await yieldCalculationProgressFrame();
+        if (!isCurrentRun()) return null;
+
+        setCalculationRows(nextRows);
+        setSelectedCalculationRowKeys([]);
+        setLastCalculatedAt(new Date().toISOString());
+        setCalculationMode("preview");
+
+        finishCalculationProgress(taskId, "Calculation preview completed.");
+
+        return nextRows;
+      } catch (error) {
+        if (isAbortError(error) || !isCurrentRun()) return null;
+
+        failCalculationProgress(
+          taskId,
+          error instanceof Error
+            ? error.message
+            : "Unable to preview calculation.",
         );
-        const resultRow = calculationResultToRow(result);
 
-        return {
-          ...resultRow,
-          key:
-            sourceRow?.key ??
-            `preview-${getCalculationScopeKey(effectiveImportIds, normalizedSourceTypes)}-${result.school_year_id ?? "all"}-${normalizeStudentId(result.student_id)}`,
-          resultId: undefined,
-          attendanceRecords: sourceRow?.attendanceRecords ?? [],
-          manualRecords: sourceRow?.manualRecords ?? [],
-          isSavedResult: false,
-        } satisfies CalculationRow;
-      });
-
-      updateCalculationProgress(taskId, {
-        detail: `Prepared ${nextRows.length.toLocaleString()} calculation row/s using the server calculation engine`,
-        percent: 98,
-        processed: nextRows.length,
-        total: nextRows.length,
-      });
-      await yieldCalculationProgressFrame();
-
-      setCalculationRows(nextRows);
-      setSelectedCalculationRowKeys([]);
-      setLastCalculatedAt(new Date().toISOString());
-      setCalculationMode("preview");
-
-      finishCalculationProgress(taskId, "Calculation preview completed.");
-
-      return nextRows;
-    } catch (error) {
-      failCalculationProgress(
-        taskId,
-        error instanceof Error
-          ? error.message
-          : "Unable to preview calculation.",
-      );
-
-      throw error;
-    }
-  }
+        throw error;
+      } finally {
+        if (activeRequestIdRef.current === requestId) {
+          setIsPreviewing(false);
+          activeRequestControllerRef.current = null;
+        }
+      }
+    },
+    [
+      beginRequestRun,
+      failCalculationProgress,
+      finishCalculationProgress,
+      startCalculationProgress,
+      updateCalculationProgress,
+    ],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1551,7 +1271,24 @@ export default function CalculatePage() {
   }, []);
 
   useEffect(() => {
-    void loadSavedResults();
+    const timeoutId = window.setTimeout(() => {
+      void loadSavedResults(
+        ALL_SCHOOL_YEARS_VALUE,
+        [],
+        DEFAULT_SELECTED_CALCULATION_SOURCES,
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadSavedResults]);
+
+  useEffect(() => {
+    return () => {
+      activeRequestIdRef.current += 1;
+      editRequestIdRef.current += 1;
+      activeRequestControllerRef.current?.abort();
+      editRequestControllerRef.current?.abort();
+    };
   }, []);
 
   function sortImportIdsByBackendEventOrder(importIds: string[]) {
@@ -1617,14 +1354,14 @@ export default function CalculatePage() {
       return;
     }
 
-    setIsPreviewing(true);
-
     try {
       const rows = await loadPreviewRows(
         selectedSchoolYearId,
         selectedImportIds,
         selectedCalculationSources,
       );
+
+      if (!rows) return;
 
       toast.success(
         rows.length
@@ -1637,8 +1374,6 @@ export default function CalculatePage() {
           ? error.message
           : "Unable to preview calculation.",
       );
-    } finally {
-      setIsPreviewing(false);
     }
   }
 
@@ -1656,12 +1391,15 @@ export default function CalculatePage() {
     );
   }
 
-  function handleCalculationRowSelection(key: string, checked: boolean) {
-    setSelectedCalculationRowKeys((currentKeys) => {
-      if (checked) return Array.from(new Set([...currentKeys, key]));
-      return currentKeys.filter((currentKey) => currentKey !== key);
-    });
-  }
+  const handleCalculationRowSelection = useCallback(
+    (key: string, checked: boolean) => {
+      setSelectedCalculationRowKeys((currentKeys) => {
+        if (checked) return Array.from(new Set([...currentKeys, key]));
+        return currentKeys.filter((currentKey) => currentKey !== key);
+      });
+    },
+    [],
+  );
 
   function handleSelectAllCalculationRows(checked: boolean) {
     setSelectedCalculationRowKeys((currentKeys) => {
@@ -1753,19 +1491,106 @@ export default function CalculatePage() {
     }
   }
 
-  function handleOpenEditRow(row: CalculationRow) {
-    const forms = buildRecordEditForms(row);
-
-    if (!forms.length) {
+  const handleOpenEditRow = useCallback(async (row: CalculationRow) => {
+    if (!row.sourceRecordCount) {
       toast.error(
         "Load a preview for the selected imported files before editing source records.",
       );
       return;
     }
 
+    editRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = editRequestIdRef.current + 1;
+    editRequestIdRef.current = requestId;
+    editRequestControllerRef.current = controller;
+
+    const sourceTypes = normalizeCalculationSourceTypes(
+      row.sourceTypes ?? DEFAULT_SELECTED_CALCULATION_SOURCES,
+    );
+    const sourceTypeSet = new Set(sourceTypes);
+    const includeImported = sourceTypeSet.has("imported");
+    const includeManual = sourceTypeSet.has("manual");
+    const includeZeroAttendance = sourceTypeSet.has("zero_attendance");
+    const schoolYearId = row.schoolYearId ?? undefined;
+
     setEditingRow(row);
-    setRecordEditForms(forms);
-  }
+    setRecordEditForms([]);
+    setIsLoadingEditRecords(true);
+
+    try {
+      const [importedRows, zeroAttendanceRows, manualRows] = await Promise.all([
+        includeImported
+          ? listStudentAttendanceRecords({
+              studentId: row.studentId,
+              schoolYearId,
+              importIds: row.importIds,
+              signal: controller.signal,
+            })
+          : Promise.resolve<AttendanceRecord[]>([]),
+        includeZeroAttendance
+          ? listStudentAttendanceRecords({
+              studentId: row.studentId,
+              schoolYearId,
+              signal: controller.signal,
+            })
+          : Promise.resolve<AttendanceRecord[]>([]),
+        includeManual || includeZeroAttendance
+          ? listStudentManualAttendanceRecords({
+              studentId: row.studentId,
+              schoolYearId,
+              signal: controller.signal,
+            })
+          : Promise.resolve<ManualAttendanceRecord[]>([]),
+      ]);
+
+      if (
+        controller.signal.aborted ||
+        editRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+
+      const attendanceRecordMap = new Map<string, AttendanceRecord>();
+      importedRows.forEach((record) => attendanceRecordMap.set(record.id, record));
+      zeroAttendanceRows
+        .filter(isZeroAttendanceRecord)
+        .forEach((record) => attendanceRecordMap.set(record.id, record));
+
+      const selectedManualRows = manualRows.filter((record) => {
+        const isZeroAttendance = isZeroManualAttendanceRecord(record);
+        return isZeroAttendance ? includeZeroAttendance : includeManual;
+      });
+      const forms = buildRecordEditForms(
+        Array.from(attendanceRecordMap.values()),
+        selectedManualRows,
+      );
+
+      if (!forms.length) {
+        setEditingRow(null);
+        toast.error(
+          "Load a preview for the selected imported files before editing source records.",
+        );
+        return;
+      }
+
+      setRecordEditForms(forms);
+    } catch (error) {
+      if (isAbortError(error)) return;
+
+      setEditingRow(null);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load source records for editing.",
+      );
+    } finally {
+      if (editRequestIdRef.current === requestId) {
+        setIsLoadingEditRecords(false);
+        editRequestControllerRef.current = null;
+      }
+    }
+  }, []);
 
   async function handleSaveResults() {
     if (!selectedCalculationSources.length) {
@@ -1782,7 +1607,12 @@ export default function CalculatePage() {
       "Saving calculation results",
       "Saving calculated results",
     );
+    const { requestId, controller } = beginRequestRun();
+    const { signal } = controller;
+    const isCurrentRun = () =>
+      activeRequestIdRef.current === requestId && !signal.aborted;
 
+    setIsPreviewing(false);
     setIsSavingResults(true);
     updateCalculationProgress(progressTaskId, {
       percent: 12,
@@ -1808,7 +1638,9 @@ export default function CalculatePage() {
         schoolYearId: requestSchoolYearId,
         importIds: requestImportIds,
         sourceTypes: normalizedSourceTypes,
+        signal,
       });
+      if (!isCurrentRun()) return;
 
       updateCalculationProgress(progressTaskId, {
         percent: 70,
@@ -1817,6 +1649,7 @@ export default function CalculatePage() {
         total: calculationRows.length,
       });
       await yieldCalculationProgressFrame();
+      if (!isCurrentRun()) return;
 
       toast.success("Calculation results saved.");
       await loadSavedResults(
@@ -1826,6 +1659,8 @@ export default function CalculatePage() {
         progressTaskId,
       );
     } catch (error) {
+      if (isAbortError(error) || !isCurrentRun()) return;
+
       failCalculationProgress(
         progressTaskId,
         error instanceof Error
@@ -1839,6 +1674,9 @@ export default function CalculatePage() {
       );
     } finally {
       setIsSavingResults(false);
+      if (activeRequestIdRef.current === requestId) {
+        activeRequestControllerRef.current = null;
+      }
     }
   }
 
@@ -1879,27 +1717,29 @@ export default function CalculatePage() {
     await yieldCalculationProgressFrame();
 
     try {
-      for (let index = 0; index < recordEditForms.length; index += 1) {
-        const form = recordEditForms[index];
-
-        await attendanceApi.updateAttendanceRecord(
-          form.recordId,
-          buildAttendanceInput(form),
-        );
-
-        updateCalculationProgress(progressTaskId, {
-          detail: `Saved ${index + 1} of ${recordEditForms.length} source record/s`,
-          percent: getProgressRangePercent(
-            index + 1,
-            recordEditForms.length,
-            12,
-            54,
-          ),
-          processed: index + 1,
-          total: recordEditForms.length,
-        });
-        await yieldCalculationProgressFrame();
-      }
+      await runWithConcurrency(
+        recordEditForms,
+        5,
+        async (form) => {
+          await attendanceApi.updateAttendanceRecord(
+            form.recordId,
+            buildAttendanceInput(form),
+          );
+        },
+        (completed) => {
+          updateCalculationProgress(progressTaskId, {
+            detail: `Saved ${completed} of ${recordEditForms.length} source record/s`,
+            percent: getProgressRangePercent(
+              completed,
+              recordEditForms.length,
+              12,
+              54,
+            ),
+            processed: completed,
+            total: recordEditForms.length,
+          });
+        },
+      );
 
       toast.success("Source records updated.");
       setEditingRow(null);
@@ -2263,84 +2103,14 @@ export default function CalculatePage() {
               </thead>
               <tbody>
                 {filteredRows.length ? (
-                  filteredRows.map((row) => (
-                    <tr key={row.key} className="border-t">
-                      <td className="px-4 py-3 align-top">
-                        <Checkbox
-                          checked={selectedCalculationRowKeys.includes(row.key)}
-                          onCheckedChange={(checked) =>
-                            handleCalculationRowSelection(
-                              row.key,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Select calculation row for ${row.studentId}`}
-                        />
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <p className="font-black">{row.studentId}</p>
-                        <p className="text-muted-foreground">{row.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.sourceRecordCount} source record/s
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <p className="font-semibold">{row.college || "—"}</p>
-                        <p className="text-muted-foreground">
-                          {row.program || "—"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.yearLevel || "—"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 align-top font-bold">
-                        {row.attendedEvents.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 align-top font-bold">
-                        {row.importedAbsences.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 align-top font-bold">
-                        {row.manualAbsences.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 align-top text-base font-black">
-                        {row.totalAbsences.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        {row.totalAbsences > 0 ? (
-                          <p className="font-semibold">
-                            {row.prescribedPenalty ??
-                              row.penalty?.prescribed_penalty ??
-                              "No prescribed penalty configured."}
-                          </p>
-                        ) : (
-                          <p className="font-semibold text-emerald-700">
-                            No fine
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
-                            row.attendanceStatus === "perfect_attendance"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : "border-amber-200 bg-amber-50 text-amber-800"
-                          }`}
-                        >
-                          {row.attendanceStatus.replace(/_/g, " ")}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => handleOpenEditRow(row)}
-                          disabled={row.isSavedResult}
-                          className="min-h-10 rounded-xl px-4 text-xs font-black"
-                        >
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
+                  paginatedRows.map((row) => (
+                    <CalculationTableRow
+                      key={row.key}
+                      row={row}
+                      selected={selectedCalculationRowKeySet.has(row.key)}
+                      onSelect={handleCalculationRowSelection}
+                      onEdit={handleOpenEditRow}
+                    />
                   ))
                 ) : (
                   <tr>
@@ -2357,6 +2127,52 @@ export default function CalculatePage() {
               </tbody>
             </table>
           </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Showing {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of{" "}
+              {filteredRows.length.toLocaleString()} result/s
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                Show
+              </span>
+              <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 rows</SelectItem>
+                  <SelectItem value="50">50 rows</SelectItem>
+                  <SelectItem value="100">100 rows</SelectItem>
+                  <SelectItem value="all">All rows</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={currentPage <= 1 || rowsPerPage === "all"}
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                className="h-10 rounded-xl px-4 text-xs font-black"
+              >
+                Previous
+              </Button>
+              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={currentPage >= totalPages || rowsPerPage === "all"}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(totalPages, page + 1))
+                }
+                className="h-10 rounded-xl px-4 text-xs font-black"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -2364,8 +2180,10 @@ export default function CalculatePage() {
         open={Boolean(editingRow)}
         onOpenChange={(open) => {
           if (!open) {
+            editRequestControllerRef.current?.abort();
             setEditingRow(null);
             setRecordEditForms([]);
+            setIsLoadingEditRecords(false);
           }
         }}
       >
@@ -2376,7 +2194,12 @@ export default function CalculatePage() {
 
           <form onSubmit={handleSaveEditedRow} className="space-y-5">
             <div className="space-y-4">
-              {recordEditForms.map((form, index) => (
+              {isLoadingEditRecords ? (
+                <div className="rounded-2xl border bg-background p-6 text-sm font-semibold text-muted-foreground">
+                  Loading source records...
+                </div>
+              ) : (
+                recordEditForms.map((form, index) => (
                 <div
                   key={`${form.recordType}-${form.recordId}`}
                   className="rounded-2xl border bg-background p-4"
@@ -2510,7 +2333,8 @@ export default function CalculatePage() {
                     </label>
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </div>
 
             <div className="rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
@@ -2522,10 +2346,12 @@ export default function CalculatePage() {
               <Button
                 type="button"
                 variant="outline"
-                disabled={isSavingEdit}
+                disabled={isSavingEdit || isLoadingEditRecords}
                 onClick={() => {
+                  editRequestControllerRef.current?.abort();
                   setEditingRow(null);
                   setRecordEditForms([]);
+                  setIsLoadingEditRecords(false);
                 }}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
@@ -2533,7 +2359,7 @@ export default function CalculatePage() {
               </Button>
               <Button
                 type="submit"
-                disabled={isSavingEdit}
+                disabled={isSavingEdit || isLoadingEditRecords}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
                 {isSavingEdit ? "Saving..." : "Save Source Records"}
