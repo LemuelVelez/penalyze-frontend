@@ -1970,7 +1970,7 @@ export default function CalculatePage() {
                   disabled={isPreviewing || isLoading || !canRunCalculation}
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
-                  {isPreviewing ? "Calculating..." : "Preview Selected Files"}
+                  {isPreviewing ? "Calculating..." : "Calculate Selected Files"}
                 </Button>
 
                 <Button
