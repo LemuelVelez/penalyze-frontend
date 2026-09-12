@@ -544,10 +544,18 @@ export default function ManualAttendancePage() {
     ? filteredGroups.length
     : Math.min(currentPage * Number(rowsPerPage), filteredGroups.length);
 
-  const selectedEventRecords = useMemo(
-    () => getSelectedEventRecords(records, form.eventIds),
-    [records, form.eventIds],
-  );
+  const editingGroup = useMemo(() => {
+    if (!editingGroupKey) return null;
+    return studentGroups.find((group) => group.key === editingGroupKey) ?? null;
+  }, [editingGroupKey, studentGroups]);
+
+  const selectedEventRecords = useMemo(() => {
+    if (!editingGroup) return [];
+
+    return getUniqueManualEventRecords(
+      getSelectedEventRecords(editingGroup.records, form.eventIds),
+    );
+  }, [editingGroup, form.eventIds]);
   const programOptions = useMemo(
     () => getStudentProgramOptions(form.college),
     [form.college],
@@ -1313,7 +1321,7 @@ export default function ManualAttendancePage() {
                     onClick={() => setSelectedRecordsDialogOpen(true)}
                     className="min-h-11 rounded-2xl px-5 font-black"
                   >
-                    View selected records ({selectedEventRecords.length.toLocaleString()})
+                    View existing records ({selectedEventRecords.length.toLocaleString()})
                   </Button>
                 </div>
               ) : null}
@@ -1365,18 +1373,31 @@ export default function ManualAttendancePage() {
         <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
           <DialogContent className="flex max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
             <DialogHeader className="shrink-0">
-              <DialogTitle>Currently selected existing records</DialogTitle>
+              <DialogTitle>Existing records for this student</DialogTitle>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-background p-3">
               <div className="grid gap-2">
                 {selectedEventRecords.map((record, index) => (
-                  <div key={record.id} className="flex items-start gap-3 rounded-xl border bg-card p-3">
+                  <div
+                    key={record.id}
+                    className="flex items-start gap-3 rounded-xl border bg-card p-3"
+                  >
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-black">
                       {index + 1}
                     </span>
-                    <span className="min-w-0 break-words text-sm font-semibold">
-                      {getRecordEventLabel(record)}
-                    </span>
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-black">
+                        {getRecordEventLabel(record)}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                        {formatDateTime(record.scanned_at ?? record.created_at)}
+                      </p>
+                      {record.remarks ? (
+                        <p className="mt-2 break-words text-xs text-muted-foreground">
+                          {record.remarks}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
