@@ -95,6 +95,18 @@ export type AttendanceFinalResultRecord = {
     event_start_at: string | null;
     event_end_at: string | null;
   }>;
+  event_details?: Array<{
+    id: string;
+    name: string;
+    event_order: number | null;
+    event_start_at: string | null;
+    event_end_at: string | null;
+    attended: boolean;
+    source: "Uploaded" | "Manual" | null;
+    record_id: string | null;
+    scanned_at: string | null;
+    remarks: string | null;
+  }>;
   latest_scanned_at: string | null;
   source_updated_at: string | null;
   created_at: string;
@@ -378,6 +390,7 @@ type ListOptions = {
   offset?: number;
   includeDeleted?: boolean;
   includeMissedEvents?: boolean;
+  includeEventDetails?: boolean;
   zeroAttendanceOnly?: boolean;
   signal?: AbortSignal;
 };
@@ -918,6 +931,7 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     studentId: options.studentId,
     college: options.college,
     includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
+    includeEventDetails: options.includeEventDetails ? "true" : undefined,
   });
 
   const response = await apiRequest<AttendanceFinalResultRecord[]>(

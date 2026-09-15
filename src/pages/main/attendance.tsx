@@ -99,15 +99,6 @@ type FinalResultFormState = {
   remarks: string;
 };
 
-type StudentEventSummary = {
-  key: string;
-  eventName: string;
-  scannedAt: string | null;
-  source: "Uploaded" | "Manual";
-  recordId: string;
-  remarks: string | null;
-};
-
 type AttendancePageLoadProgress = {
   progress: number;
   detail: string;
@@ -350,15 +341,6 @@ function normalizeStudentId(value: unknown) {
     .toLowerCase();
 }
 
-function normalizeAttendanceIdentityValue(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function getAttendanceEventScheduleLabel(
   startAt?: string | null,
   endAt?: string | null,
@@ -398,21 +380,6 @@ function getDetectedAttendanceFileEvent(
     eventStartAt: metadata.eventStartAt || "",
     eventEndAt: metadata.eventEndAt || "",
   };
-}
-
-function getStudentEventSummaryTimestamp(summary: StudentEventSummary) {
-  const time = summary.scannedAt ? new Date(summary.scannedAt).getTime() : 0;
-
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function getStudentEventSummaryDeduplicationKey(
-  summary: StudentEventSummary,
-) {
-  const eventName = normalizeAttendanceIdentityValue(summary.eventName);
-  const eventKey = eventName || normalizeAttendanceIdentityValue(summary.recordId);
-
-  return `${summary.source}::${eventKey}`;
 }
 
 function getResultBadgeClassName(result: AttendanceFinalResultRecord) {
@@ -515,92 +482,6 @@ function isAcceptedAttendanceFile(file: File, acceptedFileTypes: string) {
   return acceptedExtensions.includes(extension);
 }
 
-function getUploadedRecordEventName(record: AttendanceRecord) {
-  if (record.event_name) return record.event_name;
-  if (record.event_id) return `Event ${record.event_id}`;
-  if (record.import_id) return "Uploaded attendance";
-  return "Attendance record";
-}
-
-function getManualRecordEventName(record: ManualAttendanceRecord) {
-  if (record.event_name) return record.event_name;
-  if (record.event_id) return `Event ${record.event_id}`;
-  return "Manual attendance";
-}
-
-function getRecordEventSortKey(summary: StudentEventSummary) {
-  return `${summary.eventName.toLowerCase()}-${summary.scannedAt ?? ""}`;
-}
-
-function getStudentEventSummaries(
-  result: AttendanceFinalResultRecord,
-  uploadedRecords: AttendanceRecord[],
-  manualRecords: ManualAttendanceRecord[],
-) {
-  const targetStudentId = normalizeStudentId(result.student_id);
-  const targetSchoolYearId = result.school_year_id ?? "";
-
-  const uploadedEvents = uploadedRecords
-    .filter((record) => {
-      return (
-        normalizeStudentId(record.student_id) === targetStudentId &&
-        (!targetSchoolYearId || record.school_year_id === targetSchoolYearId) &&
-        (record.event_id || record.event_name || record.import_id)
-      );
-    })
-    .map((record) => ({
-      key: `uploaded-${record.id}`,
-      eventName: getUploadedRecordEventName(record),
-      scannedAt: record.scanned_at ?? record.created_at ?? null,
-      source: "Uploaded" as const,
-      recordId: record.id,
-      remarks: record.remarks ?? null,
-    }));
-
-  const manualEvents = manualRecords
-    .filter((record) => {
-      return (
-        normalizeStudentId(record.student_id) === targetStudentId &&
-        (!targetSchoolYearId || record.school_year_id === targetSchoolYearId) &&
-        record.event_id
-      );
-    })
-    .map((record) => ({
-      key: `manual-${record.id}`,
-      eventName: getManualRecordEventName(record),
-      scannedAt: record.scanned_at ?? record.created_at ?? null,
-      source: "Manual" as const,
-      recordId: record.id,
-      remarks: record.remarks ?? null,
-    }));
-
-  const uniqueEvents = new Map<string, StudentEventSummary>();
-
-  [...uploadedEvents, ...manualEvents].forEach((summary) => {
-    const key = getStudentEventSummaryDeduplicationKey(summary);
-    const savedSummary = uniqueEvents.get(key);
-
-    if (
-      !savedSummary ||
-      getStudentEventSummaryTimestamp(summary) >
-        getStudentEventSummaryTimestamp(savedSummary)
-    ) {
-      uniqueEvents.set(key, summary);
-    }
-  });
-
-  return Array.from(uniqueEvents.values()).sort((left, right) => {
-    const leftTime = left.scannedAt ? new Date(left.scannedAt).getTime() : 0;
-    const rightTime = right.scannedAt ? new Date(right.scannedAt).getTime() : 0;
-
-    if (leftTime !== rightTime) return leftTime - rightTime;
-
-    return getRecordEventSortKey(left).localeCompare(
-      getRecordEventSortKey(right),
-    );
-  });
-}
-
 function getStudentSourceRecords(
   result: AttendanceFinalResultRecord,
   uploadedRecords: AttendanceRecord[],
@@ -659,8 +540,6 @@ export default function AttendancePage() {
   const [selectedFinalResultIds, setSelectedFinalResultIds] = useState<
     string[]
   >([]);
-  const [eventsDialogSourceRecords, setEventsDialogSourceRecords] =
-    useState<StudentSourceRecordBundle>(emptyStudentSourceRecordBundle);
   const [editSourceRecords, setEditSourceRecords] =
     useState<StudentSourceRecordBundle>(emptyStudentSourceRecordBundle);
   const [isLoadingEventsDialogDetails, setIsLoadingEventsDialogDetails] =
@@ -670,6 +549,10 @@ export default function AttendancePage() {
     useState(false);
   const [eventsDialogResult, setEventsDialogResult] =
     useState<AttendanceFinalResultRecord | null>(null);
+  const eventsDialogCacheRef = useRef(
+    new Map<string, AttendanceFinalResultRecord>(),
+  );
+  const eventsDialogAbortRef = useRef<AbortController | null>(null);
   const [finalResultDialogOpen, setFinalResultDialogOpen] = useState(false);
   const [finalResultForm, setFinalResultForm] =
     useState<FinalResultFormState>(emptyFinalResultForm);
@@ -823,32 +706,33 @@ export default function AttendancePage() {
   }, [displayedFinalResults]);
 
   const eventsDialogSummaries = useMemo(() => {
-    if (!eventsDialogResult) return [];
-
-    return getStudentEventSummaries(
-      eventsDialogResult,
-      eventsDialogSourceRecords.uploaded,
-      eventsDialogSourceRecords.manual,
-    ).filter((summary) => matchesDateRange(summary.scannedAt, fromDate, toDate));
-  }, [
-    eventsDialogResult,
-    eventsDialogSourceRecords.uploaded,
-    eventsDialogSourceRecords.manual,
-    fromDate,
-    toDate,
-  ]);
+    return (eventsDialogResult?.event_details ?? [])
+      .filter((event) => event.attended)
+      .map((event) => ({
+        key: `${event.source ?? "attendance"}-${event.record_id ?? event.id}`,
+        eventName: event.name,
+        scannedAt: event.scanned_at,
+        source: event.source ?? "Uploaded",
+        recordId: event.record_id ?? event.id,
+        remarks: event.remarks,
+      }));
+  }, [eventsDialogResult]);
 
   const missedEventsDialogSummaries = useMemo(() => {
-    if (!eventsDialogResult) return [];
-
-    return (eventsDialogResult.missed_events ?? []).filter((event) =>
-      matchesDateRange(
-        event.event_start_at ?? event.event_end_at,
-        fromDate,
-        toDate,
-      ),
+    return (eventsDialogResult?.event_details ?? []).filter(
+      (event) => !event.attended,
     );
-  }, [eventsDialogResult, fromDate, toDate]);
+  }, [eventsDialogResult]);
+
+  const expectedMissedEventCount = Math.max(
+    0,
+    Number(eventsDialogResult?.expected_events ?? 0) -
+      Number(eventsDialogResult?.attended_events ?? 0),
+  );
+  const unresolvedMissedEventCount = Math.max(
+    0,
+    expectedMissedEventCount - missedEventsDialogSummaries.length,
+  );
 
   function updatePageLoadStep(
     label: string,
@@ -1658,45 +1542,47 @@ export default function AttendancePage() {
   }
 
   async function handleOpenEventsDialog(result: AttendanceFinalResultRecord) {
-    setEventsDialogResult(result);
-    setEventsDialogSourceRecords(emptyStudentSourceRecordBundle);
-    setIsLoadingEventsDialogDetails(true);
+    const cacheKey = `${result.id}:${result.updated_at}`;
+    const cachedResult = eventsDialogCacheRef.current.get(cacheKey);
+
+    eventsDialogAbortRef.current?.abort();
+    setEventsDialogResult(cachedResult ?? result);
     setEventsDialogLoadMessage(
-      "Loading this student's attended records and missed-event roster only.",
+      cachedResult
+        ? "Event details loaded from cache."
+        : `Loading the ${result.expected_events}-event college roster in one request.`,
     );
 
+    if (cachedResult) {
+      setIsLoadingEventsDialogDetails(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    eventsDialogAbortRef.current = controller;
+    setIsLoadingEventsDialogDetails(true);
+
     try {
-      const detailPromise = listAttendanceFinalResults({
+      const rows = await listAttendanceFinalResults({
         schoolYearId: result.school_year_id ?? undefined,
         studentId: result.student_id,
         limit: 1,
         offset: 0,
-        includeMissedEvents: true,
-      }).then((rows) => {
-        setEventsDialogLoadMessage(
-          "Missed-event roster loaded. Finishing attended-event details.",
-        );
-        return rows[0] ?? result;
+        includeEventDetails: true,
+        signal: controller.signal,
       });
-      const sourcePromise = fetchStudentSourceRecordBundle(result).then(
-        (bundle) => {
-          setEventsDialogLoadMessage(
-            `Loaded ${
-              bundle.uploaded.length + bundle.manual.length
-            } source record/s. Finishing event roster.`,
-          );
-          return bundle;
-        },
-      );
+      const detailedResult = rows[0] ?? result;
 
-      const [detailedResult, sourceBundle] = await Promise.all([
-        detailPromise,
-        sourcePromise,
-      ]);
+      if (controller.signal.aborted) return;
+
+      eventsDialogCacheRef.current.set(cacheKey, detailedResult);
       setEventsDialogResult(detailedResult);
-      setEventsDialogSourceRecords(sourceBundle);
-      setEventsDialogLoadMessage("Event details ready.");
+      setEventsDialogLoadMessage(
+        `Loaded ${detailedResult.event_details?.length ?? 0} expected event/s.`,
+      );
     } catch (error) {
+      if (controller.signal.aborted) return;
+
       setEventsDialogLoadMessage("Unable to load complete event details.");
       toast.error(
         error instanceof Error
@@ -1704,7 +1590,10 @@ export default function AttendancePage() {
           : "Unable to load event details.",
       );
     } finally {
-      setIsLoadingEventsDialogDetails(false);
+      if (eventsDialogAbortRef.current === controller) {
+        eventsDialogAbortRef.current = null;
+        setIsLoadingEventsDialogDetails(false);
+      }
     }
   }
 
@@ -2465,8 +2354,9 @@ export default function AttendancePage() {
           open={Boolean(eventsDialogResult)}
           onOpenChange={(open) => {
             if (!open) {
+              eventsDialogAbortRef.current?.abort();
+              eventsDialogAbortRef.current = null;
               setEventsDialogResult(null);
-              setEventsDialogSourceRecords(emptyStudentSourceRecordBundle);
               setEventsDialogLoadMessage("");
               setIsLoadingEventsDialogDetails(false);
             }
@@ -2521,7 +2411,11 @@ export default function AttendancePage() {
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                     {isLoadingEventsDialogDetails
                       ? "Loading missed events..."
-                      : "No missed events found for this student."}
+                      : unresolvedMissedEventCount > 0
+                        ? `${unresolvedMissedEventCount} missed event${
+                            unresolvedMissedEventCount === 1 ? "" : "s"
+                          } recorded, but the event details could not be resolved.`
+                        : "No missed events found for this student."}
                   </div>
                 )}
               </section>
