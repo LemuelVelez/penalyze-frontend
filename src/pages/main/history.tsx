@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -11,9 +11,9 @@ import {
   restoreAttendanceImport,
   deleteManualAttendanceRecordsByIds,
   deleteManualAttendanceRecordsBySchoolYear,
-  listAttendanceFinalResults,
+  listAllAttendanceFinalResults,
+  listAllManualAttendanceRecords,
   listAttendanceImports,
-  listManualAttendanceRecords,
 } from "../../api/attendance";
 import type {
   AttendanceFinalResultRecord,
@@ -38,7 +38,7 @@ import type { SchoolSemester, SchoolYearDeleteImpact, SchoolYearRecord } from ".
 import {
   deletePenaltyResultsByIds,
   deletePenaltyResultsBySchoolYear,
-  listPenaltyResults,
+  listAllPenaltyResults,
 } from "../../api/fines";
 import type { PenaltyResultRecord } from "../../api/fines";
 import {
@@ -53,6 +53,8 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -94,6 +96,12 @@ type FilteredRecordGroupKey =
   | "penaltyResults"
   | "finalAttendanceResults"
   | "manualAttendanceRecords";
+
+type HistoryLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
 
 const emptyForm: SchoolYearFormState = {
   name: "",
@@ -240,6 +248,9 @@ export default function HistoryPage() {
   const [selectedRecords, setSelectedRecords] =
     useState<SelectedRecordState>(emptySelectedRecords);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<HistoryLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [isSavingSchoolYear, setIsSavingSchoolYear] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
@@ -434,11 +445,50 @@ export default function HistoryPage() {
     );
   }, [manualRecords, recordDialogSearch]);
 
+  function updatePageLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setPageLoadProgress((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadHistory(nextSchoolYearId = selectedSchoolYearId) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setSelectedRecords(emptySelectedRecords);
+    setPageLoadProgress({
+      progress: 5,
+      detail: "Loading school years before requesting the selected record groups.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Resolving selected scope" },
+        { label: "Uploads", status: "pending", detail: "Waiting" },
+        { label: "Final results", status: "pending", detail: "Waiting" },
+        { label: "Manual records", status: "pending", detail: "Waiting" },
+        { label: "Penalty results", status: "pending", detail: "Waiting" },
+      ],
+    });
 
     try {
       const schoolYearRows = await listSchoolYears();
+      if (!isCurrentRequest()) return;
+
       const fallbackSchoolYearId =
         nextSchoolYearId &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
@@ -446,32 +496,6 @@ export default function HistoryPage() {
           : getActiveSchoolYearId(schoolYearRows) ||
             schoolYearRows[0]?.id ||
             "";
-      const [importRows, finalRows, manualRows, penaltyRows] =
-        fallbackSchoolYearId
-          ? await Promise.all([
-              listAttendanceImports({
-                schoolYearId: fallbackSchoolYearId,
-                includeDeleted: true,
-                limit: 200,
-                offset: 0,
-              }),
-              listAttendanceFinalResults({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 500,
-                offset: 0,
-              }),
-              listManualAttendanceRecords({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 500,
-                offset: 0,
-              }),
-              listPenaltyResults({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 500,
-                offset: 0,
-              }),
-            ])
-          : [[], [], [], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
@@ -490,24 +514,174 @@ export default function HistoryPage() {
           )?.id ?? ""
         );
       });
-      setImports(importRows.filter((item) => !item.deleted_at));
-      setRecentlyDeletedImports(
-        importRows.filter((item) => Boolean(item.deleted_at)),
+      updatePageLoadStep(
+        "School year",
+        "done",
+        fallbackSchoolYearId ? "Selected scope ready" : "No school year found",
+        18,
+        fallbackSchoolYearId
+          ? "School-year scope is ready. Record groups are loading independently."
+          : "No school-year scope is available.",
       );
+
+      if (!fallbackSchoolYearId) {
+        setImports([]);
+        setRecentlyDeletedImports([]);
+        setFinalResults([]);
+        setManualRecords([]);
+        setPenaltyResults([]);
+        setPageLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "History is ready. There is no school-year data to request.",
+                steps: current.steps.map((step) => ({
+                  ...step,
+                  status: "done",
+                  detail: step.status === "done" ? step.detail : "No data requested",
+                })),
+              }
+            : current,
+        );
+        return;
+      }
+
+      for (const label of ["Uploads", "Final results", "Manual records", "Penalty results"]) {
+        updatePageLoadStep(
+          label,
+          "loading",
+          "Request started",
+          24,
+          "Loading uploads, final results, manual records, and penalty results in parallel.",
+        );
+      }
+
+      const importsPromise = listAttendanceImports({
+        schoolYearId: fallbackSchoolYearId,
+        includeDeleted: true,
+        limit: 200,
+        offset: 0,
+      }).then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setImports(rows.filter((item) => !item.deleted_at));
+        setRecentlyDeletedImports(rows.filter((item) => Boolean(item.deleted_at)));
+        updatePageLoadStep(
+          "Uploads",
+          "done",
+          `${rows.length.toLocaleString()} upload history row/s ready`,
+          44,
+          "Upload history is ready. Other record groups continue loading.",
+        );
+        return rows;
+      });
+
+      const finalPromise = listAllAttendanceFinalResults({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 250,
+        includeMissedEvents: false,
+        onPage: ({ rows, pageRows, page }) => {
+          if (!isCurrentRequest()) return;
+          setFinalResults(rows);
+          const done = pageRows.length < 250;
+          updatePageLoadStep(
+            "Final results",
+            done ? "done" : "loading",
+            done
+              ? `${rows.length.toLocaleString()} row/s loaded`
+              : `${rows.length.toLocaleString()} row/s loaded so far`,
+            done ? 82 : Math.min(74, 38 + page * 6),
+            done
+              ? "Final attendance results are ready."
+              : `Showing ${rows.length.toLocaleString()} final result/s while the next page loads.`,
+          );
+        },
+      });
+
+      const manualPromise = listAllManualAttendanceRecords({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 300,
+        maxPages: 100,
+        onPage: ({ rows, pageRows, page }) => {
+          if (!isCurrentRequest()) return;
+          setManualRecords(rows);
+          const done = pageRows.length < 300;
+          updatePageLoadStep(
+            "Manual records",
+            done ? "done" : "loading",
+            done
+              ? `${rows.length.toLocaleString()} row/s loaded`
+              : `${rows.length.toLocaleString()} row/s loaded so far`,
+            done ? 84 : Math.min(76, 40 + page * 6),
+            done
+              ? "Manual attendance history is ready."
+              : `Showing ${rows.length.toLocaleString()} manual record/s while more load.`,
+          );
+        },
+      });
+
+      const penaltyPromise = listAllPenaltyResults({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 500,
+        maxPages: 100,
+        onPage: ({ rows, pageRows, page }) => {
+          if (!isCurrentRequest()) return;
+          setPenaltyResults(rows);
+          const done = pageRows.length < 500;
+          updatePageLoadStep(
+            "Penalty results",
+            done ? "done" : "loading",
+            done
+              ? `${rows.length.toLocaleString()} row/s loaded`
+              : `${rows.length.toLocaleString()} row/s loaded so far`,
+            done ? 86 : Math.min(78, 42 + page * 6),
+            done
+              ? "Penalty result history is ready."
+              : `Showing ${rows.length.toLocaleString()} penalty result/s while more load.`,
+          );
+        },
+      });
+
+      const [, finalRows, manualRows, penaltyRows] = await Promise.all([
+        importsPromise,
+        finalPromise,
+        manualPromise,
+        penaltyPromise,
+      ]);
+      if (!isCurrentRequest()) return;
+
       setFinalResults(finalRows);
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
-      setSelectedRecords(emptySelectedRecords);
       setRecordDialogSearch("");
       setActiveRecordsDialog(null);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to load history records.",
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: "Ready. History groups were loaded independently and displayed as each became available.",
+              steps: current.steps.map((step) => ({ ...step, status: "done" })),
+            }
+          : current,
       );
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      const message =
+        error instanceof Error ? error.message : "Unable to load history records.";
+      setPageLoadProgress((current) =>
+        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
+      );
+      toast.error(message);
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1400);
+      }
     }
   }
 
@@ -1532,6 +1706,15 @@ export default function HistoryPage() {
             </Select>
           </div>
         </section>
+
+        {pageLoadProgress ? (
+          <LoadingStatus
+            title="Loading history"
+            detail={pageLoadProgress.detail}
+            progress={pageLoadProgress.progress}
+            steps={pageLoadProgress.steps}
+          />
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-6">
           <div className="rounded-2xl border bg-card p-5 md:col-span-2">

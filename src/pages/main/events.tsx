@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -25,6 +25,8 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -54,6 +56,12 @@ const emptyEventForm = {
 };
 
 type EventFormState = typeof emptyEventForm;
+
+type EventsLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
@@ -170,6 +178,9 @@ export default function EventsPage() {
   );
   const [form, setForm] = useState<EventFormState>(emptyEventForm);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<EventsLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingEventId, setDeletingEventId] = useState("");
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
@@ -270,40 +281,159 @@ export default function EventsPage() {
     paginatedEventIds.length > 0 &&
     paginatedEventIds.every((eventId) => selectedEventIds.includes(eventId));
 
+  function updatePageLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setPageLoadProgress((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadEvents(nextSchoolYearId = selectedSchoolYearId) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setSelectedEventIds([]);
+    setPageLoadProgress({
+      progress: 6,
+      detail: "Checking the active school year before loading events.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Checking active scope" },
+        { label: "Events", status: "pending", detail: "Waiting for scope" },
+        { label: "Duplicate review", status: "pending", detail: "Waiting for scope" },
+      ],
+    });
 
     try {
       const schoolYearRows = await listSchoolYears({ activeOnly: true });
+      if (!isCurrentRequest()) return;
       const fallbackSchoolYearId =
         nextSchoolYearId &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : getActiveSchoolYearId(schoolYearRows);
-      const [rows, groups] = fallbackSchoolYearId
-        ? await Promise.all([
-            listAttendanceEvents({
-              schoolYearId: fallbackSchoolYearId,
-              limit: 500,
-              offset: 0,
-            }),
-            listAttendanceEventDuplicateGroups({
-              schoolYearId: fallbackSchoolYearId,
-            }),
-          ])
-        : [[], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId);
-      setEvents(rows);
-      setDuplicateGroups(groups);
-      setSelectedEventIds([]);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to load events.",
+      updatePageLoadStep(
+        "School year",
+        "done",
+        fallbackSchoolYearId ? "Active scope ready" : "No active school year",
+        22,
+        fallbackSchoolYearId
+          ? "School year ready. Event rows and duplicate analysis are loading in parallel."
+          : "No active school year was found.",
       );
+
+      if (!fallbackSchoolYearId) {
+        setEvents([]);
+        setDuplicateGroups([]);
+        setPageLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "No event data was requested because there is no active school year.",
+                steps: current.steps.map((step) => ({
+                  ...step,
+                  status: "done",
+                  detail: step.status === "done" ? step.detail : "No data requested",
+                })),
+              }
+            : current,
+        );
+        return;
+      }
+
+      updatePageLoadStep(
+        "Events",
+        "loading",
+        "Loading event rows",
+        30,
+        "Loading event rows first so the table can appear while duplicate analysis finishes.",
+      );
+      updatePageLoadStep(
+        "Duplicate review",
+        "loading",
+        "Analyzing likely duplicate events",
+        30,
+        "Event rows and duplicate analysis are running in parallel.",
+      );
+
+      const eventsPromise = listAttendanceEvents({
+        schoolYearId: fallbackSchoolYearId,
+        limit: 500,
+        offset: 0,
+      }).then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setEvents(rows);
+        updatePageLoadStep(
+          "Events",
+          "done",
+          `${rows.length.toLocaleString()} event/s ready`,
+          72,
+          "Event rows are visible. Duplicate analysis may still be finishing.",
+        );
+        return rows;
+      });
+
+      const duplicatesPromise = listAttendanceEventDuplicateGroups({
+        schoolYearId: fallbackSchoolYearId,
+      }).then((groups) => {
+        if (!isCurrentRequest()) return groups;
+        setDuplicateGroups(groups);
+        updatePageLoadStep(
+          "Duplicate review",
+          "done",
+          `${groups.length.toLocaleString()} candidate group/s found`,
+          88,
+          "Duplicate analysis is ready. Finalizing the page.",
+        );
+        return groups;
+      });
+
+      await Promise.all([eventsPromise, duplicatesPromise]);
+      if (!isCurrentRequest()) return;
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: "Ready. Event rows were displayed as soon as they arrived instead of waiting for duplicate analysis.",
+              steps: current.steps.map((step) => ({ ...step, status: "done" })),
+            }
+          : current,
+      );
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      const message = error instanceof Error ? error.message : "Unable to load events.";
+      setPageLoadProgress((current) =>
+        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
+      );
+      toast.error(message);
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1400);
+      }
     }
   }
 
@@ -537,6 +667,15 @@ export default function EventsPage() {
             </div>
           </div>
         </section>
+
+        {pageLoadProgress ? (
+          <LoadingStatus
+            title="Loading events"
+            detail={pageLoadProgress.detail}
+            progress={pageLoadProgress.progress}
+            steps={pageLoadProgress.steps}
+          />
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-3xl border bg-card p-5">

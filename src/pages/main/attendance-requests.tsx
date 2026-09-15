@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +15,8 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -29,6 +31,12 @@ import {
 const ALL_STATUSES = "__all_statuses__";
 
 type StatusFilter = AttendanceRequestStatus | typeof ALL_STATUSES;
+
+type RequestsLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -81,6 +89,9 @@ export default function AttendanceRequestsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<RequestsLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [reviewingId, setReviewingId] = useState("");
 
   const filteredRequests = useMemo(() => {
@@ -132,28 +143,106 @@ export default function AttendanceRequestsPage() {
   );
 
   const loadRequests = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setPageLoadProgress({
+      progress: 8,
+      detail: "Loading request records and school-year labels in parallel.",
+      steps: [
+        { label: "Requests", status: "loading", detail: "Fetching filtered requests" },
+        { label: "School years", status: "loading", detail: "Loading labels" },
+      ],
+    });
+
+    const updateStep = (
+      label: string,
+      status: LoadingStatusStep["status"],
+      detail: string,
+      progress: number,
+      overallDetail: string,
+    ) => {
+      if (!isCurrentRequest()) return;
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: Math.max(current.progress, progress),
+              detail: overallDetail,
+              steps: current.steps.map((step) =>
+                step.label === label ? { ...step, status, detail } : step,
+              ),
+            }
+          : current,
+      );
+    };
+
     try {
-      const [requestRows, schoolYearRows] = await Promise.all([
-        listAttendanceRequests({
-          status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
-          schoolYearId:
-            schoolYearFilter === ALL_SCHOOL_YEARS_VALUE
-              ? undefined
-              : schoolYearFilter,
-        }),
-        listSchoolYears(),
-      ]);
-      setRequests(requestRows);
-      setSchoolYears(schoolYearRows);
+      const requestPromise = listAttendanceRequests({
+        status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+        schoolYearId:
+          schoolYearFilter === ALL_SCHOOL_YEARS_VALUE
+            ? undefined
+            : schoolYearFilter,
+      }).then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setRequests(rows);
+        updateStep(
+          "Requests",
+          "done",
+          `${rows.length.toLocaleString()} request/s ready`,
+          72,
+          "Attendance requests are visible. Finishing school-year labels.",
+        );
+        return rows;
+      });
+
+      const schoolYearPromise = listSchoolYears().then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setSchoolYears(rows);
+        updateStep(
+          "School years",
+          "done",
+          `${rows.length.toLocaleString()} school-year record/s ready`,
+          82,
+          "School-year labels are ready. Finalizing the request page.",
+        );
+        return rows;
+      });
+
+      await Promise.all([requestPromise, schoolYearPromise]);
+      if (!isCurrentRequest()) return;
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: "Ready. Request rows were shown as soon as they arrived.",
+              steps: current.steps.map((step) => ({ ...step, status: "done" })),
+            }
+          : current,
+      );
     } catch (error) {
-      toast.error(
+      if (!isCurrentRequest()) return;
+      const message =
         error instanceof Error
           ? error.message
-          : "Unable to load attendance requests.",
+          : "Unable to load attendance requests.";
+      setPageLoadProgress((current) =>
+        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
       );
+      toast.error(message);
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1200);
+      }
     }
   }, [schoolYearFilter, statusFilter]);
 
@@ -215,6 +304,15 @@ export default function AttendanceRequestsPage() {
           record for the student.
         </p>
       </header>
+
+      {pageLoadProgress ? (
+        <LoadingStatus
+          title="Loading attendance requests"
+          detail={pageLoadProgress.detail}
+          progress={pageLoadProgress.progress}
+          steps={pageLoadProgress.steps}
+        />
+      ) : null}
 
       <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-3 sm:p-5">
         <div className="rounded-2xl border bg-background p-4">

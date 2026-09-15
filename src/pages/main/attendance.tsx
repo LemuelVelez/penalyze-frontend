@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -9,9 +9,10 @@ import {
   deleteAttendanceFinalResultsByIds,
   listAllAttendanceFinalResults,
   listAllAttendanceRecords,
+  listAllManualAttendanceRecords,
   listAttendanceEvents,
+  listAttendanceFinalResults,
   listAttendanceImports,
-  listManualAttendanceRecords,
   previewAttendanceFile,
   refreshAttendanceFinalResults,
   saveAttendanceFile,
@@ -38,6 +39,8 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -103,6 +106,26 @@ type StudentEventSummary = {
   source: "Uploaded" | "Manual";
   recordId: string;
   remarks: string | null;
+};
+
+type AttendancePageLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
+
+type StudentSourceRecordBundle = {
+  studentId: string;
+  schoolYearId: string;
+  uploaded: AttendanceRecord[];
+  manual: ManualAttendanceRecord[];
+};
+
+const emptyStudentSourceRecordBundle: StudentSourceRecordBundle = {
+  studentId: "",
+  schoolYearId: "",
+  uploaded: [],
+  manual: [],
 };
 
 const emptyUploadForm: UploadFormState = {
@@ -636,12 +659,15 @@ export default function AttendancePage() {
   const [selectedFinalResultIds, setSelectedFinalResultIds] = useState<
     string[]
   >([]);
-  const [uploadedAttendanceRecords, setUploadedAttendanceRecords] = useState<
-    AttendanceRecord[]
-  >([]);
-  const [manualAttendanceRecords, setManualAttendanceRecords] = useState<
-    ManualAttendanceRecord[]
-  >([]);
+  const [eventsDialogSourceRecords, setEventsDialogSourceRecords] =
+    useState<StudentSourceRecordBundle>(emptyStudentSourceRecordBundle);
+  const [editSourceRecords, setEditSourceRecords] =
+    useState<StudentSourceRecordBundle>(emptyStudentSourceRecordBundle);
+  const [isLoadingEventsDialogDetails, setIsLoadingEventsDialogDetails] =
+    useState(false);
+  const [eventsDialogLoadMessage, setEventsDialogLoadMessage] = useState("");
+  const [isLoadingEditSourceRecords, setIsLoadingEditSourceRecords] =
+    useState(false);
   const [eventsDialogResult, setEventsDialogResult] =
     useState<AttendanceFinalResultRecord | null>(null);
   const [finalResultDialogOpen, setFinalResultDialogOpen] = useState(false);
@@ -658,6 +684,9 @@ export default function AttendancePage() {
   const [isLoadingDeleteImportImpact, setIsLoadingDeleteImportImpact] =
     useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<AttendancePageLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [isSaving, setIsSaving] = useState(false);
   const [progress, setProgress] = useState<AttendanceImportProgress | null>(
     null,
@@ -798,13 +827,13 @@ export default function AttendancePage() {
 
     return getStudentEventSummaries(
       eventsDialogResult,
-      uploadedAttendanceRecords,
-      manualAttendanceRecords,
+      eventsDialogSourceRecords.uploaded,
+      eventsDialogSourceRecords.manual,
     ).filter((summary) => matchesDateRange(summary.scannedAt, fromDate, toDate));
   }, [
     eventsDialogResult,
-    uploadedAttendanceRecords,
-    manualAttendanceRecords,
+    eventsDialogSourceRecords.uploaded,
+    eventsDialogSourceRecords.manual,
     fromDate,
     toDate,
   ]);
@@ -821,11 +850,49 @@ export default function AttendancePage() {
     );
   }, [eventsDialogResult, fromDate, toDate]);
 
+  function updatePageLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setPageLoadProgress((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setSelectedFinalResultIds([]);
+    setPageLoadProgress({
+      progress: 5,
+      detail: "Checking the active school year before loading attendance data.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Checking active scope" },
+        { label: "Final results", status: "pending", detail: "Waiting" },
+        { label: "Events", status: "pending", detail: "Waiting" },
+        { label: "Recent files", status: "pending", detail: "Waiting" },
+      ],
+    });
 
     try {
       const schoolYearRows = await listSchoolYears({ activeOnly: true });
+      if (!isCurrentRequest()) return;
+
       const activeSchoolYearId = getActiveSchoolYearId(schoolYearRows);
       const fallbackSchoolYearId =
         nextSchoolYearId &&
@@ -833,43 +900,9 @@ export default function AttendancePage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : activeSchoolYearId;
-      const [eventRows, importRows, resultRows, uploadedRows, manualRows] =
-        fallbackSchoolYearId
-          ? await Promise.all([
-              listAttendanceEvents({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 100,
-                offset: 0,
-              }),
-              listAttendanceImports({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 50,
-                offset: 0,
-              }),
-              listAllAttendanceFinalResults({
-                schoolYearId: fallbackSchoolYearId,
-              }),
-              listAllAttendanceRecords({
-                schoolYearId: fallbackSchoolYearId,
-                pageSize: 500,
-                maxPages: 100,
-              }),
-              listManualAttendanceRecords({
-                schoolYearId: fallbackSchoolYearId,
-                limit: 1000,
-                offset: 0,
-              }),
-            ])
-          : [[], [], [], [], []];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
-      setAttendanceEvents(sortByBackendEventOrder(eventRows));
-      setImports(sortByBackendEventOrder(importRows));
-      setFinalResults(sortByBackendEventOrder(resultRows));
-      setSelectedFinalResultIds([]);
-      setUploadedAttendanceRecords(uploadedRows);
-      setManualAttendanceRecords(manualRows);
       setUploadForm((current) => ({
         ...current,
         schoolYearId:
@@ -880,14 +913,164 @@ export default function AttendancePage() {
             ? current.schoolYearId
             : activeSchoolYearId,
       }));
+      updatePageLoadStep(
+        "School year",
+        "done",
+        fallbackSchoolYearId ? "Active school year ready" : "No active school year",
+        18,
+        fallbackSchoolYearId
+          ? "School year is ready. Loading final results first so rows can appear immediately."
+          : "No active school year was found.",
+      );
+
+      if (!fallbackSchoolYearId) {
+        setAttendanceEvents([]);
+        setImports([]);
+        setFinalResults([]);
+        setPageLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "Nothing to load because there is no active school year.",
+                steps: current.steps.map((step) =>
+                  step.status === "done"
+                    ? step
+                    : { ...step, status: "done", detail: "No data requested" },
+                ),
+              }
+            : current,
+        );
+        return;
+      }
+
+      updatePageLoadStep(
+        "Final results",
+        "loading",
+        "Requesting the first result page",
+        24,
+        "Loading final attendance results. The first rows will be shown before the remaining pages finish.",
+      );
+      updatePageLoadStep(
+        "Events",
+        "loading",
+        "Loading event list",
+        24,
+        "Loading final attendance results and supporting lists in parallel.",
+      );
+      updatePageLoadStep(
+        "Recent files",
+        "loading",
+        "Loading recent uploads",
+        24,
+        "Loading final attendance results and supporting lists in parallel.",
+      );
+
+      const eventsPromise = listAttendanceEvents({
+        schoolYearId: fallbackSchoolYearId,
+        limit: 500,
+        offset: 0,
+      }).then((eventRows) => {
+        if (!isCurrentRequest()) return eventRows;
+        setAttendanceEvents(sortByBackendEventOrder(eventRows));
+        updatePageLoadStep(
+          "Events",
+          "done",
+          `${eventRows.length.toLocaleString()} event/s ready`,
+          48,
+          "Event list loaded. Final result pages are still being streamed in.",
+        );
+        return eventRows;
+      });
+
+      const importsPromise = listAttendanceImports({
+        schoolYearId: fallbackSchoolYearId,
+        limit: 100,
+        offset: 0,
+      }).then((importRows) => {
+        if (!isCurrentRequest()) return importRows;
+        setImports(sortByBackendEventOrder(importRows));
+        updatePageLoadStep(
+          "Recent files",
+          "done",
+          `${importRows.length.toLocaleString()} recent file/s ready`,
+          52,
+          "Recent uploads are ready. Final result pages are still being streamed in.",
+        );
+        return importRows;
+      });
+
+      const resultsPromise = listAllAttendanceFinalResults({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 250,
+        includeMissedEvents: false,
+        onPage: ({ rows, pageRows, page }) => {
+          if (!isCurrentRequest()) return;
+          setFinalResults(sortByBackendEventOrder(rows));
+
+          const isLastPage = pageRows.length < 250;
+          updatePageLoadStep(
+            "Final results",
+            isLastPage ? "done" : "loading",
+            isLastPage
+              ? `${rows.length.toLocaleString()} result/s loaded`
+              : `${rows.length.toLocaleString()} result/s loaded so far`,
+            isLastPage ? 92 : Math.min(86, 38 + page * 8),
+            isLastPage
+              ? "All final attendance results are loaded."
+              : `Showing ${rows.length.toLocaleString()} result/s now while the next page loads in the background.`,
+          );
+        },
+      });
+
+      const [, , resultRows] = await Promise.all([
+        eventsPromise,
+        importsPromise,
+        resultsPromise,
+      ]);
+      if (!isCurrentRequest()) return;
+
+      setFinalResults(sortByBackendEventOrder(resultRows));
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: `Ready. Loaded ${resultRows.length.toLocaleString()} final attendance result/s without downloading every raw attendance row.`,
+              steps: current.steps.map((step) => ({
+                ...step,
+                status: "done",
+              })),
+            }
+          : current,
+      );
     } catch (error) {
+      if (!isCurrentRequest()) return;
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to load attendance records.",
+            }
+          : current,
+      );
       toast.error(
         error instanceof Error
           ? error.message
           : "Unable to load attendance records.",
       );
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1400);
+      }
     }
   }
 
@@ -1451,6 +1634,80 @@ export default function AttendancePage() {
     }
   }
 
+  async function fetchStudentSourceRecordBundle(
+    result: AttendanceFinalResultRecord,
+  ): Promise<StudentSourceRecordBundle> {
+    const studentId = result.student_id;
+    const schoolYearId = result.school_year_id ?? "";
+    const [uploaded, manual] = await Promise.all([
+      listAllAttendanceRecords({
+        studentId,
+        schoolYearId: schoolYearId || undefined,
+        pageSize: 250,
+        maxPages: 40,
+      }),
+      listAllManualAttendanceRecords({
+        studentId,
+        schoolYearId: schoolYearId || undefined,
+        pageSize: 250,
+        maxPages: 40,
+      }),
+    ]);
+
+    return { studentId, schoolYearId, uploaded, manual };
+  }
+
+  async function handleOpenEventsDialog(result: AttendanceFinalResultRecord) {
+    setEventsDialogResult(result);
+    setEventsDialogSourceRecords(emptyStudentSourceRecordBundle);
+    setIsLoadingEventsDialogDetails(true);
+    setEventsDialogLoadMessage(
+      "Loading this student's attended records and missed-event roster only.",
+    );
+
+    try {
+      const detailPromise = listAttendanceFinalResults({
+        schoolYearId: result.school_year_id ?? undefined,
+        studentId: result.student_id,
+        limit: 1,
+        offset: 0,
+        includeMissedEvents: true,
+      }).then((rows) => {
+        setEventsDialogLoadMessage(
+          "Missed-event roster loaded. Finishing attended-event details.",
+        );
+        return rows[0] ?? result;
+      });
+      const sourcePromise = fetchStudentSourceRecordBundle(result).then(
+        (bundle) => {
+          setEventsDialogLoadMessage(
+            `Loaded ${
+              bundle.uploaded.length + bundle.manual.length
+            } source record/s. Finishing event roster.`,
+          );
+          return bundle;
+        },
+      );
+
+      const [detailedResult, sourceBundle] = await Promise.all([
+        detailPromise,
+        sourcePromise,
+      ]);
+      setEventsDialogResult(detailedResult);
+      setEventsDialogSourceRecords(sourceBundle);
+      setEventsDialogLoadMessage("Event details ready.");
+    } catch (error) {
+      setEventsDialogLoadMessage("Unable to load complete event details.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load event details.",
+      );
+    } finally {
+      setIsLoadingEventsDialogDetails(false);
+    }
+  }
+
   function handleOpenEditFinalResult(result: AttendanceFinalResultRecord) {
     setFinalResultForm({
       id: result.id,
@@ -1466,13 +1723,30 @@ export default function AttendancePage() {
       latestScannedAt: formatDateTimeInputValue(result.latest_scanned_at),
       remarks: "",
     });
+    setEditSourceRecords(emptyStudentSourceRecordBundle);
     setFinalResultDialogOpen(true);
+    setIsLoadingEditSourceRecords(true);
+
+    void fetchStudentSourceRecordBundle(result)
+      .then((bundle) => setEditSourceRecords(bundle))
+      .catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to load the source records for editing.",
+        );
+      })
+      .finally(() => setIsLoadingEditSourceRecords(false));
   }
 
   function handleFinalResultDialogOpenChange(open: boolean) {
     setFinalResultDialogOpen(open);
 
-    if (!open) setFinalResultForm(emptyFinalResultForm);
+    if (!open) {
+      setFinalResultForm(emptyFinalResultForm);
+      setEditSourceRecords(emptyStudentSourceRecordBundle);
+      setIsLoadingEditSourceRecords(false);
+    }
   }
 
   function handleFinalResultFieldChange(
@@ -1509,23 +1783,30 @@ export default function AttendancePage() {
       return;
     }
 
-    const sourceRecords = getStudentSourceRecords(
-      {
-        ...originalResult,
-        student_id: finalResultForm.originalStudentId,
-      },
-      uploadedAttendanceRecords,
-      manualAttendanceRecords,
-    );
-
-    if (!sourceRecords.length) {
-      toast.error("No source attendance records found for this final result.");
-      return;
-    }
-
     setIsSavingFinalResult(true);
 
     try {
+      const sourceResult = {
+        ...originalResult,
+        student_id: finalResultForm.originalStudentId,
+      };
+      const hasMatchingSourceBundle =
+        normalizeStudentId(editSourceRecords.studentId) ===
+          normalizeStudentId(finalResultForm.originalStudentId) &&
+        editSourceRecords.schoolYearId === (originalResult.school_year_id ?? "");
+      const sourceBundle = hasMatchingSourceBundle
+        ? editSourceRecords
+        : await fetchStudentSourceRecordBundle(sourceResult);
+      const sourceRecords = getStudentSourceRecords(
+        sourceResult,
+        sourceBundle.uploaded,
+        sourceBundle.manual,
+      );
+
+      if (!sourceRecords.length) {
+        throw new Error("No source attendance records found for this final result.");
+      }
+
       await Promise.all(
         sourceRecords.map((record) => {
           const payload: ManualAttendanceInput = {
@@ -2183,7 +2464,12 @@ export default function AttendancePage() {
         <Dialog
           open={Boolean(eventsDialogResult)}
           onOpenChange={(open) => {
-            if (!open) setEventsDialogResult(null);
+            if (!open) {
+              setEventsDialogResult(null);
+              setEventsDialogSourceRecords(emptyStudentSourceRecordBundle);
+              setEventsDialogLoadMessage("");
+              setIsLoadingEventsDialogDetails(false);
+            }
           }}
         >
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
@@ -2194,6 +2480,16 @@ export default function AttendancePage() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-5">
+              {isLoadingEventsDialogDetails ? (
+                <LoadingStatus
+                  title="Loading event details"
+                  detail={
+                    eventsDialogLoadMessage ||
+                    "Loading only this student's event records."
+                  }
+                  progress={65}
+                />
+              ) : null}
               <section className="space-y-3">
                 <div>
                   <p className="font-bold">Missed events</p>
@@ -2223,7 +2519,9 @@ export default function AttendancePage() {
                   ))
                 ) : (
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                    No missed events found for this student.
+                    {isLoadingEventsDialogDetails
+                      ? "Loading missed events..."
+                      : "No missed events found for this student."}
                   </div>
                 )}
               </section>
@@ -2259,7 +2557,9 @@ export default function AttendancePage() {
                   ))
                 ) : (
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                    No attended events found for this student.
+                    {isLoadingEventsDialogDetails
+                      ? "Loading attended events..."
+                      : "No attended events found for this student."}
                   </div>
                 )}
               </section>
@@ -2279,6 +2579,14 @@ export default function AttendancePage() {
               onSubmit={handleSaveFinalResult}
               className="grid gap-4 lg:grid-cols-4"
             >
+              {isLoadingEditSourceRecords ? (
+                <LoadingStatus
+                  title="Preparing editable source records"
+                  detail="Loading only this student's uploaded and manual source rows. The rest of the attendance database is not being downloaded."
+                  progress={70}
+                  className="lg:col-span-4"
+                />
+              ) : null}
               <label className="space-y-2">
                 <span className="text-sm font-bold">Student ID</span>
                 <Input
@@ -2395,10 +2703,14 @@ export default function AttendancePage() {
               <div className="flex flex-wrap gap-3 lg:col-span-4">
                 <Button
                   type="submit"
-                  disabled={isSavingFinalResult}
+                  disabled={isSavingFinalResult || isLoadingEditSourceRecords}
                   className="min-h-10 rounded-xl px-6 font-semibold"
                 >
-                  {isSavingFinalResult ? "Saving..." : "Update Final Result"}
+                  {isLoadingEditSourceRecords
+                    ? "Loading source records..."
+                    : isSavingFinalResult
+                      ? "Saving..."
+                      : "Update Final Result"}
                 </Button>
                 <Button
                   type="button"
@@ -2413,6 +2725,15 @@ export default function AttendancePage() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {pageLoadProgress ? (
+          <LoadingStatus
+            title="Loading final attendance results"
+            detail={pageLoadProgress.detail}
+            progress={pageLoadProgress.progress}
+            steps={pageLoadProgress.steps}
+          />
+        ) : null}
 
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -2578,7 +2899,7 @@ export default function AttendancePage() {
                           <Button
                             type="button"
                             variant="outline"
-                            onClick={() => setEventsDialogResult(result)}
+                            onClick={() => void handleOpenEventsDialog(result)}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-semibold"
                           >
                             Events ({result.attended_events} / {result.expected_events})

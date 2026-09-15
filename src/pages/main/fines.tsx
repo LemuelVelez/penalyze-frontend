@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -8,8 +8,8 @@ import {
   deletePenaltyResultsByIds,
   getPenaltyResultAbsentEvents,
   listPenalties,
+  listAllPenaltyResults,
   listPenaltyResultColleges,
-  listPenaltyResults,
   refreshPenaltyResults,
   seedDefaultPenalties,
   deletePenaltyResultsBySchoolYear,
@@ -30,6 +30,8 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
@@ -71,6 +73,13 @@ type PenaltyResultFormState = {
 };
 
 type StatusFilter = FineStatus | "all";
+
+type FinesPageLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
+
 
 const emptyPenaltyForm: PenaltyFormState = {
   id: "",
@@ -271,6 +280,9 @@ export default function FinesPage() {
   const [penaltyForm, setPenaltyForm] =
     useState<PenaltyFormState>(emptyPenaltyForm);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<FinesPageLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [isRefreshingResults, setIsRefreshingResults] = useState(false);
   const [isSavingPenalty, setIsSavingPenalty] = useState(false);
   const [penaltyDialogOpen, setPenaltyDialogOpen] = useState(false);
@@ -391,47 +403,195 @@ export default function FinesPage() {
     };
   }, [filteredPenaltyResults]);
 
+  function updatePageLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setPageLoadProgress((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setSelectedPenaltyResultIds([]);
+    setPageLoadProgress({
+      progress: 5,
+      detail: "Loading the active school year and penalty rules first.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Checking active scope" },
+        { label: "Penalty rules", status: "loading", detail: "Loading configured rules" },
+        { label: "Penalty results", status: "pending", detail: "Waiting for scope" },
+        { label: "Colleges", status: "pending", detail: "Waiting for scope" },
+      ],
+    });
 
     try {
-      const [schoolYearRows, penaltyRows] = await Promise.all([
-        listSchoolYears({ activeOnly: true }),
-        listPenalties(),
+      const schoolYearPromise = listSchoolYears({ activeOnly: true }).then(
+        (rows) => {
+          if (!isCurrentRequest()) return rows;
+          updatePageLoadStep(
+            "School year",
+            "done",
+            `${rows.length.toLocaleString()} active scope/s found`,
+            18,
+            "School-year scope is ready. Penalty rules and result rows continue loading.",
+          );
+          return rows;
+        },
+      );
+      const penaltyPromise = listPenalties().then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setPenalties(rows);
+        updatePageLoadStep(
+          "Penalty rules",
+          "done",
+          `${rows.length.toLocaleString()} rule/s ready`,
+          24,
+          "Penalty rules are ready. Resolving the selected school year.",
+        );
+        return rows;
+      });
+
+      const [schoolYearRows] = await Promise.all([
+        schoolYearPromise,
+        penaltyPromise,
       ]);
+      if (!isCurrentRequest()) return;
+
       const fallbackSchoolYearId =
         nextSchoolYearId &&
         nextSchoolYearId !== ALL_YEARS_VALUE &&
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : (schoolYearRows[0]?.id ?? "");
-      const [penaltyResultRows, collegeRows] = fallbackSchoolYearId
-        ? await Promise.all([
-            listPenaltyResults({
-              schoolYearId: fallbackSchoolYearId,
-              limit: 5000,
-              offset: 0,
-            }),
-            listPenaltyResultColleges(fallbackSchoolYearId),
-          ])
-        : [[], [] as Array<string | null>];
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
-      setPenalties(penaltyRows);
-      setPenaltyResultColleges(collegeRows);
-      setPenaltyResults(
-        sortPenaltyResultsByBackendEventOrder(penaltyResultRows),
+
+      if (!fallbackSchoolYearId) {
+        setPenaltyResults([]);
+        setPenaltyResultColleges([]);
+        setPageLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "Nothing to load because there is no active school year.",
+                steps: current.steps.map((step) => ({
+                  ...step,
+                  status: "done",
+                  detail: step.status === "done" ? step.detail : "No data requested",
+                })),
+              }
+            : current,
+        );
+        return;
+      }
+
+      updatePageLoadStep(
+        "Penalty results",
+        "loading",
+        "Loading result rows in smaller pages",
+        32,
+        "Penalty rows will appear page by page instead of waiting for one large response.",
       );
-      setSelectedPenaltyResultIds([]);
+      updatePageLoadStep(
+        "Colleges",
+        "loading",
+        "Loading filter values",
+        32,
+        "Loading result rows and college filters in parallel.",
+      );
+
+      const resultPromise = listAllPenaltyResults({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 500,
+        maxPages: 100,
+        onPage: ({ rows, pageRows, page }) => {
+          if (!isCurrentRequest()) return;
+          const sortedRows = sortPenaltyResultsByBackendEventOrder(rows);
+          setPenaltyResults(sortedRows);
+          const isLastPage = pageRows.length < 500;
+          updatePageLoadStep(
+            "Penalty results",
+            isLastPage ? "done" : "loading",
+            isLastPage
+              ? `${rows.length.toLocaleString()} result/s loaded`
+              : `${rows.length.toLocaleString()} result/s loaded so far`,
+            isLastPage ? 90 : Math.min(84, 42 + page * 7),
+            isLastPage
+              ? "All penalty result rows are loaded."
+              : `Showing ${rows.length.toLocaleString()} result/s now while the next page loads.`,
+          );
+        },
+      });
+
+      const collegePromise = listPenaltyResultColleges(fallbackSchoolYearId).then(
+        (rows) => {
+          if (!isCurrentRequest()) return rows;
+          setPenaltyResultColleges(rows);
+          updatePageLoadStep(
+            "Colleges",
+            "done",
+            `${rows.length.toLocaleString()} filter value/s ready`,
+            58,
+            "College filters are ready. Penalty result pages continue loading.",
+          );
+          return rows;
+        },
+      );
+
+      const [penaltyResultRows] = await Promise.all([
+        resultPromise,
+        collegePromise,
+      ]);
+      if (!isCurrentRequest()) return;
+
+      setPenaltyResults(sortPenaltyResultsByBackendEventOrder(penaltyResultRows));
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: `Ready. Loaded ${penaltyResultRows.length.toLocaleString()} penalty result/s.`,
+              steps: current.steps.map((step) => ({ ...step, status: "done" })),
+            }
+          : current,
+      );
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to load penalty results.",
+      if (!isCurrentRequest()) return;
+      const message =
+        error instanceof Error ? error.message : "Unable to load penalty results.";
+      setPageLoadProgress((current) =>
+        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
       );
+      toast.error(message);
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1400);
+      }
     }
   }
 
@@ -866,6 +1026,15 @@ export default function FinesPage() {
             </div>
           </div>
         </section>
+
+        {pageLoadProgress ? (
+          <LoadingStatus
+            title="Loading fines"
+            detail={pageLoadProgress.detail}
+            progress={pageLoadProgress.progress}
+            steps={pageLoadProgress.steps}
+          />
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-5">
           <div className="rounded-3xl border bg-card p-5 md:col-span-2">

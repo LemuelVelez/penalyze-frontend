@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -6,8 +6,8 @@ import {
   deleteAttendanceRecord,
   deleteManualAttendanceRecordsByIds,
   listAllAttendanceRecords,
+  listAllManualAttendanceRecords,
   listAttendanceEvents,
-  listManualAttendanceRecords,
   saveManualAttendanceRecord,
   updateAttendanceRecord,
 } from "../../api/attendance";
@@ -25,6 +25,8 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -70,6 +72,12 @@ type ManualAttendanceStudentGroup = {
   attendanceType: ManualAttendanceRecord["attendance_type"];
   records: ManualAttendanceRecord[];
   events: ManualAttendanceRecord[];
+};
+
+type ManualPageLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
 };
 
 const DEFAULT_STUDENT_INSTITUTION =
@@ -447,6 +455,9 @@ export default function ManualAttendancePage() {
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [pageLoadProgress, setPageLoadProgress] =
+    useState<ManualPageLoadProgress | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
@@ -570,11 +581,48 @@ export default function ManualAttendancePage() {
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
 
+  function updatePageLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setPageLoadProgress((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
+    setPageLoadProgress({
+      progress: 5,
+      detail: "Checking the active school year before loading manual attendance.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Checking active scope" },
+        { label: "Events", status: "pending", detail: "Waiting" },
+        { label: "Manual records", status: "pending", detail: "Waiting" },
+        { label: "Legacy zero attendance", status: "pending", detail: "Waiting" },
+      ],
+    });
 
     try {
       const schoolYearRows = await listSchoolYears({ activeOnly: true });
+      if (!isCurrentRequest()) return;
+
       const activeSchoolYearId = getActiveSchoolYearId(schoolYearRows);
       const fallbackSchoolYearId =
         nextSchoolYearId &&
@@ -582,38 +630,9 @@ export default function ManualAttendancePage() {
         schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
           ? nextSchoolYearId
           : activeSchoolYearId;
-      const [eventRows, manualRows, allAttendanceRows] = fallbackSchoolYearId
-        ? await Promise.all([
-            listAttendanceEvents({
-              schoolYearId: fallbackSchoolYearId,
-              limit: 500,
-              offset: 0,
-            }),
-            listManualAttendanceRecords({
-              schoolYearId: fallbackSchoolYearId,
-              limit: 1000,
-              offset: 0,
-            }),
-            listAllAttendanceRecords({
-              schoolYearId: fallbackSchoolYearId,
-              pageSize: 500,
-              maxPages: 100,
-            }),
-          ])
-        : [[], [], []];
-      const zeroAttendanceRows = allAttendanceRows.filter(
-        isZeroManualAttendanceRecord,
-      );
-      const mergedManualRows = mergeUniqueManualAttendanceRecords(
-        manualRows,
-        zeroAttendanceRows,
-      );
 
       setSchoolYears(schoolYearRows);
       setSelectedSchoolYearId(fallbackSchoolYearId || ALL_YEARS_VALUE);
-      setEvents(sortByBackendEventOrder(eventRows));
-      setRecords(sortByBackendEventOrder(mergedManualRows));
-      setSelectedManualRecordIds([]);
       setForm((current) => ({
         ...current,
         schoolYearId:
@@ -624,14 +643,165 @@ export default function ManualAttendancePage() {
             ? current.schoolYearId
             : activeSchoolYearId,
       }));
+      updatePageLoadStep(
+        "School year",
+        "done",
+        fallbackSchoolYearId ? "Active school year ready" : "No active school year",
+        18,
+        fallbackSchoolYearId
+          ? "School year ready. Loading events and manual rows in parallel."
+          : "No active school year was found.",
+      );
+
+      if (!fallbackSchoolYearId) {
+        setEvents([]);
+        setRecords([]);
+        setPageLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "Nothing to load because there is no active school year.",
+                steps: current.steps.map((step) => ({
+                  ...step,
+                  status: "done",
+                  detail: step.status === "done" ? step.detail : "No data requested",
+                })),
+              }
+            : current,
+        );
+        return;
+      }
+
+      updatePageLoadStep(
+        "Events",
+        "loading",
+        "Loading event choices",
+        24,
+        "Loading event choices and manual attendance records in parallel.",
+      );
+      updatePageLoadStep(
+        "Manual records",
+        "loading",
+        "Loading manual records page by page",
+        24,
+        "Loading event choices and manual attendance records in parallel.",
+      );
+      updatePageLoadStep(
+        "Legacy zero attendance",
+        "loading",
+        "Scanning only legacy zero-attendance rows",
+        24,
+        "Legacy compatibility now requests only zero-attendance rows instead of the entire attendance table.",
+      );
+
+      const eventsPromise = listAttendanceEvents({
+        schoolYearId: fallbackSchoolYearId,
+        limit: 500,
+        offset: 0,
+      }).then((eventRows) => {
+        if (!isCurrentRequest()) return eventRows;
+        setEvents(sortByBackendEventOrder(eventRows));
+        updatePageLoadStep(
+          "Events",
+          "done",
+          `${eventRows.length.toLocaleString()} event/s ready`,
+          45,
+          "Event choices are ready. Manual attendance rows are still loading.",
+        );
+        return eventRows;
+      });
+
+      const manualPromise = listAllManualAttendanceRecords({
+        schoolYearId: fallbackSchoolYearId,
+        pageSize: 300,
+        maxPages: 100,
+        onPage: ({ rows, pageRows }) => {
+          if (!isCurrentRequest()) return;
+          setRecords(sortByBackendEventOrder(rows));
+          updatePageLoadStep(
+            "Manual records",
+            pageRows.length < 300 ? "done" : "loading",
+            `${rows.length.toLocaleString()} manual row/s loaded${
+              pageRows.length < 300 ? "" : " so far"
+            }`,
+            pageRows.length < 300 ? 82 : 55,
+            `Showing ${rows.length.toLocaleString()} manual row/s while remaining data finishes loading.`,
+          );
+        },
+      });
+
+      const legacyZeroPromise = listAllAttendanceRecords({
+        schoolYearId: fallbackSchoolYearId,
+        zeroAttendanceOnly: true,
+        pageSize: 250,
+        maxPages: 40,
+      }).then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        updatePageLoadStep(
+          "Legacy zero attendance",
+          "done",
+          `${rows.length.toLocaleString()} legacy row/s found`,
+          70,
+          "Legacy zero-attendance compatibility rows are ready.",
+        );
+        return rows;
+      });
+
+      const [, manualRows, legacyZeroRows] = await Promise.all([
+        eventsPromise,
+        manualPromise,
+        legacyZeroPromise,
+      ]);
+      if (!isCurrentRequest()) return;
+
+      const zeroAttendanceRows = legacyZeroRows.filter(
+        isZeroManualAttendanceRecord,
+      );
+      const mergedManualRows = mergeUniqueManualAttendanceRecords(
+        manualRows,
+        zeroAttendanceRows,
+      );
+
+      setRecords(sortByBackendEventOrder(mergedManualRows));
+      setSelectedManualRecordIds([]);
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: `Ready. Loaded ${mergedManualRows.length.toLocaleString()} manual attendance row/s.`,
+              steps: current.steps.map((step) => ({ ...step, status: "done" })),
+            }
+          : current,
+      );
     } catch (error) {
+      if (!isCurrentRequest()) return;
+      setPageLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to load manual attendance.",
+            }
+          : current,
+      );
       toast.error(
         error instanceof Error
           ? error.message
           : "Unable to load manual attendance.",
       );
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setPageLoadProgress(null);
+          }
+        }, 1400);
+      }
     }
   }
 
@@ -1035,6 +1205,15 @@ export default function ManualAttendancePage() {
             </div>
           </div>
         </section>
+
+        {pageLoadProgress ? (
+          <LoadingStatus
+            title="Loading manual attendance"
+            detail={pageLoadProgress.detail}
+            progress={pageLoadProgress.progress}
+            steps={pageLoadProgress.steps}
+          />
+        ) : null}
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -295,6 +295,37 @@ export async function listPenaltyResults(options: ListFineOptions = {}) {
 }
 
 
+export async function listAllPenaltyResults(options: ListFineOptions & {
+  pageSize?: number;
+  maxPages?: number;
+  onPage?: (input: {
+    rows: PenaltyResultRecord[];
+    pageRows: PenaltyResultRecord[];
+    page: number;
+  }) => void | Promise<void>;
+} = {}) {
+  const pageSize = options.pageSize ?? 500;
+  const maxPages = options.maxPages ?? 100;
+  const rows: PenaltyResultRecord[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const pageRows = await listPenaltyResults({
+      schoolYearId: options.schoolYearId,
+      status: options.status,
+      studentId: options.studentId,
+      limit: pageSize,
+      offset: page * pageSize,
+    });
+
+    rows.push(...pageRows);
+    await options.onPage?.({ rows: [...rows], pageRows, page: page + 1 });
+
+    if (pageRows.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 export async function listPenaltyResultColleges(schoolYearId?: string) {
   const query = buildSearchParams({ schoolYearId });
   const response = await apiRequest<Array<string | null>>(
@@ -379,8 +410,9 @@ export async function deletePenaltyResultsBySchoolYear(schoolYearId: string) {
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
-export async function getFineSummary() {
-  const response = await apiRequest<FineSummary>("/api/fines/summary");
+export async function getFineSummary(schoolYearId?: string) {
+  const query = buildSearchParams({ schoolYearId });
+  const response = await apiRequest<FineSummary>(`/api/fines/summary${query}`);
   return response.data ?? { unpaid: 0, paid: 0, waived: 0 };
 }
 

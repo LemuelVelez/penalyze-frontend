@@ -157,6 +157,12 @@ export type AttendanceImportRecord = {
   created_at: string;
 };
 
+export type AttendanceDashboardOverview = {
+  attendanceRecordCount: number;
+  recentAttendanceRecords: AttendanceRecord[];
+  recentImports: AttendanceImportRecord[];
+};
+
 export type AttendanceImportDeleteImpact = {
   importId: string;
   fileName: string;
@@ -371,6 +377,8 @@ type ListOptions = {
   limit?: number;
   offset?: number;
   includeDeleted?: boolean;
+  includeMissedEvents?: boolean;
+  zeroAttendanceOnly?: boolean;
   signal?: AbortSignal;
 };
 
@@ -801,6 +809,27 @@ export async function deleteAttendanceEvent(id: string) {
   return response.data;
 }
 
+export async function getAttendanceDashboardOverview(options: {
+  schoolYearId?: string;
+  signal?: AbortSignal;
+} = {}) {
+  const query = buildSearchParams({
+    schoolYearId: options.schoolYearId,
+  });
+  const response = await apiRequest<AttendanceDashboardOverview>(
+    `/api/attendance/dashboard-overview${query}`,
+    { signal: options.signal },
+  );
+
+  return (
+    response.data ?? {
+      attendanceRecordCount: 0,
+      recentAttendanceRecords: [],
+      recentImports: [],
+    }
+  );
+}
+
 export async function listAttendanceRecords(options: ListOptions = {}) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
@@ -810,6 +839,7 @@ export async function listAttendanceRecords(options: ListOptions = {}) {
     eventId: options.eventId,
     importIds: options.importIds?.join(","),
     college: options.college,
+    zeroAttendanceOnly: options.zeroAttendanceOnly ? "true" : undefined,
   });
 
   const response = await apiRequest<AttendanceRecord[]>(
@@ -887,10 +917,12 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     offset: options.offset ?? 0,
     studentId: options.studentId,
     college: options.college,
+    includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
   });
 
   const response = await apiRequest<AttendanceFinalResultRecord[]>(
     `/api/attendance/final-results${query}`,
+    { signal: options.signal },
   );
   return response.data ?? [];
 }
@@ -900,6 +932,11 @@ type ListAllAttendanceFinalResultsOptions = Omit<
   "limit" | "offset"
 > & {
   pageSize?: number;
+  onPage?: (input: {
+    rows: AttendanceFinalResultRecord[];
+    pageRows: AttendanceFinalResultRecord[];
+    page: number;
+  }) => void | Promise<void>;
 };
 
 export async function listAllAttendanceFinalResults(
@@ -908,6 +945,7 @@ export async function listAllAttendanceFinalResults(
   const pageSize = options.pageSize ?? 500;
   const results: AttendanceFinalResultRecord[] = [];
   let offset = 0;
+  let page = 0;
 
   while (true) {
     const pageRows = await listAttendanceFinalResults({
@@ -917,6 +955,8 @@ export async function listAllAttendanceFinalResults(
     });
 
     results.push(...pageRows);
+    page += 1;
+    await options.onPage?.({ rows: [...results], pageRows, page });
 
     if (pageRows.length < pageSize) break;
     offset += pageSize;
@@ -1043,6 +1083,37 @@ export async function listManualAttendanceRecords(options: ListOptions = {}) {
     { signal: options.signal },
   );
   return response.data ?? [];
+}
+
+export async function listAllManualAttendanceRecords(
+  options: Omit<ListOptions, "limit" | "offset"> & {
+    pageSize?: number;
+    maxPages?: number;
+    onPage?: (input: {
+      rows: ManualAttendanceRecord[];
+      pageRows: ManualAttendanceRecord[];
+      page: number;
+    }) => void | Promise<void>;
+  } = {},
+) {
+  const pageSize = options.pageSize ?? 500;
+  const maxPages = options.maxPages ?? 100;
+  const rows: ManualAttendanceRecord[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const pageRows = await listManualAttendanceRecords({
+      ...options,
+      limit: pageSize,
+      offset: page * pageSize,
+    });
+
+    rows.push(...pageRows);
+    await options.onPage?.({ rows: [...rows], pageRows, page: page + 1 });
+
+    if (pageRows.length < pageSize) break;
+  }
+
+  return rows;
 }
 
 export async function listAttendanceImports(

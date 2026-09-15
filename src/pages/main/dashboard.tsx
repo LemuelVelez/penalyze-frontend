@@ -1,86 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
-  listAttendanceImports,
-  listAttendanceRecords,
+  getAttendanceDashboardOverview,
 } from "../../api/attendance";
 import type {
   AttendanceImportRecord,
   AttendanceRecord,
 } from "../../api/attendance";
-import { listFines } from "../../api/fines";
-import type { FineRecord } from "../../api/fines";
-import { Button } from "../../components/ui/button";
+import { getFineSummary } from "../../api/fines";
+import type { FineSummary } from "../../api/fines";
 import {
-  ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { LoadingStatus } from "../../components/loading-status";
+import type { LoadingStatusStep } from "../../components/loading-status";
+import { Button } from "../../components/ui/button";
 
-const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
-
-type DashboardFineSummary = {
-  unpaid: number;
-  paid: number;
-  waived: number;
+type DashboardLoadProgress = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
 };
-
-function getDateYear(value?: string | null) {
-  if (!value) return "";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return String(date.getFullYear());
-}
-
-function getAttendanceRecordYear(record: AttendanceRecord) {
-  return (
-    record.school_year_id ||
-    getDateYear(record.scanned_at ?? record.created_at ?? null)
-  );
-}
-
-function getFineRecordYear(fine: FineRecord) {
-  return fine.school_year_id || getDateYear(fine.created_at ?? null);
-}
-
-function getImportYear(record: AttendanceImportRecord) {
-  return record.school_year_id || getDateYear(record.created_at ?? null);
-}
-
-function getYearOptions(
-  attendanceRecords: AttendanceRecord[],
-  fines: FineRecord[],
-  imports: AttendanceImportRecord[],
-  schoolYears: SchoolYearRecord[],
-) {
-  return Array.from(
-    new Set(
-      [
-        ...schoolYears.map((schoolYear) => schoolYear.id),
-        ...attendanceRecords.map(getAttendanceRecordYear),
-        ...fines.map(getFineRecordYear),
-        ...imports.map(getImportYear),
-      ].filter(Boolean),
-    ),
-  );
-}
-
-function matchesSelectedYear(recordYear: string, selectedYear: string) {
-  return selectedYear === ALL_YEARS_VALUE || recordYear === selectedYear;
-}
-
-function getFineSummaryForYear(fines: FineRecord[]): DashboardFineSummary {
-  return fines.reduce<DashboardFineSummary>(
-    (summary, fine) => ({
-      ...summary,
-      [fine.status]: summary[fine.status] + 1,
-    }),
-    { unpaid: 0, paid: 0, waived: 0 },
-  );
-}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -122,88 +64,190 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
 }
 
 export default function DashboardPage() {
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [fines, setFines] = useState<FineRecord[]>([]);
-  const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [recentRecords, setRecentRecords] = useState<AttendanceRecord[]>([]);
+  const [recentImports, setRecentImports] = useState<AttendanceImportRecord[]>([]);
+  const [attendanceRecordCount, setAttendanceRecordCount] = useState(0);
+  const [fineSummary, setFineSummary] = useState<FineSummary>({
+    unpaid: 0,
+    paid: 0,
+    waived: 0,
+  });
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [yearFilter, setYearFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState<DashboardLoadProgress | null>(
+    null,
+  );
   const [error, setError] = useState("");
+  const loadRequestIdRef = useRef(0);
 
-  const yearOptions = useMemo(
-    () => getYearOptions(records, fines, imports, schoolYears),
-    [records, fines, imports, schoolYears],
-  );
-  const filteredRecords = useMemo(() => {
-    return records.filter((record) =>
-      matchesSelectedYear(getAttendanceRecordYear(record), yearFilter),
-    );
-  }, [records, yearFilter]);
-  const filteredFines = useMemo(() => {
-    return fines.filter((fine) =>
-      matchesSelectedYear(getFineRecordYear(fine), yearFilter),
-    );
-  }, [fines, yearFilter]);
-  const filteredImports = useMemo(() => {
-    return imports.filter((record) =>
-      matchesSelectedYear(getImportYear(record), yearFilter),
-    );
-  }, [imports, yearFilter]);
-  const summary = useMemo(
-    () => getFineSummaryForYear(filteredFines),
-    [filteredFines],
-  );
-  const recentRecords = filteredRecords.slice(0, 8);
-  const recentImports = filteredImports.slice(0, 5);
   const yearLabel = getSchoolYearLabel(schoolYears, yearFilter);
 
+  function updateLoadStep(
+    label: string,
+    status: LoadingStatusStep["status"],
+    detail: string,
+    progress: number,
+    overallDetail: string,
+  ) {
+    setLoadProgress((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        progress: Math.max(current.progress, progress),
+        detail: overallDetail,
+        steps: current.steps.map((step) =>
+          step.label === label ? { ...step, status, detail } : step,
+        ),
+      };
+    });
+  }
+
   async function loadDashboard() {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+
     setIsLoading(true);
     setError("");
+    setLoadProgress({
+      progress: 6,
+      detail: "Finding the active school year before requesting dashboard data.",
+      steps: [
+        { label: "School year", status: "loading", detail: "Checking active scope" },
+        { label: "Attendance", status: "pending", detail: "Waiting for scope" },
+        { label: "Fine totals", status: "pending", detail: "Waiting for scope" },
+      ],
+    });
 
     try {
       const schoolYearRows = await listSchoolYears();
+      if (!isCurrentRequest()) return;
+
       const activeSchoolYearId =
         schoolYearRows.find((schoolYear) => schoolYear.is_active)?.id ??
         schoolYearRows[0]?.id ??
         "";
-      const [fineRows, attendanceRows, importRows] = activeSchoolYearId
-        ? await Promise.all([
-            listFines({ schoolYearId: activeSchoolYearId, limit: 5000, offset: 0 }),
-            listAttendanceRecords({
-              schoolYearId: activeSchoolYearId,
-              limit: 5000,
-              offset: 0,
-            }),
-            listAttendanceImports({
-              schoolYearId: activeSchoolYearId,
-              limit: 500,
-              offset: 0,
-            }),
-          ])
-        : [[], [], []];
 
-      setFines(fineRows);
-      setRecords(attendanceRows);
-      setImports(importRows);
       setSchoolYears(schoolYearRows);
       setYearFilter(activeSchoolYearId);
+      updateLoadStep(
+        "School year",
+        "done",
+        activeSchoolYearId ? "Active school year ready" : "No school year found",
+        24,
+        activeSchoolYearId
+          ? "School year ready. Loading lightweight attendance and fine summaries in parallel."
+          : "No school year is available to load.",
+      );
+
+      if (!activeSchoolYearId) {
+        setRecentRecords([]);
+        setRecentImports([]);
+        setAttendanceRecordCount(0);
+        setFineSummary({ unpaid: 0, paid: 0, waived: 0 });
+        setLoadProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: 100,
+                detail: "Dashboard is ready. No school-year data was requested.",
+                steps: current.steps.map((step) => ({
+                  ...step,
+                  status: "done",
+                  detail:
+                    step.status === "done" ? step.detail : "No data requested",
+                })),
+              }
+            : current,
+        );
+        return;
+      }
+
+      updateLoadStep(
+        "Attendance",
+        "loading",
+        "Loading count + 8 recent rows + 5 recent imports",
+        32,
+        "Loading only the dashboard summary instead of thousands of raw attendance rows.",
+      );
+      updateLoadStep(
+        "Fine totals",
+        "loading",
+        "Counting unpaid, paid, and waived fines",
+        32,
+        "Attendance summary and fine totals are loading in parallel.",
+      );
+
+      const attendancePromise = getAttendanceDashboardOverview({
+        schoolYearId: activeSchoolYearId,
+      }).then((overview) => {
+        if (!isCurrentRequest()) return overview;
+        setAttendanceRecordCount(overview.attendanceRecordCount);
+        setRecentRecords(overview.recentAttendanceRecords);
+        setRecentImports(overview.recentImports);
+        updateLoadStep(
+          "Attendance",
+          "done",
+          `${overview.attendanceRecordCount.toLocaleString()} total record/s; recent rows ready`,
+          76,
+          "Attendance summary is visible. Finishing the remaining dashboard totals.",
+        );
+        return overview;
+      });
+
+      const finesPromise = getFineSummary(activeSchoolYearId).then((summary) => {
+        if (!isCurrentRequest()) return summary;
+        setFineSummary(summary);
+        updateLoadStep(
+          "Fine totals",
+          "done",
+          `${(
+            summary.unpaid + summary.paid + summary.waived
+          ).toLocaleString()} fine record/s counted`,
+          86,
+          "Fine totals are ready. Finalizing the dashboard.",
+        );
+        return summary;
+      });
+
+      await Promise.all([attendancePromise, finesPromise]);
+      if (!isCurrentRequest()) return;
+
+      setLoadProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail:
+                "Ready. The dashboard loaded summaries and recent rows without downloading the full attendance and fines tables.",
+              steps: current.steps.map((step) => ({
+                ...step,
+                status: "done",
+              })),
+            }
+          : current,
+      );
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load dashboard.",
+      if (!isCurrentRequest()) return;
+      const message =
+        loadError instanceof Error ? loadError.message : "Unable to load dashboard.";
+      setError(message);
+      setLoadProgress((current) =>
+        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
       );
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setIsLoading(false);
+        window.setTimeout(() => {
+          if (loadRequestIdRef.current === requestId) {
+            setLoadProgress(null);
+          }
+        }, 1600);
+      }
     }
   }
-
-  useEffect(() => {
-    if (yearFilter && !yearOptions.includes(yearFilter)) {
-      setYearFilter(yearOptions[0] ?? "");
-    }
-  }, [yearFilter, yearOptions]);
 
   useEffect(() => {
     void loadDashboard();
@@ -248,25 +292,36 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
+        {loadProgress ? (
+          <div className="mb-6">
+            <LoadingStatus
+              title="Loading dashboard"
+              detail={loadProgress.detail}
+              progress={loadProgress.progress}
+              steps={loadProgress.steps}
+            />
+          </div>
+        ) : null}
+
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Attendance records"
-            value={filteredRecords.length}
-            helper={`${yearLabel} entries loaded`}
+            value={attendanceRecordCount}
+            helper={`${yearLabel} saved entries`}
           />
           <StatCard
             label="Unpaid fines"
-            value={summary.unpaid}
+            value={fineSummary.unpaid}
             helper={`${yearLabel} needs settlement`}
           />
           <StatCard
             label="Paid fines"
-            value={summary.paid}
+            value={fineSummary.paid}
             helper={`${yearLabel} settled penalties`}
           />
           <StatCard
             label="Waived fines"
-            value={summary.waived}
+            value={fineSummary.waived}
             helper={`${yearLabel} approved waivers`}
           />
         </section>
@@ -287,9 +342,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="wrap-break-word font-black">
-                          {record.name}
-                        </p>
+                        <p className="wrap-break-word font-black">{record.name}</p>
                         <p className="break-all text-sm text-muted-foreground">
                           {record.student_id}
                         </p>
@@ -299,13 +352,13 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {formatDate(record.created_at)}
+                      {formatDate(record.scanned_at ?? record.created_at)}
                     </p>
                   </article>
                 ))
               ) : (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No attendance records available.
+                  {isLoading ? "Loading recent attendance..." : "No attendance records available."}
                 </div>
               )}
             </div>
@@ -325,7 +378,7 @@ export default function DashboardPage() {
                     recentRecords.map((record) => (
                       <tr key={record.id} className="border-b last:border-b-0">
                         <td className="px-3 py-3 font-semibold">
-                          {formatDate(record.created_at)}
+                          {formatDate(record.scanned_at ?? record.created_at)}
                         </td>
                         <td className="max-w-40 break-all px-3 py-3">
                           {record.student_id}
@@ -342,7 +395,7 @@ export default function DashboardPage() {
                         colSpan={4}
                         className="px-3 py-8 text-center text-sm font-semibold text-muted-foreground"
                       >
-                        No attendance records available.
+                        {isLoading ? "Loading recent attendance..." : "No attendance records available."}
                       </td>
                     </tr>
                   )}
@@ -364,9 +417,7 @@ export default function DashboardPage() {
                     key={item.id}
                     className="rounded-2xl border bg-background p-4"
                   >
-                    <p className="break-all text-sm font-black">
-                      {item.file_name}
-                    </p>
+                    <p className="break-all text-sm font-black">{item.file_name}</p>
                     <div className="mt-3 flex flex-col gap-2 text-xs">
                       <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
                         <p className="font-bold text-muted-foreground">Total</p>
@@ -377,9 +428,7 @@ export default function DashboardPage() {
                         <p className="font-black">{item.rows_valid}</p>
                       </div>
                       <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
-                        <p className="font-bold text-muted-foreground">
-                          Invalid
-                        </p>
+                        <p className="font-bold text-muted-foreground">Invalid</p>
                         <p className="font-black">{item.rows_invalid}</p>
                       </div>
                     </div>
@@ -390,7 +439,7 @@ export default function DashboardPage() {
                 ))
               ) : (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No imports available.
+                  {isLoading ? "Loading recent imports..." : "No imports available."}
                 </div>
               )}
             </div>

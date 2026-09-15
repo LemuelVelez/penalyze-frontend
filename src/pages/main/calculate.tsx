@@ -497,11 +497,16 @@ async function listAllCalculationResults(options: {
   importIds?: string[];
   sourceTypes: CalculationSourceType[];
   signal: AbortSignal;
+  onPage?: (input: {
+    rows: CalculationResultRecord[];
+    pageRows: CalculationResultRecord[];
+    page: number;
+  }) => void | Promise<void>;
 }) {
-  const pageSize = 1000;
+  const pageSize = 500;
   const rows: CalculationResultRecord[] = [];
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0, page = 1; ; offset += pageSize, page += 1) {
     const pageRows = await attendanceApi.listCalculationResults({
       schoolYearId: options.schoolYearId,
       importIds: options.importIds,
@@ -511,6 +516,7 @@ async function listAllCalculationResults(options: {
       signal: options.signal,
     });
     rows.push(...pageRows);
+    await options.onPage?.({ rows: [...rows], pageRows, page });
 
     if (pageRows.length < pageSize) return rows;
   }
@@ -1042,6 +1048,7 @@ export default function CalculatePage() {
 
       setIsPreviewing(false);
       setIsLoading(true);
+      setCalculationRows([]);
       updateCalculationProgress(taskId, {
         detail: "Loading school years",
         percent: progressTaskId ? 72 : 8,
@@ -1092,6 +1099,27 @@ export default function CalculatePage() {
             importIds: requestImportIds,
             sourceTypes: normalizedSourceTypes,
             signal,
+            onPage: async ({ rows, pageRows, page }) => {
+              if (!isCurrentRun()) return;
+              const streamedRows = rows.map(calculationResultToRow);
+              setCalculationRows(streamedRows);
+              updateCalculationProgress(taskId, {
+                detail:
+                  pageRows.length < 500
+                    ? `Loaded ${streamedRows.length.toLocaleString()} saved calculation row/s`
+                    : `Showing ${streamedRows.length.toLocaleString()} saved row/s while page ${
+                        page + 1
+                      } loads`,
+                percent: pageRows.length < 500
+                  ? progressTaskId
+                    ? 90
+                    : 76
+                  : Math.min(progressTaskId ? 88 : 72, 44 + page * 8),
+                processed: streamedRows.length,
+                total: streamedRows.length,
+              });
+              await yieldCalculationProgressFrame();
+            },
           }),
         ]);
         if (!isCurrentRun()) return;
