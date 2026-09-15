@@ -392,14 +392,32 @@ function getStudentEventSummaryDeduplicationKey(
   return `${summary.source}::${eventKey}`;
 }
 
-function getResultBadgeClassName(absences: number) {
-  if (absences <= 0) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (absences >= 10) return "border-red-200 bg-red-50 text-red-700";
+function getResultBadgeClassName(result: AttendanceFinalResultRecord) {
+  if (result.attendance_status === "unresolved_college") {
+    return "border-slate-300 bg-slate-50 text-slate-700";
+  }
+  if (
+    result.expected_events > 0 &&
+    result.attended_events >= result.expected_events &&
+    result.total_absences <= 0
+  ) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (result.total_absences >= 10) {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
 function getResultLabel(result: AttendanceFinalResultRecord) {
-  if (result.total_absences <= 0) return "Perfect attendance";
+  if (result.attendance_status === "unresolved_college") return "Needs review";
+  if (
+    result.expected_events > 0 &&
+    result.attended_events >= result.expected_events &&
+    result.total_absences <= 0
+  ) {
+    return `Perfect attendance (${result.attended_events}/${result.expected_events})`;
+  }
   return `${result.total_absences} absence${result.total_absences === 1 ? "" : "s"}`;
 }
 
@@ -759,7 +777,13 @@ export default function AttendancePage() {
       (total, row) => total + Number(row.total_absences || 0),
       0,
     );
-    const perfectAttendance = totalStudents - studentsWithAbsences;
+    const perfectAttendance = displayedFinalResults.filter(
+      (row) =>
+        row.attendance_status !== "unresolved_college" &&
+        row.expected_events > 0 &&
+        row.attended_events >= row.expected_events &&
+        row.total_absences <= 0,
+    ).length;
 
     return {
       totalStudents,
@@ -776,8 +800,26 @@ export default function AttendancePage() {
       eventsDialogResult,
       uploadedAttendanceRecords,
       manualAttendanceRecords,
+    ).filter((summary) => matchesDateRange(summary.scannedAt, fromDate, toDate));
+  }, [
+    eventsDialogResult,
+    uploadedAttendanceRecords,
+    manualAttendanceRecords,
+    fromDate,
+    toDate,
+  ]);
+
+  const missedEventsDialogSummaries = useMemo(() => {
+    if (!eventsDialogResult) return [];
+
+    return (eventsDialogResult.missed_events ?? []).filter((event) =>
+      matchesDateRange(
+        event.event_start_at ?? event.event_end_at,
+        fromDate,
+        toDate,
+      ),
     );
-  }, [eventsDialogResult, uploadedAttendanceRecords, manualAttendanceRecords]);
+  }, [eventsDialogResult, fromDate, toDate]);
 
   async function loadPageData(nextSchoolYearId = selectedSchoolYearId) {
     setIsLoading(true);
@@ -2147,43 +2189,80 @@ export default function AttendancePage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
-                Events attended by{" "}
+                Event attendance for{" "}
                 {eventsDialogResult?.name || eventsDialogResult?.student_id}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
-              {eventsDialogSummaries.length ? (
-                eventsDialogSummaries.map((eventSummary, index) => (
-                  <article
-                    key={eventSummary.key}
-                    className="rounded-2xl border bg-background p-4"
-                  >
-                    <div className="flex gap-3">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="wrap-break-word font-semibold">
-                          {eventSummary.eventName}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {eventSummary.source} •{" "}
-                          {formatDateTime(eventSummary.scannedAt)}
-                        </p>
-                        {eventSummary.remarks ? (
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {eventSummary.remarks}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  No attended events found for this student.
+            <div className="space-y-5">
+              <section className="space-y-3">
+                <div>
+                  <p className="font-bold">Missed events</p>
+                  <p className="text-sm text-muted-foreground">
+                    {eventsDialogResult?.attended_events ?? 0} attended of{" "}
+                    {eventsDialogResult?.expected_events ?? 0} expected events
+                  </p>
                 </div>
-              )}
+                {missedEventsDialogSummaries.length ? (
+                  missedEventsDialogSummaries.map((event, index) => (
+                    <article
+                      key={`missed-${event.id}`}
+                      className="rounded-2xl border bg-background p-4"
+                    >
+                      <div className="flex gap-3">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="wrap-break-word font-semibold">{event.name}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Missed • {formatDateTime(event.event_start_at ?? event.event_end_at)}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                    No missed events found for this student.
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <p className="font-bold">Attended events</p>
+                {eventsDialogSummaries.length ? (
+                  eventsDialogSummaries.map((eventSummary, index) => (
+                    <article
+                      key={eventSummary.key}
+                      className="rounded-2xl border bg-background p-4"
+                    >
+                      <div className="flex gap-3">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="wrap-break-word font-semibold">
+                            {eventSummary.eventName}
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {eventSummary.source} •{" "}
+                            {formatDateTime(eventSummary.scannedAt)}
+                          </p>
+                          {eventSummary.remarks ? (
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              {eventSummary.remarks}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                    No attended events found for this student.
+                  </div>
+                )}
+              </section>
             </div>
           </DialogContent>
         </Dialog>
@@ -2469,12 +2548,6 @@ export default function AttendancePage() {
               <tbody>
                 {paginatedFinalResults.length ? (
                   paginatedFinalResults.map((result) => {
-                    const eventCount = getStudentEventSummaries(
-                      result,
-                      uploadedAttendanceRecords,
-                      manualAttendanceRecords,
-                    ).length;
-
                     return (
                       <tr key={result.id} className="border-t">
                         <td className="px-4 py-3">
@@ -2508,12 +2581,12 @@ export default function AttendancePage() {
                             onClick={() => setEventsDialogResult(result)}
                             className="min-h-10 rounded-xl px-4 py-2 text-xs font-semibold"
                           >
-                            Events ({eventCount})
+                            Events ({result.attended_events} / {result.expected_events})
                           </Button>
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result.total_absences)}`}
+                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result)}`}
                           >
                             {getResultLabel(result)}
                           </span>

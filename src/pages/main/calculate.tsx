@@ -88,6 +88,7 @@ type CalculationRow = {
   program: string | null;
   institution: string | null;
   attendedEvents: number;
+  expectedEvents: number;
   importedAbsences: number;
   manualAbsences: number;
   totalAbsences: number;
@@ -96,6 +97,7 @@ type CalculationRow = {
   penalty: PenaltyRecord | null;
   sourceRecordCount: number;
   calculatedAt?: string;
+  consistencyWarning?: string | null;
   isSavedResult: boolean;
 };
 
@@ -620,6 +622,7 @@ function calculationResultToRow(result: CalculationResultRecord) {
     program: result.program,
     institution: result.institution,
     attendedEvents: Number(result.attended_events || 0),
+    expectedEvents: Number(result.expected_events || 0),
     importedAbsences: Number(result.imported_absences || 0),
     manualAbsences: Number(result.manual_absences || 0),
     totalAbsences: Number(result.total_absences || 0),
@@ -638,6 +641,7 @@ function calculationResultToRow(result: CalculationResultRecord) {
         : null,
     sourceRecordCount: Number(result.source_record_count || 0),
     calculatedAt: result.calculated_at,
+    consistencyWarning: result.consistency_warning ?? null,
     isSavedResult: true,
   } satisfies CalculationRow;
 }
@@ -677,7 +681,7 @@ const CalculationTableRow = memo(function CalculationTableRow({
         <p className="text-xs text-muted-foreground">{row.yearLevel || "—"}</p>
       </td>
       <td className="px-4 py-3 align-top font-bold">
-        {row.attendedEvents.toLocaleString()}
+        {row.attendedEvents.toLocaleString()} / {row.expectedEvents.toLocaleString()}
       </td>
       <td className="px-4 py-3 align-top font-bold">
         {row.importedAbsences.toLocaleString()}
@@ -702,12 +706,22 @@ const CalculationTableRow = memo(function CalculationTableRow({
       <td className="px-4 py-3 align-top">
         <span
           className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${
-            row.attendanceStatus === "perfect_attendance"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+            row.attendanceStatus === "unresolved_college"
+              ? "border-slate-300 bg-slate-50 text-slate-700"
+              : row.expectedEvents > 0 &&
+                  row.attendedEvents >= row.expectedEvents &&
+                  row.totalAbsences <= 0
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-amber-200 bg-amber-50 text-amber-800"
           }`}
         >
-          {row.attendanceStatus.replace(/_/g, " ")}
+          {row.attendanceStatus === "unresolved_college"
+            ? "Needs review"
+            : row.expectedEvents > 0 &&
+                row.attendedEvents >= row.expectedEvents &&
+                row.totalAbsences <= 0
+              ? `Perfect attendance (${row.attendedEvents}/${row.expectedEvents})`
+              : row.attendanceStatus.replace(/_/g, " ")}
         </span>
       </td>
       <td className="px-4 py-3 align-top text-right">
@@ -2077,6 +2091,12 @@ export default function CalculatePage() {
             </div>
           </div>
 
+          {calculationRows.some((row) => Boolean(row.consistencyWarning)) ? (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+              Attendance consistency warning: students in the same college have conflicting expected-event denominators. Review the attendance audit log before saving results.
+            </div>
+          ) : null}
+
           <div className="mt-5 overflow-x-auto rounded-2xl border">
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
@@ -2092,8 +2112,8 @@ export default function CalculatePage() {
                   </th>
                   <th className="px-4 py-3">Student</th>
                   <th className="px-4 py-3">College / Program</th>
-                  <th className="px-4 py-3">Attended Events</th>
-                  <th className="px-4 py-3">Imported Absences</th>
+                  <th className="px-4 py-3">Events</th>
+                  <th className="px-4 py-3">Roster / Imported Absences</th>
                   <th className="px-4 py-3">Manual Absences</th>
                   <th className="px-4 py-3">Total Absences</th>
                   <th className="px-4 py-3">Fine / Penalty</th>

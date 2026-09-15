@@ -81,9 +81,20 @@ export type AttendanceFinalResultRecord = {
   college: string | null;
   program: string | null;
   institution: string | null;
+  college_key: string | null;
   attended_events: number;
+  expected_events: number;
   total_absences: number;
+  absence_calculation_source: string;
   attendance_status: string;
+  consistency_warning?: string | null;
+  missed_events?: Array<{
+    id: string;
+    name: string;
+    event_order: number | null;
+    event_start_at: string | null;
+    event_end_at: string | null;
+  }>;
   latest_scanned_at: string | null;
   source_updated_at: string | null;
   created_at: string;
@@ -101,11 +112,15 @@ export type CalculationResultRecord = {
   college: string | null;
   program: string | null;
   institution: string | null;
+  college_key: string | null;
   attended_events: number;
+  expected_events: number;
   imported_absences: number;
   manual_absences: number;
   total_absences: number;
+  absence_calculation_source: string;
   attendance_status: string;
+  consistency_warning?: string | null;
   penalty_id: string | null;
   prescribed_penalty: string | null;
   source_record_count: number;
