@@ -8,6 +8,30 @@ export type AttendanceImportProgressStage =
   | "completed"
   | "cancelled";
 
+export type EventCollegeExemption = {
+  id: string;
+  school_year_id: string | null;
+  event_id: string;
+  event_name: string;
+  college_key: string;
+  college_label: string;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EventExemptionImpact = {
+  event_id: string;
+  event_name: string;
+  students_attended: number;
+  students_losing_absence: number;
+  penalties_before: number;
+  penalties_after: number;
+};
+
+export type AttendanceCollege = { key: string; label: string };
+
 export type AttendanceEvent = {
   id: string;
   school_year_id: string | null;
@@ -19,6 +43,7 @@ export type AttendanceEvent = {
   event_order: number;
   created_at: string;
   updated_at: string;
+  exempted_colleges: Array<{ id: string; college_key: string; college_label: string }>;
 };
 
 export type AttendanceRecord = {
@@ -1396,4 +1421,58 @@ export async function deleteAttendanceRecord(id: string) {
   );
 
   return response.data;
+}
+
+export async function listAttendanceColleges() {
+  const response = await apiRequest<AttendanceCollege[]>("/api/attendance/colleges");
+  return response.data ?? [];
+}
+
+export async function listEventCollegeExemptions(options: {
+  schoolYearId?: string;
+  eventId?: string;
+  college?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.schoolYearId) params.set("schoolYearId", options.schoolYearId);
+  if (options.eventId) params.set("eventId", options.eventId);
+  if (options.college) params.set("college", options.college);
+  const query = params.toString();
+  const response = await apiRequest<EventCollegeExemption[]>(
+    `/api/attendance/event-exemptions${query ? `?${query}` : ""}`,
+  );
+  return response.data ?? [];
+}
+
+export async function getEventCollegeExemptionImpact(input: {
+  college: string;
+  eventIds: string[];
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<EventExemptionImpact[]>(
+    "/api/attendance/event-exemptions/impact",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
+export async function createEventCollegeExemptions(input: {
+  college: string;
+  eventIds: string[];
+  reason?: string;
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<EventCollegeExemption[]>(
+    "/api/attendance/event-exemptions",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
+export async function deleteEventCollegeExemption(id: string) {
+  const response = await apiRequest<EventCollegeExemption>(
+    `/api/attendance/event-exemptions/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+  return response.data ?? null;
 }

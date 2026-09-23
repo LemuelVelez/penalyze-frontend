@@ -20,6 +20,23 @@ export type AttendanceRequestEvent = {
   created_at: string;
 };
 
+
+export type StudentAttendanceRequestStatus = {
+  id: string;
+  school_year_id: string;
+  school_year_name: string;
+  semester: SchoolSemester;
+  status: AttendanceRequestStatus;
+  request_note: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  events: Array<{
+    event_id: string | null;
+    event_name: string;
+  }>;
+};
+
 export type AttendanceRequest = {
   id: string;
   school_year_id: string;
@@ -141,4 +158,26 @@ export async function reviewAttendanceRequest(
   });
   notifyAttendanceRequestsUpdated();
   return response.data ?? null;
+}
+
+export async function getStudentAttendanceRequestStatus(
+  studentId: string,
+  schoolYearId?: string,
+) {
+  const params = new URLSearchParams({ studentId });
+  if (schoolYearId) params.set("schoolYearId", schoolYearId);
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/requests/student-status?${params.toString()}`,
+    { credentials: "include" },
+  );
+  const contentType = response.headers.get("content-type") ?? "";
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : null;
+  if (!response.ok) {
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
+  }
+  return (payload?.data ?? []) as StudentAttendanceRequestStatus[];
 }

@@ -47,6 +47,10 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
+import {
+  QR_CODE_COLLEGE_OPTIONS,
+  getStudentProgramOptions,
+} from "../../lib/colleges";
 
 type ManualAttendanceFormState = {
   schoolYearId: string;
@@ -95,27 +99,6 @@ const QR_CODE_YEAR_LEVEL_OPTIONS = [
   "5th Year",
 ] as const;
 
-const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
-  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
-  "College of Teacher Education": [
-    "BSED Filipino",
-    "BSED English",
-    "BSED Math",
-    "BSED Social Studies",
-    "Bachelor of Physical Education",
-    "BEED",
-  ],
-  "College of Computing Studies": [
-    "BS Information Systems",
-    "BS Computer Science",
-  ],
-  "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
-  "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
-  "School of Engineering": ["Agricultural Biosystems Engineering"],
-  "School of Criminal Justice Education": ["BS Criminology"],
-};
-
-const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
 const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
 const customSelectInputClassName = "min-h-12 rounded-2xl";
@@ -250,9 +233,6 @@ function getUniqueManualEventRecords(records: ManualAttendanceRecord[]) {
   return sortByBackendEventOrder(Array.from(eventsByKey.values()));
 }
 
-function getStudentProgramOptions(college: string) {
-  return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
-}
 
 function hasStudentSelectOption(
   options: readonly string[],

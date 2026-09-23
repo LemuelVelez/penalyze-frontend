@@ -3,7 +3,11 @@ import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { createAttendanceRequest } from "../api/attendanceRequests";
+import {
+  createAttendanceRequest,
+  getStudentAttendanceRequestStatus,
+} from "../api/attendanceRequests";
+import type { StudentAttendanceRequestStatus } from "../api/attendanceRequests";
 import {
   getStudentAttendanceRecords,
   listAllAttendanceRecords,
@@ -35,6 +39,10 @@ import {
   listSchoolYears,
 } from "../api/schoolYears";
 import type { SchoolYearRecord } from "../api/schoolYears";
+import {
+  QR_CODE_COLLEGE_OPTIONS,
+  getStudentProgramOptions,
+} from "../lib/colleges";
 import { LogoMark } from "../components/layout";
 import ThemeToggle from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
@@ -74,6 +82,7 @@ type LookupState = {
   schoolYears: SchoolYearRecord[];
   fines: FineRecord[];
   fallbackFine: FineRecord | null;
+  attendanceRequests: StudentAttendanceRequestStatus[];
 };
 
 type DisplayFineRecord = FineRecord & {
@@ -248,27 +257,6 @@ const QR_CODE_YEAR_LEVEL_OPTIONS = [
   "5th Year",
 ] as const;
 
-const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
-  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
-  "College of Teacher Education": [
-    "BSED Filipino",
-    "BSED English",
-    "BSED Math",
-    "BSED Social Studies",
-    "Bachelor of Physical Education",
-    "BEED",
-  ],
-  "College of Computing Studies": [
-    "BS Information Systems",
-    "BS Computer Science",
-  ],
-  "College of Agriculture and Forestry": ["BS Agriculture", "BS Forestry"],
-  "College of Liberal Arts, Mathematics and Sciences": ["BAELS"],
-  "School of Engineering": ["Agricultural Biosystems Engineering"],
-  "School of Criminal Justice Education": ["BS Criminology"],
-};
-
-const QR_CODE_COLLEGE_OPTIONS = Object.keys(QR_CODE_COLLEGE_PROGRAM_OPTIONS);
 const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
 const emptyZeroAttendanceForm: ZeroAttendanceFormState = {
@@ -303,9 +291,6 @@ const selectTriggerClassName =
 const customSelectInputClassName =
   "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
-function getStudentProgramOptions(college: string) {
-  return QR_CODE_COLLEGE_PROGRAM_OPTIONS[college] ?? [];
-}
 
 function hasStudentSelectOption(
   options: readonly string[],
@@ -2953,6 +2938,7 @@ export default function LandingPage() {
   const [searchedId, setSearchedId] = useState("");
   const [resultYearFilter, setResultYearFilter] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [attendanceRequestsLoadFailed, setAttendanceRequestsLoadFailed] = useState(false);
   const [searchProgress, setSearchProgress] = useState<ProgressiveLoadProgress>(
     INITIAL_PROGRESSIVE_LOAD_PROGRESS,
   );
@@ -3106,6 +3092,17 @@ export default function LandingPage() {
 
     return matchingResults[0] ?? null;
   }, [lookup, resultYearFilter]);
+
+  const displayedAttendanceRequests = useMemo(() => {
+    if (!lookup) return [];
+    return lookup.attendanceRequests.filter((request) =>
+      matchesSelectedYear(request.school_year_id, resultYearFilter),
+    );
+  }, [lookup, resultYearFilter]);
+
+  const rejectedAttendanceRequestCount = displayedAttendanceRequests.filter(
+    (request) => request.status === "rejected",
+  ).length;
 
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
@@ -3545,6 +3542,18 @@ export default function LandingPage() {
         events,
       });
 
+      if (lookup && searchedId && normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)) {
+        try {
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
+          setLookup((current) =>
+            current ? { ...current, attendanceRequests: refreshedRequests } : current,
+          );
+          setAttendanceRequestsLoadFailed(false);
+        } catch {
+          setAttendanceRequestsLoadFailed(true);
+        }
+      }
+
       setAttendanceRequestDialogOpen(false);
       setAttendanceRequestForm(emptyAttendanceRequestForm);
       setAttendanceRequestEvents([]);
@@ -3653,6 +3662,7 @@ export default function LandingPage() {
         schoolYears,
         fines: fine ? [fine] : [],
         fallbackFine: null,
+        attendanceRequests: lookup?.attendanceRequests ?? [],
       });
       setZeroAttendanceDialogOpen(false);
       setResultDialogOpen(true);
@@ -3708,9 +3718,9 @@ export default function LandingPage() {
       progress: LandingAttendanceRecordsPageProgress,
     ) => {
       const nextRecordsWeight = progress.isComplete
-        ? 40
+        ? 35
         : Math.min(
-            36,
+            31,
             Math.max(
               attendanceRecordsWeight,
               Math.round((progress.loadedRows / 50000) * 36),
@@ -3732,6 +3742,7 @@ export default function LandingPage() {
     setIsSearching(true);
     setError("");
     setZeroAttendanceError("");
+    setAttendanceRequestsLoadFailed(false);
     setSearchedId(cleanStudentId);
     updateProgress(
       2,
@@ -3816,28 +3827,39 @@ export default function LandingPage() {
 
           return [] as AttendanceEvent[];
         });
+      const attendanceRequestsPromise = getStudentAttendanceRequestStatus(cleanStudentId)
+        .then((requests) => {
+          markProgressStepComplete(5, "Request status loaded...", `${requests.length.toLocaleString()} attendance request/s checked.`);
+          return requests;
+        })
+        .catch(() => {
+          setAttendanceRequestsLoadFailed(true);
+          markProgressStepComplete(5, "Request status unavailable...", "Attendance results will still be shown.");
+          return [] as StudentAttendanceRequestStatus[];
+        });
+
       const attendanceRecordsPromise = listLandingAttendanceRecords(
         updateAttendanceRecordsProgress,
       )
         .then((attendanceRecords) => {
-          if (attendanceRecordsWeight < 40) {
+          if (attendanceRecordsWeight < 35) {
             markProgressStepComplete(
-              40 - attendanceRecordsWeight,
+              35 - attendanceRecordsWeight,
               "Attendance history loaded...",
               `${attendanceRecords.length.toLocaleString()} total attendance record/s checked for college-linked events.`,
             );
-            attendanceRecordsWeight = 40;
+            attendanceRecordsWeight = 35;
           }
 
           return attendanceRecords;
         })
         .catch(() => {
           markProgressStepComplete(
-            40 - attendanceRecordsWeight,
+            35 - attendanceRecordsWeight,
             "Attendance history skipped...",
             "The search will continue without the full attendance history.",
           );
-          attendanceRecordsWeight = 40;
+          attendanceRecordsWeight = 35;
 
           return [] as AttendanceRecord[];
         });
@@ -3849,6 +3871,7 @@ export default function LandingPage() {
         schoolYearRows,
         attendanceEvents,
         attendanceRecords,
+        attendanceRequests,
       ] = await Promise.all([
         attendancePromise,
         finalResultsPromise,
@@ -3856,6 +3879,7 @@ export default function LandingPage() {
         schoolYearsPromise,
         attendanceEventsPromise,
         attendanceRecordsPromise,
+        attendanceRequestsPromise,
       ]);
 
       setSchoolYears(schoolYearRows);
@@ -3866,7 +3890,7 @@ export default function LandingPage() {
         "Classifying attendance status and checking related fines.",
       );
 
-      if (!attendance.length && !finalResults.length && !fines.length) {
+      if (!attendance.length && !finalResults.length && !fines.length && !attendanceRequests.length) {
         updateProgress(
           100,
           "No saved student record found.",
@@ -3915,6 +3939,7 @@ export default function LandingPage() {
         schoolYears: schoolYearRows,
         fines,
         fallbackFine,
+        attendanceRequests,
       });
       setResultDialogOpen(true);
       setZeroAttendanceDialogOpen(false);
@@ -4144,6 +4169,84 @@ export default function LandingPage() {
                   Request Attendance Review
                 </Button>
               </div>
+
+              {rejectedAttendanceRequestCount > 0 ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                  {rejectedAttendanceRequestCount} request{rejectedAttendanceRequestCount === 1 ? "" : "s"} rejected, see note below.
+                </div>
+              ) : null}
+
+              {attendanceRequestsLoadFailed || displayedAttendanceRequests.length ? (
+                <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-black">Attendance Requests</h3>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                      {displayedAttendanceRequests.length} request/s
+                    </span>
+                  </div>
+                  {attendanceRequestsLoadFailed ? (
+                    <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                      Couldn't load request status.
+                    </div>
+                  ) : null}
+                  <div className="space-y-4">
+                    {displayedAttendanceRequests.map((request) => (
+                      <article key={request.id} className="rounded-2xl border bg-background p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-black">
+                              {request.school_year_name} / {request.semester}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Submitted {formatDate(request.created_at)}
+                              {request.reviewed_at ? ` • Reviewed ${formatDate(request.reviewed_at)}` : ""}
+                            </p>
+                          </div>
+                          <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
+                            request.status === "approved"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : request.status === "rejected"
+                                ? "border-red-200 bg-red-50 text-red-700"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
+                          }`}>
+                            {request.status}
+                          </span>
+                        </div>
+                        <div className="mt-4">
+                          <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
+                          <p className="mt-1 text-sm font-semibold">
+                            {request.events.map((event) => event.event_name).join(", ") || "—"}
+                          </p>
+                        </div>
+                        {request.review_note ? (
+                          <div className="mt-4 rounded-xl border bg-muted/40 p-3">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
+                            <p className="mt-2 whitespace-pre-wrap text-sm">{request.review_note}</p>
+                          </div>
+                        ) : request.status === "rejected" ? (
+                          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                            No reason was provided. Please contact your college officer.
+                          </div>
+                        ) : null}
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm font-semibold text-muted-foreground">
+                            {request.status === "approved"
+                              ? "Your attendance for these events has been added."
+                              : request.status === "pending"
+                                ? "Waiting for review."
+                                : "This request was rejected. Review the note and submit a corrected request."}
+                          </p>
+                          {request.status === "rejected" ? (
+                            <Button type="button" variant="outline" onClick={handleLookupAttendanceRequestReview} className="rounded-xl">
+                              Submit a new request
+                            </Button>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {resultClassification === "Perfect attendance" ? (
                 <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">

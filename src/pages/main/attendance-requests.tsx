@@ -531,7 +531,10 @@ export default function AttendanceRequestsPage() {
               {request.status === "pending" ? (
                 <div className="space-y-3 rounded-2xl border bg-background p-4">
                   <label className="block space-y-2 text-sm font-bold">
-                    <span>Reviewer note (optional)</span>
+                    <span>Note to student (optional, visible to the student)</span>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      The student sees this note when they search their Student ID.
+                    </p>
                     <Textarea
                       value={reviewNotes[request.id] ?? ""}
                       onChange={(event) =>
