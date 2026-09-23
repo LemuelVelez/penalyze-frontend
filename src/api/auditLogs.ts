@@ -1,4 +1,5 @@
 import { getApiBaseUrl, getAuthToken } from "./auth";
+import type { SortOrder } from "../lib/sort";
 
 export type AuditLogOutcome = "all" | "success" | "failed";
 
@@ -32,6 +33,7 @@ export type AuditLogListOptions = {
   limit?: number;
   search?: string;
   outcome?: AuditLogOutcome;
+  sort?: SortOrder;
   from?: string;
   to?: string;
 };
@@ -50,6 +52,7 @@ export async function listAuditLogs(options: AuditLogListOptions = {}) {
   if (options.limit) params.set("limit", String(options.limit));
   if (options.search?.trim()) params.set("search", options.search.trim());
   if (options.outcome && options.outcome !== "all") params.set("outcome", options.outcome);
+  if (options.sort) params.set("sort", options.sort);
   if (options.from) params.set("from", options.from);
   if (options.to) params.set("to", options.to);
 

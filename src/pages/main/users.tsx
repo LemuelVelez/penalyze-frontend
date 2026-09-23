@@ -12,6 +12,7 @@ import {
 } from "../../api/auth";
 import type { AuthUser, RegisterInput, UserRole } from "../../api/auth";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -28,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 type UserFormState = {
   name: string;
@@ -68,6 +70,7 @@ function formatRole(role: UserRole) {
 export default function UsersPage() {
   const [form, setForm] = useState<UserFormState>(emptyUserForm);
   const [users, setUsers] = useState<AuthUser[]>([]);
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
@@ -78,6 +81,10 @@ export default function UsersPage() {
 
   const currentUser = useMemo(() => getStoredUser(), []);
   const isEditing = Boolean(editingUserId);
+  const sortedUsers = useMemo(
+    () => sortByDate(users, (user) => user.createdAt, sortOrder),
+    [users, sortOrder],
+  );
   const roleCounts = useMemo(
     () => ({
       admin: users.filter((user) => user.role === "admin").length,
@@ -284,15 +291,23 @@ export default function UsersPage() {
                   Saved admin and officer accounts loaded from the database.
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isLoadingUsers}
-                onClick={loadUsers}
-                className="min-h-10"
-              >
-                {isLoadingUsers ? "Loading..." : "Refresh Users"}
-              </Button>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <SortSelect
+                  value={sortOrder}
+                  onValueChange={setSortOrder}
+                  ariaLabel="Sort users"
+                  className="sm:w-48"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isLoadingUsers}
+                  onClick={loadUsers}
+                  className="min-h-11 rounded-xl"
+                >
+                  {isLoadingUsers ? "Loading..." : "Refresh Users"}
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
@@ -324,7 +339,7 @@ export default function UsersPage() {
 
             <div className="mt-5 space-y-3 xl:hidden">
               {users.length ? (
-                users.map((user) => {
+                sortedUsers.map((user) => {
                   const isCurrentUser = currentUser?.id === user.id;
 
                   return (
@@ -410,7 +425,7 @@ export default function UsersPage() {
                 </thead>
                 <tbody>
                   {users.length ? (
-                    users.map((user) => {
+                    sortedUsers.map((user) => {
                       const isCurrentUser = currentUser?.id === user.id;
 
                       return (

@@ -39,6 +39,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -71,6 +72,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
@@ -512,6 +514,7 @@ export default function AttendancePage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -620,7 +623,7 @@ export default function AttendancePage() {
   const displayedFinalResults = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
 
-    return sortByBackendEventOrder(finalResults).filter((row) => {
+    const filtered = finalResults.filter((row) => {
       const matchesCollege =
         collegeFilter === "__all_colleges__" ||
         String(row.college ?? "").trim() === collegeFilter;
@@ -636,7 +639,19 @@ export default function AttendancePage() {
 
       return matchesCollege && matchesDate && matchesStudent;
     });
-  }, [finalResults, collegeFilter, fromDate, toDate, studentSearch]);
+
+    return sortByDate(
+      filtered,
+      (row) => row.latest_scanned_at ?? row.created_at,
+      sortOrder,
+    );
+  }, [finalResults, collegeFilter, fromDate, toDate, studentSearch, sortOrder]);
+
+
+  const sortedImports = useMemo(
+    () => sortByDate(imports, (item) => item.created_at, sortOrder),
+    [imports, sortOrder],
+  );
 
   const finalResultsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -645,7 +660,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+  }, [collegeFilter, fromDate, toDate, studentSearch, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, finalResultsTotalPages));
@@ -2646,6 +2661,12 @@ export default function AttendancePage() {
                 onChange={(event) => setStudentSearch(event.target.value)}
                 className="min-h-11 rounded-2xl sm:min-w-64"
               />
+              <SortSelect
+                value={sortOrder}
+                onValueChange={setSortOrder}
+                ariaLabel="Sort attendance results and imports"
+                className="rounded-2xl sm:w-44"
+              />
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="date"
@@ -2881,10 +2902,18 @@ export default function AttendancePage() {
         </section>
 
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
-          <h2 className="text-lg font-semibold">Recent uploaded files</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold">Recent uploaded files</h2>
+            <SortSelect
+              value={sortOrder}
+              onValueChange={setSortOrder}
+              ariaLabel="Sort attendance imports"
+              className="sm:w-44"
+            />
+          </div>
           <div className="mt-4 grid gap-3">
             {imports.length ? (
-              imports.map((item) => (
+              sortedImports.map((item) => (
                 <article
                   key={item.id}
                   className="rounded-2xl border bg-background p-4"

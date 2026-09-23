@@ -25,6 +25,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -45,6 +46,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 const emptyEventForm = {
   schoolYearId: "",
@@ -170,6 +172,7 @@ export default function EventsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [eventSearch, setEventSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -208,7 +211,7 @@ export default function EventsPage() {
   const filteredEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLowerCase();
 
-    return events.filter((event) => {
+    const filtered = events.filter((event) => {
       const matchesDate = matchesDateRange(
         event.event_start_at ?? event.event_end_at ?? event.updated_at,
         fromDate,
@@ -221,7 +224,13 @@ export default function EventsPage() {
 
       return matchesDate && matchesSearch;
     });
-  }, [events, fromDate, toDate, eventSearch]);
+
+    return sortByDate(
+      filtered,
+      (event) => event.event_start_at ?? event.event_end_at ?? event.created_at,
+      sortOrder,
+    );
+  }, [events, fromDate, toDate, eventSearch, sortOrder]);
 
   const eventsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -230,7 +239,7 @@ export default function EventsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [fromDate, toDate, eventSearch, rowsPerPage]);
+  }, [fromDate, toDate, eventSearch, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, eventsTotalPages));
@@ -774,6 +783,12 @@ export default function EventsPage() {
                 value={eventSearch}
                 onChange={(event) => setEventSearch(event.target.value)}
                 className="min-h-11 rounded-2xl sm:w-64"
+              />
+              <SortSelect
+                value={sortOrder}
+                onValueChange={setSortOrder}
+                ariaLabel="Sort events"
+                className="rounded-2xl sm:w-44"
               />
               <Input
                 type="date"

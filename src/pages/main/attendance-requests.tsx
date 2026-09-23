@@ -16,6 +16,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
+import { SortSelect } from "../../components/sort-select";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -27,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 const ALL_STATUSES = "__all_statuses__";
 
@@ -85,6 +87,7 @@ export default function AttendanceRequestsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
@@ -97,7 +100,7 @@ export default function AttendanceRequestsPage() {
   const filteredRequests = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
 
-    return requests.filter((request) => {
+    const filtered = requests.filter((request) => {
       const matchesDate = matchesDateRange(request.created_at, fromDate, toDate);
       const matchesStudent =
         !normalizedSearch ||
@@ -106,7 +109,9 @@ export default function AttendanceRequestsPage() {
 
       return matchesDate && matchesStudent;
     });
-  }, [requests, fromDate, toDate, studentSearch]);
+
+    return sortByDate(filtered, (request) => request.created_at, sortOrder);
+  }, [requests, fromDate, toDate, studentSearch, sortOrder]);
 
   const requestsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -115,7 +120,7 @@ export default function AttendanceRequestsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, schoolYearFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+  }, [statusFilter, schoolYearFilter, fromDate, toDate, studentSearch, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, requestsTotalPages));
@@ -340,8 +345,8 @@ export default function AttendanceRequestsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5 sm:p-5">
-        <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-6 sm:p-5">
+        <div className="space-y-2">
           <label className="text-sm font-bold">Search student</label>
           <Input
             type="search"
@@ -349,6 +354,15 @@ export default function AttendanceRequestsPage() {
             value={studentSearch}
             onChange={(event) => setStudentSearch(event.target.value)}
             className="min-h-11 rounded-xl"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-bold">Sort by</label>
+          <SortSelect
+            value={sortOrder}
+            onValueChange={setSortOrder}
+            ariaLabel="Sort attendance requests"
           />
         </div>
 

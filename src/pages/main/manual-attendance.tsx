@@ -25,6 +25,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -45,6 +46,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 type ManualAttendanceFormState = {
   schoolYearId: string;
@@ -434,6 +436,33 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
   );
 }
 
+function getManualAttendanceSaveErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("on conflict do update command cannot affect row a second time") ||
+    normalized.includes("21000") ||
+    normalized.includes("cardinality violation")
+  ) {
+    return "Unable to save manual attendance because duplicate student records were detected. Please refresh and try again.";
+  }
+
+  const looksLikeDatabaseError =
+    normalized.includes("duplicate key value") ||
+    normalized.includes("constraint matching the on conflict") ||
+    normalized.includes("sqlstate") ||
+    normalized.includes("postgres") ||
+    normalized.includes("syntax error at or near") ||
+    (normalized.includes("violates") && normalized.includes("constraint"));
+
+  if (looksLikeDatabaseError) {
+    return "Unable to save manual attendance. Please refresh and try again.";
+  }
+
+  return message || "Unable to save manual attendance. Please try again.";
+}
+
 export default function ManualAttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
@@ -452,6 +481,7 @@ export default function ManualAttendancePage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
@@ -486,7 +516,7 @@ export default function ManualAttendancePage() {
     const targetCollege = collegeFilter.trim().toLowerCase();
     const normalizedSearch = studentSearch.trim().toLowerCase();
 
-    return studentGroups.filter((group) => {
+    const filtered = studentGroups.filter((group) => {
       const matchesCollege =
         !targetCollege || group.college.trim().toLowerCase() === targetCollege;
       const matchesDate = matchesDateRange(
@@ -501,7 +531,9 @@ export default function ManualAttendancePage() {
 
       return matchesCollege && matchesDate && matchesStudent;
     });
-  }, [studentGroups, collegeFilter, fromDate, toDate, studentSearch]);
+
+    return sortByDate(filtered, (group) => group.latestScannedAt, sortOrder);
+  }, [studentGroups, collegeFilter, fromDate, toDate, studentSearch, sortOrder]);
 
   const manualAttendanceTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -510,7 +542,7 @@ export default function ManualAttendancePage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+  }, [collegeFilter, fromDate, toDate, studentSearch, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, manualAttendanceTotalPages));
@@ -1022,7 +1054,7 @@ export default function ManualAttendancePage() {
       handleDialogOpenChange(false);
       await loadPageData(selectedSchoolYearId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save manual attendance.");
+      toast.error(getManualAttendanceSaveErrorMessage(error));
     } finally {
       setIsSaving(false);
     }
@@ -1181,7 +1213,14 @@ export default function ManualAttendancePage() {
                 placeholder="Search student name or ID..."
                 value={studentSearch}
                 onChange={(event) => setStudentSearch(event.target.value)}
-                className="min-h-12 rounded-2xl sm:col-span-2"
+                className="min-h-12 rounded-2xl"
+              />
+
+              <SortSelect
+                value={sortOrder}
+                onValueChange={setSortOrder}
+                ariaLabel="Sort manual attendance"
+                className="min-h-12 rounded-2xl"
               />
 
               <Select

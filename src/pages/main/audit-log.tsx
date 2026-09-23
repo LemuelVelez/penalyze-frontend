@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { listAuditLogs } from "../../api/auditLogs";
 import type { AuditLogOutcome, AuditLogRecord } from "../../api/auditLogs";
+import { SortSelect } from "../../components/sort-select";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -20,6 +21,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import type { SortOrder } from "../../lib/sort";
+import { useSortOrderSearchParam } from "../../lib/sort";
 
 const PAGE_SIZE = 50;
 
@@ -65,6 +68,7 @@ export default function AuditLogPage() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [outcome, setOutcome] = useState<AuditLogOutcome>("all");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selectedLog, setSelectedLog] = useState<AuditLogRecord | null>(null);
@@ -79,6 +83,7 @@ export default function AuditLogPage() {
         limit: PAGE_SIZE,
         search: appliedSearch,
         outcome,
+        sort: sortOrder,
         from: dateBoundary(fromDate),
         to: dateBoundary(toDate, true),
       });
@@ -92,7 +97,7 @@ export default function AuditLogPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [appliedSearch, fromDate, outcome, page, toDate]);
+  }, [appliedSearch, fromDate, outcome, page, sortOrder, toDate]);
 
   useEffect(() => {
     void loadLogs();
@@ -109,10 +114,16 @@ export default function AuditLogPage() {
     setOutcome(value as AuditLogOutcome);
   }
 
+  function handleSortChange(value: SortOrder) {
+    setPage(1);
+    setSortOrder(value);
+  }
+
   function clearFilters() {
     setSearch("");
     setAppliedSearch("");
     setOutcome("all");
+    setSortOrder("newest");
     setFromDate("");
     setToDate("");
     setPage(1);
@@ -138,7 +149,7 @@ export default function AuditLogPage() {
       </div>
 
       <section className="mb-5 rounded-2xl border bg-background p-4 shadow-sm">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_180px_170px_170px_auto]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_180px_180px_170px_170px_auto]">
           <form onSubmit={handleSearch} className="flex gap-2">
             <Input
               value={search}
@@ -161,6 +172,12 @@ export default function AuditLogPage() {
               <SelectItem value="failed">Failed</SelectItem>
             </SelectContent>
           </Select>
+
+          <SortSelect
+            value={sortOrder}
+            onValueChange={handleSortChange}
+            ariaLabel="Sort audit logs"
+          />
 
           <Input
             type="date"

@@ -27,6 +27,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
@@ -44,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 const ZERO_ATTENDANCE_REMARK =
   "Zero attendance registration from landing page.";
@@ -97,6 +99,7 @@ type CalculationRow = {
   penalty: PenaltyRecord | null;
   sourceRecordCount: number;
   calculatedAt?: string;
+  latestScannedAt?: string | null;
   consistencyWarning?: string | null;
   isSavedResult: boolean;
 };
@@ -647,6 +650,7 @@ function calculationResultToRow(result: CalculationResultRecord) {
         : null,
     sourceRecordCount: Number(result.source_record_count || 0),
     calculatedAt: result.calculated_at,
+    latestScannedAt: result.latest_scanned_at,
     consistencyWarning: result.consistency_warning ?? null,
     isSavedResult: true,
   } satisfies CalculationRow;
@@ -763,6 +767,7 @@ export default function CalculatePage() {
   >([]);
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [lastCalculatedAt, setLastCalculatedAt] = useState("");
@@ -843,12 +848,18 @@ export default function CalculatePage() {
 
   const filteredRows = useMemo(() => {
     const query = debouncedSearchText.trim().toLowerCase();
-    if (!query) return calculationRows;
+    const filtered = query
+      ? searchableRows
+          .filter((searchableRow) => searchableRow.searchText.includes(query))
+          .map((searchableRow) => searchableRow.row)
+      : calculationRows;
 
-    return searchableRows
-      .filter((searchableRow) => searchableRow.searchText.includes(query))
-      .map((searchableRow) => searchableRow.row);
-  }, [calculationRows, debouncedSearchText, searchableRows]);
+    return sortByDate(
+      filtered,
+      (row) => row.calculatedAt ?? row.latestScannedAt,
+      sortOrder,
+    );
+  }, [calculationRows, debouncedSearchText, searchableRows, sortOrder]);
 
   const totalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -857,7 +868,7 @@ export default function CalculatePage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearchText, rowsPerPage]);
+  }, [debouncedSearchText, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
@@ -2068,6 +2079,12 @@ export default function CalculatePage() {
                 onChange={(event) => setSearchText(event.target.value)}
                 placeholder="Search student, college, program, or penalty"
                 className="min-h-12 rounded-2xl lg:max-w-md"
+              />
+              <SortSelect
+                value={sortOrder}
+                onValueChange={setSortOrder}
+                ariaLabel="Sort calculation results"
+                className="min-h-12 rounded-2xl sm:w-44"
               />
               <ProtectedDeleteDialog
                 trigger={

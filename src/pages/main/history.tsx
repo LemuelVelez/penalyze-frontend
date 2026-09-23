@@ -53,6 +53,7 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -73,6 +74,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 type SchoolYearFormState = {
   name: string;
@@ -245,6 +247,7 @@ export default function HistoryPage() {
   const [activeRecordsDialog, setActiveRecordsDialog] =
     useState<FilteredRecordGroupKey | null>(null);
   const [recordDialogSearch, setRecordDialogSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [selectedRecords, setSelectedRecords] =
     useState<SelectedRecordState>(emptySelectedRecords);
   const [isLoading, setIsLoading] = useState(true);
@@ -398,7 +401,7 @@ export default function HistoryPage() {
   }, [allFilteredRecordCount, selectedRecordCount]);
 
   const filteredImports = useMemo(() => {
-    return imports.filter((item) =>
+    const filtered = imports.filter((item) =>
       recordMatchesSearch(recordDialogSearch, [
         item.id,
         item.file_name,
@@ -407,7 +410,9 @@ export default function HistoryPage() {
         formatDate(item.created_at),
       ]),
     );
-  }, [imports, recordDialogSearch]);
+
+    return sortByDate(filtered, (item) => item.created_at, sortOrder);
+  }, [imports, recordDialogSearch, sortOrder]);
 
   const filteredPenaltyResults = useMemo(() => {
     return penaltyResults.filter((item) =>
@@ -1231,15 +1236,23 @@ export default function HistoryPage() {
 
   function renderDialogSearchInput(title: string) {
     return (
-      <div className="mt-4">
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <Input
           type="search"
           value={recordDialogSearch}
           onChange={(event) => setRecordDialogSearch(event.target.value)}
           placeholder={`Search ${title}`}
           aria-label={`Search ${title}`}
-          className="min-h-10 rounded-xl"
+          className="min-h-11 rounded-xl"
         />
+        {activeRecordsDialog === "uploadedFiles" ? (
+          <SortSelect
+            value={sortOrder}
+            onValueChange={setSortOrder}
+            ariaLabel="Sort import history"
+            className="sm:w-48"
+          />
+        ) : null}
       </div>
     );
   }

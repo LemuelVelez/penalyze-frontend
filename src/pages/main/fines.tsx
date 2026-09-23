@@ -30,6 +30,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -51,6 +52,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
+import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 import {
   downloadFinesReportXlsx,
   formatFineReportCurrency,
@@ -267,6 +269,7 @@ export default function FinesPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
@@ -313,30 +316,42 @@ export default function FinesPage() {
   const filteredPenaltyResults = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
 
-    return sortPenaltyResultsByBackendEventOrder(penaltyResults).filter(
-      (result) => {
-        const matchesStatus =
-          statusFilter === "all" || result.status === statusFilter;
-        const resultCollege = getPenaltyResultCollege(result);
-        const matchesCollege =
-          collegeFilter === "__all_colleges__" ||
-          (collegeFilter === "__unassigned_college__"
-            ? !resultCollege
-            : resultCollege === collegeFilter);
-        const matchesDate = matchesDateRange(
-          result.updated_at,
-          fromDate,
-          toDate,
-        );
-        const matchesStudent =
-          !normalizedSearch ||
-          String(result.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
-          String(result.name ?? "").toLowerCase().includes(normalizedSearch);
+    const filtered = penaltyResults.filter((result) => {
+      const matchesStatus =
+        statusFilter === "all" || result.status === statusFilter;
+      const resultCollege = getPenaltyResultCollege(result);
+      const matchesCollege =
+        collegeFilter === "__all_colleges__" ||
+        (collegeFilter === "__unassigned_college__"
+          ? !resultCollege
+          : resultCollege === collegeFilter);
+      const matchesDate = matchesDateRange(
+        result.updated_at,
+        fromDate,
+        toDate,
+      );
+      const matchesStudent =
+        !normalizedSearch ||
+        String(result.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
+        String(result.name ?? "").toLowerCase().includes(normalizedSearch);
 
-        return matchesStatus && matchesCollege && matchesDate && matchesStudent;
-      },
+      return matchesStatus && matchesCollege && matchesDate && matchesStudent;
+    });
+
+    return sortByDate(
+      filtered,
+      (result) => result.updated_at ?? result.created_at,
+      sortOrder,
     );
-  }, [penaltyResults, statusFilter, collegeFilter, fromDate, toDate, studentSearch]);
+  }, [
+    penaltyResults,
+    statusFilter,
+    collegeFilter,
+    fromDate,
+    toDate,
+    studentSearch,
+    sortOrder,
+  ]);
 
   const penaltyResultsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -345,7 +360,15 @@ export default function FinesPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, collegeFilter, fromDate, toDate, studentSearch, rowsPerPage]);
+  }, [
+    statusFilter,
+    collegeFilter,
+    fromDate,
+    toDate,
+    studentSearch,
+    sortOrder,
+    rowsPerPage,
+  ]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, penaltyResultsTotalPages));
@@ -967,7 +990,14 @@ export default function FinesPage() {
                 placeholder="Search student name or ID..."
                 value={studentSearch}
                 onChange={(event) => setStudentSearch(event.target.value)}
-                className="min-h-12 rounded-2xl sm:col-span-2 xl:col-span-2"
+                className="min-h-12 rounded-2xl"
+              />
+
+              <SortSelect
+                value={sortOrder}
+                onValueChange={setSortOrder}
+                ariaLabel="Sort penalty results"
+                className="min-h-12 rounded-2xl"
               />
 
               <Select
