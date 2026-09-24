@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import {
   listAttendanceRequests,
+  removeAttendanceRequestEvent,
   reviewAttendanceRequest,
 } from "../../api/attendanceRequests";
 import type {
@@ -16,6 +17,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -96,6 +98,7 @@ export default function AttendanceRequestsPage() {
     useState<RequestsLoadProgress | null>(null);
   const loadRequestIdRef = useRef(0);
   const [reviewingId, setReviewingId] = useState("");
+  const [removingEventId, setRemovingEventId] = useState("");
 
   const filteredRequests = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
@@ -254,6 +257,35 @@ export default function AttendanceRequestsPage() {
   useEffect(() => {
     void loadRequests();
   }, [loadRequests]);
+
+  async function handleRemoveRequestEvent(
+    request: AttendanceRequest,
+    requestEventId: string,
+  ) {
+    setRemovingEventId(requestEventId);
+    try {
+      const updatedRequest = await removeAttendanceRequestEvent(
+        request.id,
+        requestEventId,
+      );
+      if (updatedRequest) {
+        setRequests((current) =>
+          current.map((item) =>
+            item.id === request.id ? updatedRequest : item,
+          ),
+        );
+      }
+      toast.success("Event removed from request.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove event from attendance request.",
+      );
+    } finally {
+      setRemovingEventId("");
+    }
+  }
 
   async function handleReview(
     request: AttendanceRequest,
@@ -499,33 +531,91 @@ export default function AttendanceRequestsPage() {
                 <h3 className="text-sm font-black uppercase tracking-wide">
                   Claimed events and evidence
                 </h3>
-                {request.events.map((event) => (
-                  <div
-                    key={event.id}
-                    className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-black">{event.event_name}</p>
-                      <p className="mt-1 break-all text-xs text-muted-foreground">
-                        {event.evidence_url}
-                      </p>
-                    </div>
-                    <Button
-                      asChild
-                      type="button"
-                      variant="outline"
-                      className="min-h-10 shrink-0 rounded-xl"
+                {request.events.map((event) => {
+                  const isRemovingThisEvent = removingEventId === event.id;
+                  const isLastEvent = request.events.length === 1;
+                  const removeDisabled =
+                    isLastEvent ||
+                    Boolean(removingEventId) ||
+                    reviewingId === request.id;
+
+                  return (
+                    <div
+                      key={event.id}
+                      className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <a
-                        href={event.evidence_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open Evidence
-                      </a>
-                    </Button>
-                  </div>
-                ))}
+                      <div className="min-w-0">
+                        <p className="font-black">{event.event_name}</p>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          {event.evidence_url}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                        {isRemovingThisEvent ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled
+                            className="min-h-10 rounded-xl"
+                          >
+                            Open Evidence
+                          </Button>
+                        ) : (
+                          <Button
+                            asChild
+                            type="button"
+                            variant="outline"
+                            className="min-h-10 rounded-xl"
+                          >
+                            <a
+                              href={event.evidence_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open Evidence
+                            </a>
+                          </Button>
+                        )}
+                        {request.status === "pending" ? (
+                          <div className="space-y-1">
+                            <ProtectedDeleteDialog
+                              trigger={
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  disabled={removeDisabled}
+                                  className="min-h-10 w-full rounded-xl sm:w-auto"
+                                  title={
+                                    isLastEvent
+                                      ? "A request needs at least one event. Reject the request instead."
+                                      : undefined
+                                  }
+                                >
+                                  Remove
+                                </Button>
+                              }
+                              title={`Remove "${event.event_name}" from ${request.name}'s request?`}
+                              description="This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone."
+                              confirmationPhrase="REMOVE"
+                              confirmLabel="Remove Event"
+                              pendingLabel="Removing..."
+                              isPending={isRemovingThisEvent}
+                              confirmDisabled={removeDisabled && !isRemovingThisEvent}
+                              onConfirm={() =>
+                                handleRemoveRequestEvent(request, event.id)
+                              }
+                            />
+                            {isLastEvent ? (
+                              <p className="max-w-56 text-xs font-semibold text-muted-foreground">
+                                A request needs at least one event. Reject the request instead.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {request.status === "pending" ? (
@@ -534,6 +624,9 @@ export default function AttendanceRequestsPage() {
                     <span>Note to student (optional, visible to the student)</span>
                     <p className="text-xs font-semibold text-muted-foreground">
                       The student sees this note when they search their Student ID.
+                    </p>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      If you removed any events, consider explaining why here.
                     </p>
                     <Textarea
                       value={reviewNotes[request.id] ?? ""}
@@ -552,7 +645,10 @@ export default function AttendanceRequestsPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={reviewingId === request.id}
+                      disabled={
+                        reviewingId === request.id ||
+                        request.events.some((event) => event.id === removingEventId)
+                      }
                       onClick={() => void handleReview(request, "rejected")}
                       className="min-h-11 rounded-xl px-5"
                     >
@@ -560,7 +656,10 @@ export default function AttendanceRequestsPage() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={reviewingId === request.id}
+                      disabled={
+                        reviewingId === request.id ||
+                        request.events.some((event) => event.id === removingEventId)
+                      }
                       onClick={() => void handleReview(request, "approved")}
                       className="min-h-11 rounded-xl px-5"
                     >

@@ -1469,6 +1469,18 @@ export async function createEventCollegeExemptions(input: {
   return response.data ?? [];
 }
 
+export async function deleteEventCollegeExemptionsBulk(input: {
+  college: string;
+  eventIds: string[];
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<Array<Omit<EventCollegeExemption, "event_name">>>(
+    "/api/attendance/event-exemptions/bulk-delete",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
 export async function deleteEventCollegeExemption(id: string) {
   const response = await apiRequest<EventCollegeExemption>(
     `/api/attendance/event-exemptions/${encodeURIComponent(id)}`,

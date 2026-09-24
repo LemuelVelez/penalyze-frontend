@@ -160,6 +160,18 @@ export async function reviewAttendanceRequest(
   return response.data ?? null;
 }
 
+export async function removeAttendanceRequestEvent(
+  requestId: string,
+  requestEventId: string,
+): Promise<AttendanceRequest | null> {
+  const response = await apiRequest<AttendanceRequest>(
+    `/api/attendance/requests/${encodeURIComponent(requestId)}/events/${encodeURIComponent(requestEventId)}`,
+    { method: "DELETE" },
+  );
+  notifyAttendanceRequestsUpdated();
+  return response.data ?? null;
+}
+
 export async function getStudentAttendanceRequestStatus(
   studentId: string,
   schoolYearId?: string,

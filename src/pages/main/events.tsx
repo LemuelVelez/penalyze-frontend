@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   deleteAttendanceEvent,
   deleteEventCollegeExemption,
+  deleteEventCollegeExemptionsBulk,
   getAttendanceEventMergeImpact,
   getEventCollegeExemptionImpact,
   listAttendanceEventDuplicateGroups,
@@ -72,6 +73,50 @@ type EventsLoadProgress = {
   detail: string;
   steps: LoadingStatusStep[];
 };
+
+type ExemptionSnapshot = {
+  eventId: string;
+  eventName: string;
+  reason: string | null;
+};
+
+type ExemptionHistoryEntry = {
+  kind: "add" | "remove";
+  collegeLabel: string;
+  collegeKey: string;
+  schoolYearId: string;
+  before: ExemptionSnapshot[];
+  after: ExemptionSnapshot[];
+  label: string;
+};
+
+function getCollegeExemptionSnapshot(
+  rows: EventCollegeExemption[],
+  collegeKey: string,
+): ExemptionSnapshot[] {
+  return rows
+    .filter((item) => item.college_key === collegeKey)
+    .map((item) => ({
+      eventId: item.event_id,
+      eventName: item.event_name,
+      reason: item.reason ?? null,
+    }))
+    .sort((a, b) => a.eventId.localeCompare(b.eventId));
+}
+
+function exemptionSnapshotsMatch(
+  left: ExemptionSnapshot[],
+  right: ExemptionSnapshot[],
+) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => {
+    const other = right[index];
+    return (
+      other?.eventId === item.eventId &&
+      other.reason === item.reason
+    );
+  });
+}
 
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
@@ -192,6 +237,7 @@ export default function EventsPage() {
   const [pageLoadProgress, setPageLoadProgress] =
     useState<EventsLoadProgress | null>(null);
   const loadRequestIdRef = useRef(0);
+  const historyApplyingRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingEventId, setDeletingEventId] = useState("");
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
@@ -213,6 +259,12 @@ export default function EventsPage() {
   const [exemptionImpact, setExemptionImpact] = useState<EventExemptionImpact[]>([]);
   const [isSavingExemptions, setIsSavingExemptions] = useState(false);
   const [deletingExemptionId, setDeletingExemptionId] = useState("");
+  const [undoStack, setUndoStack] = useState<ExemptionHistoryEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<ExemptionHistoryEntry[]>([]);
+  const [isApplyingHistory, setIsApplyingHistory] = useState(false);
+  const [applyingHistoryAction, setApplyingHistoryAction] = useState<
+    "undo" | "redo" | ""
+  >("");
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -261,6 +313,11 @@ export default function EventsPage() {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, eventsTotalPages));
   }, [eventsTotalPages]);
+
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [selectedSchoolYearId]);
 
   const paginatedEvents = useMemo(() => {
     if (rowsPerPage === "all") return filteredEvents;
@@ -325,6 +382,38 @@ export default function EventsPage() {
         ),
       };
     });
+  }
+
+  async function reloadExemptions(schoolYearId = selectedSchoolYearId) {
+    if (!schoolYearId) {
+      setExemptions([]);
+      setEvents((current) =>
+        current.map((event) => ({ ...event, exempted_colleges: [] })),
+      );
+      return [] as EventCollegeExemption[];
+    }
+
+    const rows = await listEventCollegeExemptions({ schoolYearId });
+    setExemptions(rows);
+    setEvents((current) =>
+      current.map((event) => ({
+        ...event,
+        exempted_colleges: rows
+          .filter((item) => item.event_id === event.id)
+          .map((item) => ({
+            id: item.id,
+            college_key: item.college_key,
+            college_label: item.college_label,
+          })),
+      })),
+    );
+    return rows;
+  }
+
+  function recordExemptionHistory(entry: ExemptionHistoryEntry) {
+    setRedoStack([]);
+    if (exemptionSnapshotsMatch(entry.before, entry.after)) return;
+    setUndoStack((current) => [...current, entry].slice(-20));
   }
 
   async function loadEvents(nextSchoolYearId = selectedSchoolYearId) {
@@ -716,6 +805,15 @@ export default function EventsPage() {
       await handlePreviewExemptions();
       return;
     }
+    if (historyApplyingRef.current || deletingExemptionId) return;
+
+    const college = colleges.find((item) => item.label === exemptionCollege);
+    if (!college) {
+      toast.error("Select a valid college.");
+      return;
+    }
+
+    const before = getCollegeExemptionSnapshot(exemptions, college.key);
     setIsSavingExemptions(true);
     try {
       await createEventCollegeExemptions({
@@ -724,9 +822,21 @@ export default function EventsPage() {
         reason: exemptionReason.trim() || undefined,
         schoolYearId: selectedSchoolYearId,
       });
+      const refreshed = await reloadExemptions(selectedSchoolYearId);
+      const after = getCollegeExemptionSnapshot(refreshed, college.key);
+      recordExemptionHistory({
+        kind: "add",
+        collegeLabel: exemptionCollege,
+        collegeKey: college.key,
+        schoolYearId: selectedSchoolYearId,
+        before,
+        after,
+        label: `Exempted ${exemptionCollege} from ${exemptionEventIds.length} ${
+          exemptionEventIds.length === 1 ? "event" : "events"
+        }`,
+      });
       toast.success("College exemptions saved. Absences and fines were recalculated.");
       setExemptionDialogOpen(false);
-      await loadEvents(selectedSchoolYearId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save exemptions.");
     } finally {
@@ -735,17 +845,242 @@ export default function EventsPage() {
   }
 
   async function handleRemoveExemption(exemption: EventCollegeExemption) {
+    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) return;
+
+    const before = getCollegeExemptionSnapshot(exemptions, exemption.college_key);
     setDeletingExemptionId(exemption.id);
     try {
       await deleteEventCollegeExemption(exemption.id);
+      const refreshed = await reloadExemptions(selectedSchoolYearId);
+      const after = getCollegeExemptionSnapshot(
+        refreshed,
+        exemption.college_key,
+      );
+      recordExemptionHistory({
+        kind: "remove",
+        collegeLabel: exemption.college_label,
+        collegeKey: exemption.college_key,
+        schoolYearId: selectedSchoolYearId,
+        before,
+        after,
+        label: `Removed ${exemption.college_label} exemption for ${exemption.event_name}`,
+      });
       toast.success("College exemption removed. Absences and fines were recalculated.");
-      await loadEvents(selectedSchoolYearId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to remove exemption.");
     } finally {
       setDeletingExemptionId("");
     }
   }
+
+  async function applyExemptionState(
+    collegeLabel: string,
+    schoolYearId: string,
+    from: ExemptionSnapshot[],
+    to: ExemptionSnapshot[],
+  ) {
+    const currentRows = await listEventCollegeExemptions({ schoolYearId });
+    setExemptions(currentRows);
+    const collegeKey =
+      colleges.find((college) => college.label === collegeLabel)?.key ??
+      currentRows.find((item) => item.college_label === collegeLabel)?.college_key;
+
+    if (!collegeKey) {
+      throw new Error("College could not be resolved for exemption history.");
+    }
+
+    const current = getCollegeExemptionSnapshot(currentRows, collegeKey);
+    if (!exemptionSnapshotsMatch(current, from)) {
+      throw new Error("Exemption history no longer matches the server.");
+    }
+
+    const toByEventId = new Map(to.map((item) => [item.eventId, item]));
+    const currentByEventId = new Map(
+      current.map((item) => [item.eventId, item]),
+    );
+    const eventIdsToRemove = from
+      .filter((item) => !toByEventId.has(item.eventId))
+      .map((item) => item.eventId);
+
+    if (eventIdsToRemove.length) {
+      await deleteEventCollegeExemptionsBulk({
+        college: collegeLabel,
+        eventIds: eventIdsToRemove,
+        schoolYearId,
+      });
+    }
+
+    const createGroups = new Map<string | null, string[]>();
+    for (const target of to) {
+      const currentItem = currentByEventId.get(target.eventId);
+      if (currentItem && currentItem.reason === target.reason) continue;
+      const group = createGroups.get(target.reason) ?? [];
+      group.push(target.eventId);
+      createGroups.set(target.reason, group);
+    }
+
+    for (const [reason, eventIds] of createGroups) {
+      await createEventCollegeExemptions({
+        college: collegeLabel,
+        eventIds,
+        reason: reason ?? undefined,
+        schoolYearId,
+      });
+    }
+
+    const refreshed = await reloadExemptions(schoolYearId);
+    const applied = getCollegeExemptionSnapshot(refreshed, collegeKey);
+    if (!exemptionSnapshotsMatch(applied, to)) {
+      throw new Error("Exemption history did not match the server after recalculation.");
+    }
+  }
+
+  async function handleUndoExemptions() {
+    if (
+      historyApplyingRef.current ||
+      isSavingExemptions ||
+      deletingExemptionId ||
+      !undoStack.length
+    ) {
+      return;
+    }
+
+    const entry = undoStack[undoStack.length - 1];
+    historyApplyingRef.current = true;
+    setIsApplyingHistory(true);
+    setApplyingHistoryAction("undo");
+    setUndoStack((current) => current.slice(0, -1));
+    try {
+      await applyExemptionState(
+        entry.collegeLabel,
+        entry.schoolYearId,
+        entry.after,
+        entry.before,
+      );
+      setRedoStack((current) => [...current, entry].slice(-20));
+      toast.success(`Undid: ${entry.label}. Absences and fines were recalculated.`);
+    } catch {
+      try {
+        await reloadExemptions(entry.schoolYearId);
+      } catch {
+        // Keep the original history failure message below.
+      }
+      setUndoStack([]);
+      setRedoStack([]);
+      toast.error(
+        "Couldn't undo. Exemptions were changed elsewhere; history entry discarded.",
+      );
+    } finally {
+      historyApplyingRef.current = false;
+      setIsApplyingHistory(false);
+      setApplyingHistoryAction("");
+    }
+  }
+
+  async function handleRedoExemptions() {
+    if (
+      historyApplyingRef.current ||
+      isSavingExemptions ||
+      deletingExemptionId ||
+      !redoStack.length
+    ) {
+      return;
+    }
+
+    const entry = redoStack[redoStack.length - 1];
+    historyApplyingRef.current = true;
+    setIsApplyingHistory(true);
+    setApplyingHistoryAction("redo");
+    setRedoStack((current) => current.slice(0, -1));
+    try {
+      await applyExemptionState(
+        entry.collegeLabel,
+        entry.schoolYearId,
+        entry.before,
+        entry.after,
+      );
+      setUndoStack((current) => [...current, entry].slice(-20));
+      toast.success(`Redid: ${entry.label}. Absences and fines were recalculated.`);
+    } catch {
+      try {
+        await reloadExemptions(entry.schoolYearId);
+      } catch {
+        // Keep the original history failure message below.
+      }
+      setUndoStack([]);
+      setRedoStack([]);
+      toast.error(
+        "Couldn't redo. Exemptions were changed elsewhere; history entry discarded.",
+      );
+    } finally {
+      historyApplyingRef.current = false;
+      setIsApplyingHistory(false);
+      setApplyingHistoryAction("");
+    }
+  }
+
+  useEffect(() => {
+    function handleHistoryShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const tagName = target?.tagName.toLowerCase();
+      if (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (
+        eventDialogOpen ||
+        exemptionDialogOpen ||
+        mergeDialogOpen ||
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+        )
+      ) {
+        return;
+      }
+      if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "z" && event.shiftKey && redoStack.length) {
+        event.preventDefault();
+        void handleRedoExemptions();
+        return;
+      }
+      if (key === "y" && redoStack.length) {
+        event.preventDefault();
+        void handleRedoExemptions();
+        return;
+      }
+      if (key === "z" && !event.shiftKey && undoStack.length) {
+        event.preventDefault();
+        void handleUndoExemptions();
+      }
+    }
+
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [
+    deletingExemptionId,
+    eventDialogOpen,
+    exemptionDialogOpen,
+    isSavingExemptions,
+    mergeDialogOpen,
+    redoStack,
+    undoStack,
+  ]);
+
+  const exemptionActionsBusy =
+    isApplyingHistory || isSavingExemptions || Boolean(deletingExemptionId);
+  const undoEntry = undoStack[undoStack.length - 1];
+  const redoEntry = redoStack[redoStack.length - 1];
 
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
@@ -1127,9 +1462,42 @@ export default function EventsPage() {
         </section>
       </div>
 
-      {exemptions.length ? (
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
+      <section className="rounded-3xl border bg-card p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <h2 className="text-xl font-black">Current college exemptions</h2>
+          <div className="space-y-2 sm:text-right">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!undoEntry || exemptionActionsBusy}
+                title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
+                onClick={() => void handleUndoExemptions()}
+                className="rounded-xl"
+              >
+                {isApplyingHistory && applyingHistoryAction === "undo"
+                  ? "Recalculating..."
+                  : "Undo"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!redoEntry || exemptionActionsBusy}
+                title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
+                onClick={() => void handleRedoExemptions()}
+                className="rounded-xl"
+              >
+                {isApplyingHistory && applyingHistoryAction === "redo"
+                  ? "Recalculating..."
+                  : "Redo"}
+              </Button>
+            </div>
+            <p className="text-xs font-semibold text-muted-foreground">
+              Undo history is kept for this session only and clears on reload or school-year change.
+            </p>
+          </div>
+        </div>
+        {exemptions.length ? (
           <div className="mt-4 grid gap-3">
             {Array.from(new Set(exemptions.map((item) => item.college_label))).map((collegeLabel) => (
               <div key={collegeLabel} className="rounded-2xl border bg-background p-4">
@@ -1142,7 +1510,7 @@ export default function EventsPage() {
                         {item.reason ? <p className="text-xs text-muted-foreground">{item.reason}</p> : null}
                       </div>
                       <ProtectedDeleteDialog
-                        trigger={<Button type="button" variant="outline" disabled={deletingExemptionId === item.id}>Remove</Button>}
+                        trigger={<Button type="button" variant="outline" disabled={exemptionActionsBusy}>Remove</Button>}
                         title="Remove this college exemption?"
                         description="The event will return to this college's expected-event roster and attendance results and fines will be recalculated."
                         confirmationPhrase="REMOVE"
@@ -1156,8 +1524,12 @@ export default function EventsPage() {
               </div>
             ))}
           </div>
-        </section>
-      ) : null}
+        ) : (
+          <p className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+            No college exemptions for this school year.
+          </p>
+        )}
+      </section>
 
       <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
         <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">
@@ -1203,7 +1575,7 @@ export default function EventsPage() {
               {!exemptionImpact.length ? (
                 <Button type="button" onClick={() => void handlePreviewExemptions()}>Preview Impact</Button>
               ) : (
-                <Button type="button" disabled={isSavingExemptions} onClick={() => void handleSaveExemptions()}>{isSavingExemptions ? "Saving..." : "Confirm & Save"}</Button>
+                <Button type="button" disabled={exemptionActionsBusy} onClick={() => void handleSaveExemptions()}>{isSavingExemptions ? "Saving..." : "Confirm & Save"}</Button>
               )}
             </div>
           </div>
