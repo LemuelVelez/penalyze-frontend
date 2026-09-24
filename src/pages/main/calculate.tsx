@@ -738,7 +738,6 @@ const CalculationTableRow = memo(function CalculationTableRow({
             {
               label: "Edit",
               onSelect: () => onEdit(row),
-              disabled: row.isSavedResult,
             },
           ]}
         />
