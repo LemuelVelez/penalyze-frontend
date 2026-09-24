@@ -1462,18 +1462,20 @@ export default function EventsPage() {
         </section>
       </div>
 
-      <section className="rounded-3xl border bg-card p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <h2 className="text-xl font-black">Current college exemptions</h2>
-          <div className="space-y-2 sm:text-right">
-            <div className="flex flex-wrap gap-2 sm:justify-end">
+      <section className="mx-auto mt-6 w-full max-w-7xl rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-lg font-black sm:text-xl">Current college exemptions</h2>
+          </div>
+          <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 disabled={!undoEntry || exemptionActionsBusy}
                 title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
                 onClick={() => void handleUndoExemptions()}
-                className="rounded-xl"
+                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
               >
                 {isApplyingHistory && applyingHistoryAction === "undo"
                   ? "Recalculating..."
@@ -1485,32 +1487,32 @@ export default function EventsPage() {
                 disabled={!redoEntry || exemptionActionsBusy}
                 title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
                 onClick={() => void handleRedoExemptions()}
-                className="rounded-xl"
+                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
               >
                 {isApplyingHistory && applyingHistoryAction === "redo"
                   ? "Recalculating..."
                   : "Redo"}
               </Button>
             </div>
-            <p className="text-xs font-semibold text-muted-foreground">
+            <p className="max-w-lg text-left text-xs font-semibold leading-5 text-muted-foreground lg:text-right">
               Undo history is kept for this session only and clears on reload or school-year change.
             </p>
           </div>
         </div>
         {exemptions.length ? (
-          <div className="mt-4 grid gap-3">
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {Array.from(new Set(exemptions.map((item) => item.college_label))).map((collegeLabel) => (
-              <div key={collegeLabel} className="rounded-2xl border bg-background p-4">
-                <p className="font-black">{collegeLabel}</p>
+              <div key={collegeLabel} className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5">
+                <p className="break-words font-black">{collegeLabel}</p>
                 <div className="mt-3 grid gap-2">
                   {exemptions.filter((item) => item.college_label === collegeLabel).map((item) => (
-                    <div key={item.id} className="flex flex-col gap-2 rounded-xl bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-bold">{item.event_name}</p>
-                        {item.reason ? <p className="text-xs text-muted-foreground">{item.reason}</p> : null}
+                    <div key={item.id} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="break-words font-bold">{item.event_name}</p>
+                        {item.reason ? <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.reason}</p> : null}
                       </div>
                       <ProtectedDeleteDialog
-                        trigger={<Button type="button" variant="outline" disabled={exemptionActionsBusy}>Remove</Button>}
+                        trigger={<Button type="button" variant="outline" disabled={exemptionActionsBusy} className="min-h-10 w-full shrink-0 rounded-xl sm:w-auto">Remove</Button>}
                         title="Remove this college exemption?"
                         description="The event will return to this college's expected-event roster and attendance results and fines will be recalculated."
                         confirmationPhrase="REMOVE"
@@ -1525,7 +1527,7 @@ export default function EventsPage() {
             ))}
           </div>
         ) : (
-          <p className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+          <p className="mt-5 flex min-h-20 items-center rounded-2xl border border-dashed bg-muted/20 px-4 py-5 text-sm font-semibold leading-6 text-muted-foreground sm:px-5">
             No college exemptions for this school year.
           </p>
         )}
