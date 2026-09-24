@@ -52,6 +52,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -1446,15 +1447,19 @@ export default function HistoryPage() {
                               {Math.max(0, Number(item.days_remaining ?? 0))} day(s) remaining before permanent purge.
                             </p>
                           </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={restoringImportId === item.id}
-                            onClick={() => void handleRestoreUploadedFile(item.id)}
-                            className="rounded-xl font-semibold"
-                          >
-                            {restoringImportId === item.id ? "Restoring..." : "Restore"}
-                          </Button>
+                          <ActionMenu
+                            ariaLabel={`Actions for ${item.file_name}`}
+                            actions={[
+                              {
+                                label:
+                                  restoringImportId === item.id
+                                    ? "Restoring..."
+                                    : "Restore",
+                                disabled: restoringImportId === item.id,
+                                onSelect: () => void handleRestoreUploadedFile(item.id),
+                              },
+                            ]}
+                          />
                         </div>
                       </article>
                     ))

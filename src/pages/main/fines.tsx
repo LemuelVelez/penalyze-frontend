@@ -29,6 +29,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -1198,7 +1199,7 @@ export default function FinesPage() {
                   <th className="px-4 py-3">Prescribed Penalty</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Updated</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1270,15 +1271,16 @@ export default function FinesPage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {formatDate(result.updated_at)}
                       </td>
-                      <td className="px-4 py-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => handleOpenPenaltyResultDialog(result)}
-                          className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                        >
-                          Edit
-                        </Button>
+                      <td className="px-4 py-3 text-right">
+                        <ActionMenu
+                          ariaLabel={`Actions for ${result.student_id}`}
+                          actions={[
+                            {
+                              label: "Edit",
+                              onSelect: () => handleOpenPenaltyResultDialog(result),
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))
@@ -1365,35 +1367,26 @@ export default function FinesPage() {
                         {penalty.prescribed_penalty}
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => handleEditPenalty(penalty)}
-                        className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                      >
-                        Edit
-                      </Button>
-
-                      <ProtectedDeleteDialog
-                        trigger={
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                          >
-                            Delete
-                          </Button>
-                        }
-                        title="Delete penalty rule?"
-                        description={
-                          <>
-                            This will permanently delete 1 penalty rule for {penalty.no_of_absences} absence(s). Existing penalty results keep their saved prescribed penalty text until refreshed. This action cannot be undone.
-                          </>
-                        }
-                        confirmationPhrase="DELETE"
-                        confirmLabel="Delete"
-                        onConfirm={() => handleDeletePenalty(penalty)}
+                    <div className="flex justify-end">
+                      <ActionMenu
+                        ariaLabel={`Actions for ${penalty.no_of_absences} absence penalty`}
+                        actions={[
+                          {
+                            label: "Edit",
+                            onSelect: () => handleEditPenalty(penalty),
+                          },
+                        ]}
+                        deleteAction={{
+                          title: "Delete penalty rule?",
+                          description: (
+                            <>
+                              This will permanently delete 1 penalty rule for {penalty.no_of_absences} absence(s). Existing penalty results keep their saved prescribed penalty text until refreshed. This action cannot be undone.
+                            </>
+                          ),
+                          confirmationPhrase: "DELETE",
+                          confirmLabel: "Delete",
+                          onConfirm: () => handleDeletePenalty(penalty),
+                        }}
                       />
                     </div>
                   </div>

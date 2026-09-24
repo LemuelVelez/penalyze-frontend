@@ -38,6 +38,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -1948,15 +1949,16 @@ export default function AttendancePage() {
                           <span className="min-w-0 flex-1 break-all text-xs font-bold">
                             {attendanceFile.name}
                           </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={isSaving}
-                            onClick={() => removeAttendanceFile(fileKey)}
-                            className="h-8 rounded-lg px-2 text-xs font-semibold"
-                          >
-                            Remove
-                          </Button>
+                          <ActionMenu
+                            ariaLabel={`Actions for selected file ${attendanceFile.name}`}
+                            actions={[
+                              {
+                                label: "Remove",
+                                disabled: isSaving,
+                                onSelect: () => removeAttendanceFile(fileKey),
+                              },
+                            ]}
+                          />
                         </div>
                       );
                     })}
@@ -2791,7 +2793,7 @@ export default function AttendancePage() {
                   <th className="px-4 py-3">Events</th>
                   <th className="px-4 py-3">Absences</th>
                   <th className="px-4 py-3">Latest Scan</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -2843,15 +2845,16 @@ export default function AttendancePage() {
                         <td className="px-4 py-3 text-muted-foreground">
                           {formatDate(result.latest_scanned_at)}
                         </td>
-                        <td className="px-4 py-3">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => handleOpenEditFinalResult(result)}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-semibold"
-                          >
-                            Edit
-                          </Button>
+                        <td className="px-4 py-3 text-right">
+                          <ActionMenu
+                            ariaLabel={`Actions for ${result.student_id}`}
+                            actions={[
+                              {
+                                label: "Edit",
+                                onSelect: () => handleOpenEditFinalResult(result),
+                              },
+                            ]}
+                          />
                         </td>
                       </tr>
                     );
@@ -2944,34 +2947,16 @@ export default function AttendancePage() {
                         {formatNumber(item.rows_valid)} valid /{" "}
                         {formatNumber(item.rows_total)} total
                       </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleOpenDeleteAttendanceImport(item)}
-                        disabled={Boolean(deletingImportId) || isSaving}
-                        aria-label={`Delete uploaded file ${item.file_name}`}
-                        title="Delete uploaded file"
-                        className="min-h-10 rounded-xl px-3 text-destructive hover:text-destructive"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="size-4"
-                          aria-hidden="true"
-                        >
-                          <path d="M3 6h18" />
-                          <path d="M8 6V4h8v2" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                        </svg>
-                        <span className="sr-only">Delete uploaded file</span>
-                      </Button>
+                      <ActionMenu
+                        ariaLabel={`Actions for uploaded file ${item.file_name}`}
+                        actions={[
+                          {
+                            label: deletingImportId === item.id ? "Deleting..." : "Delete file",
+                            disabled: Boolean(deletingImportId) || isSaving,
+                            onSelect: () => void handleOpenDeleteAttendanceImport(item),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
                 </article>

@@ -16,8 +16,8 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { LoadingStatus } from "../../components/loading-status";
-import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
@@ -550,67 +550,47 @@ export default function AttendanceRequestsPage() {
                           {event.evidence_url}
                         </p>
                       </div>
-                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-                        {isRemovingThisEvent ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled
-                            className="min-h-10 rounded-xl"
-                          >
-                            Open Evidence
-                          </Button>
-                        ) : (
-                          <Button
-                            asChild
-                            type="button"
-                            variant="outline"
-                            className="min-h-10 rounded-xl"
-                          >
-                            <a
-                              href={event.evidence_url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open Evidence
-                            </a>
-                          </Button>
-                        )}
-                        {request.status === "pending" ? (
-                          <div className="space-y-1">
-                            <ProtectedDeleteDialog
-                              trigger={
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  disabled={removeDisabled}
-                                  className="min-h-10 w-full rounded-xl sm:w-auto"
-                                  title={
-                                    isLastEvent
-                                      ? "A request needs at least one event. Reject the request instead."
-                                      : undefined
-                                  }
-                                >
-                                  Remove
-                                </Button>
-                              }
-                              title={`Remove "${event.event_name}" from ${request.name}'s request?`}
-                              description="This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone."
-                              confirmationPhrase="REMOVE"
-                              confirmLabel="Remove Event"
-                              pendingLabel="Removing..."
-                              isPending={isRemovingThisEvent}
-                              confirmDisabled={removeDisabled && !isRemovingThisEvent}
-                              onConfirm={() =>
-                                handleRemoveRequestEvent(request, event.id)
-                              }
-                            />
-                            {isLastEvent ? (
-                              <p className="max-w-56 text-xs font-semibold text-muted-foreground">
-                                A request needs at least one event. Reject the request instead.
-                              </p>
-                            ) : null}
-                          </div>
+                      <div className="shrink-0 space-y-1 text-right">
+                        <ActionMenu
+                          ariaLabel={`Actions for ${event.event_name}`}
+                          actions={[
+                            {
+                              label: "Open Evidence",
+                              disabled: isRemovingThisEvent || !event.evidence_url,
+                              onSelect: () => {
+                                if (!event.evidence_url) return;
+                                window.open(
+                                  event.evidence_url,
+                                  "_blank",
+                                  "noopener,noreferrer",
+                                );
+                              },
+                            },
+                          ]}
+                          deleteAction={
+                            request.status === "pending"
+                              ? {
+                                  label: isRemovingThisEvent ? "Removing..." : "Remove",
+                                  disabled: removeDisabled,
+                                  title: `Remove "${event.event_name}" from ${request.name}'s request?`,
+                                  description:
+                                    "This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone.",
+                                  confirmationPhrase: "REMOVE",
+                                  confirmLabel: "Remove Event",
+                                  pendingLabel: "Removing...",
+                                  isPending: isRemovingThisEvent,
+                                  confirmDisabled:
+                                    removeDisabled && !isRemovingThisEvent,
+                                  onConfirm: () =>
+                                    handleRemoveRequestEvent(request, event.id),
+                                }
+                              : undefined
+                          }
+                        />
+                        {request.status === "pending" && isLastEvent ? (
+                          <p className="max-w-56 text-xs font-semibold text-muted-foreground">
+                            A request needs at least one event. Reject the request instead.
+                          </p>
                         ) : null}
                       </div>
                     </div>
@@ -641,32 +621,34 @@ export default function AttendanceRequestsPage() {
                       className="w-full rounded-2xl border bg-card px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
                     />
                   </label>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={
-                        reviewingId === request.id ||
-                        request.events.some((event) => event.id === removingEventId)
-                      }
-                      onClick={() => void handleReview(request, "rejected")}
-                      className="min-h-11 rounded-xl px-5"
-                    >
-                      {reviewingId === request.id ? "Saving..." : "Reject"}
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={
-                        reviewingId === request.id ||
-                        request.events.some((event) => event.id === removingEventId)
-                      }
-                      onClick={() => void handleReview(request, "approved")}
-                      className="min-h-11 rounded-xl px-5"
-                    >
-                      {reviewingId === request.id
-                        ? "Saving..."
-                        : "Approve & Add Attendance"}
-                    </Button>
+                  <div className="flex justify-end">
+                    <ActionMenu
+                      ariaLabel={`Review actions for ${request.name}`}
+                      actions={[
+                        {
+                          label:
+                            reviewingId === request.id ? "Saving..." : "Reject",
+                          disabled:
+                            reviewingId === request.id ||
+                            request.events.some(
+                              (event) => event.id === removingEventId,
+                            ),
+                          onSelect: () => void handleReview(request, "rejected"),
+                        },
+                        {
+                          label:
+                            reviewingId === request.id
+                              ? "Saving..."
+                              : "Approve & Add Attendance",
+                          disabled:
+                            reviewingId === request.id ||
+                            request.events.some(
+                              (event) => event.id === removingEventId,
+                            ),
+                          onSelect: () => void handleReview(request, "approved"),
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               ) : (

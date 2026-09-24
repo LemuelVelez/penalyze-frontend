@@ -24,6 +24,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -1750,7 +1751,7 @@ export default function ManualAttendancePage() {
                   <th className="px-4 py-3">Program</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Latest Scan</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1799,39 +1800,31 @@ export default function ManualAttendancePage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {formatDateTime(group.latestScannedAt)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => handleEditGroup(group)}
-                            className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                          >
-                            Edit
-                          </Button>
-                          <ProtectedDeleteDialog
-                            trigger={
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={isSaving || isDeletingManualRecords}
-                                className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
-                              >
-                                {isSaving ? "Deleting..." : "Delete"}
-                              </Button>
-                            }
-                            title="Delete manual attendance?"
-                            description={
+                      <td className="px-4 py-3 text-right">
+                        <ActionMenu
+                          ariaLabel={`Actions for ${group.studentId}`}
+                          actions={[
+                            {
+                              label: "Edit",
+                              onSelect: () => handleEditGroup(group),
+                              disabled: isSaving || isDeletingManualRecords,
+                            },
+                          ]}
+                          deleteAction={{
+                            label: isSaving ? "Deleting..." : "Delete",
+                            disabled: isSaving || isDeletingManualRecords,
+                            title: "Delete manual attendance?",
+                            description: (
                               <>
                                 This will permanently delete all {group.records.length.toLocaleString()} manual attendance record(s) for Student ID {group.studentId}. This action cannot be undone.
                               </>
-                            }
-                            confirmationPhrase="DELETE"
-                            confirmLabel="Delete"
-                            isPending={isSaving}
-                            onConfirm={() => handleDeleteGroup(group)}
-                          />
-                        </div>
+                            ),
+                            confirmationPhrase: "DELETE",
+                            confirmLabel: "Delete",
+                            isPending: isSaving,
+                            onConfirm: () => handleDeleteGroup(group),
+                          }}
+                        />
                       </td>
                     </tr>
                   ))

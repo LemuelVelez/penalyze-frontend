@@ -11,7 +11,7 @@ import {
   updateUser,
 } from "../../api/auth";
 import type { AuthUser, RegisterInput, UserRole } from "../../api/auth";
-import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
+import { ActionMenu } from "../../components/action-menu";
 import { SortSelect } from "../../components/sort-select";
 import { Button } from "../../components/ui/button";
 import {
@@ -366,40 +366,33 @@ export default function UsersPage() {
                             : formatRole(user.role)}
                         </span>
                       </div>
-                      <div className="mt-4 grid gap-2 md:grid-cols-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => handleEditUser(user)}
-                          className="min-h-10"
-                        >
-                          Edit
-                        </Button>
-                        <ProtectedDeleteDialog
-                          trigger={
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              disabled={
-                                deletingUserId === user.id || isCurrentUser
-                              }
-                              className="min-h-10"
-                            >
-                              {deletingUserId === user.id
+                      <div className="mt-4 flex justify-end">
+                        <ActionMenu
+                          ariaLabel={`Actions for ${user.name}`}
+                          actions={[
+                            {
+                              label: "Edit",
+                              onSelect: () => handleEditUser(user),
+                            },
+                          ]}
+                          deleteAction={{
+                            label:
+                              deletingUserId === user.id
                                 ? "Deleting..."
-                                : "Delete"}
-                            </Button>
-                          }
-                          title="Delete user?"
-                          description={
-                            <>
-                              This will permanently delete 1 user record: {user.name}. This action cannot be undone.
-                            </>
-                          }
-                          confirmationPhrase="DELETE"
-                          confirmLabel="Delete User"
-                          isPending={deletingUserId === user.id}
-                          onConfirm={() => handleDeleteUser(user.id)}
+                                : "Delete",
+                            disabled:
+                              deletingUserId === user.id || isCurrentUser,
+                            title: "Delete user?",
+                            description: (
+                              <>
+                                This will permanently delete 1 user record: {user.name}. This action cannot be undone.
+                              </>
+                            ),
+                            confirmationPhrase: "DELETE",
+                            confirmLabel: "Delete User",
+                            isPending: deletingUserId === user.id,
+                            onConfirm: () => handleDeleteUser(user.id),
+                          }}
                         />
                       </div>
                     </article>
@@ -421,7 +414,7 @@ export default function UsersPage() {
                     <th className="px-3 py-3">Role</th>
                     <th className="px-3 py-3">Created</th>
                     <th className="px-3 py-3">Updated</th>
-                    <th className="px-3 py-3">Actions</th>
+                    <th className="px-3 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -446,44 +439,34 @@ export default function UsersPage() {
                           <td className="px-3 py-3 font-semibold">
                             {formatDate(user.updatedAt)}
                           </td>
-                          <td className="px-3 py-3">
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => handleEditUser(user)}
-                                size="sm"
-                              >
-                                Edit
-                              </Button>
-                              <ProtectedDeleteDialog
-                                trigger={
-                                  <Button
-                                    type="button"
-                                    variant="destructive"
-                                    size="sm"
-                                    disabled={
-                                      deletingUserId === user.id ||
-                                      isCurrentUser
-                                    }
-                                  >
-                                    {deletingUserId === user.id
-                                      ? "Deleting..."
-                                      : "Delete"}
-                                  </Button>
-                                }
-                                title="Delete user?"
-                                description={
+                          <td className="px-3 py-3 text-right">
+                            <ActionMenu
+                              ariaLabel={`Actions for ${user.name}`}
+                              actions={[
+                                {
+                                  label: "Edit",
+                                  onSelect: () => handleEditUser(user),
+                                },
+                              ]}
+                              deleteAction={{
+                                label:
+                                  deletingUserId === user.id
+                                    ? "Deleting..."
+                                    : "Delete",
+                                disabled:
+                                  deletingUserId === user.id || isCurrentUser,
+                                title: "Delete user?",
+                                description: (
                                   <>
                                     This will permanently delete 1 user record: {user.name}. This action cannot be undone.
                                   </>
-                                }
-                                confirmationPhrase="DELETE"
-                                confirmLabel="Delete User"
-                                isPending={deletingUserId === user.id}
-                                onConfirm={() => handleDeleteUser(user.id)}
-                              />
-                            </div>
+                                ),
+                                confirmationPhrase: "DELETE",
+                                confirmLabel: "Delete User",
+                                isPending: deletingUserId === user.id,
+                                onConfirm: () => handleDeleteUser(user.id),
+                              }}
+                            />
                           </td>
                         </tr>
                       );

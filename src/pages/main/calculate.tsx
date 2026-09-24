@@ -26,6 +26,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { Button } from "../../components/ui/button";
@@ -731,15 +732,16 @@ const CalculationTableRow = memo(function CalculationTableRow({
         </span>
       </td>
       <td className="px-4 py-3 align-top text-right">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onEdit(row)}
-          disabled={row.isSavedResult}
-          className="min-h-10 rounded-xl px-4 text-xs font-black"
-        >
-          Edit
-        </Button>
+        <ActionMenu
+          ariaLabel={`Actions for ${row.studentId}`}
+          actions={[
+            {
+              label: "Edit",
+              onSelect: () => onEdit(row),
+              disabled: row.isSavedResult,
+            },
+          ]}
+        />
       </td>
     </tr>
   );

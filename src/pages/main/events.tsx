@@ -33,6 +33,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -329,6 +330,7 @@ export default function EventsPage() {
   >("");
   const [undoConfirmationOpen, setUndoConfirmationOpen] = useState(false);
   const [exemptionDetailsEvent, setExemptionDetailsEvent] = useState<AttendanceEvent | null>(null);
+  const [descriptionDetailsEvent, setDescriptionDetailsEvent] = useState<AttendanceEvent | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1531,40 +1533,43 @@ export default function EventsPage() {
                         {Number(event.attendees_count || 0).toLocaleString()}
                       </td>
                       <td className="px-4 py-3 align-top text-muted-foreground">
-                        {event.description || "—"}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex justify-end gap-2">
+                        {event.description ? (
                           <Button
                             type="button"
                             variant="outline"
-                            onClick={() => handleOpenEditDialog(event)}
-                            className="min-h-10 rounded-xl px-4 text-xs font-black"
+                            onClick={() => setDescriptionDetailsEvent(event)}
+                            className="h-8 rounded-lg px-2.5 text-[11px] font-black"
                           >
-                            Edit
+                            View description
                           </Button>
-
-                          <ProtectedDeleteDialog
-                            trigger={
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                disabled={deletingEventId === event.id}
-                                className="min-h-10 rounded-xl px-4 text-xs font-black"
-                              >
-                                {deletingEventId === event.id
-                                  ? "Deleting..."
-                                  : "Delete"}
-                              </Button>
-                            }
-                            title="Delete this event?"
-                            description="This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated."
-                            confirmationPhrase="DELETE"
-                            confirmLabel="Delete Event"
-                            isPending={deletingEventId === event.id}
-                            onConfirm={() => handleDeleteEvent(event)}
-                          />
-                        </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top text-right">
+                        <ActionMenu
+                          ariaLabel={`Actions for ${event.name}`}
+                          actions={[
+                            {
+                              label: "Edit",
+                              onSelect: () => handleOpenEditDialog(event),
+                            },
+                          ]}
+                          deleteAction={{
+                            label:
+                              deletingEventId === event.id
+                                ? "Deleting..."
+                                : "Delete",
+                            disabled: deletingEventId === event.id,
+                            title: "Delete this event?",
+                            description:
+                              "This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated.",
+                            confirmationPhrase: "DELETE",
+                            confirmLabel: "Delete Event",
+                            isPending: deletingEventId === event.id,
+                            onConfirm: () => handleDeleteEvent(event),
+                          }}
+                        />
                       </td>
                     </tr>
                   ))
@@ -1656,14 +1661,23 @@ export default function EventsPage() {
                         <p className="break-words font-bold">{item.event_name}</p>
                         {item.reason ? <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.reason}</p> : null}
                       </div>
-                      <ProtectedDeleteDialog
-                        trigger={<Button type="button" variant="outline" disabled={exemptionActionsBusy} className="min-h-10 w-full shrink-0 rounded-xl sm:w-auto">Remove</Button>}
-                        title="Remove this college exemption?"
-                        description="The event will return to this college's expected-event roster and attendance results and fines will be recalculated."
-                        confirmationPhrase="REMOVE"
-                        confirmLabel="Remove Exemption"
-                        isPending={deletingExemptionId === item.id}
-                        onConfirm={() => handleRemoveExemption(item)}
+                      <ActionMenu
+                        ariaLabel={`Actions for ${item.event_name}`}
+                        deleteAction={{
+                          label:
+                            deletingExemptionId === item.id
+                              ? "Removing..."
+                              : "Remove exemption",
+                          disabled: exemptionActionsBusy,
+                          title: "Remove this college exemption?",
+                          description:
+                            "The event will return to this college's expected-event roster and attendance results and fines will be recalculated.",
+                          confirmationPhrase: "REMOVE",
+                          confirmLabel: "Remove Exemption",
+                          pendingLabel: "Removing...",
+                          isPending: deletingExemptionId === item.id,
+                          onConfirm: () => handleRemoveExemption(item),
+                        }}
                       />
                     </div>
                   ))}
@@ -1710,6 +1724,34 @@ export default function EventsPage() {
                     <span className="break-words">{college.college_label}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(descriptionDetailsEvent)}
+        onOpenChange={(open) => {
+          if (!open) setDescriptionDetailsEvent(null);
+        }}
+      >
+        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Event Description</DialogTitle>
+            <DialogDescription>
+              View the full event description without expanding the events table.
+            </DialogDescription>
+          </DialogHeader>
+          {descriptionDetailsEvent ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border bg-muted/20 p-3">
+                <p className="text-sm font-black">{descriptionDetailsEvent.name}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                  {descriptionDetailsEvent.description}
+                </p>
               </div>
             </div>
           ) : null}
