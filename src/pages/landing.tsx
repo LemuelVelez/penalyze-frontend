@@ -2238,10 +2238,10 @@ function ZeroAttendanceRegistrationDialog(props: {
             <p>
               This Student ID has no saved attendance or fine record. If you attended one or more events, use{" "}
               <strong>Request Event Review</strong>{" "}
-              and attach an accessible evidence link for every event you claim.
+              and attach a public-access evidence link for every event you claim.
             </p>
             <p>
-              Authenticated officers or admins will review the evidence before attendance is added.
+              SSG officers will review the evidence before attendance is added. Keep checking your status by entering your Student ID every now and then.
             </p>
             <p>
               Use <strong>Save Zero Attendance</strong>{" "}
@@ -2559,12 +2559,12 @@ function AttendanceRequestDialog(props: {
 
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
-            Select every event you attended and paste an evidence link for each
-            event. You may use Google Drive, OneDrive, Dropbox, iCloud, or any
-            other accessible HTTP/HTTPS link. Make sure the sharing permission
-            allows authenticated officers or admins to open the evidence without
-            requesting access. Attendance is added only after an authenticated
-            reviewer approves the request.
+            <p>
+              Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
+            </p>
+            <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+              Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
+            </p>
           </div>
 
           {props.error ? (
@@ -2826,7 +2826,7 @@ function AttendanceRequestDialog(props: {
 
                       {selected ? (
                         <label className="mt-4 block space-y-2 text-sm font-bold">
-                          <span>Evidence link</span>
+                          <span>Evidence link (must be public access)</span>
                           <Input
                             type="url"
                             value={
@@ -2839,9 +2839,12 @@ function AttendanceRequestDialog(props: {
                                 event.target.value,
                               )
                             }
-                            placeholder="https://drive.google.com/... or another accessible link"
+                            placeholder="https://drive.google.com/... (set sharing to Anyone with the link)"
                             className={textInputClassName}
                           />
+                          <span className="block text-xs font-semibold text-amber-700">
+                            Make sure this link is set to public access. Non-public links will not be accepted.
+                          </span>
                         </label>
                       ) : null}
                     </article>
@@ -3521,7 +3524,7 @@ export default function LandingPage() {
         }
       } catch {
         setAttendanceRequestError(
-          "Every evidence entry must be a valid HTTP/HTTPS link, such as Google Drive, OneDrive, Dropbox, iCloud, or another accessible link.",
+          "Every evidence entry must be a valid HTTP/HTTPS link set to public access, such as Google Drive, OneDrive, Dropbox, iCloud, or another public link.",
         );
         return;
       }
@@ -3559,7 +3562,7 @@ export default function LandingPage() {
       setAttendanceRequestEvents([]);
       setAttendanceRequestExcludedEventIds([]);
       toast.success(
-        "Attendance request submitted. An authenticated officer or admin will review your evidence before attendance is added.",
+        "Attendance request submitted. Please wait for the SSG officers to review and approve your request. Check your status every now and then by entering your Student ID.",
       );
     } catch (requestError) {
       setAttendanceRequestError(
