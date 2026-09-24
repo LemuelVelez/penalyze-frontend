@@ -34,6 +34,7 @@ import { DateTimePicker } from "../../components/ui/date-time-picker";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -1264,6 +1265,11 @@ export default function ManualAttendancePage() {
                   ? "Edit manual attendance"
                   : "Add manual attendance"}
               </DialogTitle>
+              <DialogDescription>
+                {editingGroupKey
+                  ? "Update the selected student's manual attendance records."
+                  : "Add manual attendance records for a student and selected events."}
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleSubmit}
@@ -1572,6 +1578,9 @@ export default function ManualAttendancePage() {
           <DialogContent className="flex max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Existing records for this student</DialogTitle>
+              <DialogDescription>
+                Review the attendance records already saved for this student.
+              </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-background p-3">
               <div className="grid gap-2">
@@ -1615,6 +1624,9 @@ export default function ManualAttendancePage() {
                 Events attended by{" "}
                 {eventsDialogGroup?.name || eventsDialogGroup?.studentId}
               </DialogTitle>
+              <DialogDescription>
+                Review the manual attendance events recorded for this student.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               {eventsDialogGroup?.events.length ? (

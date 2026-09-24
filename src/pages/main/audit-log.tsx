@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -284,6 +285,9 @@ export default function AuditLogPage() {
         <DialogContent className="max-h-[85vh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Audit record details</DialogTitle>
+            <DialogDescription>
+              Review the captured action, actor, request, and audit details.
+            </DialogDescription>
           </DialogHeader>
           {selectedLog ? (
             <div className="space-y-4 text-sm">

@@ -17,6 +17,7 @@ import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -511,6 +512,11 @@ export default function UsersPage() {
               <DialogTitle>
                 {isEditing ? "Edit user" : "Create user"}
               </DialogTitle>
+              <DialogDescription>
+                {isEditing
+                  ? "Update this user's account details and access settings."
+                  : "Create an admin or officer account for Penalyze."}
+              </DialogDescription>
             </DialogHeader>
 
             <h2 className="text-xl font-black">

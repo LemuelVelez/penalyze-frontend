@@ -28,6 +28,8 @@ export type EventExemptionImpact = {
   students_losing_absence: number;
   penalties_before: number;
   penalties_after: number;
+  already_exempted: boolean;
+  in_roster_scope: boolean;
 };
 
 export type AttendanceCollege = { key: string; label: string };

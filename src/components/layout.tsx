@@ -39,6 +39,7 @@ import ThemeToggle from "./theme-toggle";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -456,6 +457,9 @@ export default function AppLayout(props: LayoutProps) {
                   <SheetTitle>
                     <LogoMark textClassName="text-lg" />
                   </SheetTitle>
+                  <SheetDescription>
+                    Navigate between dashboard sections.
+                  </SheetDescription>
                 </SheetHeader>
 
                 <nav className="flex flex-col gap-4" aria-label="Mobile dashboard navigation">

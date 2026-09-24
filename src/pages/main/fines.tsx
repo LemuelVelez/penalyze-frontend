@@ -1464,6 +1464,9 @@ export default function FinesPage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit penalty result</DialogTitle>
+              <DialogDescription>
+                Update the selected student's calculated penalty result.
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleSavePenaltyResult}
@@ -1586,6 +1589,9 @@ export default function FinesPage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Absent events for {absentEventsStudentName}</DialogTitle>
+              <DialogDescription>
+                Review the events counted as absences for this student.
+              </DialogDescription>
             </DialogHeader>
             {isLoadingAbsentEvents ? (
               <div className="rounded-2xl border border-dashed p-6 text-center text-sm font-semibold text-muted-foreground">
@@ -1630,6 +1636,11 @@ export default function FinesPage() {
               <DialogTitle>
                 {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}
               </DialogTitle>
+              <DialogDescription>
+                {penaltyForm.id
+                  ? "Update the absence threshold and prescribed penalty."
+                  : "Create a penalty rule for an absence threshold."}
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleSavePenalty}

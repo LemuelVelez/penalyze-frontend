@@ -59,6 +59,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -1913,6 +1914,9 @@ export default function AttendancePage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Upload attendance file</DialogTitle>
+              <DialogDescription>
+                Select attendance files and review detected event details before importing.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
               <div
@@ -2232,6 +2236,9 @@ export default function AttendancePage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Confirm attendance event merge</DialogTitle>
+              <DialogDescription>
+                Compare the incoming file with a matching event and choose whether to merge or keep it separate.
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
@@ -2383,6 +2390,9 @@ export default function AttendancePage() {
                 Event attendance for{" "}
                 {eventsDialogResult?.name || eventsDialogResult?.student_id}
               </DialogTitle>
+              <DialogDescription>
+                Review this student's attended and missed events for the selected school year.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
               {isLoadingEventsDialogDetails ? (
@@ -2483,6 +2493,9 @@ export default function AttendancePage() {
           <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Edit final attendance result</DialogTitle>
+              <DialogDescription>
+                Update the student's final attendance details and underlying source records.
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleSaveFinalResult}

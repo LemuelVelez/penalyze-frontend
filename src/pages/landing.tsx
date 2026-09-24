@@ -62,6 +62,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
@@ -2174,6 +2175,9 @@ function StudentAttendedEventsDialog(props: {
           <DialogTitle>
             Events attended by {props.studentName || props.studentId}
           </DialogTitle>
+          <DialogDescription>
+            Review the attendance events recorded for this student.
+          </DialogDescription>
         </DialogHeader>
 
         {props.events.length ? (
@@ -2261,6 +2265,9 @@ function ZeroAttendanceRegistrationDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>Student ID not found</DialogTitle>
+          <DialogDescription>
+            Choose how to continue when no attendance or fine record exists for this Student ID.
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -2591,6 +2598,9 @@ function AttendanceRequestDialog(props: {
       >
         <DialogHeader>
           <DialogTitle>Request Event Attendance Review</DialogTitle>
+          <DialogDescription>
+            Select attended events and provide public evidence links for officer review.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="space-y-5">
@@ -4151,6 +4161,9 @@ export default function LandingPage() {
             <DialogTitle>
               Search result for Student ID: {searchedId}
             </DialogTitle>
+            <DialogDescription>
+              Review this student's attendance and fine information for the selected school year.
+            </DialogDescription>
           </DialogHeader>
 
           {lookup ? (

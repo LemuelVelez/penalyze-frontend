@@ -33,6 +33,7 @@ import { Checkbox } from "../../components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -2255,6 +2256,9 @@ export default function CalculatePage() {
         <DialogContent className="max-h-svh overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Edit source records for calculation row</DialogTitle>
+            <DialogDescription>
+              Review and edit the attendance source records used for this calculation row.
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSaveEditedRow} className="space-y-5">

@@ -60,6 +60,7 @@ import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -1355,6 +1356,9 @@ export default function HistoryPage() {
           <>
             <DialogHeader>
               <DialogTitle>Uploaded files</DialogTitle>
+              <DialogDescription>
+                Review and manage uploaded attendance files for the selected school year.
+              </DialogDescription>
             </DialogHeader>
             {renderDialogSearchInput("uploaded files")}
             {renderDialogSelectAll("uploaded files", "importIds", ids)}
@@ -1471,6 +1475,9 @@ export default function HistoryPage() {
           <>
             <DialogHeader>
               <DialogTitle>Penalty results</DialogTitle>
+              <DialogDescription>
+                Review and manage penalty result records for the selected school year.
+              </DialogDescription>
             </DialogHeader>
             {renderDialogSearchInput("penalty results")}
             {renderDialogSelectAll("penalty results", "penaltyResultIds", ids)}
@@ -1538,6 +1545,9 @@ export default function HistoryPage() {
           <>
             <DialogHeader>
               <DialogTitle>Final attendance results</DialogTitle>
+              <DialogDescription>
+                Review and manage final attendance results for the selected school year.
+              </DialogDescription>
             </DialogHeader>
             {renderDialogSearchInput("final attendance results")}
             {renderDialogSelectAll(
@@ -1613,6 +1623,9 @@ export default function HistoryPage() {
           <>
             <DialogHeader>
               <DialogTitle>Manual attendance records</DialogTitle>
+              <DialogDescription>
+                Review and manage manual attendance records for the selected school year.
+              </DialogDescription>
             </DialogHeader>
             {renderDialogSearchInput("manual attendance records")}
             {renderDialogSelectAll(
@@ -1930,6 +1943,11 @@ export default function HistoryPage() {
                   ? "Edit school year"
                   : "Create school year"}
               </DialogTitle>
+              <DialogDescription>
+                {editingSchoolYearId
+                  ? "Update the selected school year and semester details."
+                  : "Add a school year and semester for attendance records."}
+              </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleCreateSchoolYear}

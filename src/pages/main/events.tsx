@@ -43,6 +43,7 @@ import { DateTimePicker } from "../../components/ui/date-time-picker";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -306,6 +307,8 @@ export default function EventsPage() {
   const [exemptionEventIds, setExemptionEventIds] = useState<string[]>([]);
   const [exemptionReason, setExemptionReason] = useState("");
   const [exemptionImpact, setExemptionImpact] = useState<EventExemptionImpact[]>([]);
+  const [hasPreviewedExemptions, setHasPreviewedExemptions] = useState(false);
+  const [isPreviewingExemptions, setIsPreviewingExemptions] = useState(false);
   const [isSavingExemptions, setIsSavingExemptions] = useState(false);
   const [deletingExemptionId, setDeletingExemptionId] = useState("");
   const [undoStack, setUndoStack] = useState<ExemptionHistoryEntry[]>([]);
@@ -846,6 +849,7 @@ export default function EventsPage() {
     setExemptionEventIds([]);
     setExemptionReason("");
     setExemptionImpact([]);
+    setHasPreviewedExemptions(false);
     setExemptionDialogOpen(true);
   }
 
@@ -858,6 +862,7 @@ export default function EventsPage() {
         : [],
     );
     setExemptionImpact([]);
+    setHasPreviewedExemptions(false);
   }
 
   function handleExemptionEventToggle(eventId: string, checked: boolean) {
@@ -867,28 +872,37 @@ export default function EventsPage() {
         : current.filter((id) => id !== eventId),
     );
     setExemptionImpact([]);
+    setHasPreviewedExemptions(false);
   }
 
   async function handlePreviewExemptions() {
+    if (isPreviewingExemptions) return;
     if (!exemptionCollege || !selectedSchoolYearId || !exemptionEventIds.length) {
       toast.error("Select a college and at least one event.");
       return;
     }
+
+    setIsPreviewingExemptions(true);
     try {
-      setExemptionImpact(
-        await getEventCollegeExemptionImpact({
-          college: exemptionCollege,
-          eventIds: exemptionEventIds,
-          schoolYearId: selectedSchoolYearId,
-        }),
-      );
+      const impact = await getEventCollegeExemptionImpact({
+        college: exemptionCollege,
+        eventIds: exemptionEventIds,
+        schoolYearId: selectedSchoolYearId,
+      });
+      setExemptionImpact(impact);
+      setHasPreviewedExemptions(true);
+      if (!impact.length) {
+        toast.info("No impact data for the selected events.");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to preview exemption impact.");
+    } finally {
+      setIsPreviewingExemptions(false);
     }
   }
 
   async function handleSaveExemptions() {
-    if (!exemptionImpact.length) {
+    if (!hasPreviewedExemptions) {
       await handlePreviewExemptions();
       return;
     }
@@ -1651,7 +1665,12 @@ export default function EventsPage() {
 
       <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
         <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader><DialogTitle>College Event Exemptions</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>College Event Exemptions</DialogTitle>
+            <DialogDescription>
+              Choose a college and the events it is exempted from. Preview how absences and penalties change before saving.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm font-black">1. Select college</p>
@@ -1675,23 +1694,43 @@ export default function EventsPage() {
               <span>3. Optional reason</span>
               <Textarea value={exemptionReason} onChange={(event) => setExemptionReason(event.target.value)} placeholder="Why is this college exempted from these events?" />
             </label>
-            {exemptionImpact.length ? (
+            {hasPreviewedExemptions ? (
               <div className="rounded-2xl border bg-muted/30 p-4">
                 <p className="font-black">Impact preview</p>
-                <div className="mt-3 space-y-2">
-                  {exemptionImpact.map((impact) => (
-                    <div key={impact.event_id} className="rounded-xl border bg-background p-3 text-sm">
-                      <p className="font-black">{impact.event_name}</p>
-                      <p className="mt-1 text-muted-foreground">{impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}</p>
-                    </div>
-                  ))}
-                </div>
+                {exemptionImpact.length ? (
+                  <div className="mt-3 space-y-2">
+                    {exemptionImpact.map((impact) => (
+                      <div key={impact.event_id} className="rounded-xl border bg-background p-3 text-sm">
+                        <p className="font-black">{impact.event_name}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {impact.already_exempted ? (
+                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">Already exempted</span>
+                          ) : null}
+                          {!impact.in_roster_scope ? (
+                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">No attendance records for this college</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-muted-foreground">{impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-dashed bg-background p-3 text-sm font-semibold text-muted-foreground">
+                    No impact data for the selected events.
+                  </p>
+                )}
               </div>
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" onClick={() => setExemptionDialogOpen(false)}>Cancel</Button>
-              {!exemptionImpact.length ? (
-                <Button type="button" onClick={() => void handlePreviewExemptions()}>Preview Impact</Button>
+              {!hasPreviewedExemptions ? (
+                <Button
+                  type="button"
+                  disabled={isPreviewingExemptions || exemptionActionsBusy}
+                  onClick={() => void handlePreviewExemptions()}
+                >
+                  {isPreviewingExemptions ? "Previewing..." : "Preview Impact"}
+                </Button>
               ) : (
                 <Button type="button" disabled={exemptionActionsBusy} onClick={() => void handleSaveExemptions()}>{isSavingExemptions ? "Saving..." : "Confirm & Save"}</Button>
               )}
@@ -1713,6 +1752,9 @@ export default function EventsPage() {
         <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Confirm duplicate event merge</DialogTitle>
+            <DialogDescription>
+              Review affected records before permanently merging duplicate attendance events.
+            </DialogDescription>
           </DialogHeader>
 
           {mergeImpact ? (
@@ -1808,6 +1850,11 @@ export default function EventsPage() {
             <DialogTitle>
               {editingEvent ? "Edit event" : "Create event"}
             </DialogTitle>
+            <DialogDescription>
+              {editingEvent
+                ? "Update the event details, schedule, and description."
+                : "Add an event with its schedule and optional description."}
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSaveEvent} className="space-y-5">
