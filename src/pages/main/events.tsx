@@ -90,6 +90,50 @@ type ExemptionHistoryEntry = {
   label: string;
 };
 
+const DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY =
+  "penalyze:attendance-event-duplicate-dismissals:v1";
+
+function getDuplicateGroupKey(group: AttendanceEventDuplicateGroup) {
+  return group.events
+    .map((event) => String(event.id ?? "").trim())
+    .filter(Boolean)
+    .sort()
+    .join(":");
+}
+
+function loadDismissedDuplicateGroupKeys() {
+  if (typeof window === "undefined") return [] as string[];
+
+  try {
+    const rawValue = window.localStorage.getItem(
+      DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY,
+    );
+    if (!rawValue) return [] as string[];
+
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) return [] as string[];
+
+    return parsed
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean);
+  } catch {
+    return [] as string[];
+  }
+}
+
+function persistDismissedDuplicateGroupKeys(keys: string[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY,
+      JSON.stringify(Array.from(new Set(keys))),
+    );
+  } catch {
+    // A disabled/full localStorage should never block event administration.
+  }
+}
+
 function getCollegeExemptionSnapshot(
   rows: EventCollegeExemption[],
   collegeKey: string,
@@ -245,10 +289,15 @@ export default function EventsPage() {
   const [duplicateGroups, setDuplicateGroups] = useState<
     AttendanceEventDuplicateGroup[]
   >([]);
+  const [dismissedDuplicateGroupKeys, setDismissedDuplicateGroupKeys] = useState<
+    string[]
+  >(() => loadDismissedDuplicateGroupKeys());
   const [mergeImpact, setMergeImpact] = useState<AttendanceEventMergeImpact | null>(
     null,
   );
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [mergeConfirmationAccepted, setMergeConfirmationAccepted] =
+    useState(false);
   const [isMergingEvents, setIsMergingEvents] = useState(false);
   const [colleges, setColleges] = useState<AttendanceCollege[]>([]);
   const [exemptions, setExemptions] = useState<EventCollegeExemption[]>([]);
@@ -276,6 +325,16 @@ export default function EventsPage() {
       form.schoolYearId || selectedSchoolYearId,
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
+
+  const visibleDuplicateGroups = useMemo(() => {
+    const dismissed = new Set(dismissedDuplicateGroupKeys);
+    return duplicateGroups.filter(
+      (group) => !dismissed.has(getDuplicateGroupKey(group)),
+    );
+  }, [duplicateGroups, dismissedDuplicateGroupKeys]);
+
+  const dismissedDuplicateGroupCount =
+    duplicateGroups.length - visibleDuplicateGroups.length;
 
   const filteredEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLowerCase();
@@ -713,6 +772,32 @@ export default function EventsPage() {
     }
   }
 
+  function handleDismissDuplicateGroup(group: AttendanceEventDuplicateGroup) {
+    const groupKey = getDuplicateGroupKey(group);
+    if (!groupKey) return;
+
+    setDismissedDuplicateGroupKeys((current) => {
+      if (current.includes(groupKey)) return current;
+      const next = [...current, groupKey];
+      persistDismissedDuplicateGroupKeys(next);
+      return next;
+    });
+    toast.success("Candidate dismissed. These events will remain separate.");
+  }
+
+  function handleRestoreDismissedDuplicateGroups() {
+    const displayedKeys = new Set(
+      duplicateGroups.map(getDuplicateGroupKey).filter(Boolean),
+    );
+
+    setDismissedDuplicateGroupKeys((current) => {
+      const next = current.filter((key) => !displayedKeys.has(key));
+      persistDismissedDuplicateGroupKeys(next);
+      return next;
+    });
+    toast.success("Dismissed duplicate candidates restored.");
+  }
+
   async function handleOpenMergeDialog(group: AttendanceEventDuplicateGroup) {
     const [targetEvent, ...sourceEvents] = group.events;
     if (!targetEvent || !sourceEvents.length) return;
@@ -723,6 +808,7 @@ export default function EventsPage() {
         sourceEvents.map((event) => event.id),
       );
       if (!impact) throw new Error("Unable to calculate merge impact.");
+      setMergeConfirmationAccepted(false);
       setMergeImpact(impact);
       setMergeDialogOpen(true);
     } catch (error) {
@@ -733,7 +819,7 @@ export default function EventsPage() {
   }
 
   async function handleConfirmMergeEvents() {
-    if (!mergeImpact) return;
+    if (!mergeImpact || !mergeConfirmationAccepted) return;
 
     setIsMergingEvents(true);
     try {
@@ -743,6 +829,7 @@ export default function EventsPage() {
       });
       toast.success("Duplicate attendance events merged.");
       setMergeDialogOpen(false);
+      setMergeConfirmationAccepted(false);
       setMergeImpact(null);
       await loadEvents(selectedSchoolYearId);
     } catch (error) {
@@ -1162,56 +1249,85 @@ export default function EventsPage() {
 
         {duplicateGroups.length ? (
           <section className="rounded-3xl border bg-card p-5 shadow-sm">
-            <div>
-              <h2 className="text-xl font-black">Likely duplicate events</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Review these candidates before merging. Nothing is moved until you confirm.
-              </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-black">Likely duplicate events</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Review before merging. Choose Do Not Merge for events that must stay separate.
+                </p>
+              </div>
+              {dismissedDuplicateGroupCount > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRestoreDismissedDuplicateGroups}
+                  className="shrink-0 font-bold"
+                >
+                  Restore dismissed ({dismissedDuplicateGroupCount})
+                </Button>
+              ) : null}
             </div>
             <div className="mt-4 grid gap-3">
-              {duplicateGroups.map((group, groupIndex) => (
-                <article
-                  key={`${group.schoolYearId ?? "none"}-${group.events.map((event) => event.id).join("-")}`}
-                  className="rounded-2xl border bg-background p-4"
-                >
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-black">Candidate #{groupIndex + 1}</p>
-                        <span className="rounded-full border px-2.5 py-1 text-xs font-black">
-                          {Math.round(group.score * 100)}% {group.confidence}
-                        </span>
+              {visibleDuplicateGroups.length ? (
+                visibleDuplicateGroups.map((group, groupIndex) => (
+                  <article
+                    key={`${group.schoolYearId ?? "none"}-${group.events.map((event) => event.id).join("-")}`}
+                    className="rounded-2xl border bg-background p-4"
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-black">Candidate #{groupIndex + 1}</p>
+                          <span className="rounded-full border px-2.5 py-1 text-xs font-black">
+                            {Math.round(group.score * 100)}% {group.confidence}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {group.events.map((attendanceEvent) => (
+                            <div key={attendanceEvent.id} className="rounded-xl bg-muted/40 p-3">
+                              <p className="font-bold">{attendanceEvent.name}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {formatDateTime(attendanceEvent.event_start_at)} to {formatDateTime(attendanceEvent.event_end_at)}
+                              </p>
+                              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                {Number(attendanceEvent.attendees_count || 0).toLocaleString()} attendee/s
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        {group.reasons.length ? (
+                          <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                            {group.reasons.join(" • ")}
+                          </p>
+                        ) : null}
                       </div>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {group.events.map((attendanceEvent) => (
-                          <div key={attendanceEvent.id} className="rounded-xl bg-muted/40 p-3">
-                            <p className="font-bold">{attendanceEvent.name}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {formatDateTime(attendanceEvent.event_start_at)} to {formatDateTime(attendanceEvent.event_end_at)}
-                            </p>
-                            <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                              {Number(attendanceEvent.attendees_count || 0).toLocaleString()} attendee/s
-                            </p>
-                          </div>
-                        ))}
+                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => handleDismissDuplicateGroup(group)}
+                          className="rounded-xl font-black"
+                        >
+                          Do Not Merge
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handleOpenMergeDialog(group)}
+                          className="rounded-xl font-black"
+                        >
+                          Review Merge
+                        </Button>
                       </div>
-                      {group.reasons.length ? (
-                        <p className="mt-3 text-xs font-semibold text-muted-foreground">
-                          {group.reasons.join(" • ")}
-                        </p>
-                      ) : null}
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleOpenMergeDialog(group)}
-                      className="shrink-0 rounded-xl font-black"
-                    >
-                      Review Merge
-                    </Button>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-muted/20 p-4 text-sm font-semibold text-muted-foreground">
+                  All duplicate suggestions for this school year are dismissed. The events will remain separate unless you restore a candidate and explicitly merge it.
+                </div>
+              )}
             </div>
           </section>
         ) : null}
@@ -1588,7 +1704,10 @@ export default function EventsPage() {
         open={mergeDialogOpen}
         onOpenChange={(open) => {
           setMergeDialogOpen(open);
-          if (!open) setMergeImpact(null);
+          if (!open) {
+            setMergeImpact(null);
+            setMergeConfirmationAccepted(false);
+          }
         }}
       >
         <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
@@ -1643,6 +1762,23 @@ export default function EventsPage() {
                 This merge will permanently delete {mergeImpact.sourceEvents.length.toLocaleString()} source event record(s) after moving their linked data. {mergeImpact.affectedStudents.toLocaleString()} student(s) will have absences, fines, and downstream results recalculated. The merge is logged before source events are removed.
               </p>
 
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
+                <Checkbox
+                  checked={mergeConfirmationAccepted}
+                  disabled={isMergingEvents}
+                  onCheckedChange={(checked) =>
+                    setMergeConfirmationAccepted(checked === true)
+                  }
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="block font-black">Required confirmation</span>
+                  <span className="mt-1 block font-semibold text-muted-foreground">
+                    I understand that merging permanently combines these events and deletes the source event record(s).
+                  </span>
+                </span>
+              </label>
+
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button
                   type="button"
@@ -1650,11 +1786,12 @@ export default function EventsPage() {
                   disabled={isMergingEvents}
                   onClick={() => setMergeDialogOpen(false)}
                 >
-                  Cancel
+                  Cancel — Keep Separate
                 </Button>
                 <Button
                   type="button"
-                  disabled={isMergingEvents}
+                  variant="destructive"
+                  disabled={isMergingEvents || !mergeConfirmationAccepted}
                   onClick={() => void handleConfirmMergeEvents()}
                 >
                   {isMergingEvents ? "Merging..." : "Merge Events"}
