@@ -1421,6 +1421,42 @@ function addAbsentEventSummary(
   }
 }
 
+function getFinalResultAbsentEventSummaries(
+  finalResult: AttendanceFinalResultRecord | null | undefined,
+) {
+  if (!finalResult) return null;
+
+  const missedEvents = finalResult.missed_events ?? [];
+
+  if (!missedEvents.length) return null;
+
+  return missedEvents
+    .map((event, index): StudentAbsentEventSummary => {
+      const eventName = String(event.name ?? "").trim();
+      const eventOrder = event.event_order ?? null;
+      const eventDate = event.event_start_at ?? event.event_end_at ?? null;
+      const eventId = String(event.id ?? "").trim();
+      const fallbackKey =
+        normalizeEventKey(eventName) || String(eventOrder ?? index + 1);
+
+      return {
+        key: eventId
+          ? `final-result-missed-event:${eventId}`
+          : `final-result-missed-event:${fallbackKey}`,
+        eventName:
+          eventName ||
+          (eventOrder !== null ? `Event ${eventOrder}` : "Absent event"),
+        latestScannedAt: eventDate,
+        eventOrder,
+        eventDate,
+        records: [],
+        remarks: [],
+        totalAbsences: 1,
+      };
+    })
+    .sort(compareStudentAbsentEventSummaries);
+}
+
 function getStudentAbsentEventSummaries(
   attendance: AttendanceRecord[],
   fines: FineRecord[] = [],
@@ -3157,6 +3193,11 @@ export default function LandingPage() {
     );
   }, [displayedAttendance, lookup]);
   const absentEvents = useMemo(() => {
+    const finalResultAbsentEvents =
+      getFinalResultAbsentEventSummaries(displayedFinalResult);
+
+    if (finalResultAbsentEvents) return finalResultAbsentEvents;
+
     return getStudentAbsentEventSummaries(
       displayedAttendance,
       allDisplayedFines,
@@ -3779,6 +3820,7 @@ export default function LandingPage() {
         studentId: cleanStudentId,
         limit: 1000,
         offset: 0,
+        includeMissedEvents: true,
       }).catch(() => [] as AttendanceFinalResultRecord[]);
       const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
         markProgressStepComplete(
