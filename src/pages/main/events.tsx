@@ -328,6 +328,7 @@ export default function EventsPage() {
     "undo" | "redo" | ""
   >("");
   const [undoConfirmationOpen, setUndoConfirmationOpen] = useState(false);
+  const [exemptionDetailsEvent, setExemptionDetailsEvent] = useState<AttendanceEvent | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1499,13 +1500,14 @@ export default function EventsPage() {
                       <td className="px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
                         {event.exempted_colleges?.length ? (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {event.exempted_colleges.map((college) => (
-                              <span key={college.id} className="rounded-full border bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-800">
-                                Exempt: {college.college_label}
-                              </span>
-                            ))}
-                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setExemptionDetailsEvent(event)}
+                            className="mt-1 h-8 max-w-full rounded-lg border-amber-200 bg-amber-50 px-2.5 text-[11px] font-black text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+                          >
+                            View exemptions ({event.exempted_colleges.length})
+                          </Button>
                         ) : null}
                         <p className="text-xs text-muted-foreground">
                           Updated {formatDateTime(event.updated_at)}
@@ -1675,6 +1677,44 @@ export default function EventsPage() {
           </p>
         )}
       </section>
+
+      <Dialog
+        open={Boolean(exemptionDetailsEvent)}
+        onOpenChange={(open) => {
+          if (!open) setExemptionDetailsEvent(null);
+        }}
+      >
+        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Event Exemptions</DialogTitle>
+            <DialogDescription>
+              View the colleges exempted from this event without expanding the events table.
+            </DialogDescription>
+          </DialogHeader>
+          {exemptionDetailsEvent ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border bg-muted/20 p-3">
+                <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
+                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                  {exemptionDetailsEvent.exempted_colleges?.length ?? 0} exempted college{
+                    (exemptionDetailsEvent.exempted_colleges?.length ?? 0) === 1 ? "" : "s"
+                  }
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {exemptionDetailsEvent.exempted_colleges?.map((college) => (
+                  <div
+                    key={college.id}
+                    className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                  >
+                    <span className="break-words">{college.college_label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={undoConfirmationOpen}
