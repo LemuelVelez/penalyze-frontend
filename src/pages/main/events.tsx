@@ -37,6 +37,16 @@ import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog"
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
@@ -317,6 +327,7 @@ export default function EventsPage() {
   const [applyingHistoryAction, setApplyingHistoryAction] = useState<
     "undo" | "redo" | ""
   >("");
+  const [undoConfirmationOpen, setUndoConfirmationOpen] = useState(false);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -379,6 +390,7 @@ export default function EventsPage() {
   useEffect(() => {
     setUndoStack([]);
     setRedoStack([]);
+    setUndoConfirmationOpen(false);
   }, [selectedSchoolYearId]);
 
   const paginatedEvents = useMemo(() => {
@@ -1046,6 +1058,7 @@ export default function EventsPage() {
       return;
     }
 
+    setUndoConfirmationOpen(false);
     const entry = undoStack[undoStack.length - 1];
     historyApplyingRef.current = true;
     setIsApplyingHistory(true);
@@ -1162,7 +1175,7 @@ export default function EventsPage() {
       }
       if (key === "z" && !event.shiftKey && undoStack.length) {
         event.preventDefault();
-        void handleUndoExemptions();
+        setUndoConfirmationOpen(true);
       }
     }
 
@@ -1604,7 +1617,7 @@ export default function EventsPage() {
                 variant="outline"
                 disabled={!undoEntry || exemptionActionsBusy}
                 title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
-                onClick={() => void handleUndoExemptions()}
+                onClick={() => setUndoConfirmationOpen(true)}
                 className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
               >
                 {isApplyingHistory && applyingHistoryAction === "undo"
@@ -1662,6 +1675,35 @@ export default function EventsPage() {
           </p>
         )}
       </section>
+
+      <AlertDialog
+        open={undoConfirmationOpen}
+        onOpenChange={(open) => {
+          if (!isApplyingHistory) setUndoConfirmationOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Undo the last exemption change?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {undoEntry
+                ? `This will undo “${undoEntry.label}” and recalculate affected absences and fines. Confirm to avoid an accidental undo.`
+                : "There is no exemption change available to undo."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isApplyingHistory}>Keep Change</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!undoEntry || exemptionActionsBusy}
+              onClick={() => void handleUndoExemptions()}
+            >
+              {isApplyingHistory && applyingHistoryAction === "undo"
+                ? "Recalculating..."
+                : "Undo Change"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
         <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">

@@ -383,11 +383,6 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
-function formatImportLabel(importRecord: AttendanceImportRecord) {
-  const fileName = importRecord.file_name || "Imported file";
-  const eventName = importRecord.event_name || "No event";
-  return `${fileName} • ${eventName} • ${formatDateTime(importRecord.created_at)}`;
-}
 
 function toAbsenceInputValue(value: number) {
   return String(Math.max(0, Number(value || 0)));
@@ -762,6 +757,7 @@ export default function CalculatePage() {
   const [selectedCalculationSources, setSelectedCalculationSources] = useState<
     CalculationSourceType[]
   >([...DEFAULT_SELECTED_CALCULATION_SOURCES]);
+  const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
   const [calculationRows, setCalculationRows] = useState<CalculationRow[]>([]);
   const [selectedCalculationRowKeys, setSelectedCalculationRowKeys] = useState<
     string[]
@@ -802,13 +798,6 @@ export default function CalculatePage() {
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
   }, [schoolYears, selectedSchoolYearId]);
-
-  const selectedImportLabels = useMemo(() => {
-    const selectedIds = new Set(selectedImportIds);
-    return attendanceImports
-      .filter((importRecord) => selectedIds.has(importRecord.id))
-      .map(formatImportLabel);
-  }, [attendanceImports, selectedImportIds]);
 
   const selectedCalculationSourceLabels = useMemo(() => {
     return selectedCalculationSources.map(getCalculationSourceLabel);
@@ -1947,119 +1936,38 @@ export default function CalculatePage() {
         </section>
 
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
               <h2 className="text-xl font-black">
                 Sources and imported files to calculate
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Choose the source types, then select the imported files to
-                include in preview and saved calculation results.
+                Choose attendance sources and imported files in the selection dialog.
               </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSelectAllImports}
-                disabled={!attendanceImports.length || !includesImportedSource}
-                className="min-h-10 rounded-xl px-4 text-xs font-black"
-              >
-                Select All
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setSelectedImportIds([])}
-                disabled={!selectedImportIds.length}
-                className="min-h-10 rounded-xl px-4 text-xs font-black"
-              >
-                Clear
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 lg:grid-cols-3">
-            {CALCULATION_SOURCE_OPTIONS.map((sourceOption) => (
-              <label
-                key={sourceOption.value}
-                className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
-              >
-                <Checkbox
-                  checked={selectedCalculationSources.includes(
-                    sourceOption.value,
-                  )}
-                  onCheckedChange={(checked) =>
-                    handleCalculationSourceToggle(
-                      sourceOption.value,
-                      checked === true,
-                    )
-                  }
-                  className="mt-1"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate font-black">
-                    {sourceOption.title}
-                  </span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {sourceOption.description}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {attendanceImports.length ? (
-              attendanceImports.map((importRecord) => (
-                <label
-                  key={importRecord.id}
-                  className={`flex items-start gap-3 rounded-2xl border bg-background p-4 text-sm ${
-                    includesImportedSource
-                      ? "cursor-pointer"
-                      : "cursor-not-allowed opacity-60"
-                  }`}
-                >
-                  <Checkbox
-                    checked={selectedImportIds.includes(importRecord.id)}
-                    disabled={!includesImportedSource}
-                    onCheckedChange={() => handleImportToggle(importRecord.id)}
-                    className="mt-1"
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-black">
-                      {importRecord.file_name}
-                    </span>
-                    <span className="mt-1 block text-muted-foreground">
-                      {importRecord.event_name || "No linked event"} •{" "}
-                      {formatDateTime(importRecord.created_at)}
-                    </span>
-                    <span className="mt-1 block text-xs font-bold text-muted-foreground">
-                      Valid rows:{" "}
-                      {Number(importRecord.rows_valid || 0).toLocaleString()} /{" "}
-                      {Number(importRecord.rows_total || 0).toLocaleString()}
-                    </span>
-                  </span>
-                </label>
-              ))
-            ) : (
-              <div className="rounded-2xl border bg-background p-6 text-sm font-semibold text-muted-foreground">
-                No imported files found for the selected school year.
+              <div className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+                <p>
+                  Selected sources:{" "}
+                  {selectedCalculationSourceLabels.length
+                    ? selectedCalculationSourceLabels.join(" | ")
+                    : "None"}
+                </p>
+                <p className="mt-1">
+                  Imported files selected:{" "}
+                  {includesImportedSource
+                    ? selectedImportIds.length.toLocaleString()
+                    : "Imported source disabled"}
+                </p>
               </div>
-            )}
-          </div>
+            </div>
 
-          <div className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
-            Selected sources:{" "}
-            {selectedCalculationSourceLabels.length
-              ? selectedCalculationSourceLabels.join(" | ")
-              : "None"}
-            <span className="mx-2">•</span>
-            Selected files:{" "}
-            {includesImportedSource && selectedImportLabels.length
-              ? selectedImportLabels.join(" | ")
-              : "None"}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSourceDialogOpen(true)}
+              className="min-h-12 w-full rounded-2xl px-6 font-black lg:w-auto"
+            >
+              Choose Sources & Files
+            </Button>
           </div>
         </section>
 
@@ -2241,6 +2149,128 @@ export default function CalculatePage() {
           </div>
         </section>
       </div>
+
+      <Dialog open={sourceDialogOpen} onOpenChange={setSourceDialogOpen}>
+        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Sources and imported files to calculate</DialogTitle>
+            <DialogDescription>
+              Choose the attendance source types and imported files to include in calculation previews and saved results.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            {CALCULATION_SOURCE_OPTIONS.map((sourceOption) => (
+              <label
+                key={sourceOption.value}
+                className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
+              >
+                <Checkbox
+                  checked={selectedCalculationSources.includes(sourceOption.value)}
+                  onCheckedChange={(checked) =>
+                    handleCalculationSourceToggle(
+                      sourceOption.value,
+                      checked === true,
+                    )
+                  }
+                  className="mt-1"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-black">
+                    {sourceOption.title}
+                  </span>
+                  <span className="mt-1 block text-muted-foreground">
+                    {sourceOption.description}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border bg-muted/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-black">Imported files</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {includesImportedSource
+                    ? `${selectedImportIds.length.toLocaleString()} of ${attendanceImports.length.toLocaleString()} file/s selected.`
+                    : "Enable Imported files above to select uploaded attendance files."}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSelectAllImports}
+                  disabled={!attendanceImports.length || !includesImportedSource}
+                  className="min-h-10 rounded-xl px-4 text-xs font-black"
+                >
+                  Select All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSelectedImportIds([])}
+                  disabled={!selectedImportIds.length}
+                  className="min-h-10 rounded-xl px-4 text-xs font-black"
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {attendanceImports.length ? (
+                attendanceImports.map((importRecord) => (
+                  <label
+                    key={importRecord.id}
+                    className={`flex items-start gap-3 rounded-2xl border bg-background p-4 text-sm ${
+                      includesImportedSource
+                        ? "cursor-pointer"
+                        : "cursor-not-allowed opacity-60"
+                    }`}
+                  >
+                    <Checkbox
+                      checked={selectedImportIds.includes(importRecord.id)}
+                      disabled={!includesImportedSource}
+                      onCheckedChange={() => handleImportToggle(importRecord.id)}
+                      className="mt-1"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-black">
+                        {importRecord.file_name}
+                      </span>
+                      <span className="mt-1 block text-muted-foreground">
+                        {importRecord.event_name || "No linked event"} •{" "}
+                        {formatDateTime(importRecord.created_at)}
+                      </span>
+                      <span className="mt-1 block text-xs font-bold text-muted-foreground">
+                        Valid rows:{" "}
+                        {Number(importRecord.rows_valid || 0).toLocaleString()} /{" "}
+                        {Number(importRecord.rows_total || 0).toLocaleString()}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              ) : (
+                <div className="rounded-2xl border bg-background p-6 text-sm font-semibold text-muted-foreground lg:col-span-2">
+                  No imported files found for the selected school year.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={() => setSourceDialogOpen(false)}
+              className="min-h-12 w-full rounded-2xl px-6 font-black sm:w-auto"
+            >
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(editingRow)}
