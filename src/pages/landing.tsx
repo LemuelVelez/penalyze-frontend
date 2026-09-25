@@ -2466,7 +2466,13 @@ function ZeroAttendanceRegistrationDialog(props: {
     "Current school year";
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open && confirmationOpen) return;
+        props.onOpenChange(open);
+      }}
+    >
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
         className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
@@ -3965,9 +3971,6 @@ export default function LandingPage() {
       selectedEventIds: [],
       evidenceByEvent: {},
     });
-    setZeroAttendanceDialogOpen(false);
-    setResultDialogOpen(false);
-    setEventsDialogOpen(false);
     setAttendanceRequestDialogOpen(true);
     void loadAttendanceRequestEvents(schoolYearId);
   }
@@ -4035,10 +4038,6 @@ export default function LandingPage() {
       college: currentCollege,
       program: currentProgram,
     });
-    setAttendanceRequestDialogOpen(false);
-    setZeroAttendanceDialogOpen(false);
-    setEventsDialogOpen(false);
-    setResultDialogOpen(false);
     setDetailsCorrectionDialogOpen(true);
   }
 
@@ -4858,7 +4857,18 @@ export default function LandingPage() {
 
       <Dialog
         open={Boolean(lookup) && resultDialogOpen}
-        onOpenChange={setResultDialogOpen}
+        onOpenChange={(open) => {
+          if (
+            !open &&
+            (eventsDialogOpen ||
+              attendanceRequestsDialogOpen ||
+              attendanceRequestDialogOpen ||
+              detailsCorrectionDialogOpen)
+          ) {
+            return;
+          }
+          setResultDialogOpen(open);
+        }}
       >
         <DialogContent
           onCloseAutoFocus={(event) => event.preventDefault()}
@@ -5106,7 +5116,10 @@ export default function LandingPage() {
 
       <ZeroAttendanceRegistrationDialog
         open={zeroAttendanceDialogOpen}
-        onOpenChange={setZeroAttendanceDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && attendanceRequestDialogOpen) return;
+          setZeroAttendanceDialogOpen(open);
+        }}
         form={zeroAttendanceForm}
         schoolYears={schoolYears}
         error={zeroAttendanceError}
@@ -5128,7 +5141,15 @@ export default function LandingPage() {
 
       <Dialog
         open={attendanceRequestsDialogOpen}
-        onOpenChange={setAttendanceRequestsDialogOpen}
+        onOpenChange={(open) => {
+          if (
+            !open &&
+            (attendanceRequestDialogOpen || detailsCorrectionDialogOpen)
+          ) {
+            return;
+          }
+          setAttendanceRequestsDialogOpen(open);
+        }}
       >
         <DialogContent className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-w-3xl">
           <DialogHeader>
@@ -5232,7 +5253,6 @@ export default function LandingPage() {
                           type="button"
                           variant="outline"
                           onClick={() => {
-                            setAttendanceRequestsDialogOpen(false);
                             if (request.request_type === "details_correction") {
                               handleLookupDetailsCorrection();
                             } else {
