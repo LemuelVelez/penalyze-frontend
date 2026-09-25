@@ -52,6 +52,7 @@ import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 import {
   QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
+  isCollegeExemptFromEvent,
 } from "../../lib/colleges";
 
 type ManualAttendanceFormState = {
@@ -574,6 +575,30 @@ export default function ManualAttendancePage() {
     return studentGroups.find((group) => group.key === editingGroupKey) ?? null;
   }, [editingGroupKey, studentGroups]);
 
+  const availableEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => !isCollegeExemptFromEvent(event, form.college),
+      ),
+    [events, form.college],
+  );
+
+  const editingExemptedEventRecords = useMemo(() => {
+    if (!editingGroup) return [];
+
+    const eventById = new Map(events.map((event) => [event.id, event]));
+
+    return getUniqueManualEventRecords(
+      editingGroup.events.filter((record) => {
+        const eventId = String(record.event_id ?? "").trim();
+        return Boolean(
+          eventId &&
+            isCollegeExemptFromEvent(eventById.get(eventId), form.college),
+        );
+      }),
+    );
+  }, [editingGroup, events, form.college]);
+
   const selectedEventRecords = useMemo(() => {
     if (!editingGroup) return [];
 
@@ -827,11 +852,32 @@ export default function ManualAttendancePage() {
     field: Exclude<keyof ManualAttendanceFormState, "eventIds">,
     value: string,
   ) {
+    if (field !== "college") {
+      setForm((current) => ({ ...current, [field]: value }));
+      return;
+    }
+
+    const removedEvents = events.filter(
+      (event) =>
+        form.eventIds.includes(event.id) &&
+        isCollegeExemptFromEvent(event, value),
+    );
+    const removedEventIds = new Set(removedEvents.map((event) => event.id));
+
     setForm((current) => ({
       ...current,
-      [field]: value,
-      ...(field === "college" ? { program: "" } : {}),
+      college: value,
+      program: "",
+      eventIds: current.eventIds.filter((eventId) => !removedEventIds.has(eventId)),
     }));
+
+    if (removedEvents.length) {
+      toast.info(
+        `Removed exempted event${removedEvents.length === 1 ? "" : "s"}: ${removedEvents
+          .map((event) => event.name || `Event ${event.id}`)
+          .join(", ")}.`,
+      );
+    }
   }
 
   function handleEventToggle(eventId: string) {
@@ -904,6 +950,7 @@ export default function ManualAttendancePage() {
 
   function handleEditGroup(group: ManualAttendanceStudentGroup) {
     const latestRecord = getLatestRecord(group.records);
+    const eventById = new Map(events.map((event) => [event.id, event]));
 
     setEditingGroupKey(group.key);
     setForm({
@@ -913,6 +960,13 @@ export default function ManualAttendancePage() {
       eventIds: Array.from(
         new Set(
           group.events
+            .filter((record) => {
+              const eventId = String(record.event_id ?? "").trim();
+              return !isCollegeExemptFromEvent(
+                eventById.get(eventId),
+                group.college,
+              );
+            })
             .map((record) => record.event_id)
             .filter(Boolean) as string[],
         ),
@@ -1480,9 +1534,30 @@ export default function ManualAttendancePage() {
                     {form.eventIds.length} selected
                   </span>
                 </div>
+                {editingExemptedEventRecords.length ? (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                    <p className="font-black">Saved events that are now exempted</p>
+                    <p className="mt-1 text-xs font-semibold leading-5">
+                      These records are no longer selectable for {form.college || "this college"} and will be removed when you save this edit.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {editingExemptedEventRecords.map((record) => (
+                        <span
+                          key={record.id}
+                          className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold"
+                        >
+                          {getRecordEventLabel(record)}
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide">
+                            Exempted
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid max-h-80 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2">
-                  {events.length ? (
-                    events.map((eventItem) => {
+                  {availableEvents.length ? (
+                    availableEvents.map((eventItem) => {
                       const isSelected = form.eventIds.includes(eventItem.id);
 
                       return (
@@ -1499,8 +1574,9 @@ export default function ManualAttendancePage() {
                     })
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-card p-5 text-center text-sm font-semibold text-muted-foreground sm:col-span-2">
-                      No events available. Saving will create an empty-events
-                      attendee.
+                      {events.length && form.college
+                        ? `No selectable events remain for ${form.college}. Every loaded event is exempted for this college.`
+                        : "No events available. Saving will create an empty-events attendee."}
                     </div>
                   )}
                 </div>

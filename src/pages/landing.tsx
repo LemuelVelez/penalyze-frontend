@@ -42,6 +42,8 @@ import type { SchoolYearRecord } from "../api/schoolYears";
 import {
   QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
+  isCollegeExemptFromEvent,
+  normalizeCollegeKey,
 } from "../lib/colleges";
 import { LogoMark } from "../components/layout";
 import ThemeToggle from "../components/theme-toggle";
@@ -863,22 +865,6 @@ function normalizeDisplayValue(value: unknown) {
     .replace(/\s+/g, " ");
 }
 
-function normalizeCollegeKey(value: unknown) {
-  const text = normalizeDisplayValue(value).replace(/&/g, " and ");
-  return text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function isCollegeExemptFromEvent(
-  event: AttendanceEvent | null | undefined,
-  collegeKey: string,
-) {
-  if (!event || !collegeKey) return false;
-
-  return (event.exempted_colleges ?? []).some(
-    (exemption) => normalizeCollegeKey(exemption.college_key) === collegeKey,
-  );
-}
-
 function getAttendanceEventForMissedResult(
   missedEvent: NonNullable<AttendanceFinalResultRecord["missed_events"]>[number],
   attendanceEvents: AttendanceEvent[],
@@ -991,7 +977,7 @@ function getStudentCollegeKey(attendance: AttendanceRecord[]) {
 
   return latestRecordWithCollege
     ? getAttendanceRecordCollegeKey(latestRecordWithCollege)
-    : "";
+    : null;
 }
 
 function getAttendanceEventSummaryKey(
@@ -3075,16 +3061,11 @@ function AttendanceRequestDialog(props: {
   const programOptions = getStudentProgramOptions(props.form.college);
   const selectableSchoolYears = props.schoolYears;
   const excludedEventIds = new Set(props.excludedEventIds);
-  const selectedCollegeKey = normalizeCollegeKey(props.form.college);
-  const availableEvents = props.events.filter((event) => {
-    if (excludedEventIds.has(event.id)) return false;
-    if (!selectedCollegeKey) return true;
-
-    return !(event.exempted_colleges ?? []).some(
-      (exemption) =>
-        normalizeCollegeKey(exemption.college_key) === selectedCollegeKey,
-    );
-  });
+  const availableEvents = props.events.filter(
+    (event) =>
+      !excludedEventIds.has(event.id) &&
+      !isCollegeExemptFromEvent(event, props.form.college),
+  );
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>

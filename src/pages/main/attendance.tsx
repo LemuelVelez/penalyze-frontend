@@ -75,6 +75,7 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
+import { isCollegeExemptFromEvent, normalizeCollegeKey } from "../../lib/colleges";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
@@ -219,6 +220,7 @@ type AttendanceUploadFileDetails = {
   eventEndAt: string;
   previewError: string;
   rowsTotal: number;
+  collegeLabels: string[];
   mergeCandidates: AttendanceEventMergeCandidate[];
   mergeDecisionConfirmed: boolean;
   mergeIntoEventId: string;
@@ -230,6 +232,29 @@ type AttendanceUploadFileDetails = {
 
 function getAttendanceUploadFileKey(file: File) {
   return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
+function getAttendancePreviewCollegeLabels(
+  rows: Array<{ college?: string }>,
+) {
+  const collegesByKey = new Map<string, string>();
+
+  rows.forEach((row) => {
+    const label = String(row.college ?? "").trim();
+    const key = normalizeCollegeKey(label);
+    if (key && !collegesByKey.has(key)) collegesByKey.set(key, label);
+  });
+
+  return Array.from(collegesByKey.values());
+}
+
+function getEventExemptedPreviewColleges(
+  event: AttendanceEvent | null | undefined,
+  collegeLabels: string[],
+) {
+  return collegeLabels.filter((college) =>
+    isCollegeExemptFromEvent(event, college),
+  );
 }
 
 function cleanAttendanceMetadataValue(value: unknown) {
@@ -1045,6 +1070,7 @@ export default function AttendancePage() {
             eventEndAt: metadata.eventEndAt ?? "",
             previewError: "",
             rowsTotal: preview.rowsTotal,
+            collegeLabels: getAttendancePreviewCollegeLabels(preview.rows),
             mergeCandidates,
             mergeDecisionConfirmed: !mergeCandidates.some(
               (candidate) => candidate.confidence !== "low",
@@ -1079,6 +1105,7 @@ export default function AttendancePage() {
             eventEndAt: "",
             previewError: message,
             rowsTotal: 0,
+            collegeLabels: [],
             mergeCandidates: [],
             mergeDecisionConfirmed: true,
             mergeIntoEventId: "",
@@ -1176,6 +1203,19 @@ export default function AttendancePage() {
       );
       if (!selectedEvent) return current;
 
+      const exemptedColleges = getEventExemptedPreviewColleges(
+        selectedEvent,
+        details.collegeLabels,
+      );
+      if (exemptedColleges.length) {
+        toast.error(
+          `${exemptedColleges.join(", ")} ${
+            exemptedColleges.length === 1 ? "is" : "are"
+          } exempted from ${selectedEvent.name}. Choose a different event or remove the exempted college rows from this file.`,
+        );
+        return current;
+      }
+
       return {
         ...current,
         [fileKey]: {
@@ -1256,6 +1296,25 @@ export default function AttendancePage() {
     );
     const candidate = candidates[mergeDialogCandidateIndex];
     if (!candidate) return;
+
+    if (candidate.source === "existing" && candidate.eventId) {
+      const selectedEvent = details.eventOptions.find(
+        (event) => event.id === candidate.eventId,
+      );
+      const exemptedColleges = getEventExemptedPreviewColleges(
+        selectedEvent,
+        details.collegeLabels,
+      );
+
+      if (selectedEvent && exemptedColleges.length) {
+        toast.error(
+          `${exemptedColleges.join(", ")} ${
+            exemptedColleges.length === 1 ? "is" : "are"
+          } exempted from ${selectedEvent.name}. Choose another event or keep this as a separate event.`,
+        );
+        return;
+      }
+    }
 
     setFileDetails((current) => ({
       ...current,
@@ -2128,18 +2187,31 @@ export default function AttendancePage() {
                                   <SelectValue placeholder="Select event" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {details.eventOptions.map((attendanceEvent) => (
-                                    <SelectItem
-                                      key={attendanceEvent.id}
-                                      value={attendanceEvent.id}
-                                    >
-                                      {`Use existing event: ${getAttendanceEventSelectLabel(
-                                        attendanceEvent.name,
-                                        attendanceEvent.event_start_at,
-                                        attendanceEvent.event_end_at,
-                                      )}`}
-                                    </SelectItem>
-                                  ))}
+                                  {details.eventOptions.map((attendanceEvent) => {
+                                    const exemptedColleges =
+                                      getEventExemptedPreviewColleges(
+                                        attendanceEvent,
+                                        details.collegeLabels,
+                                      );
+
+                                    return (
+                                      <SelectItem
+                                        key={attendanceEvent.id}
+                                        value={attendanceEvent.id}
+                                        disabled={exemptedColleges.length > 0}
+                                      >
+                                        {`Use existing event: ${getAttendanceEventSelectLabel(
+                                          attendanceEvent.name,
+                                          attendanceEvent.event_start_at,
+                                          attendanceEvent.event_end_at,
+                                        )}${
+                                          exemptedColleges.length
+                                            ? ` — exempted for ${exemptedColleges.join(", ")}`
+                                            : ""
+                                        }`}
+                                      </SelectItem>
+                                    );
+                                  })}
                                   {detectedEvent ? (
                                     <SelectItem value={FILE_UPLOAD_EVENT_VALUE}>
                                       {`Create a separate new event from file: ${getAttendanceEventSelectLabel(
