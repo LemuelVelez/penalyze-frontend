@@ -13,13 +13,11 @@ import {
   listAllAttendanceRecords,
   listAttendanceEvents,
   listAttendanceFinalResults,
-  listEventCollegeExemptions,
   listManualAttendanceRecords,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
   AttendanceFinalResultRecord,
-  EventCollegeExemption,
   AttendanceRecord,
   ManualAttendanceRecord,
 } from "../api/attendance";
@@ -858,35 +856,6 @@ function normalizeDisplayValue(value: unknown) {
 function normalizeCollegeKey(value: unknown) {
   const text = normalizeDisplayValue(value).replace(/&/g, " and ");
   return text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function mergeAttendanceEventExemptions(
-  events: AttendanceEvent[],
-  exemptions: EventCollegeExemption[],
-) {
-  const exemptionsByEventId = new Map<string, EventCollegeExemption[]>();
-
-  exemptions.forEach((exemption) => {
-    const eventId = String(exemption.event_id ?? "").trim();
-    if (!eventId) return;
-    const current = exemptionsByEventId.get(eventId) ?? [];
-    current.push(exemption);
-    exemptionsByEventId.set(eventId, current);
-  });
-
-  return events.map((event) => {
-    const eventExemptions =
-      exemptionsByEventId.get(String(event.id ?? "").trim()) ?? [];
-
-    return {
-      ...event,
-      exempted_colleges: eventExemptions.map((exemption) => ({
-        id: exemption.id,
-        college_key: exemption.college_key,
-        college_label: exemption.college_label,
-      })),
-    };
-  });
 }
 
 function isCollegeExemptFromEvent(
@@ -3911,17 +3880,12 @@ export default function LandingPage() {
 
     setIsLoadingAttendanceRequestEvents(true);
     try {
-      const [rows, exemptions] = await Promise.all([
-        listAttendanceEvents({
-          schoolYearId,
-          limit: 500,
-          offset: 0,
-        }),
-        listEventCollegeExemptions({ schoolYearId }),
-      ]);
-      setAttendanceRequestEvents(
-        mergeAttendanceEventExemptions(rows, exemptions),
-      );
+      const rows = await listAttendanceEvents({
+        schoolYearId,
+        limit: 500,
+        offset: 0,
+      });
+      setAttendanceRequestEvents(rows);
     } catch (requestError) {
       setAttendanceRequestEvents([]);
       setAttendanceRequestError(
@@ -4352,18 +4316,11 @@ export default function LandingPage() {
 
       const [attendanceEvents, allAttendanceRecords, finalResults] =
         await Promise.all([
-          Promise.all([
-            listAttendanceEvents({
-              schoolYearId: payload.schoolYearId,
-              limit: 500,
-              offset: 0,
-            }).catch(() => [] as AttendanceEvent[]),
-            listEventCollegeExemptions({
-              schoolYearId: payload.schoolYearId,
-            }).catch(() => [] as EventCollegeExemption[]),
-          ]).then(([events, exemptions]) =>
-            mergeAttendanceEventExemptions(events, exemptions),
-          ),
+          listAttendanceEvents({
+            schoolYearId: payload.schoolYearId,
+            limit: 500,
+            offset: 0,
+          }).catch(() => [] as AttendanceEvent[]),
           listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
           listAttendanceFinalResults({
             schoolYearId: payload.schoolYearId,
@@ -4558,25 +4515,18 @@ export default function LandingPage() {
 
           return [] as SchoolYearRecord[];
         });
-      const attendanceEventsPromise = Promise.all([
-        listAttendanceEvents({
-          limit: 500,
-          offset: 0,
-        }),
-        listEventCollegeExemptions(),
-      ])
-        .then(([attendanceEvents, exemptions]) => {
-          const eventsWithExemptions = mergeAttendanceEventExemptions(
-            attendanceEvents,
-            exemptions,
-          );
+      const attendanceEventsPromise = listAttendanceEvents({
+        limit: 500,
+        offset: 0,
+      })
+        .then((attendanceEvents) => {
           markProgressStepComplete(
             10,
             "Attendance events loaded...",
-            `${eventsWithExemptions.length.toLocaleString()} event/s checked for matching records and college exemptions.`,
+            `${attendanceEvents.length.toLocaleString()} event/s checked for matching records and college exemptions.`,
           );
 
-          return eventsWithExemptions;
+          return attendanceEvents;
         })
         .catch(() => {
           markProgressStepComplete(
@@ -5108,6 +5058,17 @@ export default function LandingPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setResultDialogOpen(false)}
+                  className="min-w-28 rounded-xl font-black"
+                >
+                  Close
+                </Button>
               </div>
             </section>
           ) : null}
