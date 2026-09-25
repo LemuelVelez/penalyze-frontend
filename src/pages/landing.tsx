@@ -63,6 +63,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
@@ -319,6 +320,15 @@ const selectTriggerClassName =
 
 const customSelectInputClassName =
   "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+
+const landingDialogContentClassName =
+  "left-2 right-2 top-2 bottom-2 h-auto max-h-none w-auto max-w-none min-w-0 translate-x-0 translate-y-0 overflow-x-hidden overflow-y-auto overscroll-contain break-words sm:left-1/2 sm:right-auto sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2";
+
+const landingDialogHeaderClassName =
+  "max-sm:-mx-4 max-sm:-mt-4 max-sm:border-b max-sm:px-4 max-sm:pt-4 max-sm:pb-3";
+
+const landingDialogFooterClassName =
+  "max-sm:-mx-4 max-sm:-mb-4 max-sm:border-t max-sm:px-4 max-sm:py-3 sm:pt-2";
 
 
 function hasStudentSelectOption(
@@ -2346,9 +2356,9 @@ function StudentAttendedEventsDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+        className={`${landingDialogContentClassName} sm:max-w-4xl`}
       >
-        <DialogHeader>
+        <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>
             Events attended by {props.studentName || props.studentId}
           </DialogTitle>
@@ -2370,7 +2380,7 @@ function StudentAttendedEventsDialog(props: {
                       {index + 1}
                     </span>
                     <div>
-                      <p className="font-black">{eventSummary.eventName}</p>
+                      <p className="break-words font-black">{eventSummary.eventName}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         Latest {formatDate(eventSummary.latestScannedAt)} •{" "}
                         {eventSummary.records.length} record/s
@@ -2388,7 +2398,7 @@ function StudentAttendedEventsDialog(props: {
                       <p className="font-semibold">
                         {formatDate(record.scanned_at ?? record.created_at)}
                       </p>
-                      <p className="mt-1 text-muted-foreground">
+                      <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">
                         {record.remarks || "No remarks"}
                       </p>
                     </div>
@@ -2402,6 +2412,17 @@ function StudentAttendedEventsDialog(props: {
             No attended events found for this student.
           </div>
         )}
+
+        <DialogFooter className={landingDialogFooterClassName}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => props.onOpenChange(false)}
+            className="min-h-11 w-full rounded-xl font-black sm:w-auto sm:min-w-28"
+          >
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -2410,7 +2431,7 @@ function StudentAttendedEventsDialog(props: {
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-11 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-h-11 max-w-full items-center justify-center whitespace-normal break-words rounded-2xl border bg-background px-4 text-center text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -2444,9 +2465,9 @@ function ZeroAttendanceRegistrationDialog(props: {
     >
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
+        className={`${landingDialogContentClassName} sm:max-w-3xl`}
       >
-        <DialogHeader>
+        <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Student ID not found</DialogTitle>
           <DialogDescription>
             Choose how to continue when no attendance or fine record exists for this Student ID.
@@ -2677,7 +2698,7 @@ function ZeroAttendanceRegistrationDialog(props: {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <DialogFooter className={landingDialogFooterClassName}>
             <Button
               type="button"
               variant="outline"
@@ -2685,7 +2706,7 @@ function ZeroAttendanceRegistrationDialog(props: {
               onClick={() => props.onOpenChange(false)}
               className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
-              Cancel
+              Close
             </Button>
             <Button
               type="button"
@@ -2703,7 +2724,7 @@ function ZeroAttendanceRegistrationDialog(props: {
             >
               {props.isSaving ? "Saving..." : "Save Zero Attendance"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
 
         <AlertDialog
@@ -2726,7 +2747,7 @@ function ZeroAttendanceRegistrationDialog(props: {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={props.isSaving}>
-                Go Back
+                Close
               </AlertDialogCancel>
               <AlertDialogAction
                 disabled={props.isSaving}
@@ -2801,9 +2822,9 @@ function DetailsCorrectionDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
+        className={`${landingDialogContentClassName} sm:max-w-3xl`}
       >
-        <DialogHeader>
+        <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Details Correction</DialogTitle>
           <DialogDescription>
             Correct a misspelled or wrong Name, Year Level, College, or Program.
@@ -2843,7 +2864,7 @@ function DetailsCorrectionDialog(props: {
                   <p className="text-xs font-bold uppercase text-muted-foreground">
                     {label}
                   </p>
-                  <p className="mt-1 font-semibold">{value || "—"}</p>
+                  <p className="mt-1 break-words font-semibold">{value || "—"}</p>
                 </div>
               ))}
             </div>
@@ -3004,7 +3025,7 @@ function DetailsCorrectionDialog(props: {
             />
           </label>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <DialogFooter className={landingDialogFooterClassName}>
             <Button
               type="button"
               variant="outline"
@@ -3021,7 +3042,7 @@ function DetailsCorrectionDialog(props: {
             >
               {props.isSaving ? "Submitting..." : "Submit Correction"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -3068,9 +3089,9 @@ function AttendanceRequestDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="max-h-[95svh] overflow-y-auto sm:max-w-4xl"
+        className={`${landingDialogContentClassName} sm:max-w-4xl`}
       >
-        <DialogHeader>
+        <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Request Event Attendance Review</DialogTitle>
           <DialogDescription>
             Select attended events and provide public evidence links for officer review.
@@ -3332,7 +3353,7 @@ function AttendanceRequestDialog(props: {
                           className="mt-1 shrink-0"
                         />
                         <span className="min-w-0">
-                          <span className="block font-black">
+                          <span className="block break-words font-black">
                             {attendanceEvent.name}
                           </span>
                           <span className="mt-1 block text-xs text-muted-foreground">
@@ -3379,7 +3400,7 @@ function AttendanceRequestDialog(props: {
             )}
           </section>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <DialogFooter className={landingDialogFooterClassName}>
             <Button
               type="button"
               variant="outline"
@@ -3387,7 +3408,7 @@ function AttendanceRequestDialog(props: {
               onClick={() => props.onOpenChange(false)}
               className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
-              Cancel
+              Close
             </Button>
             <Button
               type="submit"
@@ -3396,7 +3417,7 @@ function AttendanceRequestDialog(props: {
             >
               {props.isSaving ? "Submitting..." : "Submit Attendance Request"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -4822,9 +4843,9 @@ export default function LandingPage() {
       >
         <DialogContent
           onCloseAutoFocus={(event) => event.preventDefault()}
-          className="max-h-[95svh] overflow-y-auto sm:max-w-6xl"
+          className={`${landingDialogContentClassName} sm:max-w-6xl`}
         >
-          <DialogHeader>
+          <DialogHeader className={landingDialogHeaderClassName}>
             <DialogTitle>
               Search result for Student ID: {searchedId}
             </DialogTitle>
@@ -4840,10 +4861,10 @@ export default function LandingPage() {
                   <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Search result / {selectedYearLabel}
                   </p>
-                  <h2 className="text-2xl font-black sm:text-3xl">
+                  <h2 className="break-words text-2xl font-black sm:text-3xl">
                     Student ID: {searchedId}
                   </h2>
-                  <p className="mt-2 text-base font-semibold text-muted-foreground">
+                  <p className="mt-2 break-words text-base font-semibold text-muted-foreground">
                     Name: {studentDisplayName || "—"}
                   </p>
                 </div>
@@ -4952,13 +4973,13 @@ export default function LandingPage() {
                   </div>
 
                   {absentEvents.length ? (
-                    <div className="space-y-3 lg:hidden">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                       {absentEvents.map((eventSummary, index) => (
                         <article
                           key={eventSummary.key}
-                          className="rounded-2xl border bg-background p-4"
+                          className="min-w-0 rounded-2xl border bg-background p-4"
                         >
-                          <div className="flex gap-3">
+                          <div className="flex min-w-0 gap-3">
                             <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
                               {index + 1}
                             </span>
@@ -4970,34 +4991,6 @@ export default function LandingPage() {
                           </div>
                         </article>
                       ))}
-                    </div>
-                  ) : null}
-
-                  {absentEvents.length ? (
-                    <div className="hidden overflow-x-auto lg:block">
-                      <table className="w-full min-w-max text-left text-sm">
-                        <thead className="border-b text-xs uppercase text-muted-foreground">
-                          <tr>
-                            <th className="px-3 py-3">No.</th>
-                            <th className="px-3 py-3">Absent Event</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {absentEvents.map((eventSummary, index) => (
-                            <tr
-                              key={eventSummary.key}
-                              className="border-b last:border-b-0"
-                            >
-                              <td className="px-3 py-3 font-black">
-                                {index + 1}
-                              </td>
-                              <td className="px-3 py-3 font-semibold">
-                                {eventSummary.eventName}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
@@ -5024,7 +5017,7 @@ export default function LandingPage() {
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-black">
+                                <p className="break-words text-sm font-black">
                                   {fine.prescribed_penalty}
                                 </p>
                                 {isZeroAttendanceFine(fine) ? (
@@ -5060,16 +5053,16 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <DialogFooter className={landingDialogFooterClassName}>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setResultDialogOpen(false)}
-                  className="min-w-28 rounded-xl font-black"
+                  className="min-h-11 w-full rounded-xl font-black sm:w-auto sm:min-w-28"
                 >
                   Close
                 </Button>
-              </div>
+              </DialogFooter>
             </section>
           ) : null}
         </DialogContent>
@@ -5112,15 +5105,18 @@ export default function LandingPage() {
           setAttendanceRequestsDialogOpen(open);
         }}
       >
-        <DialogContent className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent
+          className={`${landingDialogContentClassName} sm:max-w-3xl`}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogHeader className={landingDialogHeaderClassName}>
             <DialogTitle>Attendance Requests</DialogTitle>
             <DialogDescription>
               Review the status and details of attendance requests for {selectedYearLabel}.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <div className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
                 {displayedAttendanceRequests.length} request/s
@@ -5235,6 +5231,17 @@ export default function LandingPage() {
               </div>
             )}
           </div>
+
+          <DialogFooter className={landingDialogFooterClassName}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAttendanceRequestsDialogOpen(false)}
+              className="min-h-11 w-full rounded-xl font-black sm:w-auto sm:min-w-28"
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
