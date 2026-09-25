@@ -1,5 +1,5 @@
 export const QR_CODE_COLLEGE_PROGRAM_OPTIONS: Record<string, string[]> = {
-  "College of Business Administration": ["BSBA", "BSAM", "BSHM"],
+  "College of Business Administration": ["BSBA", "BSAB", "BSHM"],
   "College of Teacher Education": [
     "BSED Filipino",
     "BSED English",
