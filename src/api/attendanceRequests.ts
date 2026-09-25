@@ -99,7 +99,7 @@ export type CreateAttendanceRequestInput =
     })
   | (BaseCreateAttendanceRequestInput & {
       requestType: "details_correction";
-      evidenceUrl: string;
+      evidenceUrl?: never;
       events?: never;
     });
 

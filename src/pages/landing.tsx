@@ -212,7 +212,6 @@ type DetailsCorrectionFormState = {
   yearLevel: string;
   college: string;
   program: string;
-  evidenceUrl: string;
   note: string;
 };
 
@@ -309,7 +308,6 @@ const emptyDetailsCorrectionForm: DetailsCorrectionFormState = {
   yearLevel: "",
   college: "",
   program: "",
-  evidenceUrl: "",
   note: "",
 };
 
@@ -2615,7 +2613,7 @@ function DetailsCorrectionDialog(props: {
   error: string;
   isSaving: boolean;
   onFieldChange: (
-    field: "name" | "yearLevel" | "college" | "program" | "evidenceUrl" | "note",
+    field: "name" | "yearLevel" | "college" | "program" | "note",
     value: string,
   ) => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
@@ -2639,7 +2637,7 @@ function DetailsCorrectionDialog(props: {
   );
   const hasChanges =
     nameChanged || yearLevelChanged || collegeChanged || programChanged;
-  const canSubmit = hasChanges && Boolean(props.form.evidenceUrl.trim());
+  const canSubmit = hasChanges;
   const changedFieldClassName =
     "rounded-2xl border border-amber-300 bg-amber-50/60 p-3";
   const unchangedFieldClassName = "rounded-2xl border bg-background p-3";
@@ -2651,7 +2649,7 @@ function DetailsCorrectionDialog(props: {
         className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
       >
         <DialogHeader>
-          <DialogTitle>Request Details Correction</DialogTitle>
+          <DialogTitle>Details Correction</DialogTitle>
           <DialogDescription>
             Correct a misspelled or wrong Name, Year Level, College, or Program.
             Student ID cannot be changed.
@@ -2660,14 +2658,8 @@ function DetailsCorrectionDialog(props: {
 
         <form onSubmit={props.onSubmit} className="space-y-5">
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
-            <p>
-              Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers
-              will compare the requested details with your evidence before approving
-              any correction.
-            </p>
-            <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
-              Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
-            </p>
+            Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers will
+            review the requested corrections before applying them.
           </div>
 
           {props.error ? (
@@ -2847,19 +2839,6 @@ function DetailsCorrectionDialog(props: {
           </section>
 
           <label className="block space-y-2 text-sm font-bold">
-            <span>Evidence link</span>
-            <Input
-              type="url"
-              value={props.form.evidenceUrl}
-              onChange={(event) =>
-                props.onFieldChange("evidenceUrl", event.target.value)
-              }
-              placeholder="Public link to Certificate of Registration, school ID, or other proof"
-              className={textInputClassName}
-            />
-          </label>
-
-          <label className="block space-y-2 text-sm font-bold">
             <span>Note (optional)</span>
             <Textarea
               value={props.form.note}
@@ -2870,13 +2849,22 @@ function DetailsCorrectionDialog(props: {
             />
           </label>
 
-          <div className="flex justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => props.onOpenChange(false)}
+              disabled={props.isSaving}
+              className="min-h-11 rounded-xl px-5 font-black"
+            >
+              Close
+            </Button>
             <Button
               type="submit"
               disabled={props.isSaving || !canSubmit}
               className="min-h-11 rounded-xl px-5 font-black"
             >
-              {props.isSaving ? "Submitting..." : "Submit Details Correction"}
+              {props.isSaving ? "Submitting..." : "Submit Correction"}
             </Button>
           </div>
         </form>
@@ -3835,7 +3823,7 @@ export default function LandingPage() {
   }
 
   function handleDetailsCorrectionFieldChange(
-    field: "name" | "yearLevel" | "college" | "program" | "evidenceUrl" | "note",
+    field: "name" | "yearLevel" | "college" | "program" | "note",
     value: string,
   ) {
     setDetailsCorrectionError("");
@@ -3866,7 +3854,6 @@ export default function LandingPage() {
     const yearLevel = detailsCorrectionForm.yearLevel.trim();
     const college = detailsCorrectionForm.college.trim();
     const program = detailsCorrectionForm.program.trim();
-    const evidenceUrl = detailsCorrectionForm.evidenceUrl.trim();
     const hasChanges =
       detailsCorrectionValueChanged(detailsCorrectionForm.currentName, name) ||
       detailsCorrectionValueChanged(
@@ -3898,23 +3885,6 @@ export default function LandingPage() {
       setDetailsCorrectionError("No changes detected.");
       return;
     }
-    if (!evidenceUrl) {
-      setDetailsCorrectionError("A public evidence link is required.");
-      return;
-    }
-
-    try {
-      const parsed = new URL(evidenceUrl);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new Error("Unsupported protocol");
-      }
-    } catch {
-      setDetailsCorrectionError(
-        "Evidence must be a valid HTTP/HTTPS link set to public access.",
-      );
-      return;
-    }
-
     setIsSavingDetailsCorrection(true);
     setDetailsCorrectionError("");
     try {
@@ -3927,7 +3897,6 @@ export default function LandingPage() {
         college,
         program,
         note: detailsCorrectionForm.note.trim(),
-        evidenceUrl,
       });
 
       if (
@@ -4685,7 +4654,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:w-auto">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
                 <div
                   className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}
                 >
@@ -4714,25 +4683,25 @@ export default function LandingPage() {
                   variant="outline"
                   disabled={!attendedEvents.length}
                   onClick={() => setEventsDialogOpen(true)}
-                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
                 >
-                  View Attended Events
+                  View Events
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleLookupAttendanceRequestReview}
-                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
                 >
-                  Request Attendance Review
+                  Attendance Review
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleLookupDetailsCorrection}
-                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
                 >
-                  Request Details Correction
+                  Details Correction
                 </Button>
               </div>
 
@@ -4839,7 +4808,7 @@ export default function LandingPage() {
                               }
                               className="rounded-xl"
                             >
-                              Submit a new request
+                              New Request
                             </Button>
                           ) : null}
                         </div>

@@ -631,38 +631,7 @@ export default function AttendanceRequestsPage() {
                 </div>
               ) : null}
 
-              {request.request_type === "details_correction" ? (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-black uppercase tracking-wide">
-                    Correction evidence
-                  </h3>
-                  <div className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="font-black">Student details evidence</p>
-                      <p className="mt-1 break-all text-xs text-muted-foreground">
-                        {request.evidence_url || "No evidence link provided."}
-                      </p>
-                    </div>
-                    <ActionMenu
-                      ariaLabel={`Evidence actions for ${request.name}`}
-                      actions={[
-                        {
-                          label: "Open Evidence",
-                          disabled: !request.evidence_url,
-                          onSelect: () => {
-                            if (!request.evidence_url) return;
-                            window.open(
-                              request.evidence_url,
-                              "_blank",
-                              "noopener,noreferrer",
-                            );
-                          },
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
-              ) : (
+              {request.request_type === "details_correction" ? null : (
                 <div className="space-y-3">
                   <h3 className="text-sm font-black uppercase tracking-wide">
                     Claimed events and evidence
