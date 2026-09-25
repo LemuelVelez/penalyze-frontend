@@ -320,6 +320,8 @@ export default function EventsPage() {
   const [colleges, setColleges] = useState<AttendanceCollege[]>([]);
   const [exemptions, setExemptions] = useState<EventCollegeExemption[]>([]);
   const [exemptionDialogOpen, setExemptionDialogOpen] = useState(false);
+  const [currentExemptionsDialogOpen, setCurrentExemptionsDialogOpen] = useState(false);
+  const [impactPreviewDialogOpen, setImpactPreviewDialogOpen] = useState(false);
   const [exemptionColleges, setExemptionColleges] = useState<string[]>([]);
   const [exemptionCollegePickerOpen, setExemptionCollegePickerOpen] = useState(false);
   const [exemptionEventIds, setExemptionEventIds] = useState<string[]>([]);
@@ -873,6 +875,7 @@ export default function EventsPage() {
     setExemptionReason("");
     setExemptionImpact([]);
     setHasPreviewedExemptions(false);
+    setImpactPreviewDialogOpen(false);
     setExemptionDialogOpen(true);
   }
 
@@ -948,6 +951,7 @@ export default function EventsPage() {
       );
       setExemptionImpact(previews);
       setHasPreviewedExemptions(true);
+      setImpactPreviewDialogOpen(true);
       if (!previews.some((preview) => preview.impacts.length)) {
         toast.info("No impact data for the selected events.");
       }
@@ -1279,6 +1283,15 @@ export default function EventsPage() {
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center sm:w-auto"
               />
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCurrentExemptionsDialogOpen(true)}
+                className="min-h-12 rounded-2xl px-6 font-black"
+              >
+                Current college exemptions
+              </Button>
 
               <Button
                 type="button"
@@ -1669,85 +1682,88 @@ export default function EventsPage() {
         </section>
       </div>
 
-      <section className="mx-auto mt-6 w-full max-w-7xl rounded-3xl border bg-card p-4 shadow-sm sm:p-5 lg:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-black sm:text-xl">Current college exemptions</h2>
-          </div>
-          <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!undoEntry || exemptionActionsBusy}
-                title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
-                onClick={() => setUndoConfirmationOpen(true)}
-                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
-              >
-                {isApplyingHistory && applyingHistoryAction === "undo"
-                  ? "Recalculating..."
-                  : "Undo"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!redoEntry || exemptionActionsBusy}
-                title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
-                onClick={() => void handleRedoExemptions()}
-                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
-              >
-                {isApplyingHistory && applyingHistoryAction === "redo"
-                  ? "Recalculating..."
-                  : "Redo"}
-              </Button>
-            </div>
-            <p className="max-w-lg text-left text-xs font-semibold leading-5 text-muted-foreground lg:text-right">
-              Undo history is kept for this session only and clears on reload or school-year change.
-            </p>
-          </div>
-        </div>
-        {exemptions.length ? (
-          <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {Array.from(new Set(exemptions.map((item) => item.college_label))).map((collegeLabel) => (
-              <div key={collegeLabel} className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5">
-                <p className="break-words font-black">{collegeLabel}</p>
-                <div className="mt-3 grid gap-2">
-                  {exemptions.filter((item) => item.college_label === collegeLabel).map((item) => (
-                    <div key={item.id} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="break-words font-bold">{item.event_name}</p>
-                        {item.reason ? <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.reason}</p> : null}
-                      </div>
-                      <ActionMenu
-                        ariaLabel={`Actions for ${item.event_name}`}
-                        deleteAction={{
-                          label:
-                            deletingExemptionId === item.id
-                              ? "Removing..."
-                              : "Remove exemption",
-                          disabled: exemptionActionsBusy,
-                          title: "Remove this college exemption?",
-                          description:
-                            "The event will return to this college's expected-event roster and attendance results and fines will be recalculated.",
-                          confirmationPhrase: "REMOVE",
-                          confirmLabel: "Remove Exemption",
-                          pendingLabel: "Removing...",
-                          isPending: deletingExemptionId === item.id,
-                          onConfirm: () => handleRemoveExemption(item),
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
+      <Dialog
+        open={currentExemptionsDialogOpen}
+        onOpenChange={setCurrentExemptionsDialogOpen}
+      >
+        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Current college exemptions</DialogTitle>
+          </DialogHeader>
+          <div className="flex w-full flex-col gap-2 lg:items-end">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!undoEntry || exemptionActionsBusy}
+                  title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
+                  onClick={() => setUndoConfirmationOpen(true)}
+                  className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+                >
+                  {isApplyingHistory && applyingHistoryAction === "undo"
+                    ? "Recalculating..."
+                    : "Undo"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!redoEntry || exemptionActionsBusy}
+                  title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
+                  onClick={() => void handleRedoExemptions()}
+                  className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+                >
+                  {isApplyingHistory && applyingHistoryAction === "redo"
+                    ? "Recalculating..."
+                    : "Redo"}
+                </Button>
               </div>
-            ))}
+              <p className="max-w-lg text-left text-xs font-semibold leading-5 text-muted-foreground lg:text-right">
+                Undo history is kept for this session only and clears on reload or school-year change.
+              </p>
           </div>
-        ) : (
-          <p className="mt-5 flex min-h-20 items-center rounded-2xl border border-dashed bg-muted/20 px-4 py-5 text-sm font-semibold leading-6 text-muted-foreground sm:px-5">
-            No college exemptions for this school year.
-          </p>
-        )}
-      </section>
+          {exemptions.length ? (
+            <div className="mt-1 grid gap-3 lg:grid-cols-2">
+              {Array.from(new Set(exemptions.map((item) => item.college_label))).map((collegeLabel) => (
+                <div key={collegeLabel} className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5">
+                  <p className="break-words font-black">{collegeLabel}</p>
+                  <div className="mt-3 grid gap-2">
+                    {exemptions.filter((item) => item.college_label === collegeLabel).map((item) => (
+                      <div key={item.id} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="break-words font-bold">{item.event_name}</p>
+                          {item.reason ? <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.reason}</p> : null}
+                        </div>
+                        <ActionMenu
+                          ariaLabel={`Actions for ${item.event_name}`}
+                          deleteAction={{
+                            label:
+                              deletingExemptionId === item.id
+                                ? "Removing..."
+                                : "Remove exemption",
+                            disabled: exemptionActionsBusy,
+                            title: "Remove this college exemption?",
+                            description:
+                              "The event will return to this college's expected-event roster and attendance results and fines will be recalculated.",
+                            confirmationPhrase: "REMOVE",
+                            confirmLabel: "Remove Exemption",
+                            pendingLabel: "Removing...",
+                            isPending: deletingExemptionId === item.id,
+                            onConfirm: () => handleRemoveExemption(item),
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 flex min-h-20 items-center rounded-2xl border border-dashed bg-muted/20 px-4 py-5 text-sm font-semibold leading-6 text-muted-foreground sm:px-5">
+              No college exemptions for this school year.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(exemptionDetailsEvent)}
@@ -1936,62 +1952,74 @@ export default function EventsPage() {
               <span>3. Optional reason</span>
               <Textarea value={exemptionReason} onChange={(event) => setExemptionReason(event.target.value)} placeholder="Why is this college exempted from these events?" />
             </label>
-            {hasPreviewedExemptions ? (
-              <div className="rounded-2xl border bg-muted/30 p-4">
-                <p className="font-black">Impact preview</p>
-                {exemptionImpact.some((preview) => preview.impacts.length) ? (
-                  <div className="mt-3 space-y-4">
-                    {exemptionImpact.map((preview) => (
-                      <div key={preview.collegeKey} className="space-y-2">
-                        <p className="text-sm font-black">{preview.collegeLabel}</p>
-                        {preview.impacts.length ? (
-                          preview.impacts.map((impact) => (
-                            <div
-                              key={`${preview.collegeKey}:${impact.event_id}`}
-                              className="rounded-xl border bg-background p-3 text-sm"
-                            >
-                              <p className="font-black">{impact.event_name}</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {impact.already_exempted ? (
-                                  <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">Already exempted</span>
-                                ) : null}
-                                {!impact.in_roster_scope ? (
-                                  <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">No attendance records for this college</span>
-                                ) : null}
-                              </div>
-                              <p className="mt-2 text-muted-foreground">{impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="rounded-xl border border-dashed bg-background p-3 text-sm font-semibold text-muted-foreground">
-                            No impact data for this college.
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-3 rounded-xl border border-dashed bg-background p-3 text-sm font-semibold text-muted-foreground">
-                    No impact data for the selected events.
-                  </p>
-                )}
-              </div>
-            ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" onClick={() => setExemptionDialogOpen(false)}>Cancel</Button>
-              {!hasPreviewedExemptions ? (
-                <Button
-                  type="button"
-                  disabled={isPreviewingExemptions || exemptionActionsBusy}
-                  onClick={() => void handlePreviewExemptions()}
-                >
-                  {isPreviewingExemptions ? "Previewing..." : "Preview Impact"}
-                </Button>
-              ) : (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPreviewingExemptions || exemptionActionsBusy}
+                onClick={() => {
+                  if (hasPreviewedExemptions) {
+                    setImpactPreviewDialogOpen(true);
+                    return;
+                  }
+                  void handlePreviewExemptions();
+                }}
+              >
+                {isPreviewingExemptions ? "Previewing..." : "Impact preview"}
+              </Button>
+              {hasPreviewedExemptions ? (
                 <Button type="button" disabled={exemptionActionsBusy} onClick={() => void handleSaveExemptions()}>{isSavingExemptions ? "Saving..." : "Confirm & Save"}</Button>
-              )}
+              ) : null}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={impactPreviewDialogOpen}
+        onOpenChange={setImpactPreviewDialogOpen}
+      >
+        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Impact preview</DialogTitle>
+          </DialogHeader>
+          {exemptionImpact.some((preview) => preview.impacts.length) ? (
+            <div className="space-y-4">
+              {exemptionImpact.map((preview) => (
+                <div key={preview.collegeKey} className="space-y-2">
+                  <p className="text-sm font-black">{preview.collegeLabel}</p>
+                  {preview.impacts.length ? (
+                    preview.impacts.map((impact) => (
+                      <div
+                        key={`${preview.collegeKey}:${impact.event_id}`}
+                        className="rounded-xl border bg-muted/20 p-3 text-sm"
+                      >
+                        <p className="font-black">{impact.event_name}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {impact.already_exempted ? (
+                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">Already exempted</span>
+                          ) : null}
+                          {!impact.in_roster_scope ? (
+                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">No attendance records for this college</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-muted-foreground">{impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-xl border border-dashed bg-muted/20 p-3 text-sm font-semibold text-muted-foreground">
+                      No impact data for this college.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed bg-muted/20 p-3 text-sm font-semibold text-muted-foreground">
+              No impact data for the selected events.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 
