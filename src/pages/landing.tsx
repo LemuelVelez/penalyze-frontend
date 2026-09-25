@@ -853,6 +853,11 @@ function normalizeDisplayValue(value: unknown) {
     .replace(/\s+/g, " ");
 }
 
+function normalizeCollegeKey(value: unknown) {
+  const text = normalizeDisplayValue(value).replace(/&/g, " and ");
+  return text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function hasFinalAttendanceResultMarker(...values: unknown[]) {
   const finalAttendanceResultNames = new Set([
     normalizeDisplayValue(FINAL_ATTENDANCE_RESULT_NAME),
@@ -2898,9 +2903,15 @@ function AttendanceRequestDialog(props: {
   const programOptions = getStudentProgramOptions(props.form.college);
   const selectableSchoolYears = props.schoolYears;
   const excludedEventIds = new Set(props.excludedEventIds);
-  const availableEvents = props.events.filter(
-    (event) => !excludedEventIds.has(event.id),
-  );
+  const selectedCollegeKey = normalizeCollegeKey(props.form.college);
+  const availableEvents = props.events.filter((event) => {
+    if (excludedEventIds.has(event.id)) return false;
+    if (!selectedCollegeKey) return true;
+
+    return !(event.exempted_colleges ?? []).some(
+      (exemption) => exemption.college_key === selectedCollegeKey,
+    );
+  });
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -3941,7 +3952,9 @@ export default function LandingPage() {
     setAttendanceRequestForm((current) => ({
       ...current,
       [field]: value,
-      ...(field === "college" ? { program: "" } : {}),
+      ...(field === "college"
+        ? { program: "", selectedEventIds: [], evidenceByEvent: {} }
+        : {}),
     }));
   }
 
