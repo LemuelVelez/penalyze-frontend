@@ -948,7 +948,7 @@ export default function FinesPage() {
   }
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1247,7 +1247,7 @@ export default function FinesPage() {
             )}
           </div>
 
-          <div className="mt-5 hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
@@ -1464,7 +1464,7 @@ export default function FinesPage() {
           </div>
         </section>
         <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
-          <DialogContent className="flex max-h-[90svh] min-w-0 flex-col overflow-hidden sm:max-w-5xl">
+          <DialogContent className="flex max-w-full max-h-[90svh] min-w-0 flex-col overflow-hidden sm:max-w-5xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Fines report preview</DialogTitle>
               <DialogDescription>
@@ -1472,8 +1472,8 @@ export default function FinesPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+            <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2 lg:hidden">
                 {filteredPenaltyResults.map((result) => (
                   <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-4 text-sm">
                     <div className="flex items-start justify-between gap-3">
@@ -1492,7 +1492,7 @@ export default function FinesPage() {
                   </article>
                 ))}
               </div>
-              <div className="hidden overflow-auto rounded-2xl border lg:block">
+              <div className="hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
               <table className="w-max min-w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-primary text-primary-foreground">
                   <tr>
@@ -1537,7 +1537,7 @@ export default function FinesPage() {
           open={penaltyResultDialogOpen}
           onOpenChange={handlePenaltyResultDialogOpenChange}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit penalty result</DialogTitle>
               <DialogDescription>
@@ -1662,7 +1662,7 @@ export default function FinesPage() {
             }
           }}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Absent events for {absentEventsStudentName}</DialogTitle>
               <DialogDescription>
@@ -1707,7 +1707,7 @@ export default function FinesPage() {
           open={penaltyDialogOpen}
           onOpenChange={handlePenaltyDialogOpenChange}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}

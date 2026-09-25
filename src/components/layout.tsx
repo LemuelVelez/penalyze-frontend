@@ -455,7 +455,7 @@ export default function AppLayout(props: LayoutProps) {
 
               <SheetContent
                 side="right"
-                className="h-svh min-h-svh w-full max-w-80 overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 lg:hidden"
+                className="h-svh min-h-svh w-full min-w-0 max-w-80 overflow-x-hidden overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 lg:hidden"
               >
                 <SheetHeader className="mb-5 border-b pb-4 text-left">
                   <SheetTitle>
@@ -466,7 +466,7 @@ export default function AppLayout(props: LayoutProps) {
                   </SheetDescription>
                 </SheetHeader>
 
-                <nav className="flex flex-col gap-4" aria-label="Mobile dashboard navigation">
+                <nav className="flex min-w-0 flex-col gap-4" aria-label="Mobile dashboard navigation">
                   <Button
                     type="button"
                     variant="ghost"
@@ -489,7 +489,7 @@ export default function AppLayout(props: LayoutProps) {
                     return (
                       <section
                         key={group.id}
-                        className={`rounded-2xl border p-1.5 ${
+                        className={`min-w-0 rounded-2xl border p-1.5 ${
                           groupActive ? "bg-primary/[0.035]" : "bg-muted/20"
                         }`}
                         aria-label={`${group.label} navigation`}
@@ -521,7 +521,7 @@ export default function AppLayout(props: LayoutProps) {
                                 }`}
                               >
                                 <Icon className="size-4" aria-hidden="true" />
-                                <span>{item.label}</span>
+                                <span className="min-w-0 truncate">{item.label}</span>
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} className="ml-auto" />
                                 ) : null}

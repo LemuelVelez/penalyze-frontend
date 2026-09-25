@@ -403,7 +403,7 @@ export default function ExportReport(props: ExportReportProps) {
       </DialogTrigger>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden sm:max-w-6xl"
+        className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col overflow-hidden sm:max-w-6xl"
       >
         <DialogHeader className="shrink-0">
           <DialogTitle>Report preview by college</DialogTitle>
@@ -413,16 +413,16 @@ export default function ExportReport(props: ExportReportProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0 rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
               College to preview/export
             </p>
             <Select value={selectedCollege} onValueChange={setSelectedCollege}>
-              <SelectTrigger className="mt-2 min-h-11 w-full max-w-64 overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold">
+              <SelectTrigger className="mt-2 min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold sm:max-w-64">
                 <SelectValue placeholder="All colleges" className="truncate" />
               </SelectTrigger>
-              <SelectContent className="max-w-xs">
+              <SelectContent className="max-w-[calc(100vw-2rem)] sm:max-w-xs">
                 <SelectItem value={ALL_COLLEGES_VALUE}>All colleges</SelectItem>
                 {collegeOptions.map((college) => (
                   <SelectItem
@@ -462,7 +462,7 @@ export default function ExportReport(props: ExportReportProps) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <div className="grid gap-3 md:grid-cols-2 lg:hidden">
             {Object.entries(rowsByCollege).length ? (
               Object.entries(rowsByCollege).flatMap(([college, rows]) =>
@@ -496,7 +496,7 @@ export default function ExportReport(props: ExportReportProps) {
             )}
           </div>
 
-          <div className="hidden overflow-auto rounded-2xl border lg:block">
+          <div className="hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="sticky top-0 z-10 border-b bg-background text-xs uppercase text-muted-foreground">
               <tr>

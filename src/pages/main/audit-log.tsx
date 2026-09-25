@@ -131,7 +131,7 @@ export default function AuditLogPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <main className="mx-auto w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-primary">
@@ -262,7 +262,7 @@ export default function AuditLogPage() {
           )}
         </div>
 
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="hidden min-w-0 max-w-full overflow-x-auto lg:block">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -337,7 +337,7 @@ export default function AuditLogPage() {
       </section>
 
       <Dialog open={Boolean(selectedLog)} onOpenChange={(open) => !open && setSelectedLog(null)}>
-        <DialogContent className="max-h-[85svh] overflow-y-auto rounded-2xl sm:max-w-2xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[85svh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Audit record details</DialogTitle>
             <DialogDescription>

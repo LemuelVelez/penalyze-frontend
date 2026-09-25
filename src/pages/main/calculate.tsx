@@ -1894,7 +1894,7 @@ export default function CalculatePage() {
   }
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2160,7 +2160,7 @@ export default function CalculatePage() {
             )}
           </div>
 
-          <div className="mt-5 hidden overflow-x-auto rounded-2xl border lg:block">
+          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border lg:block">
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
@@ -2260,7 +2260,7 @@ export default function CalculatePage() {
       </div>
 
       <Dialog open={sourceDialogOpen} onOpenChange={setSourceDialogOpen}>
-        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Sources and imported files to calculate</DialogTitle>
             <DialogDescription>
@@ -2392,7 +2392,7 @@ export default function CalculatePage() {
           }
         }}
       >
-        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-5xl">
+        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Edit source records for calculation row</DialogTitle>
             <DialogDescription>

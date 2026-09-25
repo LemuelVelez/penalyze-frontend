@@ -1146,7 +1146,7 @@ export default function ManualAttendancePage() {
   }
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1259,7 +1259,7 @@ export default function ManualAttendancePage() {
           open={manualAttendanceDialogOpen}
           onOpenChange={handleDialogOpenChange}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>
                 {editingGroupKey
@@ -1576,7 +1576,7 @@ export default function ManualAttendancePage() {
         />
 
         <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
-          <DialogContent className="flex max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
+          <DialogContent className="flex max-w-full max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Existing records for this student</DialogTitle>
               <DialogDescription>
@@ -1619,7 +1619,7 @@ export default function ManualAttendancePage() {
             if (!open) setEventsDialogGroup(null);
           }}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 Events attended by{" "}
@@ -1808,7 +1808,7 @@ export default function ManualAttendancePage() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>

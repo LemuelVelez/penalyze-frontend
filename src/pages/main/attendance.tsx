@@ -1765,7 +1765,7 @@ export default function AttendancePage() {
   }
 
   return (
-    <main className="min-h-svh bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-5">
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1912,7 +1912,7 @@ export default function AttendancePage() {
         </section>
 
         <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Upload attendance file</DialogTitle>
               <DialogDescription>
@@ -2235,7 +2235,7 @@ export default function AttendancePage() {
             if (!open) setMergeDialogFileKey("");
           }}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Confirm attendance event merge</DialogTitle>
               <DialogDescription>
@@ -2386,7 +2386,7 @@ export default function AttendancePage() {
             }
           }}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 Event attendance for{" "}
@@ -2492,7 +2492,7 @@ export default function AttendancePage() {
           open={finalResultDialogOpen}
           onOpenChange={handleFinalResultDialogOpenChange}
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Edit final attendance result</DialogTitle>
               <DialogDescription>
@@ -2841,7 +2841,7 @@ export default function AttendancePage() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>

@@ -262,7 +262,7 @@ export default function UsersPage() {
   }, []);
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-400">
         <div className="mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -405,7 +405,7 @@ export default function UsersPage() {
               )}
             </div>
 
-            <div className="mt-5 hidden overflow-x-auto lg:block">
+            <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto lg:block">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b text-xs uppercase text-muted-foreground">
                   <tr>
@@ -490,7 +490,7 @@ export default function UsersPage() {
         </div>
 
         <Dialog open={userDialogOpen} onOpenChange={handleUserDialogOpenChange}>
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>
                 {isEditing ? "Edit user" : "Create user"}

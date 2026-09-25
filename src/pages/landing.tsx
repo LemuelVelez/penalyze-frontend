@@ -316,19 +316,19 @@ const textInputClassName =
   "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const selectTriggerClassName =
-  "min-h-12 w-full min-w-0 max-w-72 overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
+  "min-h-12 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 [&>span]:min-w-0 [&>span]:truncate";
 
 const customSelectInputClassName =
   "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const landingDialogContentClassName =
-  "left-2 right-2 top-2 bottom-2 h-auto max-h-none w-auto max-w-none min-w-0 translate-x-0 translate-y-0 overflow-x-hidden overflow-y-auto overscroll-contain break-words sm:left-1/2 sm:right-auto sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2";
+  "left-2 right-2 top-2 bottom-2 h-auto max-h-none w-auto max-w-none min-w-0 grid-cols-[minmax(0,1fr)] translate-x-0 translate-y-0 overflow-x-hidden overflow-y-auto overscroll-contain break-words sm:left-1/2 sm:right-auto sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 [&>*]:min-w-0";
 
 const landingDialogHeaderClassName =
-  "max-sm:-mx-4 max-sm:-mt-4 max-sm:border-b max-sm:px-4 max-sm:pt-4 max-sm:pb-3";
+  "min-w-0 max-sm:-mx-4 max-sm:-mt-4 max-sm:border-b max-sm:px-4 max-sm:pt-4 max-sm:pb-3";
 
 const landingDialogFooterClassName =
-  "max-sm:-mx-4 max-sm:-mb-4 max-sm:border-t max-sm:px-4 max-sm:py-3 sm:pt-2";
+  "min-w-0 max-sm:-mx-4 max-sm:-mb-4 max-sm:border-t max-sm:px-4 max-sm:py-3 sm:pt-2";
 
 
 function hasStudentSelectOption(
@@ -2479,7 +2479,7 @@ function ZeroAttendanceRegistrationDialog(props: {
             event.preventDefault();
             setConfirmationOpen(true);
           }}
-          className="space-y-5"
+          className="w-full min-w-0 space-y-5"
         >
           <div className="space-y-3 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
             <p>
@@ -2497,12 +2497,12 @@ function ZeroAttendanceRegistrationDialog(props: {
           </div>
 
           {props.error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere]">
               {props.error}
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm font-bold">
               <span>Student ID</span>
               <Input
@@ -2548,7 +2548,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     className="truncate"
                   />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_YEAR_LEVEL_OPTIONS,
                     props.form.yearLevel,
@@ -2585,7 +2585,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     className="truncate"
                   />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_COLLEGE_OPTIONS,
                     props.form.college,
@@ -2627,7 +2627,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     className="truncate"
                   />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     programOptions,
                     props.form.program,
@@ -2671,7 +2671,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     className="truncate"
                   />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_INSTITUTION_OPTIONS,
                     props.form.institution,
@@ -2815,8 +2815,8 @@ function DetailsCorrectionDialog(props: {
     nameChanged || yearLevelChanged || collegeChanged || programChanged;
   const canSubmit = hasChanges;
   const changedFieldClassName =
-    "rounded-2xl border border-amber-300 bg-amber-50/60 p-3";
-  const unchangedFieldClassName = "rounded-2xl border bg-background p-3";
+    "min-w-0 rounded-2xl border border-amber-300 bg-amber-50/60 p-3";
+  const unchangedFieldClassName = "min-w-0 rounded-2xl border bg-background p-3";
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -2832,19 +2832,19 @@ function DetailsCorrectionDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={props.onSubmit} className="space-y-5">
-          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
+        <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
+          <div className="min-w-0 rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800 [overflow-wrap:anywhere]">
             Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers will
             review the requested corrections before applying them.
           </div>
 
           {props.error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere]">
               {props.error}
             </div>
           ) : null}
 
-          <section className="space-y-3 rounded-3xl border bg-muted/30 p-4">
+          <section className="min-w-0 space-y-3 rounded-3xl border bg-muted/30 p-4">
             <div>
               <h3 className="text-sm font-black uppercase tracking-wide">
                 Current details
@@ -2853,28 +2853,28 @@ function DetailsCorrectionDialog(props: {
                 These are the details currently found for this Student ID.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
               {[
                 ["Name", props.form.currentName],
                 ["Year Level", props.form.currentYearLevel],
                 ["College", props.form.currentCollege],
                 ["Program", props.form.currentProgram],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border bg-background p-3">
+                <div key={label} className="min-w-0 rounded-2xl border bg-background p-3">
                   <p className="text-xs font-bold uppercase text-muted-foreground">
                     {label}
                   </p>
-                  <p className="mt-1 break-words font-semibold">{value || "—"}</p>
+                  <p className="mt-1 break-words font-semibold [overflow-wrap:anywhere]">{value || "—"}</p>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="space-y-4">
+          <section className="min-w-0 space-y-4">
             <h3 className="text-sm font-black uppercase tracking-wide">
               Correct details
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
               <label className={nameChanged ? changedFieldClassName : unchangedFieldClassName}>
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>Name</span>
@@ -2906,9 +2906,9 @@ function DetailsCorrectionDialog(props: {
                   onValueChange={(value) => props.onFieldChange("yearLevel", value)}
                 >
                   <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
-                    <SelectValue placeholder="Select year level" />
+                    <SelectValue placeholder="Select year level" className="truncate" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-72 max-w-80">
+                  <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                     {renderCurrentStudentSelectOption(
                       QR_CODE_YEAR_LEVEL_OPTIONS,
                       props.form.yearLevel,
@@ -2944,9 +2944,9 @@ function DetailsCorrectionDialog(props: {
                   onValueChange={(value) => props.onFieldChange("college", value)}
                 >
                   <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
-                    <SelectValue placeholder="Select college" />
+                    <SelectValue placeholder="Select college" className="truncate" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-72 max-w-80">
+                  <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                     {renderCurrentStudentSelectOption(
                       QR_CODE_COLLEGE_OPTIONS,
                       props.form.college,
@@ -2985,9 +2985,10 @@ function DetailsCorrectionDialog(props: {
                       placeholder={
                         props.form.college ? "Select program" : "Select college first"
                       }
+                      className="truncate"
                     />
                   </SelectTrigger>
-                  <SelectContent className="max-h-72 max-w-80">
+                  <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                     {renderCurrentStudentSelectOption(
                       programOptions,
                       props.form.program,
@@ -3014,7 +3015,7 @@ function DetailsCorrectionDialog(props: {
             </div>
           </section>
 
-          <label className="block space-y-2 text-sm font-bold">
+          <label className="block min-w-0 space-y-2 text-sm font-bold">
             <span>Note (optional)</span>
             <Textarea
               value={props.form.note}
@@ -3098,7 +3099,7 @@ function AttendanceRequestDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={props.onSubmit} className="space-y-5">
+        <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
             <p>
               Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
@@ -3114,7 +3115,7 @@ function AttendanceRequestDialog(props: {
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
             <label className="space-y-2 text-sm font-bold">
               <span>Student ID</span>
               <Input
@@ -3169,7 +3170,7 @@ function AttendanceRequestDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue placeholder="Select year level" />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_YEAR_LEVEL_OPTIONS,
                     props.form.yearLevel,
@@ -3200,7 +3201,7 @@ function AttendanceRequestDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue placeholder="Select college" />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_COLLEGE_OPTIONS,
                     props.form.college,
@@ -3238,7 +3239,7 @@ function AttendanceRequestDialog(props: {
                     }
                   />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     programOptions,
                     props.form.program,
@@ -3276,7 +3277,7 @@ function AttendanceRequestDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue placeholder="Select institution" />
                 </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-80">
+                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                   {renderCurrentStudentSelectOption(
                     QR_CODE_INSTITUTION_OPTIONS,
                     props.form.institution,

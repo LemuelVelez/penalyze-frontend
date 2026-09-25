@@ -1261,7 +1261,7 @@ export default function EventsPage() {
   const redoEntry = redoStack[redoStack.length - 1];
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1622,7 +1622,7 @@ export default function EventsPage() {
             )}
           </div>
 
-          <div className="mt-5 hidden overflow-x-auto rounded-2xl border lg:block">
+          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border lg:block">
             <table className="w-full min-w-[1100px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
@@ -1780,7 +1780,7 @@ export default function EventsPage() {
         open={currentExemptionsDialogOpen}
         onOpenChange={setCurrentExemptionsDialogOpen}
       >
-        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[90svh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Current college exemptions</DialogTitle>
           </DialogHeader>
@@ -1865,7 +1865,7 @@ export default function EventsPage() {
           if (!open) setExemptionDetailsEvent(null);
         }}
       >
-        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[85svh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -1903,7 +1903,7 @@ export default function EventsPage() {
           if (!open) setDescriptionDetailsEvent(null);
         }}
       >
-        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[85svh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Description</DialogTitle>
             <DialogDescription>
@@ -1955,7 +1955,7 @@ export default function EventsPage() {
       </AlertDialog>
 
       <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
-        <DialogContent className="max-h-[95svh] overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[95svh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>College Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -2074,7 +2074,7 @@ export default function EventsPage() {
         open={impactPreviewDialogOpen}
         onOpenChange={setImpactPreviewDialogOpen}
       >
-        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="min-w-0 max-w-full max-h-[90svh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Impact preview</DialogTitle>
           </DialogHeader>
@@ -2127,7 +2127,7 @@ export default function EventsPage() {
           }
         }}
       >
-        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Confirm duplicate event merge</DialogTitle>
             <DialogDescription>
@@ -2223,7 +2223,7 @@ export default function EventsPage() {
       </Dialog>
 
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
-        <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editingEvent ? "Edit event" : "Create event"}

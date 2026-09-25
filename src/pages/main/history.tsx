@@ -1703,7 +1703,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="min-h-svh bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-5">
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1941,7 +1941,7 @@ export default function HistoryPage() {
             open ? setSchoolYearDialogOpen(true) : handleCancelEditSchoolYear()
           }
         >
-          <DialogContent className="max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {editingSchoolYearId
@@ -2271,7 +2271,7 @@ export default function HistoryPage() {
               if (!open) handleCloseRecordsDialog();
             }}
           >
-            <DialogContent className="max-h-svh overflow-y-auto sm:max-w-4xl">
+            <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
               {renderActiveRecordsDialogContent()}
             </DialogContent>
           </Dialog>
