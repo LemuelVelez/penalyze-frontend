@@ -1459,7 +1459,8 @@ export async function getEventCollegeExemptionImpact(input: {
 }
 
 export async function createEventCollegeExemptions(input: {
-  college: string;
+  college?: string;
+  colleges?: string[];
   eventIds: string[];
   reason?: string;
   schoolYearId: string;
