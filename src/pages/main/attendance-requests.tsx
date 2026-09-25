@@ -9,6 +9,7 @@ import {
 import type {
   AttendanceRequest,
   AttendanceRequestStatus,
+  AttendanceRequestType,
 } from "../../api/attendanceRequests";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -24,6 +25,16 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -33,8 +44,10 @@ import {
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 
 const ALL_STATUSES = "__all_statuses__";
+const ALL_REQUEST_TYPES = "__all_request_types__";
 
 type StatusFilter = AttendanceRequestStatus | typeof ALL_STATUSES;
+type RequestTypeFilter = AttendanceRequestType | typeof ALL_REQUEST_TYPES;
 
 type RequestsLoadProgress = {
   progress: number;
@@ -79,10 +92,39 @@ function getStatusClassName(status: AttendanceRequestStatus) {
   return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
+function normalizeComparisonValue(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getCorrectionChanges(request: AttendanceRequest) {
+  const fields = [
+    ["Name", request.current_name, request.name],
+    ["Year Level", request.current_year_level, request.year_level],
+    ["College", request.current_college, request.college],
+    ["Program", request.current_program, request.program],
+  ] as const;
+
+  return fields.filter(
+    ([, currentValue, requestedValue]) =>
+      normalizeComparisonValue(currentValue) !==
+      normalizeComparisonValue(requestedValue),
+  );
+}
+
+function correctionChangesCollege(request: AttendanceRequest) {
+  return (
+    request.request_type === "details_correction" &&
+    normalizeComparisonValue(request.current_college) !==
+      normalizeComparisonValue(request.college)
+  );
+}
+
 export default function AttendanceRequestsPage() {
   const [requests, setRequests] = useState<AttendanceRequest[]>([]);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
+  const [requestTypeFilter, setRequestTypeFilter] =
+    useState<RequestTypeFilter>(ALL_REQUEST_TYPES);
   const [schoolYearFilter, setSchoolYearFilter] = useState(
     ALL_SCHOOL_YEARS_VALUE,
   );
@@ -99,6 +141,8 @@ export default function AttendanceRequestsPage() {
   const loadRequestIdRef = useRef(0);
   const [reviewingId, setReviewingId] = useState("");
   const [removingEventId, setRemovingEventId] = useState("");
+  const [collegeApprovalRequest, setCollegeApprovalRequest] =
+    useState<AttendanceRequest | null>(null);
 
   const filteredRequests = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
@@ -123,7 +167,7 @@ export default function AttendanceRequestsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, schoolYearFilter, fromDate, toDate, studentSearch, sortOrder, rowsPerPage]);
+  }, [statusFilter, requestTypeFilter, schoolYearFilter, fromDate, toDate, studentSearch, sortOrder, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, requestsTotalPages));
@@ -190,6 +234,8 @@ export default function AttendanceRequestsPage() {
     try {
       const requestPromise = listAttendanceRequests({
         status: statusFilter === ALL_STATUSES ? undefined : statusFilter,
+        requestType:
+          requestTypeFilter === ALL_REQUEST_TYPES ? undefined : requestTypeFilter,
         schoolYearId:
           schoolYearFilter === ALL_SCHOOL_YEARS_VALUE
             ? undefined
@@ -252,7 +298,7 @@ export default function AttendanceRequestsPage() {
         }, 1200);
       }
     }
-  }, [schoolYearFilter, statusFilter]);
+  }, [requestTypeFilter, schoolYearFilter, statusFilter]);
 
   useEffect(() => {
     void loadRequests();
@@ -299,13 +345,25 @@ export default function AttendanceRequestsPage() {
       });
 
       if (status === "approved") {
-        toast.success(
-          result?.createdAttendanceCount
-            ? `Request approved. ${result.createdAttendanceCount} attendance record/s added.`
-            : "Request approved. Existing attendance records were kept without duplicates.",
-        );
+        if (request.request_type === "details_correction") {
+          toast.success(
+            result?.updatedRowCount
+              ? `Details correction approved. ${result.updatedRowCount} row/s updated.`
+              : "Details correction approved.",
+          );
+        } else {
+          toast.success(
+            result?.createdAttendanceCount
+              ? `Request approved. ${result.createdAttendanceCount} attendance record/s added.`
+              : "Request approved. Existing attendance records were kept without duplicates.",
+          );
+        }
       } else {
-        toast.success("Attendance request rejected.");
+        toast.success(
+          request.request_type === "details_correction"
+            ? "Details correction request rejected."
+            : "Attendance request rejected.",
+        );
       }
 
       setReviewNotes((current) => {
@@ -335,10 +393,8 @@ export default function AttendanceRequestsPage() {
           Attendance Requests
         </h1>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-          Review student-submitted event attendance claims and open each evidence
-          link before approving or rejecting the request. Approval adds manual
-          attendance only for events that do not already have an attendance
-          record for the student.
+          Review student-submitted attendance claims and details corrections. Open
+          the evidence before approving or rejecting each request.
         </p>
       </header>
 
@@ -377,7 +433,7 @@ export default function AttendanceRequestsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-6 sm:p-5">
+      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-7 sm:p-5">
         <div className="space-y-2">
           <label className="text-sm font-bold">Search student</label>
           <Input
@@ -412,6 +468,25 @@ export default function AttendanceRequestsPage() {
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
               <SelectItem value={ALL_STATUSES}>All statuses</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-bold">Request type</label>
+          <Select
+            value={requestTypeFilter}
+            onValueChange={(value) =>
+              setRequestTypeFilter(value as RequestTypeFilter)
+            }
+          >
+            <SelectTrigger className="min-h-11 w-full rounded-xl">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_REQUEST_TYPES}>All</SelectItem>
+              <SelectItem value="event_review">Event Review</SelectItem>
+              <SelectItem value="details_correction">Details Correction</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -484,39 +559,68 @@ export default function AttendanceRequestsPage() {
                     Submitted {formatDate(request.created_at)}
                   </p>
                 </div>
-                <span
-                  className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusClassName(request.status)}`}
-                >
-                  {request.status}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
+                    {request.request_type === "details_correction"
+                      ? "Details Correction"
+                      : "Event Review"}
+                  </span>
+                  <span
+                    className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusClassName(request.status)}`}
+                  >
+                    {request.status}
+                  </span>
+                </div>
               </div>
 
-              <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-2xl border bg-background p-3">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Year Level
-                  </p>
-                  <p className="mt-1 font-semibold">{request.year_level || "—"}</p>
+              {request.request_type === "details_correction" ? (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Current → requested
+                  </h3>
+                  <div className="grid gap-3 text-sm sm:grid-cols-2">
+                    {getCorrectionChanges(request).map(
+                      ([label, currentValue, requestedValue]) => (
+                        <div key={label} className="rounded-2xl border bg-background p-4">
+                          <p className="text-xs font-bold uppercase text-muted-foreground">
+                            {label}
+                          </p>
+                          <p className="mt-2 font-semibold">
+                            {currentValue || "—"} → {requestedValue || "—"}
+                          </p>
+                        </div>
+                      ),
+                    )}
+                  </div>
                 </div>
-                <div className="rounded-2xl border bg-background p-3">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    College
-                  </p>
-                  <p className="mt-1 font-semibold">{request.college || "—"}</p>
+              ) : (
+                <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Year Level
+                    </p>
+                    <p className="mt-1 font-semibold">{request.year_level || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      College
+                    </p>
+                    <p className="mt-1 font-semibold">{request.college || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Program
+                    </p>
+                    <p className="mt-1 font-semibold">{request.program || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Institution
+                    </p>
+                    <p className="mt-1 font-semibold">{request.institution || "—"}</p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border bg-background p-3">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Program
-                  </p>
-                  <p className="mt-1 font-semibold">{request.program || "—"}</p>
-                </div>
-                <div className="rounded-2xl border bg-background p-3">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Institution
-                  </p>
-                  <p className="mt-1 font-semibold">{request.institution || "—"}</p>
-                </div>
-              </div>
+              )}
 
               {request.request_note ? (
                 <div className="rounded-2xl border bg-background p-4 text-sm leading-6">
@@ -527,76 +631,109 @@ export default function AttendanceRequestsPage() {
                 </div>
               ) : null}
 
-              <div className="space-y-3">
-                <h3 className="text-sm font-black uppercase tracking-wide">
-                  Claimed events and evidence
-                </h3>
-                {request.events.map((event) => {
-                  const isRemovingThisEvent = removingEventId === event.id;
-                  const isLastEvent = request.events.length === 1;
-                  const removeDisabled =
-                    isLastEvent ||
-                    Boolean(removingEventId) ||
-                    reviewingId === request.id;
-
-                  return (
-                    <div
-                      key={event.id}
-                      className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-black">{event.event_name}</p>
-                        <p className="mt-1 break-all text-xs text-muted-foreground">
-                          {event.evidence_url}
-                        </p>
-                      </div>
-                      <div className="shrink-0 space-y-1 text-right">
-                        <ActionMenu
-                          ariaLabel={`Actions for ${event.event_name}`}
-                          actions={[
-                            {
-                              label: "Open Evidence",
-                              disabled: isRemovingThisEvent || !event.evidence_url,
-                              onSelect: () => {
-                                if (!event.evidence_url) return;
-                                window.open(
-                                  event.evidence_url,
-                                  "_blank",
-                                  "noopener,noreferrer",
-                                );
-                              },
-                            },
-                          ]}
-                          deleteAction={
-                            request.status === "pending"
-                              ? {
-                                  label: isRemovingThisEvent ? "Removing..." : "Remove",
-                                  disabled: removeDisabled,
-                                  title: `Remove "${event.event_name}" from ${request.name}'s request?`,
-                                  description:
-                                    "This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone.",
-                                  confirmationPhrase: "REMOVE",
-                                  confirmLabel: "Remove Event",
-                                  pendingLabel: "Removing...",
-                                  isPending: isRemovingThisEvent,
-                                  confirmDisabled:
-                                    removeDisabled && !isRemovingThisEvent,
-                                  onConfirm: () =>
-                                    handleRemoveRequestEvent(request, event.id),
-                                }
-                              : undefined
-                          }
-                        />
-                        {request.status === "pending" && isLastEvent ? (
-                          <p className="max-w-56 text-xs font-semibold text-muted-foreground">
-                            A request needs at least one event. Reject the request instead.
-                          </p>
-                        ) : null}
-                      </div>
+              {request.request_type === "details_correction" ? (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Correction evidence
+                  </h3>
+                  <div className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-black">Student details evidence</p>
+                      <p className="mt-1 break-all text-xs text-muted-foreground">
+                        {request.evidence_url || "No evidence link provided."}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
+                    <ActionMenu
+                      ariaLabel={`Evidence actions for ${request.name}`}
+                      actions={[
+                        {
+                          label: "Open Evidence",
+                          disabled: !request.evidence_url,
+                          onSelect: () => {
+                            if (!request.evidence_url) return;
+                            window.open(
+                              request.evidence_url,
+                              "_blank",
+                              "noopener,noreferrer",
+                            );
+                          },
+                        },
+                      ]}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Claimed events and evidence
+                  </h3>
+                  {request.events.map((event) => {
+                    const isRemovingThisEvent = removingEventId === event.id;
+                    const isLastEvent = request.events.length === 1;
+                    const removeDisabled =
+                      isLastEvent ||
+                      Boolean(removingEventId) ||
+                      reviewingId === request.id;
+
+                    return (
+                      <div
+                        key={event.id}
+                        className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-black">{event.event_name}</p>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                            {event.evidence_url}
+                          </p>
+                        </div>
+                        <div className="shrink-0 space-y-1 text-right">
+                          <ActionMenu
+                            ariaLabel={`Actions for ${event.event_name}`}
+                            actions={[
+                              {
+                                label: "Open Evidence",
+                                disabled: isRemovingThisEvent || !event.evidence_url,
+                                onSelect: () => {
+                                  if (!event.evidence_url) return;
+                                  window.open(
+                                    event.evidence_url,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                },
+                              },
+                            ]}
+                            deleteAction={
+                              request.status === "pending"
+                                ? {
+                                    label: isRemovingThisEvent ? "Removing..." : "Remove",
+                                    disabled: removeDisabled,
+                                    title: `Remove "${event.event_name}" from ${request.name}'s request?`,
+                                    description:
+                                      "This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone.",
+                                    confirmationPhrase: "REMOVE",
+                                    confirmLabel: "Remove Event",
+                                    pendingLabel: "Removing...",
+                                    isPending: isRemovingThisEvent,
+                                    confirmDisabled:
+                                      removeDisabled && !isRemovingThisEvent,
+                                    onConfirm: () =>
+                                      handleRemoveRequestEvent(request, event.id),
+                                  }
+                                : undefined
+                            }
+                          />
+                          {request.status === "pending" && isLastEvent ? (
+                            <p className="max-w-56 text-xs font-semibold text-muted-foreground">
+                              A request needs at least one event. Reject the request instead.
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {request.status === "pending" ? (
                 <div className="space-y-3 rounded-2xl border bg-background p-4">
@@ -605,9 +742,11 @@ export default function AttendanceRequestsPage() {
                     <p className="text-xs font-semibold text-muted-foreground">
                       The student sees this note when they search their Student ID.
                     </p>
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      If you removed any events, consider explaining why here.
-                    </p>
+                    {request.request_type === "event_review" ? (
+                      <p className="text-xs font-semibold text-muted-foreground">
+                        If you removed any events, consider explaining why here.
+                      </p>
+                    ) : null}
                     <Textarea
                       value={reviewNotes[request.id] ?? ""}
                       onChange={(event) =>
@@ -630,22 +769,32 @@ export default function AttendanceRequestsPage() {
                             reviewingId === request.id ? "Saving..." : "Reject",
                           disabled:
                             reviewingId === request.id ||
-                            request.events.some(
-                              (event) => event.id === removingEventId,
-                            ),
+                            (request.request_type === "event_review" &&
+                              request.events.some(
+                                (event) => event.id === removingEventId,
+                              )),
                           onSelect: () => void handleReview(request, "rejected"),
                         },
                         {
                           label:
                             reviewingId === request.id
                               ? "Saving..."
-                              : "Approve & Add Attendance",
+                              : request.request_type === "details_correction"
+                                ? "Approve Correction"
+                                : "Approve & Add Attendance",
                           disabled:
                             reviewingId === request.id ||
-                            request.events.some(
-                              (event) => event.id === removingEventId,
-                            ),
-                          onSelect: () => void handleReview(request, "approved"),
+                            (request.request_type === "event_review" &&
+                              request.events.some(
+                                (event) => event.id === removingEventId,
+                              )),
+                          onSelect: () => {
+                            if (correctionChangesCollege(request)) {
+                              setCollegeApprovalRequest(request);
+                              return;
+                            }
+                            void handleReview(request, "approved");
+                          },
                         },
                       ]}
                     />
@@ -695,6 +844,34 @@ export default function AttendanceRequestsPage() {
           No attendance requests match the selected filters.
         </div>
       )}
+
+      <AlertDialog
+        open={Boolean(collegeApprovalRequest)}
+        onOpenChange={(open) => {
+          if (!open) setCollegeApprovalRequest(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve college change?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Changing college will recalculate this student's absences and fines.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const request = collegeApprovalRequest;
+                setCollegeApprovalRequest(null);
+                if (request) void handleReview(request, "approved");
+              }}
+            >
+              Approve Correction
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

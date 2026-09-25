@@ -201,6 +201,21 @@ type AttendanceRequestFormState = {
   evidenceByEvent: Record<string, string>;
 };
 
+type DetailsCorrectionFormState = {
+  studentId: string;
+  schoolYearId: string;
+  currentName: string;
+  currentYearLevel: string;
+  currentCollege: string;
+  currentProgram: string;
+  name: string;
+  yearLevel: string;
+  college: string;
+  program: string;
+  evidenceUrl: string;
+  note: string;
+};
+
 const AUTH_STORAGE_KEYS = [
   "penalyze.auth.session",
   "penalyze.auth.token",
@@ -281,6 +296,21 @@ const emptyAttendanceRequestForm: AttendanceRequestFormState = {
   note: "",
   selectedEventIds: [],
   evidenceByEvent: {},
+};
+
+const emptyDetailsCorrectionForm: DetailsCorrectionFormState = {
+  studentId: "",
+  schoolYearId: "",
+  currentName: "",
+  currentYearLevel: "",
+  currentCollege: "",
+  currentProgram: "",
+  name: "",
+  yearLevel: "",
+  college: "",
+  program: "",
+  evidenceUrl: "",
+  note: "",
 };
 
 const textInputClassName =
@@ -2561,6 +2591,300 @@ function ZeroAttendanceRegistrationDialog(props: {
 }
 
 
+function detailsCorrectionValueChanged(currentValue: unknown, requestedValue: unknown) {
+  return normalizeDisplayValue(currentValue) !== normalizeDisplayValue(requestedValue);
+}
+
+function getDetailsCorrectionChanges(request: StudentAttendanceRequestStatus) {
+  const fields = [
+    ["Name", request.current_name, request.name],
+    ["Year Level", request.current_year_level, request.year_level],
+    ["College", request.current_college, request.college],
+    ["Program", request.current_program, request.program],
+  ] as const;
+
+  return fields.filter(([, currentValue, requestedValue]) =>
+    detailsCorrectionValueChanged(currentValue, requestedValue),
+  );
+}
+
+function DetailsCorrectionDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  form: DetailsCorrectionFormState;
+  error: string;
+  isSaving: boolean;
+  onFieldChange: (
+    field: "name" | "yearLevel" | "college" | "program" | "evidenceUrl" | "note",
+    value: string,
+  ) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
+}) {
+  const programOptions = getStudentProgramOptions(props.form.college);
+  const nameChanged = detailsCorrectionValueChanged(
+    props.form.currentName,
+    props.form.name,
+  );
+  const yearLevelChanged = detailsCorrectionValueChanged(
+    props.form.currentYearLevel,
+    props.form.yearLevel,
+  );
+  const collegeChanged = detailsCorrectionValueChanged(
+    props.form.currentCollege,
+    props.form.college,
+  );
+  const programChanged = detailsCorrectionValueChanged(
+    props.form.currentProgram,
+    props.form.program,
+  );
+  const hasChanges =
+    nameChanged || yearLevelChanged || collegeChanged || programChanged;
+  const canSubmit = hasChanges && Boolean(props.form.evidenceUrl.trim());
+  const changedFieldClassName =
+    "rounded-2xl border border-amber-300 bg-amber-50/60 p-3";
+  const unchangedFieldClassName = "rounded-2xl border bg-background p-3";
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-[95svh] overflow-y-auto sm:max-w-3xl"
+      >
+        <DialogHeader>
+          <DialogTitle>Request Details Correction</DialogTitle>
+          <DialogDescription>
+            Correct a misspelled or wrong Name, Year Level, College, or Program.
+            Student ID cannot be changed.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={props.onSubmit} className="space-y-5">
+          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
+            <p>
+              Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers
+              will compare the requested details with your evidence before approving
+              any correction.
+            </p>
+            <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+              Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
+            </p>
+          </div>
+
+          {props.error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {props.error}
+            </div>
+          ) : null}
+
+          <section className="space-y-3 rounded-3xl border bg-muted/30 p-4">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wide">
+                Current details
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                These are the details currently found for this Student ID.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["Name", props.form.currentName],
+                ["Year Level", props.form.currentYearLevel],
+                ["College", props.form.currentCollege],
+                ["Program", props.form.currentProgram],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border bg-background p-3">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    {label}
+                  </p>
+                  <p className="mt-1 font-semibold">{value || "—"}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-sm font-black uppercase tracking-wide">
+              Correct details
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={nameChanged ? changedFieldClassName : unchangedFieldClassName}>
+                <span className="flex items-center justify-between gap-2 text-sm font-bold">
+                  <span>Name</span>
+                  {nameChanged ? (
+                    <span className="text-xs font-black uppercase text-amber-700">
+                      Changed
+                    </span>
+                  ) : null}
+                </span>
+                <Input
+                  value={props.form.name}
+                  onChange={(event) => props.onFieldChange("name", event.target.value)}
+                  placeholder="Correct full name"
+                  className={`${textInputClassName} mt-2`}
+                />
+              </label>
+
+              <div className={yearLevelChanged ? changedFieldClassName : unchangedFieldClassName}>
+                <span className="flex items-center justify-between gap-2 text-sm font-bold">
+                  <span>Year Level</span>
+                  {yearLevelChanged ? (
+                    <span className="text-xs font-black uppercase text-amber-700">
+                      Changed
+                    </span>
+                  ) : null}
+                </span>
+                <Select
+                  value={props.form.yearLevel}
+                  onValueChange={(value) => props.onFieldChange("yearLevel", value)}
+                >
+                  <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
+                    <SelectValue placeholder="Select year level" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      QR_CODE_YEAR_LEVEL_OPTIONS,
+                      props.form.yearLevel,
+                    )}
+                    {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                      <SelectItem key={yearLevel} value={yearLevel}>
+                        {yearLevel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={props.form.yearLevel}
+                  onChange={(event) =>
+                    props.onFieldChange("yearLevel", event.target.value)
+                  }
+                  placeholder="Type custom year level if not listed"
+                  className={customSelectInputClassName}
+                />
+              </div>
+
+              <div className={collegeChanged ? changedFieldClassName : unchangedFieldClassName}>
+                <span className="flex items-center justify-between gap-2 text-sm font-bold">
+                  <span>College</span>
+                  {collegeChanged ? (
+                    <span className="text-xs font-black uppercase text-amber-700">
+                      Changed
+                    </span>
+                  ) : null}
+                </span>
+                <Select
+                  value={props.form.college}
+                  onValueChange={(value) => props.onFieldChange("college", value)}
+                >
+                  <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
+                    <SelectValue placeholder="Select college" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      QR_CODE_COLLEGE_OPTIONS,
+                      props.form.college,
+                    )}
+                    {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                      <SelectItem key={college} value={college}>
+                        {college}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={props.form.college}
+                  onChange={(event) => props.onFieldChange("college", event.target.value)}
+                  placeholder="Type custom college if not listed"
+                  className={customSelectInputClassName}
+                />
+              </div>
+
+              <div className={programChanged ? changedFieldClassName : unchangedFieldClassName}>
+                <span className="flex items-center justify-between gap-2 text-sm font-bold">
+                  <span>Program</span>
+                  {programChanged ? (
+                    <span className="text-xs font-black uppercase text-amber-700">
+                      Changed
+                    </span>
+                  ) : null}
+                </span>
+                <Select
+                  value={props.form.program}
+                  onValueChange={(value) => props.onFieldChange("program", value)}
+                  disabled={!props.form.college}
+                >
+                  <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
+                    <SelectValue
+                      placeholder={
+                        props.form.college ? "Select program" : "Select college first"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 max-w-80">
+                    {renderCurrentStudentSelectOption(
+                      programOptions,
+                      props.form.program,
+                    )}
+                    {programOptions.map((program) => (
+                      <SelectItem key={program} value={program}>
+                        {program}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={props.form.program}
+                  onChange={(event) => props.onFieldChange("program", event.target.value)}
+                  placeholder={
+                    props.form.college
+                      ? "Type custom program if not listed"
+                      : "Select college before typing program"
+                  }
+                  disabled={!props.form.college}
+                  className={customSelectInputClassName}
+                />
+              </div>
+            </div>
+          </section>
+
+          <label className="block space-y-2 text-sm font-bold">
+            <span>Evidence link</span>
+            <Input
+              type="url"
+              value={props.form.evidenceUrl}
+              onChange={(event) =>
+                props.onFieldChange("evidenceUrl", event.target.value)
+              }
+              placeholder="Public link to Certificate of Registration, school ID, or other proof"
+              className={textInputClassName}
+            />
+          </label>
+
+          <label className="block space-y-2 text-sm font-bold">
+            <span>Note (optional)</span>
+            <Textarea
+              value={props.form.note}
+              onChange={(event) => props.onFieldChange("note", event.target.value)}
+              rows={3}
+              placeholder="Explain the correction or anything the reviewer should verify."
+              className="w-full rounded-2xl border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20"
+            />
+          </label>
+
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              disabled={props.isSaving || !canSubmit}
+              className="min-h-11 rounded-xl px-5 font-black"
+            >
+              {props.isSaving ? "Submitting..." : "Submit Details Correction"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AttendanceRequestDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -3014,6 +3338,12 @@ export default function LandingPage() {
     useState(false);
   const [isLoadingAttendanceRequestEvents, setIsLoadingAttendanceRequestEvents] =
     useState(false);
+  const [detailsCorrectionDialogOpen, setDetailsCorrectionDialogOpen] =
+    useState(false);
+  const [detailsCorrectionForm, setDetailsCorrectionForm] =
+    useState<DetailsCorrectionFormState>(emptyDetailsCorrectionForm);
+  const [detailsCorrectionError, setDetailsCorrectionError] = useState("");
+  const [isSavingDetailsCorrection, setIsSavingDetailsCorrection] = useState(false);
   const [error, setError] = useState("");
   const searchProgressPercent = useProgressivePercent(
     isSearching,
@@ -3035,6 +3365,10 @@ export default function LandingPage() {
         schoolYearId: current.schoolYearId || activeSchoolYearId,
       }));
       setAttendanceRequestForm((current) => ({
+        ...current,
+        schoolYearId: current.schoolYearId || activeSchoolYearId,
+      }));
+      setDetailsCorrectionForm((current) => ({
         ...current,
         schoolYearId: current.schoolYearId || activeSchoolYearId,
       }));
@@ -3463,6 +3797,171 @@ export default function LandingPage() {
     );
   }
 
+  function handleLookupDetailsCorrection() {
+    const attendanceProfile = displayedAttendance[0] ?? lookup?.attendance[0];
+    const currentName =
+      displayedFinalResult?.name || attendanceProfile?.name || studentDisplayName || "";
+    const currentYearLevel =
+      displayedFinalResult?.year_level || attendanceProfile?.year_level || "";
+    const currentCollege =
+      displayedFinalResult?.college || attendanceProfile?.college || "";
+    const currentProgram =
+      displayedFinalResult?.program || attendanceProfile?.program || "";
+    const activeSchoolYearId = getLandingActiveSchoolYearId(
+      lookup?.schoolYears ?? schoolYears,
+    );
+
+    setDetailsCorrectionError("");
+    setDetailsCorrectionForm({
+      ...emptyDetailsCorrectionForm,
+      studentId: searchedId,
+      schoolYearId:
+        activeSchoolYearId ||
+        (resultYearFilter !== ALL_YEARS_VALUE ? resultYearFilter : ""),
+      currentName,
+      currentYearLevel,
+      currentCollege,
+      currentProgram,
+      name: currentName,
+      yearLevel: currentYearLevel,
+      college: currentCollege,
+      program: currentProgram,
+    });
+    setAttendanceRequestDialogOpen(false);
+    setZeroAttendanceDialogOpen(false);
+    setEventsDialogOpen(false);
+    setResultDialogOpen(false);
+    setDetailsCorrectionDialogOpen(true);
+  }
+
+  function handleDetailsCorrectionFieldChange(
+    field: "name" | "yearLevel" | "college" | "program" | "evidenceUrl" | "note",
+    value: string,
+  ) {
+    setDetailsCorrectionError("");
+    setDetailsCorrectionForm((current) => {
+      if (field !== "college") {
+        return { ...current, [field]: value };
+      }
+
+      const programOptions = getStudentProgramOptions(value);
+      return {
+        ...current,
+        college: value,
+        program: programOptions.includes(current.program) ? current.program : "",
+      };
+    });
+  }
+
+  async function handleDetailsCorrectionSubmit(
+    event: SyntheticEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const studentIdValue = detailsCorrectionForm.studentId.trim();
+    const schoolYearId =
+      detailsCorrectionForm.schoolYearId.trim() ||
+      getLandingActiveSchoolYearId(lookup?.schoolYears ?? schoolYears);
+    const name = detailsCorrectionForm.name.trim();
+    const yearLevel = detailsCorrectionForm.yearLevel.trim();
+    const college = detailsCorrectionForm.college.trim();
+    const program = detailsCorrectionForm.program.trim();
+    const evidenceUrl = detailsCorrectionForm.evidenceUrl.trim();
+    const hasChanges =
+      detailsCorrectionValueChanged(detailsCorrectionForm.currentName, name) ||
+      detailsCorrectionValueChanged(
+        detailsCorrectionForm.currentYearLevel,
+        yearLevel || detailsCorrectionForm.currentYearLevel,
+      ) ||
+      detailsCorrectionValueChanged(
+        detailsCorrectionForm.currentCollege,
+        college || detailsCorrectionForm.currentCollege,
+      ) ||
+      detailsCorrectionValueChanged(
+        detailsCorrectionForm.currentProgram,
+        program || detailsCorrectionForm.currentProgram,
+      );
+
+    if (!studentIdValue) {
+      setDetailsCorrectionError("Student ID is required.");
+      return;
+    }
+    if (!schoolYearId) {
+      setDetailsCorrectionError("School year / semester is required.");
+      return;
+    }
+    if (!name) {
+      setDetailsCorrectionError("Name is required.");
+      return;
+    }
+    if (!hasChanges) {
+      setDetailsCorrectionError("No changes detected.");
+      return;
+    }
+    if (!evidenceUrl) {
+      setDetailsCorrectionError("A public evidence link is required.");
+      return;
+    }
+
+    try {
+      const parsed = new URL(evidenceUrl);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("Unsupported protocol");
+      }
+    } catch {
+      setDetailsCorrectionError(
+        "Evidence must be a valid HTTP/HTTPS link set to public access.",
+      );
+      return;
+    }
+
+    setIsSavingDetailsCorrection(true);
+    setDetailsCorrectionError("");
+    try {
+      await createAttendanceRequest({
+        requestType: "details_correction",
+        schoolYearId,
+        studentId: studentIdValue,
+        name,
+        yearLevel,
+        college,
+        program,
+        note: detailsCorrectionForm.note.trim(),
+        evidenceUrl,
+      });
+
+      if (
+        lookup &&
+        searchedId &&
+        normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)
+      ) {
+        try {
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
+          setLookup((current) =>
+            current ? { ...current, attendanceRequests: refreshedRequests } : current,
+          );
+          setAttendanceRequestsLoadFailed(false);
+        } catch {
+          setAttendanceRequestsLoadFailed(true);
+        }
+      }
+
+      setDetailsCorrectionDialogOpen(false);
+      setDetailsCorrectionForm(emptyDetailsCorrectionForm);
+      toast.success(
+        "Details correction submitted. SSG officers will review it. Check back by entering your Student ID.",
+      );
+    } catch (requestError) {
+      setDetailsCorrectionError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to submit details correction request.",
+      );
+    } finally {
+      setIsSavingDetailsCorrection(false);
+    }
+  }
+
   function handleAttendanceRequestFieldChange(
     field: Exclude<
       keyof AttendanceRequestFormState,
@@ -3585,6 +4084,7 @@ export default function LandingPage() {
     setAttendanceRequestError("");
     try {
       await createAttendanceRequest({
+        requestType: "event_review",
         schoolYearId,
         studentId: studentIdValue,
         name,
@@ -4185,7 +4685,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:w-auto">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:w-auto">
                 <div
                   className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}
                 >
@@ -4226,6 +4726,14 @@ export default function LandingPage() {
                 >
                   Request Attendance Review
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleLookupDetailsCorrection}
+                  className="min-h-24 rounded-2xl px-5 py-4 text-sm font-black"
+                >
+                  Request Details Correction
+                </Button>
               </div>
 
               {rejectedAttendanceRequestCount > 0 ? (
@@ -4260,22 +4768,46 @@ export default function LandingPage() {
                               {request.reviewed_at ? ` • Reviewed ${formatDate(request.reviewed_at)}` : ""}
                             </p>
                           </div>
-                          <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
-                            request.status === "approved"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : request.status === "rejected"
-                                ? "border-red-200 bg-red-50 text-red-700"
-                                : "border-amber-200 bg-amber-50 text-amber-800"
-                          }`}>
-                            {request.status}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
+                              {request.request_type === "details_correction"
+                                ? "Details Correction"
+                                : "Event Review"}
+                            </span>
+                            <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
+                              request.status === "approved"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : request.status === "rejected"
+                                  ? "border-red-200 bg-red-50 text-red-700"
+                                  : "border-amber-200 bg-amber-50 text-amber-800"
+                            }`}>
+                              {request.status}
+                            </span>
+                          </div>
                         </div>
-                        <div className="mt-4">
-                          <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
-                          <p className="mt-1 text-sm font-semibold">
-                            {request.events.map((event) => event.event_name).join(", ") || "—"}
-                          </p>
-                        </div>
+                        {request.request_type === "details_correction" ? (
+                          <div className="mt-4">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">
+                              Requested changes
+                            </p>
+                            <div className="mt-2 space-y-2 text-sm font-semibold">
+                              {getDetailsCorrectionChanges(request).map(
+                                ([label, currentValue, requestedValue]) => (
+                                  <p key={label}>
+                                    {label}: {currentValue || "—"} → {requestedValue || "—"}
+                                  </p>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
+                            <p className="mt-1 text-sm font-semibold">
+                              {request.events.map((event) => event.event_name).join(", ") || "—"}
+                            </p>
+                          </div>
+                        )}
                         {request.review_note ? (
                           <div className="mt-4 rounded-xl border bg-muted/40 p-3">
                             <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
@@ -4289,13 +4821,24 @@ export default function LandingPage() {
                         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <p className="text-sm font-semibold text-muted-foreground">
                             {request.status === "approved"
-                              ? "Your attendance for these events has been added."
+                              ? request.request_type === "details_correction"
+                                ? "Your corrected details have been applied."
+                                : "Your attendance for these events has been added."
                               : request.status === "pending"
                                 ? "Waiting for review."
                                 : "This request was rejected. Review the note and submit a corrected request."}
                           </p>
                           {request.status === "rejected" ? (
-                            <Button type="button" variant="outline" onClick={handleLookupAttendanceRequestReview} className="rounded-xl">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={
+                                request.request_type === "details_correction"
+                                  ? handleLookupDetailsCorrection
+                                  : handleLookupAttendanceRequestReview
+                              }
+                              className="rounded-xl"
+                            >
                               Submit a new request
                             </Button>
                           ) : null}
@@ -4460,6 +5003,16 @@ export default function LandingPage() {
         onFieldChange={handleZeroAttendanceFieldChange}
         onRequestReview={handleZeroAttendanceRequestReview}
         onSubmit={handleZeroAttendanceSubmit}
+      />
+
+      <DetailsCorrectionDialog
+        open={detailsCorrectionDialogOpen}
+        onOpenChange={setDetailsCorrectionDialogOpen}
+        form={detailsCorrectionForm}
+        error={detailsCorrectionError}
+        isSaving={isSavingDetailsCorrection}
+        onFieldChange={handleDetailsCorrectionFieldChange}
+        onSubmit={handleDetailsCorrectionSubmit}
       />
 
       <AttendanceRequestDialog

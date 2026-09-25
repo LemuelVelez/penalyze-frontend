@@ -10,6 +10,7 @@ function notifyAttendanceRequestsUpdated() {
 }
 
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
+export type AttendanceRequestType = "event_review" | "details_correction";
 
 export type AttendanceRequestEvent = {
   id: string;
@@ -26,6 +27,15 @@ export type StudentAttendanceRequestStatus = {
   school_year_id: string;
   school_year_name: string;
   semester: SchoolSemester;
+  request_type: AttendanceRequestType;
+  name: string;
+  year_level: string | null;
+  college: string | null;
+  program: string | null;
+  current_name: string | null;
+  current_year_level: string | null;
+  current_college: string | null;
+  current_program: string | null;
   status: AttendanceRequestStatus;
   request_note: string | null;
   review_note: string | null;
@@ -42,12 +52,18 @@ export type AttendanceRequest = {
   school_year_id: string;
   school_year_name: string;
   semester: SchoolSemester;
+  request_type: AttendanceRequestType;
   student_id: string;
   name: string;
   year_level: string | null;
   college: string | null;
   program: string | null;
   institution: string | null;
+  current_name: string | null;
+  current_year_level: string | null;
+  current_college: string | null;
+  current_program: string | null;
+  evidence_url: string | null;
   request_note: string | null;
   status: AttendanceRequestStatus;
   reviewed_by: string | null;
@@ -59,7 +75,7 @@ export type AttendanceRequest = {
   events: AttendanceRequestEvent[];
 };
 
-export type CreateAttendanceRequestInput = {
+type BaseCreateAttendanceRequestInput = {
   schoolYearId: string;
   studentId: string;
   name: string;
@@ -68,11 +84,24 @@ export type CreateAttendanceRequestInput = {
   program?: string;
   institution?: string;
   note?: string;
-  events: Array<{
-    eventId: string;
-    evidenceUrl: string;
-  }>;
 };
+
+type AttendanceRequestEventInput = {
+  eventId: string;
+  evidenceUrl: string;
+};
+
+export type CreateAttendanceRequestInput =
+  | (BaseCreateAttendanceRequestInput & {
+      requestType: "event_review";
+      events: AttendanceRequestEventInput[];
+      evidenceUrl?: never;
+    })
+  | (BaseCreateAttendanceRequestInput & {
+      requestType: "details_correction";
+      evidenceUrl: string;
+      events?: never;
+    });
 
 export type ReviewAttendanceRequestInput = {
   status: Exclude<AttendanceRequestStatus, "pending">;
@@ -131,11 +160,13 @@ export async function createAttendanceRequest(
 
 export async function listAttendanceRequests(options: {
   status?: AttendanceRequestStatus;
+  requestType?: AttendanceRequestType;
   schoolYearId?: string;
   studentId?: string;
 } = {}) {
   const params = new URLSearchParams();
   if (options.status) params.set("status", options.status);
+  if (options.requestType) params.set("requestType", options.requestType);
   if (options.schoolYearId) params.set("schoolYearId", options.schoolYearId);
   if (options.studentId) params.set("studentId", options.studentId);
   const query = params.toString();
@@ -151,7 +182,8 @@ export async function reviewAttendanceRequest(
 ) {
   const response = await apiRequest<{
     request: AttendanceRequest | null;
-    createdAttendanceCount: number;
+    createdAttendanceCount?: number;
+    updatedRowCount?: number;
   }>(`/api/attendance/requests/${encodeURIComponent(id)}/review`, {
     method: "PATCH",
     body: JSON.stringify(input),
