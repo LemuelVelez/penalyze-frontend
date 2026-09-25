@@ -1180,15 +1180,29 @@ function getStudentAttendedEventSummaries(
 ) {
   const summaries = new Map<string, StudentAttendedEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
+  const studentCollegeKey = getStudentCollegeKey(attendance);
 
   getUniqueDisplayAttendance(attendance)
-    .filter(
-      (record) =>
-        !isZeroAttendanceRecord(record) &&
-        !isFinalAttendanceResultRecord(record) &&
-        !isExplicitAbsentAttendanceRecord(record) &&
-        (record.event_id || record.event_name || record.import_id),
-    )
+    .filter((record) => {
+      if (
+        isZeroAttendanceRecord(record) ||
+        isFinalAttendanceResultRecord(record) ||
+        isExplicitAbsentAttendanceRecord(record) ||
+        !(record.event_id || record.event_name || record.import_id)
+      ) {
+        return false;
+      }
+
+      if (!studentCollegeKey) return true;
+
+      const recordCollegeKey = getAttendanceRecordCollegeKey(record);
+      if (recordCollegeKey !== studentCollegeKey) return false;
+
+      const eventId = String(record.event_id ?? "").trim();
+      const linkedEvent = eventId ? (eventById.get(eventId) ?? null) : null;
+
+      return !isCollegeExemptFromEvent(linkedEvent, studentCollegeKey);
+    })
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
       const key =
@@ -1240,6 +1254,78 @@ function getStudentAttendedEventSummaries(
       ),
     }))
     .sort(compareStudentAttendedEventSummaries);
+}
+
+function getFinalResultAttendedEventSummaries(
+  finalResult: AttendanceFinalResultRecord,
+  attendance: AttendanceRecord[],
+): StudentAttendedEventSummary[] {
+  if (!Array.isArray(finalResult.event_details)) return [];
+
+  const attendanceById = new Map(
+    getUniqueDisplayAttendance(attendance).map((record) => [
+      String(record.id ?? "").trim(),
+      record,
+    ]),
+  );
+
+  return finalResult.event_details
+    .filter((event) => event.attended)
+    .map((event, index) => {
+      const eventId = String(event.id ?? "").trim();
+      const recordId = String(event.record_id ?? "").trim();
+      const matchedRecord = recordId ? attendanceById.get(recordId) : null;
+      const eventDate = event.event_start_at ?? event.event_end_at ?? null;
+      const eventName = String(event.name ?? "").trim();
+      const fallbackTimestamp =
+        event.scanned_at ??
+        eventDate ??
+        finalResult.source_updated_at ??
+        finalResult.updated_at ??
+        finalResult.created_at;
+      const syntheticRecord: AttendanceRecord = {
+        id:
+          recordId ||
+          `final-result-event-detail:${eventId || normalizeEventKey(eventName) || index + 1}`,
+        school_year_id: finalResult.school_year_id,
+        import_id: null,
+        event_id: eventId || null,
+        event_name: eventName || null,
+        event_order: event.event_order ?? null,
+        event_start_at: event.event_start_at ?? null,
+        event_end_at: event.event_end_at ?? null,
+        student_id: finalResult.student_id,
+        name: finalResult.name,
+        year_level: finalResult.year_level,
+        college: finalResult.college,
+        program: finalResult.program,
+        institution: finalResult.institution,
+        no_of_absences: 0,
+        remarks: event.remarks,
+        scanned_at: event.scanned_at,
+        deleted_at: null,
+        deleted_by: null,
+        delete_reason: null,
+        created_at: fallbackTimestamp,
+        updated_at: fallbackTimestamp,
+      };
+
+      return {
+        key: eventId
+          ? `event-id:${eventId}`
+          : `final-result-attended-event:${normalizeEventKey(eventName) || index + 1}`,
+        eventName:
+          eventName ||
+          (event.event_order !== null
+            ? `Event ${event.event_order}`
+            : "Attended event"),
+        latestScannedAt: event.scanned_at,
+        eventOrder: event.event_order,
+        eventDate,
+        records: [matchedRecord ?? syntheticRecord],
+        totalAbsences: 0,
+      };
+    });
 }
 
 function getRecordAbsenceCount(record: AttendanceRecord) {
@@ -2237,7 +2323,17 @@ function getResultClassification(props: {
   if (props.totalAbsences > 0) return "With absences";
 
   if (props.finalResult) {
+    const expectedEvents = Math.max(
+      0,
+      Number(props.finalResult.expected_events || 0),
+    );
+    const hasCompleteVisibleAttendance =
+      expectedEvents > 0
+        ? props.attendedEvents.length >= expectedEvents
+        : props.attendedEvents.length > 0;
+
     if (
+      hasCompleteVisibleAttendance &&
       props.totalAbsences === 0 &&
       (props.finalResult.attendance_status === "perfect_attendance" ||
         Number(props.finalResult.attended_events || 0) > 0)
@@ -3614,11 +3710,18 @@ export default function LandingPage() {
     );
   }, [displayedAttendance, displayedCollegeAttendanceRecords, lookup]);
   const attendedEvents = useMemo(() => {
+    if (Array.isArray(displayedFinalResult?.event_details)) {
+      return getFinalResultAttendedEventSummaries(
+        displayedFinalResult,
+        displayedAttendance,
+      );
+    }
+
     return getStudentAttendedEventSummaries(
       displayedAttendance,
       lookup?.attendanceEvents ?? [],
     );
-  }, [displayedAttendance, lookup]);
+  }, [displayedAttendance, displayedFinalResult, lookup]);
   const absentEvents = useMemo(() => {
     const finalResultAbsentEvents = getFinalResultAbsentEventSummaries(
       displayedFinalResult,
@@ -4426,6 +4529,7 @@ export default function LandingPage() {
         limit: 1000,
         offset: 0,
         includeMissedEvents: true,
+        includeEventDetails: true,
       }).catch(() => [] as AttendanceFinalResultRecord[]);
       const finesPromise = getStudentFines(cleanStudentId).then((fines) => {
         markProgressStepComplete(
