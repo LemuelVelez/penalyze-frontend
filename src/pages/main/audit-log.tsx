@@ -131,7 +131,7 @@ export default function AuditLogPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <main className="mx-auto w-full max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-primary">
@@ -156,7 +156,7 @@ export default function AuditLogPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search actor, action, resource, or route"
-              className="h-10 min-w-0 rounded-xl"
+              className="min-h-11 min-w-0 rounded-xl"
             />
             <Button type="submit" variant="outline" size="icon" className="size-10 shrink-0 rounded-xl" aria-label="Search audit logs">
               <Search className="size-4" aria-hidden="true" />
@@ -207,12 +207,67 @@ export default function AuditLogPage() {
       </section>
 
       <section className="overflow-hidden rounded-2xl border bg-background shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="grid gap-3 p-3 md:grid-cols-2 lg:hidden">
+          {isLoading ? (
+            <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground md:col-span-2">
+              Loading audit logs...
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground md:col-span-2">
+              No audit records match the current filters.
+            </div>
+          ) : (
+            logs.map((log) => {
+              const actor = formatActor(log);
+              const successful = log.status_code >= 200 && log.status_code < 400;
+
+              return (
+                <button
+                  key={log.id}
+                  type="button"
+                  onClick={() => setSelectedLog(log)}
+                  className="min-w-0 rounded-2xl border bg-card p-4 text-left transition-colors hover:bg-muted/35"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words font-black" title={actor.name}>{actor.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={actor.detail}>{actor.detail}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${successful ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
+                      {outcomeLabel(log.status_code)} · {log.status_code}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Action</p>
+                      <p className="mt-1 break-words font-semibold" title={log.action}>{log.action}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Resource</p>
+                      <p className="mt-1 break-words font-semibold" title={log.resource_type}>{log.resource_type}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Source</p>
+                      <p className="mt-1 font-mono text-xs font-semibold">{log.method}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Date & time</p>
+                      <p className="mt-1 text-xs font-semibold">{formatDateTime(log.created_at)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-3 truncate font-mono text-xs text-muted-foreground" title={log.route}>{log.route}</p>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-3 font-medium">Date &amp; time</th>
-                <th className="px-4 py-3 font-medium">Accountable user</th>
+                <th className="sticky left-0 z-20 bg-muted/95 px-4 py-3 font-medium">Date &amp; time</th>
+                <th className="sticky left-40 z-20 bg-muted/95 px-4 py-3 font-medium">Accountable user</th>
                 <th className="px-4 py-3 font-medium">Action</th>
                 <th className="px-4 py-3 font-medium">Resource</th>
                 <th className="px-4 py-3 font-medium">Outcome</th>
@@ -239,8 +294,8 @@ export default function AuditLogPage() {
                       className="cursor-pointer transition-colors hover:bg-muted/35"
                       onClick={() => setSelectedLog(log)}
                     >
-                      <td className="whitespace-nowrap px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
-                      <td className="px-4 py-3.5">
+                      <td className="sticky left-0 z-10 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
+                      <td className="sticky left-40 z-10 bg-background px-4 py-3.5">
                         <div className="font-medium">{actor.name}</div>
                         <div className="mt-0.5 max-w-64 truncate text-xs text-muted-foreground">{actor.detail}</div>
                       </td>
@@ -282,7 +337,7 @@ export default function AuditLogPage() {
       </section>
 
       <Dialog open={Boolean(selectedLog)} onOpenChange={(open) => !open && setSelectedLog(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-2xl sm:max-w-2xl">
+        <DialogContent className="max-h-[85svh] overflow-y-auto rounded-2xl sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Audit record details</DialogTitle>
             <DialogDescription>

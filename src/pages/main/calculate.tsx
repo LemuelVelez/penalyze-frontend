@@ -668,14 +668,14 @@ const CalculationTableRow = memo(function CalculationTableRow({
 }: CalculationTableRowProps) {
   return (
     <tr className="border-t">
-      <td className="px-4 py-3 align-top">
+      <td className="sticky left-0 z-20 bg-background px-4 py-3 align-top">
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onSelect(row.key, checked === true)}
           aria-label={`Select calculation row for ${row.studentId}`}
         />
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="sticky left-12 z-10 bg-background px-4 py-3 align-top">
         <p className="font-black">{row.studentId}</p>
         <p className="text-muted-foreground">{row.name}</p>
         <p className="text-xs text-muted-foreground">
@@ -743,6 +743,88 @@ const CalculationTableRow = memo(function CalculationTableRow({
         />
       </td>
     </tr>
+  );
+});
+
+const CalculationCard = memo(function CalculationCard({
+  row,
+  selected,
+  onSelect,
+  onEdit,
+}: CalculationTableRowProps) {
+  const statusLabel =
+    row.attendanceStatus === "unresolved_college"
+      ? "Needs review"
+      : row.expectedEvents > 0 &&
+          row.attendedEvents >= row.expectedEvents &&
+          row.totalAbsences <= 0
+        ? `Perfect attendance (${row.attendedEvents}/${row.expectedEvents})`
+        : row.attendanceStatus.replace(/_/g, " ");
+  const statusClassName =
+    row.attendanceStatus === "unresolved_college"
+      ? "border-slate-300 bg-slate-50 text-slate-700"
+      : row.expectedEvents > 0 &&
+          row.attendedEvents >= row.expectedEvents &&
+          row.totalAbsences <= 0
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-amber-200 bg-amber-50 text-amber-800";
+
+  return (
+    <article className="min-w-0 rounded-2xl border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="break-all font-black" title={row.studentId}>{row.studentId}</p>
+          <p className="mt-1 break-words text-sm font-semibold" title={row.name}>{row.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{row.sourceRecordCount} source record/s</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onSelect(row.key, checked === true)}
+            aria-label={`Select calculation row for ${row.studentId}`}
+          />
+          <ActionMenu
+            ariaLabel={`Actions for ${row.studentId}`}
+            actions={[{ label: "Edit", onSelect: () => onEdit(row) }]}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wide ${statusClassName}`}>
+          {statusLabel}
+        </span>
+        <span className="text-lg font-black">{row.totalAbsences.toLocaleString()} absences</span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
+          <p className="mt-1 truncate font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
+          <p className="mt-1 truncate font-semibold" title={row.program || "—"}>{row.program || "—"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase text-muted-foreground">Events</p>
+          <p className="mt-1 font-semibold">{row.attendedEvents.toLocaleString()} / {row.expectedEvents.toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase text-muted-foreground">Imported / Manual</p>
+          <p className="mt-1 font-semibold">{row.importedAbsences.toLocaleString()} / {row.manualAbsences.toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl bg-muted/40 p-3">
+        <p className="text-xs font-bold uppercase text-muted-foreground">Fine / Penalty</p>
+        <p className={`mt-1 break-words text-sm font-semibold ${row.totalAbsences > 0 ? "" : "text-emerald-700"}`}>
+          {row.totalAbsences > 0
+            ? row.prescribedPenalty ?? row.penalty?.prescribed_penalty ?? "No prescribed penalty configured."
+            : "No fine"}
+        </p>
+      </div>
+    </article>
   );
 });
 
@@ -1812,8 +1894,8 @@ export default function CalculatePage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -2052,11 +2134,37 @@ export default function CalculatePage() {
             </div>
           ) : null}
 
-          <div className="mt-5 overflow-x-auto rounded-2xl border">
-            <table className="w-full min-w-max text-left text-sm">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+              <Checkbox
+                checked={allFilteredRowsSelected}
+                onCheckedChange={(checked) => handleSelectAllCalculationRows(checked === true)}
+                aria-label="Select all calculation rows"
+              />
+              Select all filtered rows
+            </label>
+            {filteredRows.length ? (
+              paginatedRows.map((row) => (
+                <CalculationCard
+                  key={row.key}
+                  row={row}
+                  selected={selectedCalculationRowKeySet.has(row.key)}
+                  onSelect={handleCalculationRowSelection}
+                  onEdit={handleOpenEditRow}
+                />
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading || isPreviewing ? "Loading calculation records..." : "No calculation rows found."}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 hidden overflow-x-auto rounded-2xl border lg:block">
+            <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">
+                  <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
                     <Checkbox
                       checked={allFilteredRowsSelected}
                       onCheckedChange={(checked) =>
@@ -2065,7 +2173,7 @@ export default function CalculatePage() {
                       aria-label="Select all calculation rows"
                     />
                   </th>
-                  <th className="px-4 py-3">Student</th>
+                  <th className="sticky left-12 z-20 bg-muted/95 px-4 py-3">Student</th>
                   <th className="px-4 py-3">College / Program</th>
                   <th className="px-4 py-3">Events</th>
                   <th className="px-4 py-3">Roster / Imported Absences</th>

@@ -52,18 +52,6 @@ function normalizeValue(value?: string | number | null) {
   return cleanValue(value).toLowerCase().replace(/\s+/g, " ");
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(date);
-}
 
 function getRecordTime(value?: string | null) {
   if (!value) return 0;
@@ -255,7 +243,7 @@ function buildExcelDocument(
     .map(([college, rows]) => {
       return `
         <tr class="college-row">
-          <td colspan="6">${escapeHtml(college)} — ${rows.length} attendee/s</td>
+          <td colspan="5">${escapeHtml(college)} — ${rows.length} attendee/s</td>
         </tr>
         ${rows
           .map(
@@ -266,7 +254,6 @@ function buildExcelDocument(
                 <td>${escapeHtml(row.college)}</td>
                 <td class="absences-cell">${escapeHtml(getAbsenceText(row))}</td>
                 <td>${escapeHtml(getFineText(row))}</td>
-                <td>${escapeHtml(formatDate(row.latestDate))}</td>
               </tr>
             `,
           )
@@ -338,11 +325,10 @@ function buildExcelDocument(
         <th>College</th>
         <th class="absences-cell">Absences</th>
         <th>Fine / Penalty</th>
-        <th>Latest Date</th>
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || '<tr><td colspan="6">No report data available.</td></tr>'}
+      ${bodyRows || '<tr><td colspan="5">No report data available.</td></tr>'}
     </tbody>
   </table>
 </body>
@@ -409,7 +395,7 @@ export default function ExportReport(props: ExportReportProps) {
           type="button"
           variant="outline"
           disabled={props.isLoading}
-          className="min-h-10 rounded-2xl px-4 py-2 text-xs font-black"
+          className="min-h-11 rounded-2xl px-4 py-2 text-xs font-black"
         >
           <Eye className="size-4" aria-hidden="true" />
           Preview & Export
@@ -417,7 +403,7 @@ export default function ExportReport(props: ExportReportProps) {
       </DialogTrigger>
       <DialogContent
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="flex max-h-[95svh] flex-col overflow-hidden sm:max-w-6xl"
+        className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden sm:max-w-6xl"
       >
         <DialogHeader className="shrink-0">
           <DialogTitle>Report preview by college</DialogTitle>
@@ -442,7 +428,7 @@ export default function ExportReport(props: ExportReportProps) {
                   <SelectItem
                     key={college}
                     value={college}
-                    className="wrap-break-word"
+                    className="break-words"
                   >
                     {college}
                   </SelectItem>
@@ -454,7 +440,7 @@ export default function ExportReport(props: ExportReportProps) {
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
               Year
             </p>
-            <p className="mt-1 wrap-break-word text-2xl font-black">
+            <p className="mt-1 break-words text-2xl font-black">
               {selectedYearLabel}
             </p>
           </div>
@@ -476,16 +462,49 @@ export default function ExportReport(props: ExportReportProps) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto rounded-2xl border">
-          <table className="w-full min-w-max text-left text-sm">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+            {Object.entries(rowsByCollege).length ? (
+              Object.entries(rowsByCollege).flatMap(([college, rows]) =>
+                rows.map((row) => (
+                  <article key={row.key} className="min-w-0 rounded-2xl border bg-background p-4">
+                    <div className="min-w-0">
+                      <p className="break-all font-black" title={row.studentId || "—"}>{row.studentId || "—"}</p>
+                      <p className="mt-1 break-words text-sm font-semibold" title={row.name || "—"}>{row.name || "—"}</p>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
+                        <p className="mt-1 truncate font-semibold" title={college}>{college}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Absences</p>
+                        <p className="mt-1 font-black">{getAbsenceText(row)}</p>
+                      </div>
+                      <div className="col-span-2 min-w-0">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Fine / Penalty</p>
+                        <p className="mt-1 break-words font-semibold">{getFineText(row)}</p>
+                      </div>
+                    </div>
+                  </article>
+                )),
+              )
+            ) : (
+              <div className="rounded-2xl border border-dashed p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                No report data available.
+              </div>
+            )}
+          </div>
+
+          <div className="hidden overflow-auto rounded-2xl border lg:block">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="sticky top-0 z-10 border-b bg-background text-xs uppercase text-muted-foreground">
               <tr>
-                <th className="px-3 py-3">Student ID</th>
+                <th className="sticky left-0 z-20 bg-background px-3 py-3">Student ID</th>
                 <th className="px-3 py-3">Name</th>
                 <th className="px-3 py-3">College</th>
                 <th className="px-3 py-3 text-center">Absences</th>
                 <th className="px-3 py-3">Fine / Penalty</th>
-                <th className="px-3 py-3">Latest</th>
               </tr>
             </thead>
             <tbody>
@@ -494,31 +513,28 @@ export default function ExportReport(props: ExportReportProps) {
                   <Fragment key={college}>
                     <tr key={`${college}-heading`} className="bg-muted/60">
                       <td
-                        colSpan={6}
-                        className="wrap-break-word px-3 py-3 font-black"
+                        colSpan={5}
+                        className="break-words px-3 py-3 font-black"
                       >
                         {college}
                       </td>
                     </tr>
                     {rows.map((row) => (
                       <tr key={row.key} className="border-b last:border-b-0">
-                        <td className="max-w-40 break-all px-3 py-3">
+                        <td className="sticky left-0 z-10 max-w-40 break-all bg-background px-3 py-3">
                           {row.studentId || "—"}
                         </td>
-                        <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">
+                        <td className="max-w-56 break-words px-3 py-3 font-semibold">
                           {row.name || "—"}
                         </td>
-                        <td className="max-w-56 wrap-break-word px-3 py-3">
+                        <td className="max-w-56 break-words px-3 py-3">
                           {row.college}
                         </td>
                         <td className="px-3 py-3 text-center">
                           {getAbsenceText(row)}
                         </td>
-                        <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">
+                        <td className="max-w-sm break-words px-3 py-3 text-muted-foreground">
                           {getFineText(row)}
-                        </td>
-                        <td className="px-3 py-3">
-                          {formatDate(row.latestDate)}
                         </td>
                       </tr>
                     ))}
@@ -527,7 +543,7 @@ export default function ExportReport(props: ExportReportProps) {
               ) : (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={5}
                     className="px-3 py-10 text-center text-sm font-semibold text-muted-foreground"
                   >
                     No report data available.
@@ -536,6 +552,7 @@ export default function ExportReport(props: ExportReportProps) {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:justify-end">

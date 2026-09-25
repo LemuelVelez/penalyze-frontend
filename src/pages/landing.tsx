@@ -13,11 +13,13 @@ import {
   listAllAttendanceRecords,
   listAttendanceEvents,
   listAttendanceFinalResults,
+  listEventCollegeExemptions,
   listManualAttendanceRecords,
 } from "../api/attendance";
 import type {
   AttendanceEvent,
   AttendanceFinalResultRecord,
+  EventCollegeExemption,
   AttendanceRecord,
   ManualAttendanceRecord,
 } from "../api/attendance";
@@ -858,6 +860,68 @@ function normalizeCollegeKey(value: unknown) {
   return text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function mergeAttendanceEventExemptions(
+  events: AttendanceEvent[],
+  exemptions: EventCollegeExemption[],
+) {
+  const exemptionsByEventId = new Map<string, EventCollegeExemption[]>();
+
+  exemptions.forEach((exemption) => {
+    const eventId = String(exemption.event_id ?? "").trim();
+    if (!eventId) return;
+    const current = exemptionsByEventId.get(eventId) ?? [];
+    current.push(exemption);
+    exemptionsByEventId.set(eventId, current);
+  });
+
+  return events.map((event) => {
+    const eventExemptions =
+      exemptionsByEventId.get(String(event.id ?? "").trim()) ?? [];
+
+    return {
+      ...event,
+      exempted_colleges: eventExemptions.map((exemption) => ({
+        id: exemption.id,
+        college_key: exemption.college_key,
+        college_label: exemption.college_label,
+      })),
+    };
+  });
+}
+
+function isCollegeExemptFromEvent(
+  event: AttendanceEvent | null | undefined,
+  collegeKey: string,
+) {
+  if (!event || !collegeKey) return false;
+
+  return (event.exempted_colleges ?? []).some(
+    (exemption) => normalizeCollegeKey(exemption.college_key) === collegeKey,
+  );
+}
+
+function getAttendanceEventForMissedResult(
+  missedEvent: NonNullable<AttendanceFinalResultRecord["missed_events"]>[number],
+  attendanceEvents: AttendanceEvent[],
+) {
+  const eventId = String(missedEvent.id ?? "").trim();
+  if (eventId) {
+    const idMatch = attendanceEvents.find(
+      (event) => String(event.id ?? "").trim() === eventId,
+    );
+    if (idMatch) return idMatch;
+  }
+
+  const eventName = normalizeEventKey(missedEvent.name ?? "");
+  if (!eventName) return null;
+
+  return (
+    attendanceEvents.find(
+      (event) => normalizeEventKey(event.name) === eventName,
+    ) ?? null
+  );
+}
+
 function hasFinalAttendanceResultMarker(...values: unknown[]) {
   const finalAttendanceResultNames = new Set([
     normalizeDisplayValue(FINAL_ATTENDANCE_RESULT_NAME),
@@ -938,7 +1002,7 @@ function getAttendanceRecordById(attendanceRecords: AttendanceRecord[]) {
 }
 
 function getAttendanceRecordCollegeKey(record: AttendanceRecord) {
-  return normalizeDisplayValue(record.college);
+  return normalizeCollegeKey(record.college);
 }
 
 function getStudentCollegeKey(attendance: AttendanceRecord[]) {
@@ -1012,7 +1076,11 @@ function getCollegeLinkedEventSummaryMap(
         !isZeroAttendanceRecord(record) &&
         !isFinalAttendanceResultRecord(record) &&
         getAttendanceRecordCollegeKey(record) === studentCollegeKey &&
-        hasAttendanceEventIdentity(record, eventById),
+        hasAttendanceEventIdentity(record, eventById) &&
+        !isCollegeExemptFromEvent(
+          eventById.get(String(record.event_id ?? "").trim()),
+          studentCollegeKey,
+        ),
     )
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
@@ -1457,6 +1525,8 @@ function addAbsentEventSummary(
 
 function getFinalResultAbsentEventSummaries(
   finalResult: AttendanceFinalResultRecord | null | undefined,
+  attendance: AttendanceRecord[] = [],
+  attendanceEvents: AttendanceEvent[] = [],
 ) {
   if (!finalResult) return null;
 
@@ -1464,7 +1534,19 @@ function getFinalResultAbsentEventSummaries(
 
   if (!missedEvents.length) return null;
 
-  return missedEvents
+  const studentCollegeKey =
+    getStudentCollegeKey(attendance) || normalizeCollegeKey(finalResult.college);
+  const visibleMissedEvents = studentCollegeKey
+    ? missedEvents.filter(
+        (event) =>
+          !isCollegeExemptFromEvent(
+            getAttendanceEventForMissedResult(event, attendanceEvents),
+            studentCollegeKey,
+          ),
+      )
+    : missedEvents;
+
+  return visibleMissedEvents
     .map((event, index): StudentAbsentEventSummary => {
       const eventName = String(event.name ?? "").trim();
       const eventOrder = event.event_order ?? null;
@@ -2155,13 +2237,10 @@ function getResultClassification(props: {
   if (props.totalAbsences > 0) return "With absences";
 
   if (props.finalResult) {
-    if (Number(props.finalResult.total_absences || 0) > 0) {
-      return "With absences";
-    }
-
     if (
-      props.finalResult.attendance_status === "perfect_attendance" ||
-      Number(props.finalResult.attended_events || 0) > 0
+      props.totalAbsences === 0 &&
+      (props.finalResult.attendance_status === "perfect_attendance" ||
+        Number(props.finalResult.attended_events || 0) > 0)
     ) {
       return "Perfect attendance";
     }
@@ -2909,7 +2988,8 @@ function AttendanceRequestDialog(props: {
     if (!selectedCollegeKey) return true;
 
     return !(event.exempted_colleges ?? []).some(
-      (exemption) => exemption.college_key === selectedCollegeKey,
+      (exemption) =>
+        normalizeCollegeKey(exemption.college_key) === selectedCollegeKey,
     );
   });
 
@@ -3311,6 +3391,7 @@ export default function LandingPage() {
   const [resultYearFilter, setResultYearFilter] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [attendanceRequestsLoadFailed, setAttendanceRequestsLoadFailed] = useState(false);
+  const [attendanceRequestsDialogOpen, setAttendanceRequestsDialogOpen] = useState(false);
   const [searchProgress, setSearchProgress] = useState<ProgressiveLoadProgress>(
     INITIAL_PROGRESSIVE_LOAD_PROGRESS,
   );
@@ -3485,6 +3566,9 @@ export default function LandingPage() {
   const rejectedAttendanceRequestCount = displayedAttendanceRequests.filter(
     (request) => request.status === "rejected",
   ).length;
+  const pendingAttendanceRequestCount = displayedAttendanceRequests.filter(
+    (request) => request.status === "pending",
+  ).length;
 
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
@@ -3536,8 +3620,11 @@ export default function LandingPage() {
     );
   }, [displayedAttendance, lookup]);
   const absentEvents = useMemo(() => {
-    const finalResultAbsentEvents =
-      getFinalResultAbsentEventSummaries(displayedFinalResult);
+    const finalResultAbsentEvents = getFinalResultAbsentEventSummaries(
+      displayedFinalResult,
+      displayedAttendance,
+      lookup?.attendanceEvents ?? [],
+    );
 
     if (finalResultAbsentEvents) return finalResultAbsentEvents;
 
@@ -3607,7 +3694,21 @@ export default function LandingPage() {
     });
 
     if (displayedFinalResult) {
-      return Math.max(0, Number(displayedFinalResult.total_absences || 0));
+      const savedTotal = Math.max(
+        0,
+        Number(displayedFinalResult.total_absences || 0),
+      );
+      const savedMissedEvents = displayedFinalResult.missed_events ?? [];
+
+      if (savedMissedEvents.length) {
+        const exemptedMissedEventCount = Math.max(
+          0,
+          savedMissedEvents.length - absentEvents.length,
+        );
+        return Math.max(0, savedTotal - exemptedMissedEventCount);
+      }
+
+      return savedTotal;
     }
 
     return verifiedAbsences;
@@ -3701,12 +3802,17 @@ export default function LandingPage() {
 
     setIsLoadingAttendanceRequestEvents(true);
     try {
-      const rows = await listAttendanceEvents({
-        schoolYearId,
-        limit: 500,
-        offset: 0,
-      });
-      setAttendanceRequestEvents(rows);
+      const [rows, exemptions] = await Promise.all([
+        listAttendanceEvents({
+          schoolYearId,
+          limit: 500,
+          offset: 0,
+        }),
+        listEventCollegeExemptions({ schoolYearId }),
+      ]);
+      setAttendanceRequestEvents(
+        mergeAttendanceEventExemptions(rows, exemptions),
+      );
     } catch (requestError) {
       setAttendanceRequestEvents([]);
       setAttendanceRequestError(
@@ -4144,11 +4250,18 @@ export default function LandingPage() {
 
       const [attendanceEvents, allAttendanceRecords, finalResults] =
         await Promise.all([
-          listAttendanceEvents({
-            schoolYearId: payload.schoolYearId,
-            limit: 500,
-            offset: 0,
-          }).catch(() => [] as AttendanceEvent[]),
+          Promise.all([
+            listAttendanceEvents({
+              schoolYearId: payload.schoolYearId,
+              limit: 500,
+              offset: 0,
+            }).catch(() => [] as AttendanceEvent[]),
+            listEventCollegeExemptions({
+              schoolYearId: payload.schoolYearId,
+            }).catch(() => [] as EventCollegeExemption[]),
+          ]).then(([events, exemptions]) =>
+            mergeAttendanceEventExemptions(events, exemptions),
+          ),
           listLandingAttendanceRecords().catch(() => [] as AttendanceRecord[]),
           listAttendanceFinalResults({
             schoolYearId: payload.schoolYearId,
@@ -4342,18 +4455,25 @@ export default function LandingPage() {
 
           return [] as SchoolYearRecord[];
         });
-      const attendanceEventsPromise = listAttendanceEvents({
-        limit: 500,
-        offset: 0,
-      })
-        .then((attendanceEvents) => {
+      const attendanceEventsPromise = Promise.all([
+        listAttendanceEvents({
+          limit: 500,
+          offset: 0,
+        }),
+        listEventCollegeExemptions(),
+      ])
+        .then(([attendanceEvents, exemptions]) => {
+          const eventsWithExemptions = mergeAttendanceEventExemptions(
+            attendanceEvents,
+            exemptions,
+          );
           markProgressStepComplete(
             10,
             "Attendance events loaded...",
-            `${attendanceEvents.length.toLocaleString()} event/s checked for matching records.`,
+            `${eventsWithExemptions.length.toLocaleString()} event/s checked for matching records and college exemptions.`,
           );
 
-          return attendanceEvents;
+          return eventsWithExemptions;
         })
         .catch(() => {
           markProgressStepComplete(
@@ -4503,16 +4623,17 @@ export default function LandingPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <ThemeToggle />\n          <LogoMark textClassName="text-2xl" />
+      <main className="flex min-h-svh items-center justify-center bg-background text-foreground">
+        <ThemeToggle />
+          <LogoMark textClassName="text-2xl" />
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="min-h-svh bg-background text-foreground">
       <section className="border-b bg-linear-to-b from-muted/80 to-background">
-        <div className="mx-auto min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto min-h-svh max-w-400 px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
@@ -4530,7 +4651,7 @@ export default function LandingPage() {
           </header>
 
           <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
-            <h1 className="text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+            <h1 className="text-3xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
               Search your Student ID and view attendance records instantly.
             </h1>
 
@@ -4719,117 +4840,22 @@ export default function LandingPage() {
               </div>
 
               {rejectedAttendanceRequestCount > 0 ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                  {rejectedAttendanceRequestCount} request{rejectedAttendanceRequestCount === 1 ? "" : "s"} rejected, see note below.
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                  {rejectedAttendanceRequestCount} request{rejectedAttendanceRequestCount === 1 ? "" : "s"} rejected. Open Attendance Requests to review.
                 </div>
               ) : null}
 
-              {attendanceRequestsLoadFailed || displayedAttendanceRequests.length ? (
-                <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <h3 className="text-xl font-black">Attendance Requests</h3>
-                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
-                      {displayedAttendanceRequests.length} request/s
-                    </span>
-                  </div>
-                  {attendanceRequestsLoadFailed ? (
-                    <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                      Couldn't load request status.
-                    </div>
-                  ) : null}
-                  <div className="space-y-4">
-                    {displayedAttendanceRequests.map((request) => (
-                      <article key={request.id} className="rounded-2xl border bg-background p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="font-black">
-                              {request.school_year_name} / {request.semester}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Submitted {formatDate(request.created_at)}
-                              {request.reviewed_at ? ` • Reviewed ${formatDate(request.reviewed_at)}` : ""}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
-                              {request.request_type === "details_correction"
-                                ? "Details Correction"
-                                : "Event Review"}
-                            </span>
-                            <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
-                              request.status === "approved"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : request.status === "rejected"
-                                  ? "border-red-200 bg-red-50 text-red-700"
-                                  : "border-amber-200 bg-amber-50 text-amber-800"
-                            }`}>
-                              {request.status}
-                            </span>
-                          </div>
-                        </div>
-                        {request.request_type === "details_correction" ? (
-                          <div className="mt-4">
-                            <p className="text-xs font-bold uppercase text-muted-foreground">
-                              Requested changes
-                            </p>
-                            <div className="mt-2 space-y-2 text-sm font-semibold">
-                              {getDetailsCorrectionChanges(request).map(
-                                ([label, currentValue, requestedValue]) => (
-                                  <p key={label}>
-                                    {label}: {currentValue || "—"} → {requestedValue || "—"}
-                                  </p>
-                                ),
-                              )}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="mt-4">
-                            <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
-                            <p className="mt-1 text-sm font-semibold">
-                              {request.events.map((event) => event.event_name).join(", ") || "—"}
-                            </p>
-                          </div>
-                        )}
-                        {request.review_note ? (
-                          <div className="mt-4 rounded-xl border bg-muted/40 p-3">
-                            <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
-                            <p className="mt-2 whitespace-pre-wrap text-sm">{request.review_note}</p>
-                          </div>
-                        ) : request.status === "rejected" ? (
-                          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                            No reason was provided. Please contact your college officer.
-                          </div>
-                        ) : null}
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-sm font-semibold text-muted-foreground">
-                            {request.status === "approved"
-                              ? request.request_type === "details_correction"
-                                ? "Your corrected details have been applied."
-                                : "Your attendance for these events has been added."
-                              : request.status === "pending"
-                                ? "Waiting for review."
-                                : "This request was rejected. Review the note and submit a corrected request."}
-                          </p>
-                          {request.status === "rejected" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={
-                                request.request_type === "details_correction"
-                                  ? handleLookupDetailsCorrection
-                                  : handleLookupAttendanceRequestReview
-                              }
-                              className="rounded-xl"
-                            >
-                              New Request
-                            </Button>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAttendanceRequestsDialogOpen(true)}
+                  className="min-h-12 w-full justify-between rounded-2xl px-4 text-sm font-black sm:w-auto"
+                >
+                  <span>Attendance Requests</span>
+                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                    {pendingAttendanceRequestCount}
+                  </span>
+                </Button>
 
               {resultClassification === "Perfect attendance" ? (
                 <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
@@ -4873,7 +4899,7 @@ export default function LandingPage() {
                               {index + 1}
                             </span>
                             <div className="min-w-0">
-                              <p className="wrap-break-word font-black">
+                              <p className="break-words font-black">
                                 {eventSummary.eventName}
                               </p>
                             </div>
@@ -4953,8 +4979,7 @@ export default function LandingPage() {
                                   ),
                                   isFallbackFine(fine) &&
                                     getFineAbsenceCount(fine) >= 10,
-                                )}{" "}
-                                • {formatDate(fine.created_at)}
+                                )}
                                 {isFallbackFine(fine) ? " • computed" : ""}
                               </p>
                             </div>
@@ -4996,6 +5021,137 @@ export default function LandingPage() {
         onFieldChange={handleDetailsCorrectionFieldChange}
         onSubmit={handleDetailsCorrectionSubmit}
       />
+
+      <Dialog
+        open={attendanceRequestsDialogOpen}
+        onOpenChange={setAttendanceRequestsDialogOpen}
+      >
+        <DialogContent className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Attendance Requests</DialogTitle>
+            <DialogDescription>
+              Review the status and details of attendance requests for {selectedYearLabel}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                {displayedAttendanceRequests.length} request/s
+              </span>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                {pendingAttendanceRequestCount} pending
+              </span>
+            </div>
+
+            {attendanceRequestsLoadFailed ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                Couldn't load request status.
+              </div>
+            ) : null}
+
+            {displayedAttendanceRequests.length ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {displayedAttendanceRequests.map((request) => (
+                  <article key={request.id} className="min-w-0 rounded-2xl border bg-background p-4">
+                    <div className="flex flex-col gap-3">
+                      <div className="min-w-0">
+                        <p className="break-words font-black">
+                          {request.school_year_name} / {request.semester}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Submitted {formatDate(request.created_at)}
+                          {request.reviewed_at ? ` • Reviewed ${formatDate(request.reviewed_at)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
+                          {request.request_type === "details_correction"
+                            ? "Details Correction"
+                            : "Event Review"}
+                        </span>
+                        <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
+                          request.status === "approved"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"
+                            : request.status === "rejected"
+                              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+                              : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+                        }`}>
+                          {request.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {request.request_type === "details_correction" ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Requested changes</p>
+                        <div className="mt-2 space-y-2 text-sm font-semibold">
+                          {getDetailsCorrectionChanges(request).map(([label, currentValue, requestedValue]) => (
+                            <p key={label} className="break-words">
+                              {label}: {currentValue || "—"} → {requestedValue || "—"}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
+                        <p className="mt-1 break-words text-sm font-semibold">
+                          {request.events.map((event) => event.event_name).join(", ") || "—"}
+                        </p>
+                      </div>
+                    )}
+
+                    {request.review_note ? (
+                      <div className="mt-4 rounded-xl border bg-muted/40 p-3">
+                        <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
+                        <p className="mt-2 whitespace-pre-wrap break-words text-sm">{request.review_note}</p>
+                      </div>
+                    ) : request.status === "rejected" ? (
+                      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                        No reason was provided. Please contact your college officer.
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 flex flex-col gap-3">
+                      <p className="text-sm font-semibold text-muted-foreground">
+                        {request.status === "approved"
+                          ? request.request_type === "details_correction"
+                            ? "Your corrected details have been applied."
+                            : "Your attendance for these events has been added."
+                          : request.status === "pending"
+                            ? "Waiting for review."
+                            : "This request was rejected. Review the note and submit a corrected request."}
+                      </p>
+                      {request.status === "rejected" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setAttendanceRequestsDialogOpen(false);
+                            if (request.request_type === "details_correction") {
+                              handleLookupDetailsCorrection();
+                            } else {
+                              handleLookupAttendanceRequestReview();
+                            }
+                          }}
+                          className="min-h-11 w-full rounded-xl sm:w-auto"
+                        >
+                          New Request
+                        </Button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                No attendance requests for this school year.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AttendanceRequestDialog
         open={attendanceRequestDialogOpen}

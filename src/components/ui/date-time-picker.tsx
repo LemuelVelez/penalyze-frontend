@@ -216,7 +216,7 @@ export function DateTimePicker({
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {mode === "date" ? "Select date" : "Select date and time"}
@@ -226,7 +226,7 @@ export function DateTimePicker({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid min-h-0 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <span className="text-xs font-bold">Month</span>
             <Select

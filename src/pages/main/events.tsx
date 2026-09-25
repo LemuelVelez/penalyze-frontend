@@ -1261,8 +1261,8 @@ export default function EventsPage() {
   const redoEntry = redoStack[redoStack.length - 1];
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1440,20 +1440,20 @@ export default function EventsPage() {
                 Showing {filteredEvents.length.toLocaleString()} event record/s.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <div className="grid w-full gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:justify-end">
               <Input
                 type="search"
                 aria-label="Search events"
                 placeholder="Search event..."
                 value={eventSearch}
                 onChange={(event) => setEventSearch(event.target.value)}
-                className="min-h-11 rounded-2xl sm:w-64"
+                className="min-h-11 rounded-2xl lg:w-64"
               />
               <SortSelect
                 value={sortOrder}
                 onValueChange={setSortOrder}
                 ariaLabel="Sort events"
-                className="rounded-2xl sm:w-44"
+                className="rounded-2xl lg:w-44"
               />
               <Input
                 type="date"
@@ -1461,7 +1461,7 @@ export default function EventsPage() {
                 value={fromDate}
                 max={toDate || undefined}
                 onChange={(event) => setFromDate(event.target.value)}
-                className="min-h-11 rounded-2xl sm:w-40"
+                className="min-h-11 rounded-2xl lg:w-40"
               />
               <Input
                 type="date"
@@ -1469,7 +1469,7 @@ export default function EventsPage() {
                 value={toDate}
                 min={fromDate || undefined}
                 onChange={(event) => setToDate(event.target.value)}
-                className="min-h-11 rounded-2xl sm:w-40"
+                className="min-h-11 rounded-2xl lg:w-40"
               />
               <ProtectedDeleteDialog
                 trigger={
@@ -1528,11 +1528,105 @@ export default function EventsPage() {
             </div>
           </div>
 
-          <div className="mt-5 overflow-x-auto rounded-2xl border">
-            <table className="w-full min-w-max text-left text-sm">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+              <Checkbox
+                checked={allDisplayedEventsSelected}
+                onCheckedChange={(checked) => handleSelectAllEvents(checked === true)}
+                aria-label="Select all event records"
+              />
+              Select all displayed events
+            </label>
+            {paginatedEvents.length ? (
+              paginatedEvents.map((event, index) => (
+                <article key={event.id} className="min-w-0 rounded-2xl border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase text-muted-foreground">
+                        Event #{(event.event_order || (rowsPerPage === "all" ? index + 1 : (currentPage - 1) * Number(rowsPerPage) + index + 1)).toLocaleString()}
+                      </p>
+                      <p className="mt-1 break-words text-base font-black" title={event.name}>{event.name}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Checkbox
+                        aria-label={`Select ${event.name}`}
+                        checked={selectedEventIds.includes(event.id)}
+                        onCheckedChange={(checked) => handleEventSelection(event.id, checked === true)}
+                      />
+                      <ActionMenu
+                        ariaLabel={`Actions for ${event.name}`}
+                        actions={[{ label: "Edit", onSelect: () => handleOpenEditDialog(event) }]}
+                        deleteAction={{
+                          label: deletingEventId === event.id ? "Deleting..." : "Delete",
+                          disabled: deletingEventId === event.id,
+                          title: "Delete this event?",
+                          description: "This will permanently delete 1 attendance event record. Linked attendance and fine records for this event will also be removed, and downstream results will be recalculated.",
+                          confirmationPhrase: "DELETE",
+                          confirmLabel: "Delete Event",
+                          isPending: deletingEventId === event.id,
+                          onConfirm: () => handleDeleteEvent(event),
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Starts</p>
+                      <p className="mt-1 text-xs font-semibold">{formatDateTime(event.event_start_at)}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Ends</p>
+                      <p className="mt-1 text-xs font-semibold">{formatDateTime(event.event_end_at)}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">School year</p>
+                      <p className="mt-1 truncate font-semibold" title={getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}>
+                        {getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Attendees</p>
+                      <p className="mt-1 font-black">{Number(event.attendees_count || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {event.exempted_colleges?.length ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setExemptionDetailsEvent(event)}
+                        className="min-h-11 max-w-full rounded-xl border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800"
+                      >
+                        Exemptions ({event.exempted_colleges.length})
+                      </Button>
+                    ) : null}
+                    {event.description ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setDescriptionDetailsEvent(event)}
+                        className="min-h-11 rounded-xl px-3 text-xs font-black"
+                      >
+                        View description
+                      </Button>
+                    ) : null}
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading ? "Loading events..." : "No events found."}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 hidden overflow-x-auto rounded-2xl border lg:block">
+            <table className="w-full min-w-[1100px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="w-12 px-4 py-3">
+                  <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
                     <Checkbox
                       aria-label="Select all event records"
                       checked={allDisplayedEventsSelected}
@@ -1541,8 +1635,8 @@ export default function EventsPage() {
                       }
                     />
                   </th>
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Event</th>
+                  <th className="sticky left-12 z-20 w-16 bg-muted/95 px-4 py-3">Order</th>
+                  <th className="sticky left-28 z-20 bg-muted/95 px-4 py-3">Event</th>
                   <th className="px-4 py-3">Schedule</th>
                   <th className="px-4 py-3">School Year / Semester</th>
                   <th className="px-4 py-3">Attendees</th>
@@ -1554,7 +1648,7 @@ export default function EventsPage() {
                 {paginatedEvents.length ? (
                   paginatedEvents.map((event, index) => (
                     <tr key={event.id} className="border-t">
-                      <td className="px-4 py-3 align-top">
+                      <td className="sticky left-0 z-20 bg-background px-4 py-3 align-top">
                         <Checkbox
                           aria-label={`Select ${event.name}`}
                           checked={selectedEventIds.includes(event.id)}
@@ -1566,10 +1660,10 @@ export default function EventsPage() {
                           }
                         />
                       </td>
-                      <td className="px-4 py-3 align-top text-base font-black">
+                      <td className="sticky left-12 z-10 bg-background px-4 py-3 align-top text-base font-black">
                         {(event.event_order || (rowsPerPage === "all" ? index + 1 : (currentPage - 1) * Number(rowsPerPage) + index + 1)).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 align-top">
+                      <td className="sticky left-28 z-10 bg-background px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
                         {event.exempted_colleges?.length ? (
                           <Button
@@ -2142,7 +2236,7 @@ export default function EventsPage() {
           </DialogHeader>
 
           <form onSubmit={handleSaveEvent} className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <label className="space-y-2 text-sm font-bold">
                 <span>Order</span>
                 <Input

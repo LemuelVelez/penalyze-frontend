@@ -1703,8 +1703,8 @@ export default function HistoryPage() {
   }
 
   return (
-    <main className="min-h-screen bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+    <main className="min-h-svh bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-5">
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1747,8 +1747,8 @@ export default function HistoryPage() {
           />
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-6">
-          <div className="rounded-2xl border bg-card p-5 md:col-span-2">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="rounded-2xl border bg-card p-5 sm:col-span-2 lg:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               Selected School Year / Semester
             </p>
@@ -1813,7 +1813,7 @@ export default function HistoryPage() {
             selected school-year data.
           </p>
 
-          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             <Button
               type="button"
               onClick={handleOpenCreateSchoolYearDialog}
@@ -2135,7 +2135,7 @@ export default function HistoryPage() {
             </label>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-4">
+          <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {recordGroupSummaries.map((group) => (
               <div
                 key={group.key}

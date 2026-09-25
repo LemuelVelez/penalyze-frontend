@@ -1146,8 +1146,8 @@ export default function ManualAttendancePage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1164,7 +1164,7 @@ export default function ManualAttendancePage() {
               </p>
             </div>
 
-            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-3">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center"
@@ -1211,7 +1211,7 @@ export default function ManualAttendancePage() {
                   setCollegeFilter(value === "__all_colleges__" ? "" : value)
                 }
               >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-64">
                   <SelectValue placeholder="College filter" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1731,11 +1731,88 @@ export default function ManualAttendancePage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border bg-background">
-            <table className="w-full min-w-full text-left text-sm">
+          <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+              <Checkbox
+                checked={allFilteredGroupsSelected}
+                onCheckedChange={(checked) => handleSelectAllManualGroups(checked === true)}
+                aria-label="Select all manual attendance records"
+              />
+              Select all filtered attendees
+            </label>
+            {paginatedGroups.length ? (
+              paginatedGroups.map((group) => (
+                <article key={group.key} className="min-w-0 rounded-2xl border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-all font-black" title={group.studentId}>{group.studentId}</p>
+                      <p className="mt-1 break-words text-sm font-semibold" title={group.name}>{group.name}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Checkbox
+                        aria-label={`Select ${group.studentId}`}
+                        checked={isManualGroupSelected(group)}
+                        onCheckedChange={(checked) => handleManualGroupSelection(group, checked === true)}
+                      />
+                      <ActionMenu
+                        ariaLabel={`Actions for ${group.studentId}`}
+                        actions={[{ label: "Edit", onSelect: () => handleEditGroup(group), disabled: isSaving || isDeletingManualRecords }]}
+                        deleteAction={{
+                          label: isSaving ? "Deleting..." : "Delete",
+                          disabled: isSaving || isDeletingManualRecords,
+                          title: "Delete manual attendance?",
+                          description: <>This will permanently delete all {group.records.length.toLocaleString()} manual attendance record(s) for Student ID {group.studentId}. This action cannot be undone.</>,
+                          confirmationPhrase: "DELETE",
+                          confirmLabel: "Delete",
+                          isPending: isSaving,
+                          onConfirm: () => handleDeleteGroup(group),
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <span className="rounded-full border bg-muted px-3 py-1 text-xs font-black">
+                      {group.attendanceType === "zero_attendance" ? "Zero attendance" : "Manual"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEventsDialogGroup(group)}
+                      className="min-h-11 rounded-xl px-3 text-xs font-black"
+                    >
+                      Events ({group.events.length})
+                    </Button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
+                      <p className="mt-1 truncate font-semibold" title={group.college || "—"}>{group.college || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
+                      <p className="mt-1 truncate font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
+                    </div>
+                    <div className="col-span-2 min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Latest scan</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDateTime(group.latestScannedAt)}</p>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading ? "Loading manual attendance..." : "No manual attendance records found."}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+            <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="w-12 px-4 py-3">
+                  <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
                     <Checkbox
                       aria-label="Select all manual attendance records"
                       checked={allFilteredGroupsSelected}
@@ -1744,7 +1821,7 @@ export default function ManualAttendancePage() {
                       }
                     />
                   </th>
-                  <th className="px-4 py-3">Student ID</th>
+                  <th className="sticky left-12 z-20 bg-muted/95 px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Events</th>
                   <th className="px-4 py-3">College</th>
@@ -1758,7 +1835,7 @@ export default function ManualAttendancePage() {
                 {paginatedGroups.length ? (
                   paginatedGroups.map((group) => (
                     <tr key={group.key} className="border-t">
-                      <td className="px-4 py-3 align-top">
+                      <td className="sticky left-0 z-20 bg-background px-4 py-3 align-top">
                         <Checkbox
                           aria-label={`Select ${group.studentId}`}
                           checked={isManualGroupSelected(group)}
@@ -1770,7 +1847,7 @@ export default function ManualAttendancePage() {
                           }
                         />
                       </td>
-                      <td className="px-4 py-3 font-black">
+                      <td className="sticky left-12 z-10 bg-background px-4 py-3 font-black">
                         {group.studentId}
                       </td>
                       <td className="px-4 py-3 font-semibold">{group.name}</td>

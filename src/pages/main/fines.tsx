@@ -114,19 +114,6 @@ const fineStatusOptions: Array<{ value: FineStatus; label: string }> = [
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(date);
-}
-
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
   const date = new Date(value);
@@ -961,8 +948,8 @@ export default function FinesPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -979,7 +966,7 @@ export default function FinesPage() {
               </p>
             </div>
 
-            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto xl:grid-cols-3">
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-3 xl:grid-cols-4">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center"
@@ -1007,7 +994,7 @@ export default function FinesPage() {
                   setStatusFilter(value as StatusFilter)
                 }
               >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-56 rounded-2xl">
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-56">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1019,7 +1006,7 @@ export default function FinesPage() {
                 </SelectContent>
               </Select>
 
-              <div className="grid grid-cols-2 gap-2 xl:col-span-2">
+              <div className="grid grid-cols-2 gap-2 lg:col-span-2 xl:col-span-2">
                 <Input
                   type="date"
                   aria-label="Fines from date"
@@ -1039,7 +1026,7 @@ export default function FinesPage() {
               </div>
 
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl">
+                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-64">
                   <SelectValue placeholder="College" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1179,11 +1166,92 @@ export default function FinesPage() {
             </div>
           </div>
 
-          <div className="mt-5 overflow-x-auto rounded-2xl border bg-background">
-            <table className="w-full min-w-full text-left text-sm">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+              <Checkbox
+                checked={allDisplayedPenaltyResultsSelected}
+                onCheckedChange={(checked) => handleSelectAllPenaltyResults(checked === true)}
+                aria-label="Select all penalty results"
+              />
+              Select all displayed results
+            </label>
+            {paginatedPenaltyResults.length ? (
+              paginatedPenaltyResults.map((result) => (
+                <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
+                      <p className="mt-1 break-words text-sm font-semibold" title={result.name}>{result.name}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Checkbox
+                        aria-label={`Select ${result.student_id}`}
+                        checked={selectedPenaltyResultIds.includes(result.id)}
+                        onCheckedChange={(checked) => handlePenaltyResultSelection(result.id, checked === true)}
+                      />
+                      <ActionMenu
+                        ariaLabel={`Actions for ${result.student_id}`}
+                        actions={[{ label: "Edit", onSelect: () => handleOpenPenaltyResultDialog(result) }]}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>
+                      {result.status}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleOpenAbsentEvents(result)}
+                      className="min-h-11 rounded-xl px-3 text-xs font-black"
+                    >
+                      Absences ({result.no_of_absences})
+                    </Button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
+                      <p className="mt-1 truncate font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Status</p>
+                      <Select
+                        value={result.status}
+                        onValueChange={(value) => handleStatusChange(result, value as FineStatus)}
+                        disabled={updatingStatusId === result.id}
+                      >
+                        <SelectTrigger className="mt-1 min-h-11 w-full rounded-xl text-xs font-bold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fineStatusOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl bg-muted/40 p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">Prescribed penalty</p>
+                    <p className="mt-1 break-words text-sm font-semibold">{result.prescribed_penalty || "—"}</p>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading ? "Loading penalty results..." : "No penalty results found."}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+            <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="w-12 px-4 py-3">
+                  <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
                     <Checkbox
                       aria-label="Select all penalty results"
                       checked={allDisplayedPenaltyResultsSelected}
@@ -1192,13 +1260,12 @@ export default function FinesPage() {
                       }
                     />
                   </th>
-                  <th className="px-4 py-3">Student ID</th>
+                  <th className="sticky left-12 z-20 bg-muted/95 px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Absences</th>
                   <th className="px-4 py-3">Prescribed Penalty</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Updated</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -1206,7 +1273,7 @@ export default function FinesPage() {
                 {paginatedPenaltyResults.length ? (
                   paginatedPenaltyResults.map((result) => (
                     <tr key={result.id} className="border-t">
-                      <td className="px-4 py-3 align-top">
+                      <td className="sticky left-0 z-20 bg-background px-4 py-3 align-top">
                         <Checkbox
                           aria-label={`Select ${result.student_id}`}
                           checked={selectedPenaltyResultIds.includes(result.id)}
@@ -1218,7 +1285,7 @@ export default function FinesPage() {
                           }
                         />
                       </td>
-                      <td className="px-4 py-3 font-black">
+                      <td className="sticky left-12 z-10 bg-background px-4 py-3 font-black">
                         {result.student_id}
                       </td>
                       <td className="px-4 py-3 font-semibold">{result.name}</td>
@@ -1268,9 +1335,6 @@ export default function FinesPage() {
                           </Select>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {formatDate(result.updated_at)}
-                      </td>
                       <td className="px-4 py-3 text-right">
                         <ActionMenu
                           ariaLabel={`Actions for ${result.student_id}`}
@@ -1287,7 +1351,7 @@ export default function FinesPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={8}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading
@@ -1408,35 +1472,54 @@ export default function FinesPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+                {filteredPenaltyResults.map((result) => (
+                  <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-4 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-all font-black">{result.student_id}</p>
+                        <p className="break-words font-semibold" title={result.name}>{result.name}</p>
+                      </div>
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>{result.status}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 break-words">{result.prescribed_penalty || "—"}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Fine amount</p><p className="mt-1 font-black">{formatFineReportCurrency(getFineReportAmount(result))}</p></div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="hidden overflow-auto rounded-2xl border lg:block">
               <table className="w-max min-w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-primary text-primary-foreground">
                   <tr>
-                    <th className="whitespace-nowrap border-b border-r px-3 py-2">Student ID</th>
+                    <th className="sticky left-0 z-20 whitespace-nowrap border-b border-r bg-primary px-3 py-2">Student ID</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2">Name</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2">College</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Absences</th>
                     <th className="min-w-80 border-b border-r px-3 py-2">Prescribed Penalty</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Fine Amount</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2">Status</th>
-                    <th className="whitespace-nowrap border-b px-3 py-2">Updated</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPenaltyResults.map((result, index) => (
                     <tr key={result.id} className={index % 2 ? "bg-muted/35" : "bg-background"}>
-                      <td className="whitespace-nowrap border-b border-r px-3 py-2 font-semibold">{result.student_id}</td>
+                      <td className={`sticky left-0 z-10 whitespace-nowrap border-b border-r px-3 py-2 font-semibold ${index % 2 ? "bg-muted" : "bg-background"}`}>{result.student_id}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2">{result.name}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2">{getPenaltyResultCollege(result) || "—"}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{Number(result.no_of_absences || 0).toLocaleString()}</td>
                       <td className="border-b border-r px-3 py-2">{result.prescribed_penalty || "—"}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{formatFineReportCurrency(getFineReportAmount(result))}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2 font-semibold uppercase">{result.status}</td>
-                      <td className="whitespace-nowrap border-b px-3 py-2">{formatDateTime(result.updated_at)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
             <DialogFooter className="shrink-0">
@@ -1597,7 +1680,7 @@ export default function FinesPage() {
                     <div className="flex gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">{index + 1}</span>
                       <div className="min-w-0">
-                        <p className="wrap-break-word font-semibold">
+                        <p className="break-words font-semibold">
                           {event.eventOrder ? `${event.eventOrder}. ` : ""}{event.eventName}
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">

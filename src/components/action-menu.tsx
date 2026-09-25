@@ -73,7 +73,7 @@ export function ActionMenu({
                 key={index}
                 disabled={action.disabled}
                 onSelect={() => action.onSelect()}
-                className="flex cursor-default select-none items-center rounded-lg px-2.5 py-2 text-sm font-semibold outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50"
+                className="flex cursor-default select-none items-center rounded-lg px-2.5 py-2 text-sm font-semibold max-sm:min-h-11 outline-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50"
               >
                 {action.label}
               </DropdownMenuPrimitive.Item>
@@ -87,7 +87,7 @@ export function ActionMenu({
               <DropdownMenuPrimitive.Item
                 disabled={deleteAction.disabled}
                 onSelect={() => setDeleteDialogOpen(true)}
-                className="flex cursor-default select-none items-center rounded-lg px-2.5 py-2 text-sm font-semibold text-destructive outline-none focus:bg-destructive/10 focus:text-destructive data-disabled:pointer-events-none data-disabled:opacity-50"
+                className="flex cursor-default select-none items-center rounded-lg px-2.5 py-2 text-sm font-semibold text-destructive max-sm:min-h-11 outline-none focus:bg-destructive/10 focus:text-destructive data-disabled:pointer-events-none data-disabled:opacity-50"
               >
                 {deleteAction.label ?? "Delete"}
               </DropdownMenuPrimitive.Item>

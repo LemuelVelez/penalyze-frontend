@@ -33,7 +33,7 @@ export const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-3xl border bg-background p-6 text-foreground shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-3xl border bg-background p-4 sm:p-6 text-foreground shadow-lg duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className
       )}
       {...props}
@@ -75,7 +75,7 @@ export const AlertDialogAction = React.forwardRef<
   <AlertDialogPrimitive.Action
     ref={ref}
     className={cn(
-      "inline-flex min-h-10 items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-black text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-4 focus:ring-ring/20 disabled:pointer-events-none disabled:opacity-60",
+      "inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-black text-primary-foreground transition hover:opacity-90 focus:outline-none focus:ring-4 focus:ring-ring/20 disabled:pointer-events-none disabled:opacity-60",
       className
     )}
     {...props}
@@ -90,7 +90,7 @@ export const AlertDialogCancel = React.forwardRef<
   <AlertDialogPrimitive.Cancel
     ref={ref}
     className={cn(
-      "inline-flex min-h-10 items-center justify-center rounded-xl border bg-background px-4 py-2 text-sm font-black transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-ring/20 disabled:pointer-events-none disabled:opacity-60",
+      "inline-flex min-h-11 items-center justify-center rounded-xl border bg-background px-4 py-2 text-sm font-black transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-ring/20 disabled:pointer-events-none disabled:opacity-60",
       className
     )}
     {...props}

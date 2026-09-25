@@ -6,7 +6,7 @@ type LoadingProps = {
 
 export default function Loading(props: LoadingProps) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground transition-colors">
+    <main className="flex min-h-svh items-center justify-center bg-background px-4 text-foreground transition-colors">
       <section className="flex w-full max-w-sm flex-col items-center rounded-3xl border bg-card p-8 transition-colors text-center shadow-sm">
         <img
           src="/logo.svg"

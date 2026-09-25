@@ -1765,8 +1765,8 @@ export default function AttendancePage() {
   }
 
   return (
-    <main className="min-h-screen bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-5">
+    <main className="min-h-svh bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-400 flex-col gap-5">
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1933,7 +1933,7 @@ export default function AttendancePage() {
                     ? `${files.length.toLocaleString()} attendance file/s selected`
                     : "Drop attendance files here"}
                 </span>
-                <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
+                <span className="mt-2 max-w-full break-words text-sm font-semibold text-muted-foreground">
                   Only .xlsx files are supported.
                 </span>
                 {files.length ? (
@@ -2054,7 +2054,7 @@ export default function AttendancePage() {
                           ) : null}
                         </div>
 
-                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <p className="text-xs font-bold text-muted-foreground">
                               Detected event
@@ -2426,7 +2426,7 @@ export default function AttendancePage() {
                           {index + 1}
                         </span>
                         <div className="min-w-0">
-                          <p className="wrap-break-word font-semibold">{event.name}</p>
+                          <p className="break-words font-semibold">{event.name}</p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Missed • {formatDateTime(event.event_start_at ?? event.event_end_at)}
                           </p>
@@ -2460,7 +2460,7 @@ export default function AttendancePage() {
                           {index + 1}
                         </span>
                         <div className="min-w-0">
-                          <p className="wrap-break-word font-semibold">
+                          <p className="break-words font-semibold">
                             {eventSummary.eventName}
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -2667,20 +2667,20 @@ export default function AttendancePage() {
                 Uploaded and manual attendance are merged by Student ID.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <div className="grid w-full gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:items-center lg:justify-end">
               <Input
                 type="search"
                 aria-label="Search student by name or ID"
                 placeholder="Search student name or ID..."
                 value={studentSearch}
                 onChange={(event) => setStudentSearch(event.target.value)}
-                className="min-h-11 rounded-2xl sm:min-w-64"
+                className="min-h-11 rounded-2xl lg:min-w-64"
               />
               <SortSelect
                 value={sortOrder}
                 onValueChange={setSortOrder}
                 ariaLabel="Sort attendance results and imports"
-                className="rounded-2xl sm:w-44"
+                className="rounded-2xl lg:w-44"
               />
               <div className="grid grid-cols-2 gap-2">
                 <Input
@@ -2701,7 +2701,7 @@ export default function AttendancePage() {
                 />
               </div>
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
-                <SelectTrigger className="min-h-11 w-full min-w-0 max-w-64 rounded-2xl">
+                <SelectTrigger className="min-h-11 w-full min-w-0 max-w-none rounded-2xl lg:max-w-64">
                   <SelectValue placeholder="College" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2773,11 +2773,79 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border bg-background">
-            <table className="w-full min-w-full text-left text-sm">
+          <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+              <Checkbox
+                checked={allDisplayedFinalResultsSelected}
+                onCheckedChange={(checked) => handleSelectAllFinalResults(checked === true)}
+                aria-label="Select all final attendance results"
+              />
+              Select all displayed results
+            </label>
+            {paginatedFinalResults.length ? (
+              paginatedFinalResults.map((result) => (
+                <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
+                      <p className="mt-1 break-words text-sm font-semibold" title={result.name}>{result.name}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Checkbox
+                        checked={selectedFinalResultIds.includes(result.id)}
+                        onCheckedChange={(checked) => handleFinalResultSelection(result.id, checked === true)}
+                        aria-label={`Select final result for ${result.student_id}`}
+                      />
+                      <ActionMenu
+                        ariaLabel={`Actions for ${result.student_id}`}
+                        actions={[{ label: "Edit", onSelect: () => handleOpenEditFinalResult(result) }]}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result)}`}>
+                      {getResultLabel(result)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleOpenEventsDialog(result)}
+                      className="min-h-11 rounded-xl px-3 text-xs font-semibold"
+                    >
+                      Events ({result.attended_events} / {result.expected_events})
+                    </Button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
+                      <p className="mt-1 truncate font-semibold" title={result.college || "—"}>{result.college || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
+                      <p className="mt-1 truncate font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Latest scan</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDate(result.latest_scanned_at)}</p>
+                    </div>
+                    <div className="flex items-end justify-end">
+                      <span className="text-xs font-bold text-muted-foreground">{result.attended_events} attended</span>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading ? "Loading final results..." : "No final attendance results found."}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-2xl border bg-background lg:block">
+            <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">
+                  <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
                     <Checkbox
                       checked={allDisplayedFinalResultsSelected}
                       onCheckedChange={(checked) =>
@@ -2786,7 +2854,7 @@ export default function AttendancePage() {
                       aria-label="Select all final attendance results"
                     />
                   </th>
-                  <th className="px-4 py-3">Student ID</th>
+                  <th className="sticky left-12 z-20 bg-muted/95 px-4 py-3">Student ID</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Program</th>
@@ -2801,7 +2869,7 @@ export default function AttendancePage() {
                   paginatedFinalResults.map((result) => {
                     return (
                       <tr key={result.id} className="border-t">
-                        <td className="px-4 py-3">
+                        <td className="sticky left-0 z-20 bg-background px-4 py-3">
                           <Checkbox
                             checked={selectedFinalResultIds.includes(result.id)}
                             onCheckedChange={(checked) =>
@@ -2813,16 +2881,16 @@ export default function AttendancePage() {
                             aria-label={`Select final result for ${result.student_id}`}
                           />
                         </td>
-                        <td className="px-4 py-3 wrap-break-word font-semibold">
+                        <td className="sticky left-12 z-10 bg-background px-4 py-3 break-words font-semibold">
                           {result.student_id}
                         </td>
-                        <td className="px-4 py-3 wrap-break-word font-semibold">
+                        <td className="px-4 py-3 break-words font-semibold">
                           {result.name}
                         </td>
-                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
+                        <td className="px-4 py-3 break-words text-muted-foreground">
                           {result.college || "—"}
                         </td>
-                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
+                        <td className="px-4 py-3 break-words text-muted-foreground">
                           {result.program || "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -2937,7 +3005,7 @@ export default function AttendancePage() {
                   <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="break-all font-semibold">{item.file_name}</p>
-                      <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
+                      <p className="mt-1 break-words text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
                         {formatDate(item.created_at)}
                       </p>

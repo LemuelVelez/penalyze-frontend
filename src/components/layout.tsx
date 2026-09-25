@@ -289,7 +289,7 @@ export default function AppLayout(props: LayoutProps) {
 
   if (!props.authenticated) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-svh bg-background text-foreground">
         <div className="fixed right-4 top-4 z-100 rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
           <ThemeToggle />
         </div>
@@ -299,7 +299,7 @@ export default function AppLayout(props: LayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-muted/20 text-foreground">
+    <div className="min-h-svh bg-muted/20 text-foreground">
       <header className="fixed inset-x-0 top-0 z-40 border-b bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-400 items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Button
@@ -313,7 +313,7 @@ export default function AppLayout(props: LayoutProps) {
           </Button>
 
           <nav
-            className="hidden min-w-0 flex-1 items-center justify-center gap-1.5 xl:flex"
+            className="hidden min-w-0 flex-1 items-center justify-center gap-1 lg:flex xl:gap-1.5"
             aria-label="Dashboard navigation"
           >
             <Button
@@ -428,7 +428,7 @@ export default function AppLayout(props: LayoutProps) {
                 <Button
                   type="button"
                   variant="ghost"
-                  className="hidden h-9 rounded-lg px-2.5 text-sm font-medium text-muted-foreground hover:text-foreground xl:inline-flex"
+                  className="hidden h-9 rounded-lg px-2.5 text-sm font-medium text-muted-foreground hover:text-foreground lg:inline-flex"
                 >
                   <LogOut className="size-4" aria-hidden="true" />
                   Log out
@@ -442,16 +442,20 @@ export default function AppLayout(props: LayoutProps) {
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="size-9 rounded-lg xl:hidden"
+                  className="relative size-11 rounded-xl lg:hidden"
                   aria-label="Open navigation menu"
                 >
-                  <Menu className="size-4" aria-hidden="true" />
+                  <Menu className="size-5" aria-hidden="true" />
+                  <PendingBadge
+                    count={pendingRequestCount}
+                    className="absolute -right-1 -top-1 ring-2 ring-background"
+                  />
                 </Button>
               </SheetTrigger>
 
               <SheetContent
                 side="right"
-                className="h-svh min-h-svh w-80 overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 xl:hidden"
+                className="h-svh min-h-svh w-full max-w-80 overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 lg:hidden"
               >
                 <SheetHeader className="mb-5 border-b pb-4 text-left">
                   <SheetTitle>
@@ -549,7 +553,7 @@ export default function AppLayout(props: LayoutProps) {
         </div>
       </header>
 
-      <div className="pt-16">{props.children}</div>
+      <div className="scroll-pt-16 pt-16">{props.children}</div>
     </div>
   );
 }

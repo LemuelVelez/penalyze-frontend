@@ -4,10 +4,11 @@ import { Button } from "../components/ui/button";
 
 export default function NotFoundPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
+    <main className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
       <section className="w-full max-w-lg rounded-3xl border bg-card p-6 text-center shadow-xl shadow-black/5 sm:p-8">
         <div className="mb-6 flex justify-center">
-          <ThemeToggle />\n          <LogoMark textClassName="text-2xl" />
+          <ThemeToggle />
+          <LogoMark textClassName="text-2xl" />
         </div>
         <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">404</p>
         <h1 className="mt-3 text-3xl font-black tracking-tight">Page not found</h1>

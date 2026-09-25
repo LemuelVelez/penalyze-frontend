@@ -128,14 +128,15 @@ export default function LoginPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/40 text-foreground">
-        <ThemeToggle />\n          <LogoMark textClassName="text-3xl" />
+      <main className="flex min-h-svh items-center justify-center bg-muted/40 text-foreground">
+        <ThemeToggle />
+          <LogoMark textClassName="text-3xl" />
       </main>
     );
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
+    <main className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
       <section className="w-full max-w-md rounded-3xl border bg-card p-6 shadow-xl shadow-black/5 sm:p-8">
         <div className="mb-8 text-center">
           <a href="/" className="inline-flex justify-center">
@@ -182,7 +183,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword((current) => !current)}
-                className="absolute right-1.5 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="absolute right-1.5 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (

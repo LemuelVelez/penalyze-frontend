@@ -262,8 +262,8 @@ export default function UsersPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-400">
         <div className="mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
             User management
@@ -338,7 +338,7 @@ export default function UsersPage() {
               </div>
             </div>
 
-            <div className="mt-5 space-y-3 xl:hidden">
+            <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
               {users.length ? (
                 sortedUsers.map((user) => {
                   const isCurrentUser = currentUser?.id === user.id;
@@ -350,10 +350,10 @@ export default function UsersPage() {
                     >
                       <div className="flex flex-col gap-3">
                         <div className="min-w-0">
-                          <p className="wrap-break-word font-black">
+                          <p className="break-words font-black">
                             {user.name}
                           </p>
-                          <p className="wrap-break-word text-sm text-muted-foreground">
+                          <p className="break-words text-sm text-muted-foreground">
                             {user.email}
                           </p>
                           <p className="mt-1 text-xs font-semibold text-muted-foreground">
@@ -405,11 +405,11 @@ export default function UsersPage() {
               )}
             </div>
 
-            <div className="mt-5 hidden overflow-x-auto xl:block">
-              <table className="w-full min-w-max text-left text-sm">
+            <div className="mt-5 hidden overflow-x-auto lg:block">
+              <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b text-xs uppercase text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-3">Name</th>
+                    <th className="sticky left-0 z-20 bg-card px-3 py-3">Name</th>
                     <th className="px-3 py-3">Email</th>
                     <th className="px-3 py-3">Role</th>
                     <th className="px-3 py-3">Created</th>
@@ -424,7 +424,7 @@ export default function UsersPage() {
 
                       return (
                         <tr key={user.id} className="border-b last:border-b-0">
-                          <td className="px-3 py-3 font-black">{user.name}</td>
+                          <td className="sticky left-0 z-10 bg-card px-3 py-3 font-black">{user.name}</td>
                           <td className="px-3 py-3">{user.email}</td>
                           <td className="px-3 py-3">
                             <span className="rounded-full border bg-muted px-3 py-1 text-xs font-bold uppercase text-muted-foreground">

@@ -254,8 +254,8 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl">
+    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-400">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -303,7 +303,7 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Attendance records"
             value={attendanceRecordCount}
@@ -326,7 +326,7 @@ export default function DashboardPage() {
           />
         </section>
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-2">
+        <section className="mt-6 grid gap-6 lg:grid-cols-2">
           <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
             <h2 className="text-xl font-black">Recent attendance</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -342,7 +342,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="wrap-break-word font-black">{record.name}</p>
+                        <p className="break-words font-black">{record.name}</p>
                         <p className="break-all text-sm text-muted-foreground">
                           {record.student_id}
                         </p>
@@ -383,7 +383,7 @@ export default function DashboardPage() {
                         <td className="max-w-40 break-all px-3 py-3">
                           {record.student_id}
                         </td>
-                        <td className="max-w-56 wrap-break-word px-3 py-3">
+                        <td className="max-w-56 break-words px-3 py-3">
                           {record.name}
                         </td>
                         <td className="px-3 py-3">{record.no_of_absences}</td>
