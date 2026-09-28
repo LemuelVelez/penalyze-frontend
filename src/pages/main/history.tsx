@@ -21,6 +21,11 @@ import type {
   AttendanceImportRecord,
   ManualAttendanceRecord,
 } from "../../api/attendance";
+import { listAttendanceRequests } from "../../api/attendanceRequests";
+import type {
+  AttendanceRequest,
+  AttendanceRequestStatus,
+} from "../../api/attendanceRequests";
 import {
   assignCurrentRecordsToSchoolYear,
   deleteSchoolYear,
@@ -100,6 +105,8 @@ type FilteredRecordGroupKey =
   | "penaltyResults"
   | "finalAttendanceResults"
   | "manualAttendanceRecords";
+
+type RecordsDialogKey = FilteredRecordGroupKey | "attendanceRequests";
 
 type HistoryLoadProgress = {
   progress: number;
@@ -212,6 +219,37 @@ function normalizeRecordSearchValue(value?: string | number | null) {
   return String(value ?? "").toLowerCase();
 }
 
+function attendanceRequestStatusClassName(status: AttendanceRequestStatus) {
+  if (status === "approved") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
+  }
+
+  if (status === "rejected") {
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300";
+  }
+
+  return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200";
+}
+
+function attendanceRequestTypeLabel(request: AttendanceRequest) {
+  return request.request_type === "details_correction"
+    ? "Details Correction"
+    : "Event Review";
+}
+
+function getAttendanceRequestCorrectionChanges(request: AttendanceRequest) {
+  return [
+    ["Name", request.current_name, request.name],
+    ["Year Level", request.current_year_level, request.year_level],
+    ["College", request.current_college, request.college],
+    ["Program", request.current_program, request.program],
+  ].filter(([, currentValue, requestedValue]) =>
+    String(currentValue ?? "").trim().toLowerCase() !==
+    String(requestedValue ?? "").trim().toLowerCase(),
+  );
+}
+
+
 function recordMatchesSearch(
   query: string,
   values: Array<string | number | null | undefined>,
@@ -243,11 +281,12 @@ export default function HistoryPage() {
   const [penaltyResults, setPenaltyResults] = useState<PenaltyResultRecord[]>(
     [],
   );
+  const [attendanceRequests, setAttendanceRequests] = useState<AttendanceRequest[]>([]);
   const [form, setForm] = useState<SchoolYearFormState>(createDefaultForm);
   const [editingSchoolYearId, setEditingSchoolYearId] = useState("");
   const [schoolYearDialogOpen, setSchoolYearDialogOpen] = useState(false);
   const [activeRecordsDialog, setActiveRecordsDialog] =
-    useState<FilteredRecordGroupKey | null>(null);
+    useState<RecordsDialogKey | null>(null);
   const [recordDialogSearch, setRecordDialogSearch] = useState("");
   const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [selectedRecords, setSelectedRecords] =
@@ -333,12 +372,13 @@ export default function HistoryPage() {
       finalResults: finalResults.length,
       manualRecords: manualRecords.length,
       penaltyResults: penaltyResults.length,
+      attendanceRequests: attendanceRequests.length,
       absences: finalResults.reduce(
         (total, record) => total + Number(record.total_absences || 0),
         0,
       ),
     };
-  }, [imports, finalResults, manualRecords, penaltyResults]);
+  }, [imports, finalResults, manualRecords, penaltyResults, attendanceRequests]);
 
   const recordGroupSummaries = useMemo<
     Array<{
@@ -452,6 +492,37 @@ export default function HistoryPage() {
     );
   }, [manualRecords, recordDialogSearch]);
 
+  const filteredAttendanceRequests = useMemo(() => {
+    const filtered = attendanceRequests.filter((request) =>
+      recordMatchesSearch(recordDialogSearch, [
+        request.id,
+        request.student_id,
+        request.name,
+        request.status,
+        attendanceRequestTypeLabel(request),
+        request.reviewed_by_name,
+        request.request_note,
+        request.review_note,
+        ...request.events.map((event) => event.event_name),
+      ]),
+    );
+
+    return sortByDate(filtered, (request) => request.created_at, sortOrder);
+  }, [attendanceRequests, recordDialogSearch, sortOrder]);
+
+  const attendanceRequestStatusCounts = useMemo(() => {
+    return attendanceRequests.reduce(
+      (counts, request) => {
+        counts[request.status] += 1;
+        return counts;
+      },
+      { pending: 0, approved: 0, rejected: 0 } as Record<
+        AttendanceRequestStatus,
+        number
+      >,
+    );
+  }, [attendanceRequests]);
+
   function updatePageLoadStep(
     label: string,
     status: LoadingStatusStep["status"],
@@ -489,6 +560,7 @@ export default function HistoryPage() {
         { label: "Final results", status: "pending", detail: "Waiting" },
         { label: "Manual records", status: "pending", detail: "Waiting" },
         { label: "Penalty results", status: "pending", detail: "Waiting" },
+        { label: "Attendance requests", status: "pending", detail: "Waiting" },
       ],
     });
 
@@ -537,6 +609,7 @@ export default function HistoryPage() {
         setFinalResults([]);
         setManualRecords([]);
         setPenaltyResults([]);
+        setAttendanceRequests([]);
         setPageLoadProgress((current) =>
           current
             ? {
@@ -554,13 +627,19 @@ export default function HistoryPage() {
         return;
       }
 
-      for (const label of ["Uploads", "Final results", "Manual records", "Penalty results"]) {
+      for (const label of [
+        "Uploads",
+        "Final results",
+        "Manual records",
+        "Penalty results",
+        "Attendance requests",
+      ]) {
         updatePageLoadStep(
           label,
           "loading",
           "Request started",
           24,
-          "Loading uploads, final results, manual records, and penalty results in parallel.",
+          "Loading uploads, final results, manual records, penalty results, and attendance requests in parallel.",
         );
       }
 
@@ -649,17 +728,34 @@ export default function HistoryPage() {
         },
       });
 
-      const [, finalRows, manualRows, penaltyRows] = await Promise.all([
+      const attendanceRequestsPromise = listAttendanceRequests({
+        schoolYearId: fallbackSchoolYearId,
+      }).then((rows) => {
+        if (!isCurrentRequest()) return rows;
+        setAttendanceRequests(rows);
+        updatePageLoadStep(
+          "Attendance requests",
+          "done",
+          `${rows.length.toLocaleString()} request/s loaded`,
+          88,
+          "Attendance request history is ready.",
+        );
+        return rows;
+      });
+
+      const [, finalRows, manualRows, penaltyRows, attendanceRequestRows] = await Promise.all([
         importsPromise,
         finalPromise,
         manualPromise,
         penaltyPromise,
+        attendanceRequestsPromise,
       ]);
       if (!isCurrentRequest()) return;
 
       setFinalResults(finalRows);
       setManualRecords(manualRows);
       setPenaltyResults(penaltyRows);
+      setAttendanceRequests(attendanceRequestRows);
       setRecordDialogSearch("");
       setActiveRecordsDialog(null);
       setPageLoadProgress((current) =>
@@ -704,7 +800,7 @@ export default function HistoryPage() {
     await loadHistory(value);
   }
 
-  function handleOpenRecordsDialog(groupKey: FilteredRecordGroupKey) {
+  function handleOpenRecordsDialog(groupKey: RecordsDialogKey) {
     setRecordDialogSearch("");
     setActiveRecordsDialog(groupKey);
   }
@@ -1247,11 +1343,16 @@ export default function HistoryPage() {
           aria-label={`Search ${title}`}
           className="min-h-11 rounded-xl"
         />
-        {activeRecordsDialog === "uploadedFiles" ? (
+        {activeRecordsDialog === "uploadedFiles" ||
+        activeRecordsDialog === "attendanceRequests" ? (
           <SortSelect
             value={sortOrder}
             onValueChange={setSortOrder}
-            ariaLabel="Sort import history"
+            ariaLabel={
+              activeRecordsDialog === "attendanceRequests"
+                ? "Sort attendance request history"
+                : "Sort import history"
+            }
             className="sm:w-48"
           />
         ) : null}
@@ -1697,6 +1798,156 @@ export default function HistoryPage() {
         );
       }
 
+      case "attendanceRequests": {
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Attendance request history</DialogTitle>
+              <DialogDescription>
+                Review all attendance requests submitted for {selectedSchoolYearLabel},
+                including pending, approved, and rejected requests.
+              </DialogDescription>
+            </DialogHeader>
+            {renderDialogSearchInput("attendance requests")}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                {attendanceRequests.length.toLocaleString()} request/s
+              </span>
+              {attendanceRequestStatusCounts.pending > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("pending")}`}
+                >
+                  {attendanceRequestStatusCounts.pending.toLocaleString()} pending
+                </span>
+              ) : null}
+              {attendanceRequestStatusCounts.approved > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("approved")}`}
+                >
+                  {attendanceRequestStatusCounts.approved.toLocaleString()} approved
+                </span>
+              ) : null}
+              {attendanceRequestStatusCounts.rejected > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("rejected")}`}
+                >
+                  {attendanceRequestStatusCounts.rejected.toLocaleString()} rejected
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-4 space-y-3">
+              {attendanceRequests.length ? (
+                filteredAttendanceRequests.length ? (
+                  filteredAttendanceRequests.map((request) => {
+                    const correctionChanges =
+                      request.request_type === "details_correction"
+                        ? getAttendanceRequestCorrectionChanges(request)
+                        : [];
+
+                    return (
+                      <article
+                        key={request.id}
+                        className="rounded-2xl border bg-card p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="break-words font-black">
+                              {request.student_id} · {request.name}
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Submitted {formatDateTime(request.created_at)}
+                              {request.reviewed_at
+                                ? ` • Reviewed ${formatDateTime(request.reviewed_at)}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
+                              {attendanceRequestTypeLabel(request)}
+                            </span>
+                            <span
+                              className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${attendanceRequestStatusClassName(request.status)}`}
+                            >
+                              {request.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {request.request_type === "details_correction" ? (
+                          <div className="mt-4">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">
+                              Requested changes
+                            </p>
+                            <div className="mt-2 space-y-1 text-sm font-semibold">
+                              {correctionChanges.length ? (
+                                correctionChanges.map(
+                                  ([label, currentValue, requestedValue]) => (
+                                    <p key={String(label)} className="break-words">
+                                      {label}: {currentValue || "—"} → {requestedValue || "—"}
+                                    </p>
+                                  ),
+                                )
+                              ) : (
+                                <p className="text-muted-foreground">No changed fields recorded.</p>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-4">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">
+                              Claimed events
+                            </p>
+                            <p className="mt-1 break-words text-sm font-semibold">
+                              {request.events.map((event) => event.event_name).join(", ") || "—"}
+                            </p>
+                          </div>
+                        )}
+
+                        {request.request_note ? (
+                          <div className="mt-4 rounded-xl border bg-background p-3">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">
+                              Student note
+                            </p>
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                              {request.request_note}
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {request.review_note ? (
+                          <div className="mt-3 rounded-xl border bg-muted/40 p-3">
+                            <p className="text-xs font-bold uppercase text-muted-foreground">
+                              Reviewer note
+                            </p>
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                              {request.review_note}
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {request.reviewed_by_name ? (
+                          <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                            Reviewed by {request.reviewed_by_name}
+                          </p>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                ) : (
+                  renderEmptyRecordState(
+                    "No attendance requests match your search.",
+                  )
+                )
+              ) : (
+                renderEmptyRecordState(
+                  "No attendance requests for this school year.",
+                )
+              )}
+            </div>
+          </>
+        );
+      }
+
       default:
         return null;
     }
@@ -1716,7 +1967,7 @@ export default function HistoryPage() {
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Create, edit, delete, transfer, assign, and filter records by
-                school year and semester.
+                school year and semester, with attendance request history included.
               </p>
             </div>
 
@@ -1747,7 +1998,7 @@ export default function HistoryPage() {
           />
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
           <div className="rounded-2xl border bg-card p-5 sm:col-span-2 lg:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               Selected School Year / Semester
@@ -1802,6 +2053,14 @@ export default function HistoryPage() {
             </p>
             <p className="mt-2 text-2xl font-semibold">
               {summary.manualRecords.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-2xl border bg-card p-5">
+            <p className="text-sm font-bold text-muted-foreground">
+              Attendance Requests
+            </p>
+            <p className="mt-2 text-2xl font-semibold">
+              {summary.attendanceRequests.toLocaleString()}
             </p>
           </div>
         </section>
@@ -2116,7 +2375,7 @@ export default function HistoryPage() {
             <div>
               <h2 className="text-lg font-semibold">Filtered records</h2>
               <p className="text-sm text-muted-foreground">
-                Showing records assigned to {selectedSchoolYearLabel}.
+                Showing records and attendance request history assigned to {selectedSchoolYearLabel}.
               </p>
             </div>
 
@@ -2135,7 +2394,7 @@ export default function HistoryPage() {
             </label>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
             {recordGroupSummaries.map((group) => (
               <div
                 key={group.key}
@@ -2158,6 +2417,22 @@ export default function HistoryPage() {
                 </Button>
               </div>
             ))}
+            <div className="flex flex-col justify-between gap-5 rounded-2xl border bg-background p-4">
+              <div>
+                <h3 className="font-semibold">Attendance request history</h3>
+                <p className="mt-2 text-sm font-semibold text-muted-foreground">
+                  {attendanceRequests.length.toLocaleString()} request/s · view only
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleOpenRecordsDialog("attendanceRequests")}
+                className="min-h-11 w-full rounded-2xl px-5 font-semibold"
+              >
+                View History
+              </Button>
+            </div>
           </div>
 
           <AlertDialog
