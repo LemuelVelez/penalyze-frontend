@@ -1595,9 +1595,10 @@ function getFinalResultAbsentEventSummaries(
 ) {
   if (!finalResult) return null;
 
+  const totalAbsences = Math.max(0, Number(finalResult.total_absences || 0));
   const missedEvents = finalResult.missed_events ?? [];
 
-  if (!missedEvents.length) return null;
+  if (totalAbsences === 0 || !missedEvents.length) return [];
 
   const studentCollegeKey =
     getStudentCollegeKey(attendance) || normalizeCollegeKey(finalResult.college);
@@ -1643,8 +1644,12 @@ function getStudentAbsentEventSummaries(
   fines: FineRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
   allAttendanceRecords: AttendanceRecord[] = [],
-  authoritativeAbsenceCount = 0,
+  authoritativeAbsenceCount: number | null = null,
 ) {
+  const authoritativeAbsenceTotal =
+    authoritativeAbsenceCount === null
+      ? null
+      : Math.max(0, Number(authoritativeAbsenceCount) || 0);
   const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(
     attendance,
     allAttendanceRecords,
@@ -1652,10 +1657,8 @@ function getStudentAbsentEventSummaries(
   );
 
   if (collegeLinkedAbsentEvents !== null) {
-    const verifiedAbsenceCount = Math.max(
-      getTotalAbsences(attendance, fines),
-      Math.max(0, authoritativeAbsenceCount),
-    );
+    const verifiedAbsenceCount =
+      authoritativeAbsenceTotal ?? getTotalAbsences(attendance, fines);
     const linkedAbsenceCount = getAbsentEventsAbsenceCount(
       collegeLinkedAbsentEvents,
     );
@@ -1698,10 +1701,9 @@ function getStudentAbsentEventSummaries(
   );
   const usedAbsentRecordIds = new Set<string>();
   const hasLinkedFineEvent = absenceFines.some(hasFineLinkedAttendanceEvent);
-  const verifiedAbsenceCount = Math.max(
-    getTotalAbsences(uniqueAttendance, absenceFines),
-    Math.max(0, authoritativeAbsenceCount),
-  );
+  const verifiedAbsenceCount =
+    authoritativeAbsenceTotal ??
+    getTotalAbsences(uniqueAttendance, absenceFines);
 
   absenceFines.forEach((fine) => {
     const matchingRecords = explicitAbsentRecords.filter((record) =>
@@ -3724,14 +3726,13 @@ export default function LandingPage() {
       lookup?.attendanceEvents ?? [],
     );
 
-    if (finalResultAbsentEvents) return finalResultAbsentEvents;
+    if (finalResultAbsentEvents !== null) return finalResultAbsentEvents;
 
     return getStudentAbsentEventSummaries(
       displayedAttendance,
       allDisplayedFines,
       lookup?.attendanceEvents ?? [],
       displayedCollegeAttendanceRecords,
-      Number(displayedFinalResult?.total_absences || 0),
     );
   }, [
     displayedAttendance,
