@@ -100,6 +100,20 @@ type ProgressiveLoadProgress = {
   detail: string;
 };
 
+function attendanceRequestStatusBadgeClass(
+  status: StudentAttendanceRequestStatus["status"],
+) {
+  if (status === "approved") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
+  }
+
+  if (status === "rejected") {
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300";
+  }
+
+  return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200";
+}
+
 type LandingAttendanceRecordsPageProgress = {
   loadedRows: number;
   pageCount: number;
@@ -3643,6 +3657,9 @@ export default function LandingPage() {
   const pendingAttendanceRequestCount = displayedAttendanceRequests.filter(
     (request) => request.status === "pending",
   ).length;
+  const approvedAttendanceRequestCount = displayedAttendanceRequests.filter(
+    (request) => request.status === "approved",
+  ).length;
 
   const displayedCollegeAttendanceRecords = useMemo(() => {
     if (!lookup) return [];
@@ -4916,12 +4933,34 @@ export default function LandingPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setAttendanceRequestsDialogOpen(true)}
-                  className="min-h-12 w-full justify-between rounded-2xl px-4 text-sm font-black sm:w-auto"
+                  className="min-h-12 w-full flex-wrap justify-between gap-2 rounded-2xl px-4 py-2 text-sm font-black whitespace-normal sm:w-auto"
                 >
-                  <span>Attendance Requests</span>
-                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-amber-100 px-2 py-1 text-xs font-black text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                    {pendingAttendanceRequestCount}
-                  </span>
+                  <span className="shrink-0">Attendance Requests</span>
+                  {displayedAttendanceRequests.length > 0 ? (
+                    <span className="flex flex-wrap items-center justify-end gap-1.5">
+                      {pendingAttendanceRequestCount > 0 ? (
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("pending")}`}
+                        >
+                          {pendingAttendanceRequestCount} pending
+                        </span>
+                      ) : null}
+                      {approvedAttendanceRequestCount > 0 ? (
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("approved")}`}
+                        >
+                          {approvedAttendanceRequestCount} approved
+                        </span>
+                      ) : null}
+                      {rejectedAttendanceRequestCount > 0 ? (
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("rejected")}`}
+                        >
+                          {rejectedAttendanceRequestCount} rejected
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </Button>
 
               {resultClassification === "Perfect attendance" ? (
@@ -5103,9 +5142,27 @@ export default function LandingPage() {
               <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
                 {displayedAttendanceRequests.length} request/s
               </span>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                {pendingAttendanceRequestCount} pending
-              </span>
+              {pendingAttendanceRequestCount > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("pending")}`}
+                >
+                  {pendingAttendanceRequestCount} pending
+                </span>
+              ) : null}
+              {approvedAttendanceRequestCount > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("approved")}`}
+                >
+                  {approvedAttendanceRequestCount} approved
+                </span>
+              ) : null}
+              {rejectedAttendanceRequestCount > 0 ? (
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusBadgeClass("rejected")}`}
+                >
+                  {rejectedAttendanceRequestCount} rejected
+                </span>
+              ) : null}
             </div>
 
             {attendanceRequestsLoadFailed ? (
@@ -5134,13 +5191,9 @@ export default function LandingPage() {
                             ? "Details Correction"
                             : "Event Review"}
                         </span>
-                        <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${
-                          request.status === "approved"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"
-                            : request.status === "rejected"
-                              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
-                              : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
-                        }`}>
+                        <span
+                          className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${attendanceRequestStatusBadgeClass(request.status)}`}
+                        >
                           {request.status}
                         </span>
                       </div>
