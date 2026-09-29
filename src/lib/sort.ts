@@ -82,9 +82,16 @@ export function sortByDate<T extends SortableRow>(
 export function useSortOrderSearchParam(
   paramName = "sort",
   allowOrder = false,
+  defaultOrder: SortOrder = "newest",
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const sortOrder = parseSortOrder(searchParams.get(paramName), allowOrder);
+  const rawSortOrder = searchParams.get(paramName);
+  const fallbackOrder =
+    defaultOrder === "order" && !allowOrder ? "newest" : defaultOrder;
+  const sortOrder =
+    rawSortOrder === null
+      ? fallbackOrder
+      : parseSortOrder(rawSortOrder, allowOrder);
 
   const setSortOrder = useCallback(
     (nextOrder: SortOrder) => {

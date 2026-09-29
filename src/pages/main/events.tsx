@@ -287,7 +287,7 @@ export default function EventsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [eventSearch, setEventSearch] = useState("");
-  const [sortOrder, setSortOrder] = useSortOrderSearchParam("sort", true);
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam("sort", true, "order");
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
