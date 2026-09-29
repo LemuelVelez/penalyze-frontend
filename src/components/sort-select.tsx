@@ -13,6 +13,7 @@ type SortSelectProps = {
   onValueChange: (value: SortOrder) => void;
   className?: string;
   ariaLabel?: string;
+  showOrder?: boolean;
 };
 
 export function SortSelect({
@@ -20,6 +21,7 @@ export function SortSelect({
   onValueChange,
   className,
   ariaLabel = "Sort by date",
+  showOrder = false,
 }: SortSelectProps) {
   return (
     <Select value={value} onValueChange={(next) => onValueChange(next as SortOrder)}>
@@ -30,6 +32,7 @@ export function SortSelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
+        {showOrder ? <SelectItem value="order">Sort by: Order</SelectItem> : null}
         <SelectItem value="newest">Sort by: Newest</SelectItem>
         <SelectItem value="oldest">Sort by: Oldest</SelectItem>
       </SelectContent>

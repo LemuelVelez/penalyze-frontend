@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 
-export type SortOrder = "newest" | "oldest";
+export type SortOrder = "newest" | "oldest" | "order";
 
 type SortableRow = {
   id?: unknown;
@@ -12,8 +12,15 @@ type SortableRow = {
 
 type DateValue = string | number | Date | null | undefined;
 
-export function parseSortOrder(value: unknown): SortOrder {
-  return String(value ?? "").toLowerCase() === "oldest" ? "oldest" : "newest";
+export function parseSortOrder(
+  value: unknown,
+  allowOrder = false,
+): SortOrder {
+  const normalizedValue = String(value ?? "").toLowerCase();
+
+  if (normalizedValue === "oldest") return "oldest";
+  if (allowOrder && normalizedValue === "order") return "order";
+  return "newest";
 }
 
 function getTimestamp(value: DateValue) {
@@ -42,6 +49,15 @@ export function sortByDate<T extends SortableRow>(
   return rows
     .map((row, index) => ({ row, index, time: getTimestamp(getDate(row)) }))
     .sort((left, right) => {
+      const leftEventOrder = getEventOrder(left.row);
+      const rightEventOrder = getEventOrder(right.row);
+
+      if (order === "order" && leftEventOrder !== rightEventOrder) {
+        if (leftEventOrder === null) return 1;
+        if (rightEventOrder === null) return -1;
+        return leftEventOrder - rightEventOrder;
+      }
+
       if (left.time === null && right.time !== null) return 1;
       if (left.time !== null && right.time === null) return -1;
 
@@ -49,9 +65,7 @@ export function sortByDate<T extends SortableRow>(
         return (left.time - right.time) * direction;
       }
 
-      const leftEventOrder = getEventOrder(left.row);
-      const rightEventOrder = getEventOrder(right.row);
-      if (leftEventOrder !== rightEventOrder) {
+      if (order !== "order" && leftEventOrder !== rightEventOrder) {
         if (leftEventOrder === null) return 1;
         if (rightEventOrder === null) return -1;
         return leftEventOrder - rightEventOrder;
@@ -65,9 +79,12 @@ export function sortByDate<T extends SortableRow>(
     .map(({ row }) => row);
 }
 
-export function useSortOrderSearchParam(paramName = "sort") {
+export function useSortOrderSearchParam(
+  paramName = "sort",
+  allowOrder = false,
+) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const sortOrder = parseSortOrder(searchParams.get(paramName));
+  const sortOrder = parseSortOrder(searchParams.get(paramName), allowOrder);
 
   const setSortOrder = useCallback(
     (nextOrder: SortOrder) => {

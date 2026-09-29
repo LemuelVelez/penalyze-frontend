@@ -287,7 +287,7 @@ export default function EventsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [eventSearch, setEventSearch] = useState("");
-  const [sortOrder, setSortOrder] = useSortOrderSearchParam();
+  const [sortOrder, setSortOrder] = useSortOrderSearchParam("sort", true);
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -1453,6 +1453,7 @@ export default function EventsPage() {
                 value={sortOrder}
                 onValueChange={setSortOrder}
                 ariaLabel="Sort events"
+                showOrder
                 className="rounded-2xl lg:w-44"
               />
               <Input
