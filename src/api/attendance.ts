@@ -21,6 +21,21 @@ export type EventCollegeExemption = {
   updated_at: string;
 };
 
+export type EventYearLevelExemption = {
+  id: string;
+  school_year_id: string | null;
+  event_id: string;
+  event_name: string;
+  year_level_key: string;
+  year_level_label: string;
+  college_key: string | null;
+  college_label: string | null;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EventExemptionImpact = {
   event_id: string;
   event_name: string;
@@ -46,6 +61,13 @@ export type AttendanceEvent = {
   created_at: string;
   updated_at: string;
   exempted_colleges: Array<{ id: string; college_key: string; college_label: string }>;
+  exempted_year_levels: Array<{
+    id: string;
+    year_level_key: string;
+    year_level_label: string;
+    college_key: string | null;
+    college_label: string | null;
+  }>;
 };
 
 export type AttendanceRecord = {
@@ -1487,6 +1509,73 @@ export async function deleteEventCollegeExemptionsBulk(input: {
 export async function deleteEventCollegeExemption(id: string) {
   const response = await apiRequest<EventCollegeExemption>(
     `/api/attendance/event-exemptions/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+  return response.data ?? null;
+}
+
+
+export async function listEventYearLevelExemptions(options: {
+  schoolYearId?: string;
+  eventId?: string;
+  yearLevel?: string;
+  college?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  if (options.schoolYearId) params.set("schoolYearId", options.schoolYearId);
+  if (options.eventId) params.set("eventId", options.eventId);
+  if (options.yearLevel) params.set("yearLevel", options.yearLevel);
+  if (options.college) params.set("college", options.college);
+  const query = params.toString();
+  const response = await apiRequest<EventYearLevelExemption[]>(
+    `/api/attendance/event-year-level-exemptions${query ? `?${query}` : ""}`,
+  );
+  return response.data ?? [];
+}
+
+export async function getEventYearLevelExemptionImpact(input: {
+  yearLevel: string;
+  college?: string;
+  eventIds: string[];
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<EventExemptionImpact[]>(
+    "/api/attendance/event-year-level-exemptions/impact",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
+export async function createEventYearLevelExemptions(input: {
+  yearLevels: string[];
+  college?: string;
+  eventIds: string[];
+  reason?: string;
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<EventYearLevelExemption[]>(
+    "/api/attendance/event-year-level-exemptions",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
+export async function deleteEventYearLevelExemptionsBulk(input: {
+  yearLevels: string[];
+  college?: string;
+  eventIds: string[];
+  schoolYearId: string;
+}) {
+  const response = await apiRequest<Array<Omit<EventYearLevelExemption, "event_name">>>(
+    "/api/attendance/event-year-level-exemptions/bulk-delete",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return response.data ?? [];
+}
+
+export async function deleteEventYearLevelExemption(id: string) {
+  const response = await apiRequest<EventYearLevelExemption>(
+    `/api/attendance/event-year-level-exemptions/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
   return response.data ?? null;

@@ -6,14 +6,19 @@ import {
   deleteAttendanceEvent,
   deleteEventCollegeExemption,
   deleteEventCollegeExemptionsBulk,
+  deleteEventYearLevelExemption,
+  deleteEventYearLevelExemptionsBulk,
   getAttendanceEventMergeImpact,
   getEventCollegeExemptionImpact,
+  getEventYearLevelExemptionImpact,
   listAttendanceEventDuplicateGroups,
   listAttendanceColleges,
   listEventCollegeExemptions,
+  listEventYearLevelExemptions,
   listAttendanceEvents,
   mergeAttendanceEvents,
   createEventCollegeExemptions,
+  createEventYearLevelExemptions,
   saveAttendanceEvent,
   updateAttendanceEvent,
 } from "../../api/attendance";
@@ -25,6 +30,7 @@ import type {
   AttendanceCollege,
   EventCollegeExemption,
   EventExemptionImpact,
+  EventYearLevelExemption,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -68,6 +74,11 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
+import {
+  getYearLevelLabel,
+  normalizeYearLevelKey,
+  QR_CODE_YEAR_LEVEL_OPTIONS,
+} from "../../lib/year-levels";
 
 const emptyEventForm = {
   schoolYearId: "",
@@ -93,12 +104,27 @@ type ExemptionSnapshot = {
 };
 
 type CollegeExemptionImpactPreview = {
+  kind: "college";
   collegeKey: string;
   collegeLabel: string;
   impacts: EventExemptionImpact[];
 };
 
-type ExemptionHistoryEntry = {
+type YearLevelExemptionImpactPreview = {
+  kind: "yearLevel";
+  yearLevelKey: string;
+  yearLevelLabel: string;
+  collegeKey: string | null;
+  collegeLabel: string | null;
+  impacts: EventExemptionImpact[];
+};
+
+type ExemptionImpactPreview =
+  | CollegeExemptionImpactPreview
+  | YearLevelExemptionImpactPreview;
+
+type CollegeExemptionHistoryEntry = {
+  scope: "college";
   kind: "add" | "remove";
   collegeLabel: string;
   collegeKey: string;
@@ -107,6 +133,23 @@ type ExemptionHistoryEntry = {
   after: ExemptionSnapshot[];
   label: string;
 };
+
+type YearLevelExemptionHistoryEntry = {
+  scope: "yearLevel";
+  kind: "add" | "remove";
+  yearLevelLabel: string;
+  yearLevelKey: string;
+  collegeLabel: string | null;
+  collegeKey: string | null;
+  schoolYearId: string;
+  before: ExemptionSnapshot[];
+  after: ExemptionSnapshot[];
+  label: string;
+};
+
+type ExemptionHistoryEntry =
+  | CollegeExemptionHistoryEntry
+  | YearLevelExemptionHistoryEntry;
 
 const DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY =
   "penalyze:attendance-event-duplicate-dismissals:v1";
@@ -166,6 +209,25 @@ function getCollegeExemptionSnapshot(
     .sort((a, b) => a.eventId.localeCompare(b.eventId));
 }
 
+function getYearLevelExemptionSnapshot(
+  rows: EventYearLevelExemption[],
+  yearLevelKey: string,
+  collegeKey: string | null,
+): ExemptionSnapshot[] {
+  return rows
+    .filter(
+      (item) =>
+        item.year_level_key === yearLevelKey &&
+        (item.college_key ?? null) === collegeKey,
+    )
+    .map((item) => ({
+      eventId: item.event_id,
+      eventName: item.event_name,
+      reason: item.reason ?? null,
+    }))
+    .sort((a, b) => a.eventId.localeCompare(b.eventId));
+}
+
 function exemptionSnapshotsMatch(
   left: ExemptionSnapshot[],
   right: ExemptionSnapshot[],
@@ -193,6 +255,21 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function getEventExemptionSummary(event: AttendanceEvent) {
+  const collegeCount = event.exempted_colleges?.length ?? 0;
+  const yearLevelCount = new Set(
+    (event.exempted_year_levels ?? []).map((item) => item.year_level_key),
+  ).size;
+  return `${collegeCount} ${collegeCount === 1 ? "college" : "colleges"}, ${yearLevelCount} year ${yearLevelCount === 1 ? "level" : "levels"}`;
+}
+
+function eventHasExemptions(event: AttendanceEvent) {
+  return Boolean(
+    (event.exempted_colleges?.length ?? 0) +
+      (event.exempted_year_levels?.length ?? 0),
+  );
 }
 
 
@@ -319,14 +396,22 @@ export default function EventsPage() {
   const [isMergingEvents, setIsMergingEvents] = useState(false);
   const [colleges, setColleges] = useState<AttendanceCollege[]>([]);
   const [exemptions, setExemptions] = useState<EventCollegeExemption[]>([]);
+  const [yearLevelExemptions, setYearLevelExemptions] = useState<
+    EventYearLevelExemption[]
+  >([]);
   const [exemptionDialogOpen, setExemptionDialogOpen] = useState(false);
   const [currentExemptionsDialogOpen, setCurrentExemptionsDialogOpen] = useState(false);
   const [impactPreviewDialogOpen, setImpactPreviewDialogOpen] = useState(false);
+  const [exemptionMode, setExemptionMode] = useState<"college" | "yearLevel">(
+    "college",
+  );
   const [exemptionColleges, setExemptionColleges] = useState<string[]>([]);
   const [exemptionCollegePickerOpen, setExemptionCollegePickerOpen] = useState(false);
+  const [exemptionYearLevels, setExemptionYearLevels] = useState<string[]>([]);
+  const [exemptionYearLevelCollege, setExemptionYearLevelCollege] = useState("all");
   const [exemptionEventIds, setExemptionEventIds] = useState<string[]>([]);
   const [exemptionReason, setExemptionReason] = useState("");
-  const [exemptionImpact, setExemptionImpact] = useState<CollegeExemptionImpactPreview[]>([]);
+  const [exemptionImpact, setExemptionImpact] = useState<ExemptionImpactPreview[]>([]);
   const [hasPreviewedExemptions, setHasPreviewedExemptions] = useState(false);
   const [isPreviewingExemptions, setIsPreviewingExemptions] = useState(false);
   const [isSavingExemptions, setIsSavingExemptions] = useState(false);
@@ -473,14 +558,23 @@ export default function EventsPage() {
   async function reloadExemptions(schoolYearId = selectedSchoolYearId) {
     if (!schoolYearId) {
       setExemptions([]);
+      setYearLevelExemptions([]);
       setEvents((current) =>
-        current.map((event) => ({ ...event, exempted_colleges: [] })),
+        current.map((event) => ({
+          ...event,
+          exempted_colleges: [],
+          exempted_year_levels: [],
+        })),
       );
       return [] as EventCollegeExemption[];
     }
 
-    const rows = await listEventCollegeExemptions({ schoolYearId });
+    const [rows, yearRows] = await Promise.all([
+      listEventCollegeExemptions({ schoolYearId }),
+      listEventYearLevelExemptions({ schoolYearId }),
+    ]);
     setExemptions(rows);
+    setYearLevelExemptions(yearRows);
     setEvents((current) =>
       current.map((event) => ({
         ...event,
@@ -488,6 +582,42 @@ export default function EventsPage() {
           .filter((item) => item.event_id === event.id)
           .map((item) => ({
             id: item.id,
+            college_key: item.college_key,
+            college_label: item.college_label,
+          })),
+        exempted_year_levels: yearRows
+          .filter((item) => item.event_id === event.id)
+          .map((item) => ({
+            id: item.id,
+            year_level_key: item.year_level_key,
+            year_level_label: item.year_level_label,
+            college_key: item.college_key,
+            college_label: item.college_label,
+          })),
+      })),
+    );
+    return rows;
+  }
+
+  async function reloadYearLevelExemptions(
+    schoolYearId = selectedSchoolYearId,
+  ) {
+    if (!schoolYearId) {
+      setYearLevelExemptions([]);
+      return [] as EventYearLevelExemption[];
+    }
+
+    const rows = await listEventYearLevelExemptions({ schoolYearId });
+    setYearLevelExemptions(rows);
+    setEvents((current) =>
+      current.map((event) => ({
+        ...event,
+        exempted_year_levels: rows
+          .filter((item) => item.event_id === event.id)
+          .map((item) => ({
+            id: item.id,
+            year_level_key: item.year_level_key,
+            year_level_label: item.year_level_label,
             college_key: item.college_key,
             college_label: item.college_label,
           })),
@@ -608,13 +738,36 @@ export default function EventsPage() {
       });
 
       await Promise.all([eventsPromise, duplicatesPromise]);
-      const [collegeRows, exemptionRows] = await Promise.all([
+      const [collegeRows, exemptionRows, yearExemptionRows] = await Promise.all([
         listAttendanceColleges(),
         listEventCollegeExemptions({ schoolYearId: fallbackSchoolYearId }),
+        listEventYearLevelExemptions({ schoolYearId: fallbackSchoolYearId }),
       ]);
       if (!isCurrentRequest()) return;
       setColleges(collegeRows);
       setExemptions(exemptionRows);
+      setYearLevelExemptions(yearExemptionRows);
+      setEvents((current) =>
+        current.map((event) => ({
+          ...event,
+          exempted_colleges: exemptionRows
+            .filter((item) => item.event_id === event.id)
+            .map((item) => ({
+              id: item.id,
+              college_key: item.college_key,
+              college_label: item.college_label,
+            })),
+          exempted_year_levels: yearExemptionRows
+            .filter((item) => item.event_id === event.id)
+            .map((item) => ({
+              id: item.id,
+              year_level_key: item.year_level_key,
+              year_level_label: item.year_level_label,
+              college_key: item.college_key,
+              college_label: item.college_label,
+            })),
+        })),
+      );
       setPageLoadProgress((current) =>
         current
           ? {
@@ -868,15 +1021,28 @@ export default function EventsPage() {
     }
   }
 
-  function handleOpenExemptionDialog() {
-    setExemptionColleges([]);
-    setExemptionCollegePickerOpen(false);
-    setExemptionEventIds([]);
-    setExemptionReason("");
+  function resetExemptionPreview() {
     setExemptionImpact([]);
     setHasPreviewedExemptions(false);
+  }
+
+  function handleOpenExemptionDialog() {
+    setExemptionMode("college");
+    setExemptionColleges([]);
+    setExemptionCollegePickerOpen(false);
+    setExemptionYearLevels([]);
+    setExemptionYearLevelCollege("all");
+    setExemptionEventIds([]);
+    setExemptionReason("");
+    resetExemptionPreview();
     setImpactPreviewDialogOpen(false);
     setExemptionDialogOpen(true);
+  }
+
+  function handleExemptionModeChange(mode: "college" | "yearLevel") {
+    setExemptionMode(mode);
+    setExemptionEventIds([]);
+    resetExemptionPreview();
   }
 
   function handleExemptionCollegeToggle(label: string, checked: boolean) {
@@ -898,20 +1064,31 @@ export default function EventsPage() {
 
       return next;
     });
-    setExemptionImpact([]);
-    setHasPreviewedExemptions(false);
+    resetExemptionPreview();
   }
 
   function handleSelectAllExemptionColleges() {
     setExemptionColleges(colleges.map((college) => college.label));
-    setExemptionImpact([]);
-    setHasPreviewedExemptions(false);
+    resetExemptionPreview();
   }
 
   function handleClearExemptionColleges() {
     setExemptionColleges([]);
-    setExemptionImpact([]);
-    setHasPreviewedExemptions(false);
+    resetExemptionPreview();
+  }
+
+  function handleExemptionYearLevelToggle(label: string, checked: boolean) {
+    setExemptionYearLevels((current) =>
+      checked
+        ? Array.from(new Set([...current, label]))
+        : current.filter((item) => item !== label),
+    );
+    resetExemptionPreview();
+  }
+
+  function handleExemptionYearLevelCollegeChange(value: string) {
+    setExemptionYearLevelCollege(value);
+    resetExemptionPreview();
   }
 
   function handleExemptionEventToggle(eventId: string, checked: boolean) {
@@ -920,35 +1097,76 @@ export default function EventsPage() {
         ? Array.from(new Set([...current, eventId]))
         : current.filter((id) => id !== eventId),
     );
-    setExemptionImpact([]);
-    setHasPreviewedExemptions(false);
+    resetExemptionPreview();
   }
 
   async function handlePreviewExemptions() {
     if (isPreviewingExemptions) return;
-    if (!exemptionColleges.length || !selectedSchoolYearId || !exemptionEventIds.length) {
-      toast.error("Select at least one college and one event.");
+    if (!selectedSchoolYearId || !exemptionEventIds.length) {
+      toast.error("Select at least one event.");
+      return;
+    }
+    if (exemptionMode === "college" && !exemptionColleges.length) {
+      toast.error("Select at least one college.");
+      return;
+    }
+    if (exemptionMode === "yearLevel" && !exemptionYearLevels.length) {
+      toast.error("Select at least one year level.");
       return;
     }
 
     setIsPreviewingExemptions(true);
     try {
-      const previews = await Promise.all(
-        exemptionColleges.map(async (collegeLabel) => {
-          const college = colleges.find((item) => item.label === collegeLabel);
-          if (!college) throw new Error(`Unable to resolve ${collegeLabel}.`);
-          const impacts = await getEventCollegeExemptionImpact({
-            college: collegeLabel,
-            eventIds: exemptionEventIds,
-            schoolYearId: selectedSchoolYearId,
-          });
-          return {
-            collegeKey: college.key,
-            collegeLabel,
-            impacts,
-          };
-        }),
-      );
+      const previews: ExemptionImpactPreview[] =
+        exemptionMode === "college"
+          ? await Promise.all(
+              exemptionColleges.map(async (collegeLabel) => {
+                const college = colleges.find(
+                  (item) => item.label === collegeLabel,
+                );
+                if (!college) throw new Error(`Unable to resolve ${collegeLabel}.`);
+                const impacts = await getEventCollegeExemptionImpact({
+                  college: collegeLabel,
+                  eventIds: exemptionEventIds,
+                  schoolYearId: selectedSchoolYearId,
+                });
+                return {
+                  kind: "college" as const,
+                  collegeKey: college.key,
+                  collegeLabel,
+                  impacts,
+                };
+              }),
+            )
+          : await Promise.all(
+              exemptionYearLevels.map(async (yearLevelLabel) => {
+                const yearLevelKey = normalizeYearLevelKey(yearLevelLabel);
+                if (!yearLevelKey) {
+                  throw new Error(`Unable to resolve ${yearLevelLabel}.`);
+                }
+                const college =
+                  exemptionYearLevelCollege === "all"
+                    ? null
+                    : colleges.find(
+                        (item) => item.key === exemptionYearLevelCollege,
+                      ) ?? null;
+                const impacts = await getEventYearLevelExemptionImpact({
+                  yearLevel: yearLevelLabel,
+                  college: college?.label,
+                  eventIds: exemptionEventIds,
+                  schoolYearId: selectedSchoolYearId,
+                });
+                return {
+                  kind: "yearLevel" as const,
+                  yearLevelKey,
+                  yearLevelLabel: getYearLevelLabel(yearLevelLabel),
+                  collegeKey: college?.key ?? null,
+                  collegeLabel: college?.label ?? null,
+                  impacts,
+                };
+              }),
+            );
+
       setExemptionImpact(previews);
       setHasPreviewedExemptions(true);
       setImpactPreviewDialogOpen(true);
@@ -956,7 +1174,9 @@ export default function EventsPage() {
         toast.info("No impact data for the selected events.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to preview exemption impact.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to preview exemption impact.",
+      );
     } finally {
       setIsPreviewingExemptions(false);
     }
@@ -969,50 +1189,117 @@ export default function EventsPage() {
     }
     if (historyApplyingRef.current || deletingExemptionId) return;
 
-    const selectedColleges = exemptionColleges
-      .map((label) => colleges.find((item) => item.label === label))
-      .filter((college): college is AttendanceCollege => Boolean(college));
-    if (!selectedColleges.length || selectedColleges.length !== exemptionColleges.length) {
-      toast.error("Select valid colleges.");
-      return;
-    }
-
-    const beforeByCollegeKey = new Map(
-      selectedColleges.map((college) => [
-        college.key,
-        getCollegeExemptionSnapshot(exemptions, college.key),
-      ]),
-    );
-
     setIsSavingExemptions(true);
     try {
-      await createEventCollegeExemptions({
-        colleges: exemptionColleges,
-        eventIds: exemptionEventIds,
-        reason: exemptionReason.trim() || undefined,
-        schoolYearId: selectedSchoolYearId,
-      });
-      const refreshed = await reloadExemptions(selectedSchoolYearId);
+      if (exemptionMode === "college") {
+        const selectedColleges = exemptionColleges
+          .map((label) => colleges.find((item) => item.label === label))
+          .filter((college): college is AttendanceCollege => Boolean(college));
+        if (
+          !selectedColleges.length ||
+          selectedColleges.length !== exemptionColleges.length
+        ) {
+          throw new Error("Select valid colleges.");
+        }
 
-      for (const college of selectedColleges) {
-        const before = beforeByCollegeKey.get(college.key) ?? [];
-        const after = getCollegeExemptionSnapshot(refreshed, college.key);
-        recordExemptionHistory({
-          kind: "add",
-          collegeLabel: college.label,
-          collegeKey: college.key,
+        const beforeByCollegeKey = new Map(
+          selectedColleges.map((college) => [
+            college.key,
+            getCollegeExemptionSnapshot(exemptions, college.key),
+          ]),
+        );
+
+        await createEventCollegeExemptions({
+          colleges: exemptionColleges,
+          eventIds: exemptionEventIds,
+          reason: exemptionReason.trim() || undefined,
           schoolYearId: selectedSchoolYearId,
-          before,
-          after,
-          label: `Exempted ${college.label} from ${exemptionEventIds.length} ${
-            exemptionEventIds.length === 1 ? "event" : "events"
-          }`,
         });
+        const refreshed = await reloadExemptions(selectedSchoolYearId);
+
+        for (const college of selectedColleges) {
+          const before = beforeByCollegeKey.get(college.key) ?? [];
+          const after = getCollegeExemptionSnapshot(refreshed, college.key);
+          recordExemptionHistory({
+            scope: "college",
+            kind: "add",
+            collegeLabel: college.label,
+            collegeKey: college.key,
+            schoolYearId: selectedSchoolYearId,
+            before,
+            after,
+            label: `Exempted ${college.label} from ${exemptionEventIds.length} ${
+              exemptionEventIds.length === 1 ? "event" : "events"
+            }`,
+          });
+        }
+
+        toast.success(
+          `${selectedColleges.length} ${
+            selectedColleges.length === 1 ? "college" : "colleges"
+          } exempted. Absences and fines were recalculated.`,
+        );
+      } else {
+        const college =
+          exemptionYearLevelCollege === "all"
+            ? null
+            : colleges.find((item) => item.key === exemptionYearLevelCollege) ?? null;
+        if (exemptionYearLevelCollege !== "all" && !college) {
+          throw new Error("Select a valid college scope.");
+        }
+
+        const scopes = exemptionYearLevels.map((yearLevelLabel) => {
+          const yearLevelKey = normalizeYearLevelKey(yearLevelLabel);
+          if (!yearLevelKey) throw new Error(`Invalid year level: ${yearLevelLabel}`);
+          return {
+            yearLevelKey,
+            yearLevelLabel: getYearLevelLabel(yearLevelLabel),
+            before: getYearLevelExemptionSnapshot(
+              yearLevelExemptions,
+              yearLevelKey,
+              college?.key ?? null,
+            ),
+          };
+        });
+
+        await createEventYearLevelExemptions({
+          yearLevels: exemptionYearLevels,
+          college: college?.label,
+          eventIds: exemptionEventIds,
+          reason: exemptionReason.trim() || undefined,
+          schoolYearId: selectedSchoolYearId,
+        });
+        const refreshed = await reloadYearLevelExemptions(selectedSchoolYearId);
+
+        for (const scope of scopes) {
+          const after = getYearLevelExemptionSnapshot(
+            refreshed,
+            scope.yearLevelKey,
+            college?.key ?? null,
+          );
+          recordExemptionHistory({
+            scope: "yearLevel",
+            kind: "add",
+            yearLevelLabel: scope.yearLevelLabel,
+            yearLevelKey: scope.yearLevelKey,
+            collegeLabel: college?.label ?? null,
+            collegeKey: college?.key ?? null,
+            schoolYearId: selectedSchoolYearId,
+            before: scope.before,
+            after,
+            label: `Exempted ${scope.yearLevelLabel} · ${
+              college?.label ?? "All colleges"
+            } from ${exemptionEventIds.length} ${
+              exemptionEventIds.length === 1 ? "event" : "events"
+            }`,
+          });
+        }
+
+        toast.success(
+          `${scopes.length} year ${scopes.length === 1 ? "level" : "levels"} exempted. Absences and fines were recalculated.`,
+        );
       }
 
-      toast.success(
-        `${selectedColleges.length} ${selectedColleges.length === 1 ? "college" : "colleges"} exempted. Absences and fines were recalculated.`,
-      );
       setExemptionDialogOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save exemptions.");
@@ -1029,11 +1316,9 @@ export default function EventsPage() {
     try {
       await deleteEventCollegeExemption(exemption.id);
       const refreshed = await reloadExemptions(selectedSchoolYearId);
-      const after = getCollegeExemptionSnapshot(
-        refreshed,
-        exemption.college_key,
-      );
+      const after = getCollegeExemptionSnapshot(refreshed, exemption.college_key);
       recordExemptionHistory({
+        scope: "college",
         kind: "remove",
         collegeLabel: exemption.college_label,
         collegeKey: exemption.college_key,
@@ -1050,40 +1335,139 @@ export default function EventsPage() {
     }
   }
 
+  async function handleRemoveYearLevelExemption(
+    exemption: EventYearLevelExemption,
+  ) {
+    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) return;
+
+    const collegeKey = exemption.college_key ?? null;
+    const before = getYearLevelExemptionSnapshot(
+      yearLevelExemptions,
+      exemption.year_level_key,
+      collegeKey,
+    );
+    setDeletingExemptionId(exemption.id);
+    try {
+      await deleteEventYearLevelExemption(exemption.id);
+      const refreshed = await reloadYearLevelExemptions(selectedSchoolYearId);
+      const after = getYearLevelExemptionSnapshot(
+        refreshed,
+        exemption.year_level_key,
+        collegeKey,
+      );
+      recordExemptionHistory({
+        scope: "yearLevel",
+        kind: "remove",
+        yearLevelLabel: exemption.year_level_label,
+        yearLevelKey: exemption.year_level_key,
+        collegeLabel: exemption.college_label ?? null,
+        collegeKey,
+        schoolYearId: selectedSchoolYearId,
+        before,
+        after,
+        label: `Removed ${exemption.year_level_label} · ${
+          exemption.college_label ?? "All colleges"
+        } exemption for ${exemption.event_name}`,
+      });
+      toast.success("Year level exemption removed. Absences and fines were recalculated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to remove exemption.");
+    } finally {
+      setDeletingExemptionId("");
+    }
+  }
+
   async function applyExemptionState(
-    collegeLabel: string,
-    schoolYearId: string,
+    entry: ExemptionHistoryEntry,
     from: ExemptionSnapshot[],
     to: ExemptionSnapshot[],
   ) {
-    const currentRows = await listEventCollegeExemptions({ schoolYearId });
-    setExemptions(currentRows);
-    const collegeKey =
-      colleges.find((college) => college.label === collegeLabel)?.key ??
-      currentRows.find((item) => item.college_label === collegeLabel)?.college_key;
+    if (entry.scope === "college") {
+      const currentRows = await listEventCollegeExemptions({
+        schoolYearId: entry.schoolYearId,
+      });
+      setExemptions(currentRows);
+      const collegeKey =
+        colleges.find((college) => college.label === entry.collegeLabel)?.key ??
+        currentRows.find((item) => item.college_label === entry.collegeLabel)
+          ?.college_key;
 
-    if (!collegeKey) {
-      throw new Error("College could not be resolved for exemption history.");
+      if (!collegeKey) {
+        throw new Error("College could not be resolved for exemption history.");
+      }
+
+      const current = getCollegeExemptionSnapshot(currentRows, collegeKey);
+      if (!exemptionSnapshotsMatch(current, from)) {
+        throw new Error("Exemption history no longer matches the server.");
+      }
+
+      const toByEventId = new Map(to.map((item) => [item.eventId, item]));
+      const currentByEventId = new Map(current.map((item) => [item.eventId, item]));
+      const eventIdsToRemove = from
+        .filter((item) => !toByEventId.has(item.eventId))
+        .map((item) => item.eventId);
+
+      if (eventIdsToRemove.length) {
+        await deleteEventCollegeExemptionsBulk({
+          college: entry.collegeLabel,
+          eventIds: eventIdsToRemove,
+          schoolYearId: entry.schoolYearId,
+        });
+      }
+
+      const createGroups = new Map<string | null, string[]>();
+      for (const target of to) {
+        const currentItem = currentByEventId.get(target.eventId);
+        if (currentItem && currentItem.reason === target.reason) continue;
+        const group = createGroups.get(target.reason) ?? [];
+        group.push(target.eventId);
+        createGroups.set(target.reason, group);
+      }
+
+      for (const [reason, eventIds] of createGroups) {
+        await createEventCollegeExemptions({
+          college: entry.collegeLabel,
+          eventIds,
+          reason: reason ?? undefined,
+          schoolYearId: entry.schoolYearId,
+        });
+      }
+
+      const refreshed = await reloadExemptions(entry.schoolYearId);
+      const applied = getCollegeExemptionSnapshot(refreshed, collegeKey);
+      if (!exemptionSnapshotsMatch(applied, to)) {
+        throw new Error(
+          "Exemption history did not match the server after recalculation.",
+        );
+      }
+      return;
     }
 
-    const current = getCollegeExemptionSnapshot(currentRows, collegeKey);
+    const currentRows = await listEventYearLevelExemptions({
+      schoolYearId: entry.schoolYearId,
+    });
+    setYearLevelExemptions(currentRows);
+    const current = getYearLevelExemptionSnapshot(
+      currentRows,
+      entry.yearLevelKey,
+      entry.collegeKey,
+    );
     if (!exemptionSnapshotsMatch(current, from)) {
       throw new Error("Exemption history no longer matches the server.");
     }
 
     const toByEventId = new Map(to.map((item) => [item.eventId, item]));
-    const currentByEventId = new Map(
-      current.map((item) => [item.eventId, item]),
-    );
+    const currentByEventId = new Map(current.map((item) => [item.eventId, item]));
     const eventIdsToRemove = from
       .filter((item) => !toByEventId.has(item.eventId))
       .map((item) => item.eventId);
 
     if (eventIdsToRemove.length) {
-      await deleteEventCollegeExemptionsBulk({
-        college: collegeLabel,
+      await deleteEventYearLevelExemptionsBulk({
+        yearLevels: [entry.yearLevelLabel],
+        college: entry.collegeLabel ?? undefined,
         eventIds: eventIdsToRemove,
-        schoolYearId,
+        schoolYearId: entry.schoolYearId,
       });
     }
 
@@ -1097,16 +1481,21 @@ export default function EventsPage() {
     }
 
     for (const [reason, eventIds] of createGroups) {
-      await createEventCollegeExemptions({
-        college: collegeLabel,
+      await createEventYearLevelExemptions({
+        yearLevels: [entry.yearLevelLabel],
+        college: entry.collegeLabel ?? undefined,
         eventIds,
         reason: reason ?? undefined,
-        schoolYearId,
+        schoolYearId: entry.schoolYearId,
       });
     }
 
-    const refreshed = await reloadExemptions(schoolYearId);
-    const applied = getCollegeExemptionSnapshot(refreshed, collegeKey);
+    const refreshed = await reloadYearLevelExemptions(entry.schoolYearId);
+    const applied = getYearLevelExemptionSnapshot(
+      refreshed,
+      entry.yearLevelKey,
+      entry.collegeKey,
+    );
     if (!exemptionSnapshotsMatch(applied, to)) {
       throw new Error("Exemption history did not match the server after recalculation.");
     }
@@ -1129,12 +1518,7 @@ export default function EventsPage() {
     setApplyingHistoryAction("undo");
     setUndoStack((current) => current.slice(0, -1));
     try {
-      await applyExemptionState(
-        entry.collegeLabel,
-        entry.schoolYearId,
-        entry.after,
-        entry.before,
-      );
+      await applyExemptionState(entry, entry.after, entry.before);
       setRedoStack((current) => [...current, entry].slice(-20));
       toast.success(`Undid: ${entry.label}. Absences and fines were recalculated.`);
     } catch {
@@ -1171,12 +1555,7 @@ export default function EventsPage() {
     setApplyingHistoryAction("redo");
     setRedoStack((current) => current.slice(0, -1));
     try {
-      await applyExemptionState(
-        entry.collegeLabel,
-        entry.schoolYearId,
-        entry.before,
-        entry.after,
-      );
+      await applyExemptionState(entry, entry.before, entry.after);
       setUndoStack((current) => [...current, entry].slice(-20));
       toast.success(`Redid: ${entry.label}. Absences and fines were recalculated.`);
     } catch {
@@ -1290,7 +1669,7 @@ export default function EventsPage() {
                 onClick={() => setCurrentExemptionsDialogOpen(true)}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
-                Current college exemptions
+                Current exemptions
               </Button>
 
               <Button
@@ -1299,7 +1678,7 @@ export default function EventsPage() {
                 onClick={handleOpenExemptionDialog}
                 className="min-h-12 rounded-2xl px-6 font-black"
               >
-                College Exemptions
+                Add Exemptions
               </Button>
 
               <Button
@@ -1593,14 +1972,14 @@ export default function EventsPage() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {event.exempted_colleges?.length ? (
+                    {eventHasExemptions(event) ? (
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => setExemptionDetailsEvent(event)}
                         className="min-h-11 max-w-full rounded-xl border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800"
                       >
-                        Exemptions ({event.exempted_colleges.length})
+                        Exemptions ({getEventExemptionSummary(event)})
                       </Button>
                     ) : null}
                     {event.description ? (
@@ -1666,14 +2045,14 @@ export default function EventsPage() {
                       </td>
                       <td className="sticky left-28 z-10 bg-background px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
-                        {event.exempted_colleges?.length ? (
+                        {eventHasExemptions(event) ? (
                           <Button
                             type="button"
                             variant="outline"
                             onClick={() => setExemptionDetailsEvent(event)}
                             className="mt-1 h-8 max-w-full rounded-lg border-amber-200 bg-amber-50 px-2.5 text-[11px] font-black text-amber-800 hover:bg-amber-100 hover:text-amber-900"
                           >
-                            View exemptions ({event.exempted_colleges.length})
+                            View exemptions ({getEventExemptionSummary(event)})
                           </Button>
                         ) : null}
                         <p className="text-xs text-muted-foreground">
@@ -1783,7 +2162,7 @@ export default function EventsPage() {
       >
         <DialogContent className="min-w-0 max-w-full max-h-[90svh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Current college exemptions</DialogTitle>
+            <DialogTitle>Current exemptions</DialogTitle>
           </DialogHeader>
           <div className="flex w-full flex-col gap-2 lg:items-end">
               <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
@@ -1816,45 +2195,116 @@ export default function EventsPage() {
                 Undo history is kept for this session only and clears on reload or school-year change.
               </p>
           </div>
-          {exemptions.length ? (
-            <div className="mt-1 grid gap-3 lg:grid-cols-2">
-              {Array.from(new Set(exemptions.map((item) => item.college_label))).map((collegeLabel) => (
-                <div key={collegeLabel} className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5">
-                  <p className="break-words font-black">{collegeLabel}</p>
-                  <div className="mt-3 grid gap-2">
-                    {exemptions.filter((item) => item.college_label === collegeLabel).map((item) => (
-                      <div key={item.id} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+          {exemptions.length || yearLevelExemptions.length ? (
+            <div className="mt-1 space-y-5">
+              {exemptions.length ? (
+                <section className="space-y-3">
+                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                    College exemptions
+                  </p>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {Array.from(
+                      new Set(exemptions.map((item) => item.college_label)),
+                    ).map((collegeLabel) => (
+                      <div
+                        key={collegeLabel}
+                        className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5"
+                      >
+                        <p className="break-words font-black">{collegeLabel}</p>
+                        <div className="mt-3 grid gap-2">
+                          {exemptions
+                            .filter((item) => item.college_label === collegeLabel)
+                            .map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="min-w-0">
+                                  <p className="break-words font-bold">{item.event_name}</p>
+                                  {item.reason ? (
+                                    <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                                      {item.reason}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <ActionMenu
+                                  ariaLabel={`Actions for ${item.event_name}`}
+                                  deleteAction={{
+                                    label:
+                                      deletingExemptionId === item.id
+                                        ? "Removing..."
+                                        : "Remove exemption",
+                                    disabled: exemptionActionsBusy,
+                                    title: "Remove this college exemption?",
+                                    description:
+                                      "The event will return to this college's expected-event roster and attendance results and fines will be recalculated.",
+                                    confirmationPhrase: "REMOVE",
+                                    confirmLabel: "Remove Exemption",
+                                    pendingLabel: "Removing...",
+                                    isPending: deletingExemptionId === item.id,
+                                    onConfirm: () => handleRemoveExemption(item),
+                                  }}
+                                />
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {yearLevelExemptions.length ? (
+                <section className="space-y-3">
+                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                    Year level exemptions
+                  </p>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {yearLevelExemptions.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex min-w-0 flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
                         <div className="min-w-0">
-                          <p className="break-words font-bold">{item.event_name}</p>
-                          {item.reason ? <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.reason}</p> : null}
+                          <p className="break-words font-black">
+                            {item.year_level_label} · {item.college_label ?? "All colleges"}
+                          </p>
+                          <p className="mt-1 break-words text-sm font-semibold">
+                            {item.event_name}
+                          </p>
+                          {item.reason ? (
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                              {item.reason}
+                            </p>
+                          ) : null}
                         </div>
                         <ActionMenu
-                          ariaLabel={`Actions for ${item.event_name}`}
+                          ariaLabel={`Actions for ${item.year_level_label} ${item.event_name}`}
                           deleteAction={{
                             label:
                               deletingExemptionId === item.id
                                 ? "Removing..."
                                 : "Remove exemption",
                             disabled: exemptionActionsBusy,
-                            title: "Remove this college exemption?",
+                            title: "Remove this year level exemption?",
                             description:
-                              "The event will return to this college's expected-event roster and attendance results and fines will be recalculated.",
+                              "The event will return to the affected students' expected-event roster and attendance results and fines will be recalculated.",
                             confirmationPhrase: "REMOVE",
                             confirmLabel: "Remove Exemption",
                             pendingLabel: "Removing...",
                             isPending: deletingExemptionId === item.id,
-                            onConfirm: () => handleRemoveExemption(item),
+                            onConfirm: () => handleRemoveYearLevelExemption(item),
                           }}
                         />
                       </div>
                     ))}
                   </div>
-                </div>
-              ))}
+                </section>
+              ) : null}
             </div>
           ) : (
             <p className="mt-1 flex min-h-20 items-center rounded-2xl border border-dashed bg-muted/20 px-4 py-5 text-sm font-semibold leading-6 text-muted-foreground sm:px-5">
-              No college exemptions for this school year.
+              No exemptions for this school year.
             </p>
           )}
         </DialogContent>
@@ -1870,7 +2320,7 @@ export default function EventsPage() {
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
-              View the colleges exempted from this event without expanding the events table.
+              View college and year level exemptions for this event.
             </DialogDescription>
           </DialogHeader>
           {exemptionDetailsEvent ? (
@@ -1878,21 +2328,45 @@ export default function EventsPage() {
               <div className="rounded-xl border bg-muted/20 p-3">
                 <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
                 <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                  {exemptionDetailsEvent.exempted_colleges?.length ?? 0} exempted college{
-                    (exemptionDetailsEvent.exempted_colleges?.length ?? 0) === 1 ? "" : "s"
-                  }
+                  {getEventExemptionSummary(exemptionDetailsEvent)}
                 </p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {exemptionDetailsEvent.exempted_colleges?.map((college) => (
-                  <div
-                    key={college.id}
-                    className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
-                  >
-                    <span className="break-words">{college.college_label}</span>
+              {exemptionDetailsEvent.exempted_colleges?.length ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                    Colleges
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {exemptionDetailsEvent.exempted_colleges.map((college) => (
+                      <div
+                        key={college.id}
+                        className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                      >
+                        <span className="break-words">{college.college_label}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : null}
+              {exemptionDetailsEvent.exempted_year_levels?.length ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                    Year levels
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {exemptionDetailsEvent.exempted_year_levels.map((yearLevel) => (
+                      <div
+                        key={yearLevel.id}
+                        className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                      >
+                        <span className="break-words">
+                          {yearLevel.year_level_label} · {yearLevel.college_label ?? "All colleges"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </DialogContent>
@@ -1958,86 +2432,191 @@ export default function EventsPage() {
       <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
         <DialogContent className="min-w-0 max-w-full max-h-[95svh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>College Event Exemptions</DialogTitle>
+            <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
-              Choose one or more colleges and the events they are exempted from. Preview how absences and penalties change before saving.
+              Exempt whole colleges or selected year levels. Preview how absences and penalties change before saving.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5">
-            <div className="space-y-2">
-              <p className="text-sm font-black">1. Select colleges</p>
-              <div className="relative">
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-expanded={exemptionCollegePickerOpen}
-                  onClick={() => setExemptionCollegePickerOpen((open) => !open)}
-                  className="min-h-12 w-full justify-between rounded-2xl px-4 text-left font-semibold"
-                >
-                  <span className="min-w-0 truncate">
-                    {!exemptionColleges.length
-                      ? "Select colleges"
-                      : exemptionColleges.length === 1
-                        ? exemptionColleges[0]
-                        : `${exemptionColleges.length} colleges selected`}
-                  </span>
-                  <span className="ml-3 shrink-0 text-xs text-muted-foreground">
-                    {exemptionCollegePickerOpen ? "Close" : "Choose"}
-                  </span>
-                </Button>
-                {exemptionCollegePickerOpen ? (
-                  <div className="absolute left-0 right-0 z-50 mt-2 max-h-72 overflow-y-auto rounded-2xl border bg-popover p-2 text-popover-foreground shadow-lg">
-                    <div className="mb-2 flex items-center justify-between gap-2 border-b px-2 pb-2">
-                      <span className="text-xs font-bold text-muted-foreground">
-                        {exemptionColleges.length} selected
-                      </span>
-                      <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleSelectAllExemptionColleges}
-                          className="h-8 px-2 text-xs"
-                        >
-                          Select all
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleClearExemptionColleges}
-                          className="h-8 px-2 text-xs"
-                        >
-                          Clear
-                        </Button>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-1.5">
+              <Button
+                type="button"
+                variant={exemptionMode === "college" ? "default" : "ghost"}
+                onClick={() => handleExemptionModeChange("college")}
+                className="rounded-xl"
+              >
+                College
+              </Button>
+              <Button
+                type="button"
+                variant={exemptionMode === "yearLevel" ? "default" : "ghost"}
+                onClick={() => handleExemptionModeChange("yearLevel")}
+                className="rounded-xl"
+              >
+                Year Level
+              </Button>
+            </div>
+
+            {exemptionMode === "college" ? (
+              <div className="space-y-2">
+                <p className="text-sm font-black">1. Select colleges</p>
+                <div className="relative">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-expanded={exemptionCollegePickerOpen}
+                    onClick={() => setExemptionCollegePickerOpen((open) => !open)}
+                    className="min-h-12 w-full justify-between rounded-2xl px-4 text-left font-semibold"
+                  >
+                    <span className="min-w-0 truncate">
+                      {!exemptionColleges.length
+                        ? "Select colleges"
+                        : exemptionColleges.length === 1
+                          ? exemptionColleges[0]
+                          : `${exemptionColleges.length} colleges selected`}
+                    </span>
+                    <span className="ml-3 shrink-0 text-xs text-muted-foreground">
+                      {exemptionCollegePickerOpen ? "Close" : "Choose"}
+                    </span>
+                  </Button>
+                  {exemptionCollegePickerOpen ? (
+                    <div className="absolute left-0 right-0 z-50 mt-2 max-h-72 overflow-y-auto rounded-2xl border bg-popover p-2 text-popover-foreground shadow-lg">
+                      <div className="mb-2 flex items-center justify-between gap-2 border-b px-2 pb-2">
+                        <span className="text-xs font-bold text-muted-foreground">
+                          {exemptionColleges.length} selected
+                        </span>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleSelectAllExemptionColleges}
+                            className="h-8 px-2 text-xs"
+                          >
+                            Select all
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleClearExemptionColleges}
+                            className="h-8 px-2 text-xs"
+                          >
+                            Clear
+                          </Button>
+                        </div>
                       </div>
+                      {colleges.map((college) => (
+                        <label
+                          key={college.key}
+                          className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2.5 hover:bg-muted/60"
+                        >
+                          <Checkbox
+                            checked={exemptionColleges.includes(college.label)}
+                            onCheckedChange={(checked) =>
+                              handleExemptionCollegeToggle(
+                                college.label,
+                                checked === true,
+                              )
+                            }
+                          />
+                          <span className="min-w-0 text-sm font-semibold leading-5">
+                            {college.label}
+                          </span>
+                        </label>
+                      ))}
                     </div>
-                    {colleges.map((college) => (
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-black">1. Select year levels</p>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setExemptionYearLevels([...QR_CODE_YEAR_LEVEL_OPTIONS]);
+                          resetExemptionPreview();
+                        }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setExemptionYearLevels([]);
+                          resetExemptionPreview();
+                        }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
                       <label
-                        key={college.key}
-                        className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2.5 hover:bg-muted/60"
+                        key={yearLevel}
+                        className="flex cursor-pointer items-center gap-3 rounded-xl border p-3 hover:bg-muted/40"
                       >
                         <Checkbox
-                          checked={exemptionColleges.includes(college.label)}
+                          checked={exemptionYearLevels.includes(yearLevel)}
                           onCheckedChange={(checked) =>
-                            handleExemptionCollegeToggle(college.label, checked === true)
+                            handleExemptionYearLevelToggle(
+                              yearLevel,
+                              checked === true,
+                            )
                           }
                         />
-                        <span className="min-w-0 text-sm font-semibold leading-5">
-                          {college.label}
-                        </span>
+                        <span className="text-sm font-semibold">{yearLevel}</span>
                       </label>
                     ))}
                   </div>
-                ) : null}
+                </div>
+                <label className="block space-y-2 text-sm font-black">
+                  <span>College scope</span>
+                  <Select
+                    value={exemptionYearLevelCollege}
+                    onValueChange={handleExemptionYearLevelCollegeChange}
+                  >
+                    <SelectTrigger className="min-h-12 rounded-2xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All colleges</SelectItem>
+                      {colleges.map((college) => (
+                        <SelectItem key={college.key} value={college.key}>
+                          {college.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
               </div>
-            </div>
+            )}
+
             <div className="space-y-2">
               <p className="text-sm font-black">2. Select exempted events</p>
               <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border p-3">
                 {events.map((event) => (
-                  <label key={event.id} className="flex items-start gap-3 rounded-xl p-2 hover:bg-muted/40">
-                    <Checkbox checked={exemptionEventIds.includes(event.id)} onCheckedChange={(checked) => handleExemptionEventToggle(event.id, checked === true)} />
+                  <label
+                    key={event.id}
+                    className="flex items-start gap-3 rounded-xl p-2 hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      checked={exemptionEventIds.includes(event.id)}
+                      onCheckedChange={(checked) =>
+                        handleExemptionEventToggle(event.id, checked === true)
+                      }
+                    />
                     <span className="text-sm font-semibold">{event.name}</span>
                   </label>
                 ))}
@@ -2045,10 +2624,27 @@ export default function EventsPage() {
             </div>
             <label className="block space-y-2 text-sm font-black">
               <span>3. Optional reason</span>
-              <Textarea value={exemptionReason} onChange={(event) => setExemptionReason(event.target.value)} placeholder="Why is this college exempted from these events?" />
+              <Textarea
+                value={exemptionReason}
+                onChange={(event) => {
+                  setExemptionReason(event.target.value);
+                  resetExemptionPreview();
+                }}
+                placeholder={
+                  exemptionMode === "college"
+                    ? "Why are these colleges exempted from these events?"
+                    : "Why are these year levels exempted from these events?"
+                }
+              />
             </label>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setExemptionDialogOpen(false)}>Cancel</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setExemptionDialogOpen(false)}
+              >
+                Cancel
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -2064,7 +2660,13 @@ export default function EventsPage() {
                 {isPreviewingExemptions ? "Previewing..." : "Impact preview"}
               </Button>
               {hasPreviewedExemptions ? (
-                <Button type="button" disabled={exemptionActionsBusy} onClick={() => void handleSaveExemptions()}>{isSavingExemptions ? "Saving..." : "Confirm & Save"}</Button>
+                <Button
+                  type="button"
+                  disabled={exemptionActionsBusy}
+                  onClick={() => void handleSaveExemptions()}
+                >
+                  {isSavingExemptions ? "Saving..." : "Confirm & Save"}
+                </Button>
               ) : null}
             </div>
           </div>
@@ -2081,34 +2683,50 @@ export default function EventsPage() {
           </DialogHeader>
           {exemptionImpact.some((preview) => preview.impacts.length) ? (
             <div className="space-y-4">
-              {exemptionImpact.map((preview) => (
-                <div key={preview.collegeKey} className="space-y-2">
-                  <p className="text-sm font-black">{preview.collegeLabel}</p>
-                  {preview.impacts.length ? (
-                    preview.impacts.map((impact) => (
-                      <div
-                        key={`${preview.collegeKey}:${impact.event_id}`}
-                        className="rounded-xl border bg-muted/20 p-3 text-sm"
-                      >
-                        <p className="font-black">{impact.event_name}</p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {impact.already_exempted ? (
-                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">Already exempted</span>
-                          ) : null}
-                          {!impact.in_roster_scope ? (
-                            <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">No attendance records for this college</span>
-                          ) : null}
+              {exemptionImpact.map((preview) => {
+                const previewKey =
+                  preview.kind === "college"
+                    ? `college:${preview.collegeKey}`
+                    : `year:${preview.yearLevelKey}:${preview.collegeKey ?? "all"}`;
+                const previewLabel =
+                  preview.kind === "college"
+                    ? preview.collegeLabel
+                    : `${preview.yearLevelLabel} · ${preview.collegeLabel ?? "All colleges"}`;
+                return (
+                  <div key={previewKey} className="space-y-2">
+                    <p className="text-sm font-black">{previewLabel}</p>
+                    {preview.impacts.length ? (
+                      preview.impacts.map((impact) => (
+                        <div
+                          key={`${previewKey}:${impact.event_id}`}
+                          className="rounded-xl border bg-muted/20 p-3 text-sm"
+                        >
+                          <p className="font-black">{impact.event_name}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {impact.already_exempted ? (
+                              <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                                Already exempted
+                              </span>
+                            ) : null}
+                            {!impact.in_roster_scope ? (
+                              <span className="rounded-full border px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                                No matching attendance records in the event roster
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-muted-foreground">
+                            {impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}
+                          </p>
                         </div>
-                        <p className="mt-2 text-muted-foreground">{impact.students_attended} attended • {impact.students_losing_absence} students lose an absence • penalties {impact.penalties_before} → {impact.penalties_after}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-xl border border-dashed bg-muted/20 p-3 text-sm font-semibold text-muted-foreground">
-                      No impact data for this college.
-                    </p>
-                  )}
-                </div>
-              ))}
+                      ))
+                    ) : (
+                      <p className="rounded-xl border border-dashed bg-muted/20 p-3 text-sm font-semibold text-muted-foreground">
+                        No impact data for this exemption scope.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="rounded-xl border border-dashed bg-muted/20 p-3 text-sm font-semibold text-muted-foreground">

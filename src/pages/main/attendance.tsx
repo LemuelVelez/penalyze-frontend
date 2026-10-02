@@ -76,6 +76,11 @@ import {
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 import { isCollegeExemptFromEvent, normalizeCollegeKey } from "../../lib/colleges";
+import {
+  getYearLevelLabel,
+  isYearLevelExemptFromEvent,
+  normalizeYearLevelKey,
+} from "../../lib/year-levels";
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
@@ -221,6 +226,7 @@ type AttendanceUploadFileDetails = {
   previewError: string;
   rowsTotal: number;
   collegeLabels: string[];
+  yearLevelScopes: Array<{ yearLevel: string; college: string }>;
   mergeCandidates: AttendanceEventMergeCandidate[];
   mergeDecisionConfirmed: boolean;
   mergeIntoEventId: string;
@@ -255,6 +261,34 @@ function getEventExemptedPreviewColleges(
   return collegeLabels.filter((college) =>
     isCollegeExemptFromEvent(event, college),
   );
+}
+
+function getAttendancePreviewYearLevelScopes(
+  rows: Array<{ yearLevel?: string; college?: string }>,
+) {
+  const scopes = new Map<string, { yearLevel: string; college: string }>();
+  rows.forEach((row) => {
+    const yearLevel = String(row.yearLevel ?? "").trim();
+    const yearLevelKey = normalizeYearLevelKey(yearLevel);
+    if (!yearLevelKey) return;
+    const college = String(row.college ?? "").trim();
+    const key = `${yearLevelKey}:${normalizeCollegeKey(college) ?? ""}`;
+    if (!scopes.has(key)) scopes.set(key, { yearLevel, college });
+  });
+  return Array.from(scopes.values());
+}
+
+function getEventExemptedPreviewYearLevels(
+  event: AttendanceEvent | null | undefined,
+  scopes: Array<{ yearLevel: string; college: string }>,
+) {
+  const labels = new Set<string>();
+  scopes.forEach((scope) => {
+    if (isYearLevelExemptFromEvent(event, scope.yearLevel, scope.college)) {
+      labels.add(getYearLevelLabel(scope.yearLevel));
+    }
+  });
+  return Array.from(labels);
 }
 
 function cleanAttendanceMetadataValue(value: unknown) {
@@ -1071,6 +1105,7 @@ export default function AttendancePage() {
             previewError: "",
             rowsTotal: preview.rowsTotal,
             collegeLabels: getAttendancePreviewCollegeLabels(preview.rows),
+            yearLevelScopes: getAttendancePreviewYearLevelScopes(preview.rows),
             mergeCandidates,
             mergeDecisionConfirmed: !mergeCandidates.some(
               (candidate) => candidate.confidence !== "low",
@@ -1106,6 +1141,7 @@ export default function AttendancePage() {
             previewError: message,
             rowsTotal: 0,
             collegeLabels: [],
+            yearLevelScopes: [],
             mergeCandidates: [],
             mergeDecisionConfirmed: true,
             mergeIntoEventId: "",
@@ -1207,11 +1243,17 @@ export default function AttendancePage() {
         selectedEvent,
         details.collegeLabels,
       );
-      if (exemptedColleges.length) {
+      const exemptedYearLevels = getEventExemptedPreviewYearLevels(
+        selectedEvent,
+        details.yearLevelScopes,
+      );
+      if (exemptedColleges.length || exemptedYearLevels.length) {
+        const scopes = [
+          exemptedColleges.length ? `${exemptedColleges.join(", ")} college row(s)` : "",
+          exemptedYearLevels.length ? `${exemptedYearLevels.join(", ")} year level row(s)` : "",
+        ].filter(Boolean).join(" and ");
         toast.error(
-          `${exemptedColleges.join(", ")} ${
-            exemptedColleges.length === 1 ? "is" : "are"
-          } exempted from ${selectedEvent.name}. Choose a different event or remove the exempted college rows from this file.`,
+          `${scopes} are exempted from ${selectedEvent.name}. Choose a different event or remove the exempted rows from this file.`,
         );
         return current;
       }
@@ -1305,12 +1347,15 @@ export default function AttendancePage() {
         selectedEvent,
         details.collegeLabels,
       );
+      const exemptedYearLevels = getEventExemptedPreviewYearLevels(
+        selectedEvent,
+        details.yearLevelScopes,
+      );
 
-      if (selectedEvent && exemptedColleges.length) {
+      if (selectedEvent && (exemptedColleges.length || exemptedYearLevels.length)) {
+        const scopes = [...exemptedColleges, ...exemptedYearLevels].join(", ");
         toast.error(
-          `${exemptedColleges.join(", ")} ${
-            exemptedColleges.length === 1 ? "is" : "are"
-          } exempted from ${selectedEvent.name}. Choose another event or keep this as a separate event.`,
+          `${scopes} are exempted from ${selectedEvent.name}. Choose another event or keep this as a separate event.`,
         );
         return;
       }
@@ -2193,20 +2238,29 @@ export default function AttendancePage() {
                                         attendanceEvent,
                                         details.collegeLabels,
                                       );
+                                    const exemptedYearLevels =
+                                      getEventExemptedPreviewYearLevels(
+                                        attendanceEvent,
+                                        details.yearLevelScopes,
+                                      );
+                                    const exemptedLabels = [
+                                      ...exemptedColleges,
+                                      ...exemptedYearLevels,
+                                    ];
 
                                     return (
                                       <SelectItem
                                         key={attendanceEvent.id}
                                         value={attendanceEvent.id}
-                                        disabled={exemptedColleges.length > 0}
+                                        disabled={exemptedLabels.length > 0}
                                       >
                                         {`Use existing event: ${getAttendanceEventSelectLabel(
                                           attendanceEvent.name,
                                           attendanceEvent.event_start_at,
                                           attendanceEvent.event_end_at,
                                         )}${
-                                          exemptedColleges.length
-                                            ? ` — exempted for ${exemptedColleges.join(", ")}`
+                                          exemptedLabels.length
+                                            ? ` — exempted for ${exemptedLabels.join(", ")}`
                                             : ""
                                         }`}
                                       </SelectItem>

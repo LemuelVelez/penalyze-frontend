@@ -52,8 +52,11 @@ import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 import {
   QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
-  isCollegeExemptFromEvent,
 } from "../../lib/colleges";
+import {
+  QR_CODE_YEAR_LEVEL_OPTIONS,
+  isStudentExemptFromEvent,
+} from "../../lib/year-levels";
 
 type ManualAttendanceFormState = {
   schoolYearId: string;
@@ -93,14 +96,6 @@ const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
 const ZERO_ATTENDANCE_REMARK =
   "Zero attendance registration from landing page.";
-
-const QR_CODE_YEAR_LEVEL_OPTIONS = [
-  "1st Year",
-  "2nd Year",
-  "3rd Year",
-  "4th Year",
-  "5th Year",
-] as const;
 
 const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
@@ -578,9 +573,10 @@ export default function ManualAttendancePage() {
   const availableEvents = useMemo(
     () =>
       events.filter(
-        (event) => !isCollegeExemptFromEvent(event, form.college),
+        (event) =>
+          !isStudentExemptFromEvent(event, form.college, form.yearLevel),
       ),
-    [events, form.college],
+    [events, form.college, form.yearLevel],
   );
 
   const editingExemptedEventRecords = useMemo(() => {
@@ -593,11 +589,15 @@ export default function ManualAttendancePage() {
         const eventId = String(record.event_id ?? "").trim();
         return Boolean(
           eventId &&
-            isCollegeExemptFromEvent(eventById.get(eventId), form.college),
+            isStudentExemptFromEvent(
+              eventById.get(eventId),
+              form.college,
+              form.yearLevel,
+            ),
         );
       }),
     );
-  }, [editingGroup, events, form.college]);
+  }, [editingGroup, events, form.college, form.yearLevel]);
 
   const selectedEventRecords = useMemo(() => {
     if (!editingGroup) return [];
@@ -852,22 +852,24 @@ export default function ManualAttendancePage() {
     field: Exclude<keyof ManualAttendanceFormState, "eventIds">,
     value: string,
   ) {
-    if (field !== "college") {
+    if (field !== "college" && field !== "yearLevel") {
       setForm((current) => ({ ...current, [field]: value }));
       return;
     }
 
+    const nextCollege = field === "college" ? value : form.college;
+    const nextYearLevel = field === "yearLevel" ? value : form.yearLevel;
     const removedEvents = events.filter(
       (event) =>
         form.eventIds.includes(event.id) &&
-        isCollegeExemptFromEvent(event, value),
+        isStudentExemptFromEvent(event, nextCollege, nextYearLevel),
     );
     const removedEventIds = new Set(removedEvents.map((event) => event.id));
 
     setForm((current) => ({
       ...current,
-      college: value,
-      program: "",
+      [field]: value,
+      ...(field === "college" ? { program: "" } : {}),
       eventIds: current.eventIds.filter((eventId) => !removedEventIds.has(eventId)),
     }));
 
@@ -962,9 +964,10 @@ export default function ManualAttendancePage() {
           group.events
             .filter((record) => {
               const eventId = String(record.event_id ?? "").trim();
-              return !isCollegeExemptFromEvent(
+              return !isStudentExemptFromEvent(
                 eventById.get(eventId),
                 group.college,
+                group.yearLevel,
               );
             })
             .map((record) => record.event_id)

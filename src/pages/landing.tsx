@@ -42,9 +42,13 @@ import type { SchoolYearRecord } from "../api/schoolYears";
 import {
   QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
-  isCollegeExemptFromEvent,
   normalizeCollegeKey,
 } from "../lib/colleges";
+import {
+  QR_CODE_YEAR_LEVEL_OPTIONS,
+  isStudentExemptFromEvent,
+  normalizeYearLevelKey,
+} from "../lib/year-levels";
 import { LogoMark } from "../components/layout";
 import ThemeToggle from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
@@ -288,14 +292,6 @@ const FINAL_ATTENDANCE_RESULT_NAME = "Final attendance result";
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
-
-const QR_CODE_YEAR_LEVEL_OPTIONS = [
-  "1st Year",
-  "2nd Year",
-  "3rd Year",
-  "4th Year",
-  "5th Year",
-] as const;
 
 const QR_CODE_INSTITUTION_OPTIONS = [DEFAULT_STUDENT_INSTITUTION] as const;
 
@@ -948,7 +944,10 @@ function filterExemptedRequestEvents(
     normalizeCollegeKey(request.college) ||
     normalizeCollegeKey(request.current_college);
 
-  if (!studentCollegeKey) return request;
+  const studentYearLevel =
+    getResolvedStudentYearLevel(attendance, finalResult) ||
+    request.year_level ||
+    request.current_year_level;
 
   const visibleEvents = request.events.filter((requestEvent) => {
     const matchedEvent = getAttendanceRequestEventMatch(
@@ -957,7 +956,11 @@ function filterExemptedRequestEvents(
       attendanceEvents,
     );
 
-    return !isCollegeExemptFromEvent(matchedEvent, studentCollegeKey);
+    return !isStudentExemptFromEvent(
+      matchedEvent,
+      studentCollegeKey,
+      studentYearLevel,
+    );
   });
 
   if (!visibleEvents.length) return null;
@@ -1068,6 +1071,20 @@ function getResolvedStudentCollegeKey(
   );
 }
 
+function getStudentYearLevel(attendance: AttendanceRecord[]) {
+  const latestRecord = getUniqueDisplayAttendance(attendance).find((record) =>
+    normalizeYearLevelKey(record.year_level),
+  );
+  return latestRecord?.year_level ?? null;
+}
+
+function getResolvedStudentYearLevel(
+  attendance: AttendanceRecord[],
+  finalResult: AttendanceFinalResultRecord | null | undefined,
+) {
+  return finalResult?.year_level || getStudentYearLevel(attendance);
+}
+
 function getAttendanceEventSummaryKey(
   record: AttendanceRecord,
   eventById?: Map<string, AttendanceEvent>,
@@ -1117,6 +1134,7 @@ function getCollegeLinkedEventSummaryMap(
   attendanceEvents: AttendanceEvent[] = [],
 ) {
   const studentCollegeKey = getStudentCollegeKey(attendance);
+  const studentYearLevel = getStudentYearLevel(attendance);
 
   if (!studentCollegeKey || !allAttendanceRecords.length) return null;
 
@@ -1130,9 +1148,10 @@ function getCollegeLinkedEventSummaryMap(
         !isFinalAttendanceResultRecord(record) &&
         getAttendanceRecordCollegeKey(record) === studentCollegeKey &&
         hasAttendanceEventIdentity(record, eventById) &&
-        !isCollegeExemptFromEvent(
+        !isStudentExemptFromEvent(
           eventById.get(String(record.event_id ?? "").trim()),
           studentCollegeKey,
+          studentYearLevel,
         ),
     )
     .forEach((record) => {
@@ -1234,6 +1253,7 @@ function getStudentAttendedEventSummaries(
   const summaries = new Map<string, StudentAttendedEventSummary>();
   const eventById = getAttendanceEventById(attendanceEvents);
   const studentCollegeKey = getStudentCollegeKey(attendance);
+  const studentYearLevel = getStudentYearLevel(attendance);
 
   getUniqueDisplayAttendance(attendance)
     .filter((record) => {
@@ -1254,7 +1274,11 @@ function getStudentAttendedEventSummaries(
       const eventId = String(record.event_id ?? "").trim();
       const linkedEvent = eventId ? (eventById.get(eventId) ?? null) : null;
 
-      return !isCollegeExemptFromEvent(linkedEvent, studentCollegeKey);
+      return !isStudentExemptFromEvent(
+        linkedEvent,
+        studentCollegeKey,
+        studentYearLevel,
+      );
     })
     .forEach((record) => {
       const eventName = getRecordEventName(record, eventById);
@@ -1678,15 +1702,15 @@ function getFinalResultAbsentEventSummaries(
     attendance,
     finalResult,
   );
-  const visibleMissedEvents = studentCollegeKey
-    ? missedEvents.filter(
-        (event) =>
-          !isCollegeExemptFromEvent(
-            getAttendanceEventForMissedResult(event, attendanceEvents),
-            studentCollegeKey,
-          ),
-      )
-    : missedEvents;
+  const studentYearLevel = getResolvedStudentYearLevel(attendance, finalResult);
+  const visibleMissedEvents = missedEvents.filter(
+    (event) =>
+      !isStudentExemptFromEvent(
+        getAttendanceEventForMissedResult(event, attendanceEvents),
+        studentCollegeKey,
+        studentYearLevel,
+      ),
+  );
 
   return visibleMissedEvents
     .map((event, index): StudentAbsentEventSummary => {
@@ -3262,7 +3286,11 @@ function AttendanceRequestDialog(props: {
   const availableEvents = props.events.filter(
     (event) =>
       !excludedEventIds.has(event.id) &&
-      !isCollegeExemptFromEvent(event, props.form.college),
+      !isStudentExemptFromEvent(
+        event,
+        props.form.college,
+        props.form.yearLevel,
+      ),
   );
 
   return (
@@ -3951,6 +3979,10 @@ export default function LandingPage() {
       displayedAttendance,
       displayedFinalResult,
     );
+    const studentYearLevel = getResolvedStudentYearLevel(
+      displayedAttendance,
+      displayedFinalResult,
+    );
     const eventById = getAttendanceEventById(lookup.attendanceEvents);
 
     if (Array.isArray(displayedFinalResult.event_details)) {
@@ -3971,7 +4003,11 @@ export default function LandingPage() {
                   normalizeEventKey(candidate.name) ===
                     normalizeEventKey(event.name),
               );
-          return !isCollegeExemptFromEvent(attendanceEvent, studentCollegeKey);
+          return !isStudentExemptFromEvent(
+            attendanceEvent,
+            studentCollegeKey,
+            studentYearLevel,
+          );
         })
         .map((event, index) => {
           const eventId = String(event.id ?? "").trim();
@@ -4060,7 +4096,7 @@ export default function LandingPage() {
       .filter(
         (event) =>
           event.school_year_id === displayedFinalResult.school_year_id &&
-          !isCollegeExemptFromEvent(event, studentCollegeKey),
+          !isStudentExemptFromEvent(event, studentCollegeKey, studentYearLevel),
       )
       .sort((left, right) => {
         if (left.event_order !== right.event_order) {
@@ -4904,7 +4940,7 @@ export default function LandingPage() {
           markProgressStepComplete(
             10,
             "Attendance events loaded...",
-            `${attendanceEvents.length.toLocaleString()} event/s checked for matching records and college exemptions.`,
+            `${attendanceEvents.length.toLocaleString()} event/s checked for matching records, college exemptions, and year level exemptions.`,
           );
 
           return attendanceEvents;
