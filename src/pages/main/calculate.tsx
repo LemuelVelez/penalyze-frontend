@@ -2130,7 +2130,7 @@ export default function CalculatePage() {
 
           {calculationRows.some((row) => Boolean(row.consistencyWarning)) ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
-              Attendance consistency warning: students in the same college have conflicting expected-event denominators. Review the attendance audit log before saving results.
+              Attendance consistency warning: students in the same college and year level have conflicting expected-event totals. Review the attendance audit log before saving results.
             </div>
           ) : null}
 
