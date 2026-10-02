@@ -195,6 +195,14 @@ type StudentAbsentEventSummary = {
   totalAbsences: number;
 };
 
+type RequiredAttendanceEventSummary = {
+  key: string;
+  eventName: string;
+  eventDate: string | null;
+  eventOrder: number | null;
+  attended: boolean;
+};
+
 type ZeroAttendanceFormState = {
   studentId: string;
   schoolYearId: string;
@@ -901,6 +909,63 @@ function getAttendanceEventForMissedResult(
   );
 }
 
+function getAttendanceRequestEventMatch(
+  request: StudentAttendanceRequestStatus,
+  requestEvent: StudentAttendanceRequestStatus["events"][number],
+  attendanceEvents: AttendanceEvent[],
+) {
+  const eventId = String(requestEvent.event_id ?? "").trim();
+  if (eventId) {
+    return (
+      attendanceEvents.find(
+        (event) => String(event.id ?? "").trim() === eventId,
+      ) ?? null
+    );
+  }
+
+  const eventNameKey = normalizeEventKey(requestEvent.event_name);
+  if (!eventNameKey) return null;
+
+  return (
+    attendanceEvents.find(
+      (event) =>
+        event.school_year_id === request.school_year_id &&
+        normalizeEventKey(event.name) === eventNameKey,
+    ) ?? null
+  );
+}
+
+function filterExemptedRequestEvents(
+  request: StudentAttendanceRequestStatus,
+  attendance: AttendanceRecord[],
+  finalResult: AttendanceFinalResultRecord | null | undefined,
+  attendanceEvents: AttendanceEvent[],
+): StudentAttendanceRequestStatus | null {
+  if (request.request_type !== "event_review") return request;
+
+  const studentCollegeKey =
+    getResolvedStudentCollegeKey(attendance, finalResult) ||
+    normalizeCollegeKey(request.college) ||
+    normalizeCollegeKey(request.current_college);
+
+  if (!studentCollegeKey) return request;
+
+  const visibleEvents = request.events.filter((requestEvent) => {
+    const matchedEvent = getAttendanceRequestEventMatch(
+      request,
+      requestEvent,
+      attendanceEvents,
+    );
+
+    return !isCollegeExemptFromEvent(matchedEvent, studentCollegeKey);
+  });
+
+  if (!visibleEvents.length) return null;
+  if (visibleEvents.length === request.events.length) return request;
+
+  return { ...request, events: visibleEvents };
+}
+
 function hasFinalAttendanceResultMarker(...values: unknown[]) {
   const finalAttendanceResultNames = new Set([
     normalizeDisplayValue(FINAL_ATTENDANCE_RESULT_NAME),
@@ -992,6 +1057,15 @@ function getStudentCollegeKey(attendance: AttendanceRecord[]) {
   return latestRecordWithCollege
     ? getAttendanceRecordCollegeKey(latestRecordWithCollege)
     : null;
+}
+
+function getResolvedStudentCollegeKey(
+  attendance: AttendanceRecord[],
+  finalResult: AttendanceFinalResultRecord | null | undefined,
+) {
+  return (
+    getStudentCollegeKey(attendance) || normalizeCollegeKey(finalResult?.college)
+  );
 }
 
 function getAttendanceEventSummaryKey(
@@ -1600,8 +1674,10 @@ function getFinalResultAbsentEventSummaries(
 
   if (totalAbsences === 0 || !missedEvents.length) return [];
 
-  const studentCollegeKey =
-    getStudentCollegeKey(attendance) || normalizeCollegeKey(finalResult.college);
+  const studentCollegeKey = getResolvedStudentCollegeKey(
+    attendance,
+    finalResult,
+  );
   const visibleMissedEvents = studentCollegeKey
     ? missedEvents.filter(
         (event) =>
@@ -2414,6 +2490,112 @@ function StudentAttendedEventsDialog(props: {
             No attended events found for this student.
           </div>
         )}
+
+        <DialogFooter className={landingDialogFooterClassName}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => props.onOpenChange(false)}
+            className="min-h-11 w-full rounded-xl font-black sm:w-auto sm:min-w-28"
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RequiredEventsDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  studentId: string;
+  studentName: string;
+  events: RequiredAttendanceEventSummary[];
+  absentEvents: StudentAbsentEventSummary[];
+  requiredEventCount: number;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className={`${landingDialogContentClassName} sm:max-w-4xl`}
+      >
+        <DialogHeader className={landingDialogHeaderClassName}>
+          <DialogTitle>
+            Required events for {props.studentName || props.studentId}
+          </DialogTitle>
+          <DialogDescription>
+            Review the events required for perfect attendance.
+          </DialogDescription>
+        </DialogHeader>
+
+        {props.absentEvents.length ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+            <p className="font-black">
+              You have missed perfect attendance by missing these events:
+            </p>
+            <div className="mt-3 space-y-2">
+              {props.absentEvents.map((eventSummary) => (
+                <div
+                  key={eventSummary.key}
+                  className="min-w-0 rounded-xl border border-amber-200/80 bg-background/70 px-3 py-2 dark:border-red-900/50"
+                >
+                  <p className="break-words text-sm font-bold">
+                    {eventSummary.eventName}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold opacity-80">
+                    {formatDate(
+                      eventSummary.eventDate ?? eventSummary.latestScannedAt,
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+            You have perfect attendance — you attended all{" "}
+            {props.requiredEventCount} required event
+            {props.requiredEventCount === 1 ? "" : "s"}.
+          </div>
+        )}
+
+        {props.events.length ? (
+          <div className="space-y-3">
+            {props.events.map((eventSummary, index) => (
+              <article
+                key={eventSummary.key}
+                className="min-w-0 rounded-2xl border bg-background p-4"
+              >
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="break-words font-black">
+                        {eventSummary.eventName}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {formatDate(eventSummary.eventDate)}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex w-fit shrink-0 rounded-full border px-3 py-1 text-xs font-black ${
+                      eventSummary.attended
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"
+                        : "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+                    }`}
+                  >
+                    {eventSummary.attended ? "Attended" : "Missed"}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
 
         <DialogFooter className={landingDialogFooterClassName}>
           <Button
@@ -3488,6 +3670,8 @@ export default function LandingPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [eventsDialogOpen, setEventsDialogOpen] = useState(false);
+  const [requiredEventsDialogOpen, setRequiredEventsDialogOpen] =
+    useState(false);
   const [zeroAttendanceDialogOpen, setZeroAttendanceDialogOpen] =
     useState(false);
   const [zeroAttendanceForm, setZeroAttendanceForm] =
@@ -3648,10 +3832,29 @@ export default function LandingPage() {
 
   const displayedAttendanceRequests = useMemo(() => {
     if (!lookup) return [];
-    return lookup.attendanceRequests.filter((request) =>
-      matchesSelectedYear(request.school_year_id, resultYearFilter),
-    );
-  }, [lookup, resultYearFilter]);
+
+    return lookup.attendanceRequests
+      .filter((request) =>
+        matchesSelectedYear(request.school_year_id, resultYearFilter),
+      )
+      .map((request) =>
+        filterExemptedRequestEvents(
+          request,
+          displayedAttendance,
+          displayedFinalResult,
+          lookup.attendanceEvents,
+        ),
+      )
+      .filter(
+        (request): request is StudentAttendanceRequestStatus =>
+          request !== null,
+      );
+  }, [
+    lookup,
+    resultYearFilter,
+    displayedAttendance,
+    displayedFinalResult,
+  ]);
 
   const rejectedAttendanceRequestCount = displayedAttendanceRequests.filter(
     (request) => request.status === "rejected",
@@ -3741,6 +3944,161 @@ export default function LandingPage() {
     displayedFinalResult,
     lookup,
   ]);
+  const requiredEvents = useMemo<RequiredAttendanceEventSummary[]>(() => {
+    if (!displayedFinalResult || !lookup) return [];
+
+    const studentCollegeKey = getResolvedStudentCollegeKey(
+      displayedAttendance,
+      displayedFinalResult,
+    );
+    const eventById = getAttendanceEventById(lookup.attendanceEvents);
+
+    if (Array.isArray(displayedFinalResult.event_details)) {
+      const uniqueEventIds = new Set<string>();
+
+      return displayedFinalResult.event_details
+        .filter((event) => {
+          const eventId = String(event.id ?? "").trim();
+          if (eventId && uniqueEventIds.has(eventId)) return false;
+          if (eventId) uniqueEventIds.add(eventId);
+
+          const attendanceEvent = eventId
+            ? eventById.get(eventId)
+            : lookup.attendanceEvents.find(
+                (candidate) =>
+                  candidate.school_year_id ===
+                    displayedFinalResult.school_year_id &&
+                  normalizeEventKey(candidate.name) ===
+                    normalizeEventKey(event.name),
+              );
+          return !isCollegeExemptFromEvent(attendanceEvent, studentCollegeKey);
+        })
+        .map((event, index) => {
+          const eventId = String(event.id ?? "").trim();
+          const eventName = String(event.name ?? "").trim();
+          const normalizedEventName = normalizeEventKey(eventName);
+          const isMissed = absentEvents.some((absentEvent) => {
+            if (
+              eventId &&
+              absentEvent.key === `final-result-missed-event:${eventId}`
+            ) {
+              return true;
+            }
+
+            if (
+              normalizeEventKey(absentEvent.eventName) !== normalizedEventName
+            ) {
+              return false;
+            }
+
+            return (
+              event.event_order === null ||
+              absentEvent.eventOrder == null ||
+              absentEvent.eventOrder === event.event_order
+            );
+          });
+
+          return {
+            key: eventId
+              ? `required-event:${eventId}`
+              : `required-event:${normalizedEventName || index + 1}`,
+            eventName:
+              eventName ||
+              (event.event_order !== null
+                ? `Event ${event.event_order}`
+                : "Required event"),
+            eventDate: event.event_start_at ?? event.event_end_at ?? null,
+            eventOrder: event.event_order ?? null,
+            attended: !isMissed,
+          };
+        })
+        .sort((left, right) => {
+          if (left.eventOrder !== null || right.eventOrder !== null) {
+            if (left.eventOrder === null) return 1;
+            if (right.eventOrder === null) return -1;
+            if (left.eventOrder !== right.eventOrder) {
+              return left.eventOrder - right.eventOrder;
+            }
+          }
+
+          return eventNameCollator.compare(left.eventName, right.eventName);
+        });
+    }
+
+    const combinedEvents: RequiredAttendanceEventSummary[] = [
+      ...attendedEvents.map((event, index) => ({
+        key: `required-attended:${event.key || index + 1}`,
+        eventName: event.eventName,
+        eventDate: event.eventDate ?? event.latestScannedAt,
+        eventOrder: event.eventOrder ?? null,
+        attended: true,
+      })),
+      ...absentEvents.map((event, index) => ({
+        key: `required-missed:${event.key || index + 1}`,
+        eventName: event.eventName,
+        eventDate: event.eventDate ?? event.latestScannedAt,
+        eventOrder: event.eventOrder ?? null,
+        attended: false,
+      })),
+    ];
+
+    if (combinedEvents.length) {
+      return combinedEvents.sort((left, right) => {
+        if (left.eventOrder !== null || right.eventOrder !== null) {
+          if (left.eventOrder === null) return 1;
+          if (right.eventOrder === null) return -1;
+          if (left.eventOrder !== right.eventOrder) {
+            return left.eventOrder - right.eventOrder;
+          }
+        }
+
+        return eventNameCollator.compare(left.eventName, right.eventName);
+      });
+    }
+
+    return lookup.attendanceEvents
+      .filter(
+        (event) =>
+          event.school_year_id === displayedFinalResult.school_year_id &&
+          !isCollegeExemptFromEvent(event, studentCollegeKey),
+      )
+      .sort((left, right) => {
+        if (left.event_order !== right.event_order) {
+          return left.event_order - right.event_order;
+        }
+        return eventNameCollator.compare(left.name, right.name);
+      })
+      .map((event) => ({
+        key: `required-event:${event.id}`,
+        eventName: event.name,
+        eventDate: event.event_start_at ?? event.event_end_at ?? null,
+        eventOrder: event.event_order,
+        attended: !absentEvents.some(
+          (absentEvent) =>
+            normalizeEventKey(absentEvent.eventName) ===
+            normalizeEventKey(event.name),
+        ),
+      }));
+  }, [
+    displayedFinalResult,
+    lookup,
+    displayedAttendance,
+    attendedEvents,
+    absentEvents,
+  ]);
+  const requiredEventCount = useMemo(() => {
+    if (!displayedFinalResult) return 0;
+
+    if (Array.isArray(displayedFinalResult.event_details)) {
+      return requiredEvents.length;
+    }
+
+    const summarizedEventCount = attendedEvents.length + absentEvents.length;
+    if (summarizedEventCount > 0) return summarizedEventCount;
+
+    return Math.max(0, Number(displayedFinalResult.expected_events || 0));
+  }, [displayedFinalResult, requiredEvents, attendedEvents, absentEvents]);
+
   const hasZeroAttendanceForDisplay = useMemo(() => {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
@@ -3868,6 +4226,7 @@ export default function LandingPage() {
     setLookup(null);
     setResultDialogOpen(false);
     setEventsDialogOpen(false);
+    setRequiredEventsDialogOpen(false);
     const activeSchoolYearId = getLandingActiveSchoolYearId(
       availableSchoolYears,
     );
@@ -4415,6 +4774,7 @@ export default function LandingPage() {
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
+      setRequiredEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
       return;
     }
@@ -4683,6 +5043,7 @@ export default function LandingPage() {
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
+      setRequiredEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
       setError(
         searchError instanceof Error
@@ -4832,6 +5193,7 @@ export default function LandingPage() {
           if (
             !open &&
             (eventsDialogOpen ||
+              requiredEventsDialogOpen ||
               attendanceRequestsDialogOpen ||
               attendanceRequestDialogOpen ||
               detailsCorrectionDialogOpen)
@@ -4969,6 +5331,21 @@ export default function LandingPage() {
                   Perfect attendance record found. Use the attended events
                   button to view the events this student attended.
                 </div>
+              ) : null}
+
+              {resultClassification !== "Zero attendance" &&
+              resultClassification !== "No attendance record" &&
+              requiredEventCount > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRequiredEventsDialogOpen(true)}
+                  className="min-h-0 w-full justify-start whitespace-normal rounded-3xl border-sky-200 bg-sky-50 p-5 text-left text-sm font-semibold text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                >
+                  You need to attend {requiredEventCount} event
+                  {requiredEventCount === 1 ? "" : "s"} overall for perfect
+                  attendance.
+                </Button>
               ) : null}
 
               {resultClassification === "Zero attendance" ? (
@@ -5296,6 +5673,16 @@ export default function LandingPage() {
         onToggleEvent={handleAttendanceRequestEventToggle}
         onEvidenceChange={handleAttendanceRequestEvidenceChange}
         onSubmit={handleAttendanceRequestSubmit}
+      />
+
+      <RequiredEventsDialog
+        open={requiredEventsDialogOpen}
+        onOpenChange={setRequiredEventsDialogOpen}
+        studentId={searchedId}
+        studentName={studentDisplayName}
+        events={requiredEvents}
+        absentEvents={absentEvents}
+        requiredEventCount={requiredEventCount}
       />
 
       <StudentAttendedEventsDialog
