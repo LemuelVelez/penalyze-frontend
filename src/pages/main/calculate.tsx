@@ -15,6 +15,7 @@ import type {
   AttendanceRecord,
   CalculationResultRecord,
   CalculationSourceType,
+  CalculationStatusRecord,
   ManualAttendanceInput,
   ManualAttendanceRecord,
 } from "../../api/attendance";
@@ -614,6 +615,40 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
   );
 }
 
+function CalculationStatusBadge(props: {
+  canCalculate: boolean;
+  isChecking: boolean;
+  isPreviewed: boolean;
+  status: CalculationStatusRecord | null;
+}) {
+  let label = "Select data";
+  let className = "border-border bg-muted text-muted-foreground";
+
+  if (props.isChecking) {
+    label = "Checking calculation";
+    className = "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200";
+  } else if (props.isPreviewed) {
+    label = "Calculated - Pending Save";
+    className = "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200";
+  } else if (props.status?.pending) {
+    label = "Pending Calculation";
+    className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+  } else if (props.status) {
+    label = props.status.hasSourceData || props.status.hasSavedResults
+      ? "Up to Date"
+      : "No Data";
+    className = "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
+  }
+
+  return (
+    <span
+      className={`inline-flex min-h-12 items-center justify-center rounded-2xl border px-4 text-sm font-black ${className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function calculationResultToRow(result: CalculationResultRecord) {
   return {
     key: `saved-${result.id}`,
@@ -854,6 +889,12 @@ export default function CalculatePage() {
   const [calculationMode, setCalculationMode] = useState<"saved" | "preview">(
     "saved",
   );
+  const [calculationStatus, setCalculationStatus] =
+    useState<CalculationStatusRecord | null>(null);
+  const [isCheckingCalculationStatus, setIsCheckingCalculationStatus] =
+    useState(false);
+  const [previewedCalculationRevision, setPreviewedCalculationRevision] =
+    useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<CalculationRow | null>(null);
   const [recordEditForms, setRecordEditForms] = useState<
     SourceRecordEditFormState[]
@@ -877,6 +918,8 @@ export default function CalculatePage() {
   const activeRequestControllerRef = useRef<AbortController | null>(null);
   const editRequestIdRef = useRef(0);
   const editRequestControllerRef = useRef<AbortController | null>(null);
+  const statusRequestIdRef = useRef(0);
+  const statusRequestControllerRef = useRef<AbortController | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -894,6 +937,35 @@ export default function CalculatePage() {
   const canRunCalculation =
     selectedCalculationSources.length > 0 &&
     (!includesImportedSource || selectedImportIds.length > 0);
+  const currentCalculationScopeKey = useMemo(() => {
+    if (!selectedCalculationSources.length) return "";
+
+    return getCalculationScopeKey(
+      includesImportedSource ? selectedImportIds : [],
+      selectedCalculationSources,
+    );
+  }, [
+    includesImportedSource,
+    selectedCalculationSources,
+    selectedImportIds,
+  ]);
+  const isCalculationStatusCurrent = Boolean(
+    calculationStatus &&
+      calculationStatus.calculationScopeKey === currentCalculationScopeKey,
+  );
+  const isCurrentCalculationPreviewed = Boolean(
+    calculationMode === "preview" &&
+      isCalculationStatusCurrent &&
+      calculationStatus?.revision &&
+      previewedCalculationRevision === calculationStatus.revision,
+  );
+  const canPreviewCalculation = Boolean(
+    canRunCalculation &&
+      isCalculationStatusCurrent &&
+      calculationStatus?.pending &&
+      !isCurrentCalculationPreviewed &&
+      !isCheckingCalculationStatus,
+  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1111,6 +1183,79 @@ export default function CalculatePage() {
 
     return { requestId, controller };
   }, []);
+
+  const loadCalculationStatus = useCallback(
+    async (
+      nextSchoolYearId: string,
+      nextImportIds: string[],
+      nextSourceTypes: CalculationSourceType[],
+    ) => {
+      statusRequestControllerRef.current?.abort();
+
+      const controller = new AbortController();
+      const requestId = statusRequestIdRef.current + 1;
+      statusRequestIdRef.current = requestId;
+      statusRequestControllerRef.current = controller;
+      const { signal } = controller;
+
+      if (!nextSourceTypes.length) {
+        setCalculationStatus(null);
+        setIsCheckingCalculationStatus(false);
+        statusRequestControllerRef.current = null;
+        return null;
+      }
+
+      const normalizedSourceTypes =
+        normalizeCalculationSourceTypes(nextSourceTypes);
+      const includeImported = normalizedSourceTypes.includes("imported");
+      const effectiveImportIds = includeImported ? nextImportIds : [];
+      const canCheckStatus = normalizedSourceTypes.length > 0;
+
+      if (!canCheckStatus) {
+        setCalculationStatus(null);
+        setIsCheckingCalculationStatus(false);
+        statusRequestControllerRef.current = null;
+        return null;
+      }
+
+      setIsCheckingCalculationStatus(true);
+
+      try {
+        const status = await attendanceApi.getCalculationStatus({
+          schoolYearId:
+            nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+              ? undefined
+              : nextSchoolYearId,
+          importIds: effectiveImportIds,
+          sourceTypes: normalizedSourceTypes,
+          signal,
+        });
+
+        if (
+          statusRequestIdRef.current !== requestId ||
+          signal.aborted
+        ) {
+          return null;
+        }
+
+        setCalculationStatus(status);
+        return status;
+      } catch (error) {
+        if (isAbortError(error) || statusRequestIdRef.current !== requestId) {
+          return null;
+        }
+
+        setCalculationStatus(null);
+        return null;
+      } finally {
+        if (statusRequestIdRef.current === requestId) {
+          setIsCheckingCalculationStatus(false);
+          statusRequestControllerRef.current = null;
+        }
+      }
+    },
+    [],
+  );
 
   const loadSavedResults = useCallback(
     async (
@@ -1409,11 +1554,30 @@ export default function CalculatePage() {
   }, [loadSavedResults]);
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadCalculationStatus(
+        selectedSchoolYearId,
+        selectedImportIds,
+        selectedCalculationSources,
+      );
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    loadCalculationStatus,
+    selectedCalculationSources,
+    selectedImportIds,
+    selectedSchoolYearId,
+  ]);
+
+  useEffect(() => {
     return () => {
       activeRequestIdRef.current += 1;
       editRequestIdRef.current += 1;
+      statusRequestIdRef.current += 1;
       activeRequestControllerRef.current?.abort();
       editRequestControllerRef.current?.abort();
+      statusRequestControllerRef.current?.abort();
     };
   }, []);
 
@@ -1462,6 +1626,7 @@ export default function CalculatePage() {
   }
 
   async function handleLoadSavedResults() {
+    setPreviewedCalculationRevision(null);
     await loadSavedResults(
       selectedSchoolYearId,
       selectedImportIds,
@@ -1480,6 +1645,18 @@ export default function CalculatePage() {
       return;
     }
 
+    if (!isCalculationStatusCurrent || !calculationStatus?.pending) {
+      toast.info("No new attendance data changes are pending calculation.");
+      return;
+    }
+
+    if (isCurrentCalculationPreviewed) {
+      toast.info("This data has already been calculated. Save the results or wait for new data changes.");
+      return;
+    }
+
+    const calculationRevision = calculationStatus.revision;
+
     try {
       const rows = await loadPreviewRows(
         selectedSchoolYearId,
@@ -1488,6 +1665,18 @@ export default function CalculatePage() {
       );
 
       if (!rows) return;
+
+      const latestStatus = await loadCalculationStatus(
+        selectedSchoolYearId,
+        selectedImportIds,
+        selectedCalculationSources,
+      );
+
+      setPreviewedCalculationRevision(
+        latestStatus?.revision === calculationRevision
+          ? calculationRevision
+          : null,
+      );
 
       toast.success(
         rows.length
@@ -1719,6 +1908,11 @@ export default function CalculatePage() {
   }, []);
 
   async function handleSaveResults() {
+    if (calculationMode !== "preview" || !isCurrentCalculationPreviewed) {
+      toast.info("Calculate the pending data changes before saving results.");
+      return;
+    }
+
     if (!selectedCalculationSources.length) {
       toast.error("Choose at least one attendance source before saving results.");
       return;
@@ -1783,6 +1977,12 @@ export default function CalculatePage() {
         requestImportIds,
         normalizedSourceTypes,
         progressTaskId,
+      );
+      setPreviewedCalculationRevision(null);
+      await loadCalculationStatus(
+        selectedSchoolYearId,
+        requestImportIds,
+        normalizedSourceTypes,
       );
     } catch (error) {
       if (isAbortError(error) || !isCurrentRun()) return;
@@ -1870,12 +2070,18 @@ export default function CalculatePage() {
       toast.success("Source records updated.");
       setEditingRow(null);
       setRecordEditForms([]);
+      const updatedStatus = await loadCalculationStatus(
+        selectedSchoolYearId,
+        selectedImportIds,
+        selectedCalculationSources,
+      );
       await loadPreviewRows(
         selectedSchoolYearId,
         selectedImportIds,
         selectedCalculationSources,
         progressTaskId,
       );
+      setPreviewedCalculationRevision(updatedStatus?.revision ?? null);
     } catch (error) {
       failCalculationProgress(
         progressTaskId,
@@ -1913,10 +2119,18 @@ export default function CalculatePage() {
             </div>
 
             <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto lg:items-end">
-              <SchoolYearBadge
-                label={selectedSchoolYearLabel}
-                className="w-full justify-center sm:w-auto"
-              />
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <SchoolYearBadge
+                  label={selectedSchoolYearLabel}
+                  className="w-full justify-center sm:w-auto"
+                />
+                <CalculationStatusBadge
+                  canCalculate={canRunCalculation}
+                  isChecking={isCheckingCalculationStatus}
+                  isPreviewed={isCurrentCalculationPreviewed}
+                  status={isCalculationStatusCurrent ? calculationStatus : null}
+                />
+              </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button
@@ -1933,10 +2147,20 @@ export default function CalculatePage() {
                   type="button"
                   variant="outline"
                   onClick={handlePreviewCalculation}
-                  disabled={isPreviewing || isLoading || !canRunCalculation}
+                  disabled={isPreviewing || isLoading || !canPreviewCalculation}
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
-                  {isPreviewing ? "Calculating..." : "Calculate Selected Files"}
+                  {isPreviewing
+                    ? "Calculating..."
+                    : isCheckingCalculationStatus
+                      ? "Checking..."
+                      : !canRunCalculation
+                        ? "Select Data"
+                        : isCurrentCalculationPreviewed
+                          ? "Already Calculated"
+                          : calculationStatus && !calculationStatus.pending
+                            ? "No New Data"
+                            : "Calculate Selected Files"}
                 </Button>
 
                 <Button
@@ -1946,7 +2170,9 @@ export default function CalculatePage() {
                     isSavingResults ||
                     isLoading ||
                     !calculationRows.length ||
-                    !canRunCalculation
+                    !canRunCalculation ||
+                    calculationMode !== "preview" ||
+                    !isCurrentCalculationPreviewed
                   }
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >

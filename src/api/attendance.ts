@@ -162,6 +162,20 @@ export type AttendanceFinalResultRecord = {
   updated_at: string;
 };
 
+export type CalculationStatusRecord = {
+  calculationScopeKey: string;
+  pending: boolean;
+  hasSourceData: boolean;
+  hasSavedResults: boolean;
+  sourceRecordCount: number;
+  savedSourceRecordCount: number;
+  sourceStudentCount: number;
+  savedResultCount: number;
+  latestSourceUpdatedAt: string | null;
+  lastCalculatedAt: string | null;
+  revision: string;
+};
+
 export type CalculationResultRecord = {
   id: string;
   school_year_id: string | null;
@@ -1043,6 +1057,32 @@ export async function refreshAttendanceFinalResults(
   );
 
   return response.data ?? [];
+}
+
+export async function getCalculationStatus(options: {
+  schoolYearId?: string;
+  importIds?: string[];
+  sourceTypes?: CalculationSourceType[];
+  signal?: AbortSignal;
+} = {}) {
+  const response = await apiRequest<CalculationStatusRecord>(
+    "/api/attendance/calculation-results/status",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        schoolYearId: options.schoolYearId,
+        importIds: options.importIds ?? [],
+        sourceTypes: options.sourceTypes ?? [],
+      }),
+      signal: options.signal,
+    },
+  );
+
+  if (!response.data) {
+    throw new Error("Calculation status response is missing data.");
+  }
+
+  return response.data;
 }
 
 export async function listCalculationResults(options: ListOptions = {}) {
