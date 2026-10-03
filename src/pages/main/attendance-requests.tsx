@@ -141,8 +141,10 @@ export default function AttendanceRequestsPage() {
   const loadRequestIdRef = useRef(0);
   const [reviewingId, setReviewingId] = useState("");
   const [removingEventId, setRemovingEventId] = useState("");
-  const [collegeApprovalRequest, setCollegeApprovalRequest] =
-    useState<AttendanceRequest | null>(null);
+  const [reviewConfirmation, setReviewConfirmation] = useState<{
+    request: AttendanceRequest;
+    status: "approved" | "rejected";
+  } | null>(null);
 
   const filteredRequests = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
@@ -660,7 +662,11 @@ export default function AttendanceRequestsPage() {
                             ariaLabel={`Actions for ${event.event_name}`}
                             actions={[
                               {
-                                label: "Open Evidence",
+                                label: (
+                                  <span className="font-black text-sky-700 dark:text-sky-300">
+                                    Open Evidence
+                                  </span>
+                                ),
                                 disabled: isRemovingThisEvent || !event.evidence_url,
                                 onSelect: () => {
                                   if (!event.evidence_url) return;
@@ -735,35 +741,47 @@ export default function AttendanceRequestsPage() {
                       actions={[
                         {
                           label:
-                            reviewingId === request.id ? "Saving..." : "Reject",
+                            reviewingId === request.id ? (
+                              "Saving..."
+                            ) : (
+                              <span className="font-black text-red-600 dark:text-red-400">
+                                Reject
+                              </span>
+                            ),
                           disabled:
                             reviewingId === request.id ||
                             (request.request_type === "event_review" &&
                               request.events.some(
                                 (event) => event.id === removingEventId,
                               )),
-                          onSelect: () => void handleReview(request, "rejected"),
+                          onSelect: () =>
+                            setReviewConfirmation({
+                              request,
+                              status: "rejected",
+                            }),
                         },
                         {
                           label:
-                            reviewingId === request.id
-                              ? "Saving..."
-                              : request.request_type === "details_correction"
-                                ? "Approve Correction"
-                                : "Approve & Add Attendance",
+                            reviewingId === request.id ? (
+                              "Saving..."
+                            ) : (
+                              <span className="font-black text-emerald-700 dark:text-emerald-400">
+                                {request.request_type === "details_correction"
+                                  ? "Approve Correction"
+                                  : "Approve & Add Attendance"}
+                              </span>
+                            ),
                           disabled:
                             reviewingId === request.id ||
                             (request.request_type === "event_review" &&
                               request.events.some(
                                 (event) => event.id === removingEventId,
                               )),
-                          onSelect: () => {
-                            if (correctionChangesCollege(request)) {
-                              setCollegeApprovalRequest(request);
-                              return;
-                            }
-                            void handleReview(request, "approved");
-                          },
+                          onSelect: () =>
+                            setReviewConfirmation({
+                              request,
+                              status: "approved",
+                            }),
                         },
                       ]}
                     />
@@ -815,28 +833,63 @@ export default function AttendanceRequestsPage() {
       )}
 
       <AlertDialog
-        open={Boolean(collegeApprovalRequest)}
+        open={Boolean(reviewConfirmation)}
         onOpenChange={(open) => {
-          if (!open) setCollegeApprovalRequest(null);
+          if (!open && !reviewingId) setReviewConfirmation(null);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Approve college change?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {reviewConfirmation?.status === "approved"
+                ? reviewConfirmation.request.request_type === "details_correction"
+                  ? "Approve details correction?"
+                  : "Approve attendance request?"
+                : reviewConfirmation?.request.request_type === "details_correction"
+                  ? "Reject details correction?"
+                  : "Reject attendance request?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Changing college will recalculate this student's absences and fines.
+              {reviewConfirmation?.status === "approved" ? (
+                reviewConfirmation.request.request_type === "details_correction" ? (
+                  correctionChangesCollege(reviewConfirmation.request) ? (
+                    <>
+                      This will apply the requested student details. Changing the
+                      college will also recalculate this student's absences and fines.
+                    </>
+                  ) : (
+                    "This will apply the requested student detail changes."
+                  )
+                ) : (
+                  "This will approve the request and add the verified attendance records."
+                )
+              ) : (
+                "This will reject the request. The student will see the review note, if provided."
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={Boolean(reviewingId)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={Boolean(reviewingId)}
+              className={
+                reviewConfirmation?.status === "rejected"
+                  ? "!bg-red-600 !text-white hover:!bg-red-700"
+                  : "!bg-emerald-600 !text-white hover:!bg-emerald-700"
+              }
               onClick={() => {
-                const request = collegeApprovalRequest;
-                setCollegeApprovalRequest(null);
-                if (request) void handleReview(request, "approved");
+                const confirmation = reviewConfirmation;
+                setReviewConfirmation(null);
+                if (confirmation) {
+                  void handleReview(confirmation.request, confirmation.status);
+                }
               }}
             >
-              Approve Correction
+              {reviewConfirmation?.status === "approved"
+                ? reviewConfirmation.request.request_type === "details_correction"
+                  ? "Approve Correction"
+                  : "Approve Attendance"
+                : "Reject Request"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

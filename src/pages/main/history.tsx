@@ -503,7 +503,10 @@ export default function HistoryPage() {
         request.reviewed_by_name,
         request.request_note,
         request.review_note,
-        ...request.events.map((event) => event.event_name),
+        ...request.events.flatMap((event) => [
+          event.event_name,
+          event.evidence_url,
+        ]),
       ]),
     );
 
@@ -1895,11 +1898,40 @@ export default function HistoryPage() {
                         ) : (
                           <div className="mt-4">
                             <p className="text-xs font-bold uppercase text-muted-foreground">
-                              Claimed events
+                              Claimed events and evidence
                             </p>
-                            <p className="mt-1 break-words text-sm font-semibold">
-                              {request.events.map((event) => event.event_name).join(", ") || "—"}
-                            </p>
+                            {request.events.length ? (
+                              <div className="mt-2 space-y-2">
+                                {request.events.map((event) => (
+                                  <div
+                                    key={event.id}
+                                    className="flex flex-col gap-2 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                                  >
+                                    <span className="break-words text-sm font-semibold">
+                                      {event.event_name}
+                                    </span>
+                                    {event.evidence_url ? (
+                                      <a
+                                        href={event.evidence_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-black text-sky-800 transition hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
+                                      >
+                                        Open Evidence
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs font-semibold text-muted-foreground">
+                                        No evidence link
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-1 text-sm font-semibold text-muted-foreground">
+                                —
+                              </p>
+                            )}
                           </div>
                         )}
 
@@ -2428,7 +2460,7 @@ export default function HistoryPage() {
                 type="button"
                 variant="outline"
                 onClick={() => handleOpenRecordsDialog("attendanceRequests")}
-                className="min-h-11 w-full rounded-2xl px-5 font-semibold"
+                className="min-h-11 w-full rounded-2xl border-indigo-300 bg-indigo-50 px-5 font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/70"
               >
                 View History
               </Button>

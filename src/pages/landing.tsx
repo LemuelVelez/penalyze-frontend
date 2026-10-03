@@ -5300,7 +5300,7 @@ export default function LandingPage() {
                   variant="outline"
                   disabled={!attendedEvents.length}
                   onClick={() => setEventsDialogOpen(true)}
-                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
+                  className="min-h-24 min-w-0 rounded-2xl border-sky-300 bg-sky-50 px-3 py-4 text-center text-xs font-black leading-tight text-sky-800 whitespace-normal hover:bg-sky-100 sm:text-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-950/70"
                 >
                   View Events
                 </Button>
@@ -5308,7 +5308,7 @@ export default function LandingPage() {
                   type="button"
                   variant="outline"
                   onClick={handleLookupAttendanceRequestReview}
-                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
+                  className="min-h-24 min-w-0 rounded-2xl border-amber-300 bg-amber-50 px-3 py-4 text-center text-xs font-black leading-tight text-amber-900 whitespace-normal hover:bg-amber-100 sm:text-sm dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
                 >
                   Attendance Review
                 </Button>
@@ -5316,7 +5316,7 @@ export default function LandingPage() {
                   type="button"
                   variant="outline"
                   onClick={handleLookupDetailsCorrection}
-                  className="min-h-24 min-w-0 rounded-2xl px-3 py-4 text-center text-xs font-black leading-tight whitespace-normal sm:text-sm"
+                  className="min-h-24 min-w-0 rounded-2xl border-violet-300 bg-violet-50 px-3 py-4 text-center text-xs font-black leading-tight text-violet-800 whitespace-normal hover:bg-violet-100 sm:text-sm dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-950/70"
                 >
                   Details Correction
                 </Button>
@@ -5332,7 +5332,7 @@ export default function LandingPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setAttendanceRequestsDialogOpen(true)}
-                  className="min-h-12 w-full flex-wrap justify-between gap-2 rounded-2xl px-4 py-2 text-sm font-black whitespace-normal sm:w-auto"
+                  className="min-h-12 w-full flex-wrap justify-between gap-2 rounded-2xl border-teal-300 bg-teal-50 px-4 py-2 text-sm font-black text-teal-900 whitespace-normal hover:bg-teal-100 sm:w-auto dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
                 >
                   <span className="shrink-0">Attendance Requests</span>
                   {displayedAttendanceRequests.length > 0 ? (
