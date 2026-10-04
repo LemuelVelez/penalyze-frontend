@@ -585,6 +585,9 @@ export default function AttendancePage() {
   const [fileDetails, setFileDetails] = useState<
     Record<string, AttendanceUploadFileDetails>
   >({});
+  const [exemptionOverrideFileKeys, setExemptionOverrideFileKeys] = useState<
+    Set<string>
+  >(new Set());
   const [mergeDialogFileKey, setMergeDialogFileKey] = useState("");
   const [mergeDialogCandidateIndex, setMergeDialogCandidateIndex] = useState(0);
   const [mergeKeepEventName, setMergeKeepEventName] = useState<
@@ -1042,6 +1045,7 @@ export default function AttendancePage() {
     if (!nextFiles.length) {
       setFiles([]);
       setFileDetails({});
+      setExemptionOverrideFileKeys(new Set());
       return;
     }
 
@@ -1058,6 +1062,7 @@ export default function AttendancePage() {
 
     setFiles(acceptedFiles);
     setFileDetails({});
+    setExemptionOverrideFileKeys(new Set());
 
     const fallbackSchoolYearId = uploadForm.schoolYearId || selectedSchoolYearId;
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
@@ -1186,6 +1191,21 @@ export default function AttendancePage() {
       delete next[fileKey];
       return next;
     });
+    setExemptionOverrideFileKeys((current) => {
+      if (!current.has(fileKey)) return current;
+      const next = new Set(current);
+      next.delete(fileKey);
+      return next;
+    });
+  }
+
+  function enableExemptedEventSelection(fileKey: string) {
+    setExemptionOverrideFileKeys((current) => {
+      if (current.has(fileKey)) return current;
+      const next = new Set(current);
+      next.add(fileKey);
+      return next;
+    });
   }
 
   function handleUploadEventSelect(fileKey: string, value: string) {
@@ -1247,13 +1267,16 @@ export default function AttendancePage() {
         selectedEvent,
         details.yearLevelScopes,
       );
-      if (exemptedColleges.length || exemptedYearLevels.length) {
+      if (
+        (exemptedColleges.length || exemptedYearLevels.length) &&
+        !exemptionOverrideFileKeys.has(fileKey)
+      ) {
         const scopes = [
           exemptedColleges.length ? `${exemptedColleges.join(", ")} college row(s)` : "",
           exemptedYearLevels.length ? `${exemptedYearLevels.join(", ")} year level row(s)` : "",
         ].filter(Boolean).join(" and ");
         toast.error(
-          `${scopes} are exempted from ${selectedEvent.name}. Choose a different event or remove the exempted rows from this file.`,
+          `${scopes} are exempted from ${selectedEvent.name}. Click Enable exempted events to override selection; the exemptions will remain active for affected students.`,
         );
         return current;
       }
@@ -1352,10 +1375,14 @@ export default function AttendancePage() {
         details.yearLevelScopes,
       );
 
-      if (selectedEvent && (exemptedColleges.length || exemptedYearLevels.length)) {
+      if (
+        selectedEvent &&
+        (exemptedColleges.length || exemptedYearLevels.length) &&
+        !exemptionOverrideFileKeys.has(mergeDialogFileKey)
+      ) {
         const scopes = [...exemptedColleges, ...exemptedYearLevels].join(", ");
         toast.error(
-          `${scopes} are exempted from ${selectedEvent.name}. Choose another event or keep this as a separate event.`,
+          `${scopes} are exempted from ${selectedEvent.name}. Enable exempted events for this file before confirming the merge; the exemptions will remain active.`,
         );
         return;
       }
@@ -1459,6 +1486,9 @@ export default function AttendancePage() {
           forceCreateEvent: details?.forceCreateEvent || undefined,
           keepEventName: details?.keepEventName,
           keepEventSchedule: details?.keepEventSchedule,
+          allowExemptedRows: exemptionOverrideFileKeys.has(
+            getAttendanceUploadFileKey(attendanceFile),
+          ),
         };
       });
 
@@ -1483,6 +1513,7 @@ export default function AttendancePage() {
 
       setFiles([]);
       setFileDetails({});
+      setExemptionOverrideFileKeys(new Set());
       setUploadForm((current) => ({
         ...current,
         eventId: "",
@@ -2126,6 +2157,22 @@ export default function AttendancePage() {
                             attendanceEvent.id === details.matchedEventId,
                         ) ?? null
                       : null;
+                    const exemptedEventOptions = details
+                      ? details.eventOptions.filter((attendanceEvent) =>
+                          Boolean(
+                            getEventExemptedPreviewColleges(
+                              attendanceEvent,
+                              details.collegeLabels,
+                            ).length ||
+                              getEventExemptedPreviewYearLevels(
+                                attendanceEvent,
+                                details.yearLevelScopes,
+                              ).length,
+                          ),
+                        )
+                      : [];
+                    const exemptionOverrideEnabled =
+                      exemptionOverrideFileKeys.has(fileKey);
 
                     return (
                       <div
@@ -2219,8 +2266,34 @@ export default function AttendancePage() {
                               </div>
                             ) : null}
 
-                            <label className="space-y-2">
-                              <span className="text-xs font-bold">Event selection</span>
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-xs font-bold">Event selection</span>
+                                {exemptedEventOptions.length ? (
+                                  <Button
+                                    type="button"
+                                    variant={
+                                      exemptionOverrideEnabled ? "secondary" : "outline"
+                                    }
+                                    size="sm"
+                                    disabled={isSaving || exemptionOverrideEnabled}
+                                    onClick={() => enableExemptedEventSelection(fileKey)}
+                                    className="h-8 rounded-lg px-3 text-xs font-semibold"
+                                  >
+                                    {exemptionOverrideEnabled
+                                      ? "Exempted events enabled"
+                                      : "Enable exempted events"}
+                                  </Button>
+                                ) : null}
+                              </div>
+                              {exemptedEventOptions.length ? (
+                                <p className="text-xs font-semibold text-muted-foreground">
+                                  Exempted event choices are locked by default. Enable them to
+                                  override event selection for this file. Existing college and
+                                  year-level exemptions stay active for the affected students
+                                  during attendance calculations.
+                                </p>
+                              ) : null}
                               <Select
                                 value={selectedEventValue}
                                 onValueChange={(value) =>
@@ -2252,7 +2325,10 @@ export default function AttendancePage() {
                                       <SelectItem
                                         key={attendanceEvent.id}
                                         value={attendanceEvent.id}
-                                        disabled={exemptedLabels.length > 0}
+                                        disabled={
+                                          exemptedLabels.length > 0 &&
+                                          !exemptionOverrideEnabled
+                                        }
                                       >
                                         {`Use existing event: ${getAttendanceEventSelectLabel(
                                           attendanceEvent.name,
@@ -2282,7 +2358,7 @@ export default function AttendancePage() {
                                   ) : null}
                                 </SelectContent>
                               </Select>
-                            </label>
+                            </div>
 
                             {!hasDetectedMetadata ? (
                               <div className="grid gap-3 md:grid-cols-3">

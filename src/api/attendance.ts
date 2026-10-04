@@ -511,6 +511,7 @@ export type AttendanceFileSaveOption = {
   mergeIntoEventId?: string;
   mergeIntoBatchIndex?: number;
   forceCreateEvent?: boolean;
+  allowExemptedRows?: boolean;
   keepEventName?: "existing" | "incoming";
   keepEventSchedule?: "existing" | "incoming";
 };
@@ -741,6 +742,8 @@ function appendSaveOptions(
     body.set("eventDescription", options.eventDescription);
   if (options.resumeImportId)
     body.set("resumeImportId", options.resumeImportId);
+  if (options.allowExemptedRows)
+    body.set("allowExemptedRows", "true");
   if (options.fileOptions?.length)
     body.set("fileOptions", JSON.stringify(options.fileOptions));
 }
