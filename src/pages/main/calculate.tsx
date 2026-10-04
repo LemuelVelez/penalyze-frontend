@@ -282,7 +282,8 @@ function normalizeCalculationSourceTypes(sourceTypes: CalculationSourceType[]) {
     : [...DEFAULT_SELECTED_CALCULATION_SOURCES];
 }
 
-function getCalculationScopeKey(
+function getCalculationSelectionKey(
+  schoolYearId: string,
   importIds: string[],
   sourceTypes: CalculationSourceType[],
 ) {
@@ -295,10 +296,11 @@ function getCalculationScopeKey(
     !normalizedImportIds.length &&
     normalizedSourceTypes.length === DEFAULT_SELECTED_CALCULATION_SOURCES.length
   ) {
-    return "school_year";
+    return `school-year:${schoolYearId || ALL_SCHOOL_YEARS_VALUE}|scope:school_year`;
   }
 
   return [
+    `school-year:${schoolYearId || ALL_SCHOOL_YEARS_VALUE}`,
     `sources:${normalizedSourceTypes.join(",") || "none"}`,
     `imports:${normalizedImportIds.join(",") || "all"}`,
   ].join("|");
@@ -891,6 +893,8 @@ export default function CalculatePage() {
   );
   const [calculationStatus, setCalculationStatus] =
     useState<CalculationStatusRecord | null>(null);
+  const [calculationStatusSelectionKey, setCalculationStatusSelectionKey] =
+    useState<string | null>(null);
   const [isCheckingCalculationStatus, setIsCheckingCalculationStatus] =
     useState(false);
   const [previewedCalculationRevision, setPreviewedCalculationRevision] =
@@ -937,10 +941,11 @@ export default function CalculatePage() {
   const canRunCalculation =
     selectedCalculationSources.length > 0 &&
     (!includesImportedSource || selectedImportIds.length > 0);
-  const currentCalculationScopeKey = useMemo(() => {
+  const currentCalculationSelectionKey = useMemo(() => {
     if (!selectedCalculationSources.length) return "";
 
-    return getCalculationScopeKey(
+    return getCalculationSelectionKey(
+      selectedSchoolYearId,
       includesImportedSource ? selectedImportIds : [],
       selectedCalculationSources,
     );
@@ -948,10 +953,11 @@ export default function CalculatePage() {
     includesImportedSource,
     selectedCalculationSources,
     selectedImportIds,
+    selectedSchoolYearId,
   ]);
   const isCalculationStatusCurrent = Boolean(
     calculationStatus &&
-      calculationStatus.calculationScopeKey === currentCalculationScopeKey,
+      calculationStatusSelectionKey === currentCalculationSelectionKey,
   );
   const isCurrentCalculationPreviewed = Boolean(
     calculationMode === "preview" &&
@@ -1200,6 +1206,7 @@ export default function CalculatePage() {
 
       if (!nextSourceTypes.length) {
         setCalculationStatus(null);
+        setCalculationStatusSelectionKey(null);
         setIsCheckingCalculationStatus(false);
         statusRequestControllerRef.current = null;
         return null;
@@ -1209,10 +1216,16 @@ export default function CalculatePage() {
         normalizeCalculationSourceTypes(nextSourceTypes);
       const includeImported = normalizedSourceTypes.includes("imported");
       const effectiveImportIds = includeImported ? nextImportIds : [];
+      const requestSelectionKey = getCalculationSelectionKey(
+        nextSchoolYearId,
+        effectiveImportIds,
+        normalizedSourceTypes,
+      );
       const canCheckStatus = normalizedSourceTypes.length > 0;
 
       if (!canCheckStatus) {
         setCalculationStatus(null);
+        setCalculationStatusSelectionKey(null);
         setIsCheckingCalculationStatus(false);
         statusRequestControllerRef.current = null;
         return null;
@@ -1239,6 +1252,7 @@ export default function CalculatePage() {
         }
 
         setCalculationStatus(status);
+        setCalculationStatusSelectionKey(requestSelectionKey);
         return status;
       } catch (error) {
         if (isAbortError(error) || statusRequestIdRef.current !== requestId) {
@@ -1246,6 +1260,7 @@ export default function CalculatePage() {
         }
 
         setCalculationStatus(null);
+        setCalculationStatusSelectionKey(null);
         return null;
       } finally {
         if (statusRequestIdRef.current === requestId) {
@@ -1434,7 +1449,8 @@ export default function CalculatePage() {
         normalizeCalculationSourceTypes(nextSourceTypes);
       const includeImported = normalizedSourceTypes.includes("imported");
       const effectiveImportIds = includeImported ? nextImportIds : [];
-      const calculationScopeKey = getCalculationScopeKey(
+      const calculationSelectionKey = getCalculationSelectionKey(
+        nextSchoolYearId,
         effectiveImportIds,
         normalizedSourceTypes,
       );
@@ -1463,7 +1479,7 @@ export default function CalculatePage() {
 
           return {
             ...resultRow,
-            key: `preview-${calculationScopeKey}-${result.school_year_id ?? "all"}-${normalizeStudentId(result.student_id)}`,
+            key: `preview-${calculationSelectionKey}-${result.school_year_id ?? "all"}-${normalizeStudentId(result.student_id)}`,
             resultId: undefined,
             sourceTypes: normalizedSourceTypes,
             isSavedResult: false,
