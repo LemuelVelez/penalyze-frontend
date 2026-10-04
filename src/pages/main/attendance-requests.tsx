@@ -987,9 +987,6 @@ export default function AttendanceRequestsPage() {
           onEscapeKeyDown={(event) => {
             if (reviewingId) event.preventDefault();
           }}
-          onInteractOutside={(event) => {
-            if (reviewingId) event.preventDefault();
-          }}
         >
           {reviewProgress ? (
             <>
