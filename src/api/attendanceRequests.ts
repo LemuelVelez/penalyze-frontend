@@ -1,4 +1,5 @@
 import { getApiBaseUrl, getAuthToken } from "./auth";
+import { readProgressStream } from "./progressStream";
 import type { SchoolSemester } from "./schoolYears";
 
 export const ATTENDANCE_REQUESTS_UPDATED_EVENT = "attendance-requests-updated";
@@ -108,6 +109,30 @@ export type ReviewAttendanceRequestInput = {
   reviewNote?: string;
 };
 
+export type AttendanceRequestReviewProgress = {
+  stage:
+    | "validating"
+    | "resolving_events"
+    | "adding_attendance"
+    | "waiting_for_lock"
+    | "syncing_absences"
+    | "updating_records"
+    | "refreshing_final_results"
+    | "refreshing_calculations"
+    | "refreshing_penalties"
+    | "finalizing";
+  percent: number;
+  message: string;
+  completed?: number;
+  total?: number;
+};
+
+export type ReviewAttendanceRequestResult = {
+  request: AttendanceRequest | null;
+  createdAttendanceCount?: number;
+  updatedRowCount?: number;
+};
+
 type ApiEnvelope<T> = {
   message?: string;
   data?: T;
@@ -180,16 +205,57 @@ export async function reviewAttendanceRequest(
   id: string,
   input: ReviewAttendanceRequestInput,
 ) {
-  const response = await apiRequest<{
-    request: AttendanceRequest | null;
-    createdAttendanceCount?: number;
-    updatedRowCount?: number;
-  }>(`/api/attendance/requests/${encodeURIComponent(id)}/review`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
+  const response = await apiRequest<ReviewAttendanceRequestResult>(
+    `/api/attendance/requests/${encodeURIComponent(id)}/review`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
   notifyAttendanceRequestsUpdated();
   return response.data ?? null;
+}
+
+export async function reviewAttendanceRequestWithProgress(
+  id: string,
+  input: ReviewAttendanceRequestInput,
+  onProgress?: (progress: AttendanceRequestReviewProgress) => void,
+) {
+  const headers = new Headers();
+  const token = getAuthToken();
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/requests/${encodeURIComponent(id)}/review/progress`,
+    {
+      method: "PATCH",
+      headers,
+      credentials: "include",
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
+  }
+
+  const payload = await readProgressStream<
+    AttendanceRequestReviewProgress,
+    ReviewAttendanceRequestResult
+  >(response, onProgress, {
+    errorFallback: "Unable to review attendance request.",
+    missingSuccessMessage: "Attendance request review finished without a result.",
+  });
+
+  notifyAttendanceRequestsUpdated();
+  return payload.data ?? null;
 }
 
 export async function removeAttendanceRequestEvent(

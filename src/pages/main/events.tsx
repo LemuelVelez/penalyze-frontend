@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SyntheticEvent } from "react";
+import type { Dispatch, SetStateAction, SyntheticEvent } from "react";
 import { toast } from "sonner";
 
 import {
@@ -19,6 +19,7 @@ import {
   mergeAttendanceEvents,
   createEventCollegeExemptions,
   createEventYearLevelExemptions,
+  removeSelectedEventExemptions,
   saveAttendanceEvent,
   updateAttendanceEvent,
 } from "../../api/attendance";
@@ -31,6 +32,7 @@ import type {
   EventCollegeExemption,
   EventExemptionImpact,
   EventYearLevelExemption,
+  RemoveSelectedEventExemptionsProgress,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -96,6 +98,45 @@ type EventsLoadProgress = {
   detail: string;
   steps: LoadingStatusStep[];
 };
+
+type ExemptionRemovalProgressState = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
+
+function createExemptionRemovalSteps(): LoadingStatusStep[] {
+  return [
+    { label: "Validate selection", status: "pending" },
+    { label: "Remove exemptions", status: "pending" },
+    { label: "Recalculate absences", status: "pending" },
+    { label: "Refresh results & fines", status: "pending" },
+    { label: "Refresh exemptions", status: "pending" },
+  ];
+}
+
+function buildExemptionRemovalSteps(
+  progress: RemoveSelectedEventExemptionsProgress,
+): LoadingStatusStep[] {
+  const activeIndex =
+    progress.stage === "validating" || progress.stage === "waiting_for_lock"
+      ? 0
+      : progress.stage === "removing_exemptions"
+        ? 1
+        : progress.stage === "syncing_absences"
+          ? 2
+          : progress.stage === "finalizing"
+            ? 3
+            : 3;
+
+  return createExemptionRemovalSteps().map((step, index) => {
+    if (index < activeIndex) return { ...step, status: "done" };
+    if (index === activeIndex) {
+      return { ...step, status: "loading", detail: progress.message };
+    }
+    return step;
+  });
+}
 
 type ExemptionSnapshot = {
   eventId: string;
@@ -416,6 +457,12 @@ export default function EventsPage() {
   const [isPreviewingExemptions, setIsPreviewingExemptions] = useState(false);
   const [isSavingExemptions, setIsSavingExemptions] = useState(false);
   const [deletingExemptionId, setDeletingExemptionId] = useState("");
+  const [selectedCollegeExemptionIds, setSelectedCollegeExemptionIds] = useState<string[]>([]);
+  const [selectedYearLevelExemptionIds, setSelectedYearLevelExemptionIds] = useState<string[]>([]);
+  const [selectedRemovalConfirmationOpen, setSelectedRemovalConfirmationOpen] = useState(false);
+  const [isRemovingSelectedExemptions, setIsRemovingSelectedExemptions] = useState(false);
+  const [selectedRemovalProgress, setSelectedRemovalProgress] =
+    useState<ExemptionRemovalProgressState | null>(null);
   const [undoStack, setUndoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [isApplyingHistory, setIsApplyingHistory] = useState(false);
@@ -425,6 +472,56 @@ export default function EventsPage() {
   const [undoConfirmationOpen, setUndoConfirmationOpen] = useState(false);
   const [exemptionDetailsEvent, setExemptionDetailsEvent] = useState<AttendanceEvent | null>(null);
   const [descriptionDetailsEvent, setDescriptionDetailsEvent] = useState<AttendanceEvent | null>(null);
+
+  const selectedExemptionCount =
+    selectedCollegeExemptionIds.length + selectedYearLevelExemptionIds.length;
+  const selectedCollegeExemptions = useMemo(
+    () =>
+      exemptions.filter((item) =>
+        selectedCollegeExemptionIds.includes(item.id),
+      ),
+    [exemptions, selectedCollegeExemptionIds],
+  );
+  const selectedYearLevelExemptions = useMemo(
+    () =>
+      yearLevelExemptions.filter((item) =>
+        selectedYearLevelExemptionIds.includes(item.id),
+      ),
+    [yearLevelExemptions, selectedYearLevelExemptionIds],
+  );
+  const selectedExemptionDescriptions = useMemo(
+    () => [
+      ...selectedCollegeExemptions.map(
+        (item) => `${item.college_label} — ${item.event_name}`,
+      ),
+      ...selectedYearLevelExemptions.map(
+        (item) =>
+          `${item.year_level_label} · ${item.college_label ?? "All colleges"} — ${item.event_name}`,
+      ),
+    ],
+    [selectedCollegeExemptions, selectedYearLevelExemptions],
+  );
+
+  function clearExemptionSelection() {
+    setSelectedCollegeExemptionIds([]);
+    setSelectedYearLevelExemptionIds([]);
+    setSelectedRemovalConfirmationOpen(false);
+  }
+
+  function setIdsSelected(
+    ids: string[],
+    checked: boolean,
+    setter: Dispatch<SetStateAction<string[]>>,
+  ) {
+    setter((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => {
+        if (checked) next.add(id);
+        else next.delete(id);
+      });
+      return Array.from(next);
+    });
+  }
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -488,6 +585,7 @@ export default function EventsPage() {
     setUndoStack([]);
     setRedoStack([]);
     setUndoConfirmationOpen(false);
+    clearExemptionSelection();
   }, [selectedSchoolYearId]);
 
   const paginatedEvents = useMemo(() => {
@@ -566,7 +664,13 @@ export default function EventsPage() {
           exempted_year_levels: [],
         })),
       );
-      return [] as EventCollegeExemption[];
+      setSelectedCollegeExemptionIds([]);
+      setSelectedYearLevelExemptionIds([]);
+      setExemptionDetailsEvent(null);
+      return {
+        collegeRows: [] as EventCollegeExemption[],
+        yearLevelRows: [] as EventYearLevelExemption[],
+      };
     }
 
     const [rows, yearRows] = await Promise.all([
@@ -575,6 +679,16 @@ export default function EventsPage() {
     ]);
     setExemptions(rows);
     setYearLevelExemptions(yearRows);
+
+    const collegeIds = new Set(rows.map((item) => item.id));
+    const yearLevelIds = new Set(yearRows.map((item) => item.id));
+    setSelectedCollegeExemptionIds((current) =>
+      current.filter((id) => collegeIds.has(id)),
+    );
+    setSelectedYearLevelExemptionIds((current) =>
+      current.filter((id) => yearLevelIds.has(id)),
+    );
+
     setEvents((current) =>
       current.map((event) => ({
         ...event,
@@ -596,7 +710,39 @@ export default function EventsPage() {
           })),
       })),
     );
-    return rows;
+
+    setExemptionDetailsEvent((current) => {
+      if (!current) return null;
+
+      const exemptedColleges = rows
+        .filter((item) => item.event_id === current.id)
+        .map((item) => ({
+          id: item.id,
+          college_key: item.college_key,
+          college_label: item.college_label,
+        }));
+      const exemptedYearLevels = yearRows
+        .filter((item) => item.event_id === current.id)
+        .map((item) => ({
+          id: item.id,
+          year_level_key: item.year_level_key,
+          year_level_label: item.year_level_label,
+          college_key: item.college_key,
+          college_label: item.college_label,
+        }));
+
+      if (!exemptedColleges.length && !exemptedYearLevels.length) {
+        return null;
+      }
+
+      return {
+        ...current,
+        exempted_colleges: exemptedColleges,
+        exempted_year_levels: exemptedYearLevels,
+      };
+    });
+
+    return { collegeRows: rows, yearLevelRows: yearRows };
   }
 
   async function reloadYearLevelExemptions(
@@ -1187,7 +1333,7 @@ export default function EventsPage() {
       await handlePreviewExemptions();
       return;
     }
-    if (historyApplyingRef.current || deletingExemptionId) return;
+    if (historyApplyingRef.current || deletingExemptionId || isRemovingSelectedExemptions) return;
 
     setIsSavingExemptions(true);
     try {
@@ -1215,7 +1361,7 @@ export default function EventsPage() {
           reason: exemptionReason.trim() || undefined,
           schoolYearId: selectedSchoolYearId,
         });
-        const refreshed = await reloadExemptions(selectedSchoolYearId);
+        const { collegeRows: refreshed } = await reloadExemptions(selectedSchoolYearId);
 
         for (const college of selectedColleges) {
           const before = beforeByCollegeKey.get(college.key) ?? [];
@@ -1309,13 +1455,13 @@ export default function EventsPage() {
   }
 
   async function handleRemoveExemption(exemption: EventCollegeExemption) {
-    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) return;
+    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId || isRemovingSelectedExemptions) return;
 
     const before = getCollegeExemptionSnapshot(exemptions, exemption.college_key);
     setDeletingExemptionId(exemption.id);
     try {
       await deleteEventCollegeExemption(exemption.id);
-      const refreshed = await reloadExemptions(selectedSchoolYearId);
+      const { collegeRows: refreshed } = await reloadExemptions(selectedSchoolYearId);
       const after = getCollegeExemptionSnapshot(refreshed, exemption.college_key);
       recordExemptionHistory({
         scope: "college",
@@ -1338,7 +1484,7 @@ export default function EventsPage() {
   async function handleRemoveYearLevelExemption(
     exemption: EventYearLevelExemption,
   ) {
-    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) return;
+    if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId || isRemovingSelectedExemptions) return;
 
     const collegeKey = exemption.college_key ?? null;
     const before = getYearLevelExemptionSnapshot(
@@ -1374,6 +1520,181 @@ export default function EventsPage() {
       toast.error(error instanceof Error ? error.message : "Unable to remove exemption.");
     } finally {
       setDeletingExemptionId("");
+    }
+  }
+
+  async function handleRemoveSelectedExemptions() {
+    if (
+      historyApplyingRef.current ||
+      isSavingExemptions ||
+      deletingExemptionId ||
+      isRemovingSelectedExemptions ||
+      !selectedSchoolYearId ||
+      !selectedExemptionCount
+    ) {
+      return;
+    }
+
+    const collegeRowsToRemove = [...selectedCollegeExemptions];
+    const yearLevelRowsToRemove = [...selectedYearLevelExemptions];
+    const removalCount = collegeRowsToRemove.length + yearLevelRowsToRemove.length;
+
+    const collegeScopeBefore = new Map<
+      string,
+      {
+        collegeLabel: string;
+        before: ExemptionSnapshot[];
+        removedCount: number;
+      }
+    >();
+    for (const row of collegeRowsToRemove) {
+      const existing = collegeScopeBefore.get(row.college_key);
+      collegeScopeBefore.set(row.college_key, {
+        collegeLabel: row.college_label,
+        before:
+          existing?.before ??
+          getCollegeExemptionSnapshot(exemptions, row.college_key),
+        removedCount: (existing?.removedCount ?? 0) + 1,
+      });
+    }
+
+    const yearLevelScopeBefore = new Map<
+      string,
+      {
+        yearLevelKey: string;
+        yearLevelLabel: string;
+        collegeKey: string | null;
+        collegeLabel: string | null;
+        before: ExemptionSnapshot[];
+        removedCount: number;
+      }
+    >();
+    for (const row of yearLevelRowsToRemove) {
+      const scopeKey = `${row.year_level_key}\u0000${row.college_key ?? ""}`;
+      const existing = yearLevelScopeBefore.get(scopeKey);
+      yearLevelScopeBefore.set(scopeKey, {
+        yearLevelKey: row.year_level_key,
+        yearLevelLabel: row.year_level_label,
+        collegeKey: row.college_key,
+        collegeLabel: row.college_label,
+        before:
+          existing?.before ??
+          getYearLevelExemptionSnapshot(
+            yearLevelExemptions,
+            row.year_level_key,
+            row.college_key,
+          ),
+        removedCount: (existing?.removedCount ?? 0) + 1,
+      });
+    }
+
+    setSelectedRemovalConfirmationOpen(false);
+    setIsRemovingSelectedExemptions(true);
+    setSelectedRemovalProgress({
+      progress: 2,
+      detail: "Starting selected exemption removal.",
+      steps: createExemptionRemovalSteps().map((step, index) =>
+        index === 0 ? { ...step, status: "loading" } : step,
+      ),
+    });
+
+    try {
+      await removeSelectedEventExemptions(
+        {
+          schoolYearId: selectedSchoolYearId,
+          collegeExemptionIds: collegeRowsToRemove.map((item) => item.id),
+          yearLevelExemptionIds: yearLevelRowsToRemove.map((item) => item.id),
+        },
+        (progress) => {
+          setSelectedRemovalProgress({
+            progress: Math.min(92, Math.max(2, progress.percent * 0.92)),
+            detail: progress.message,
+            steps: buildExemptionRemovalSteps(progress),
+          });
+        },
+      );
+
+      setSelectedRemovalProgress({
+        progress: 94,
+        detail: "Removal saved. Refreshing exemptions.",
+        steps: createExemptionRemovalSteps().map((step, index) => ({
+          ...step,
+          status: index < 4 ? "done" : "loading",
+          detail: index === 4 ? "Loading the updated exemptions" : undefined,
+        })),
+      });
+
+      const {
+        collegeRows: refreshedCollegeRows,
+        yearLevelRows: refreshedYearLevelRows,
+      } = await reloadExemptions(selectedSchoolYearId);
+
+      for (const [collegeKey, scope] of collegeScopeBefore) {
+        const after = getCollegeExemptionSnapshot(
+          refreshedCollegeRows,
+          collegeKey,
+        );
+        recordExemptionHistory({
+          scope: "college",
+          kind: "remove",
+          collegeLabel: scope.collegeLabel,
+          collegeKey,
+          schoolYearId: selectedSchoolYearId,
+          before: scope.before,
+          after,
+          label: `Removed ${scope.removedCount} exemption${
+            scope.removedCount === 1 ? "" : "s"
+          } for ${scope.collegeLabel}`,
+        });
+      }
+
+      for (const scope of yearLevelScopeBefore.values()) {
+        const after = getYearLevelExemptionSnapshot(
+          refreshedYearLevelRows,
+          scope.yearLevelKey,
+          scope.collegeKey,
+        );
+        recordExemptionHistory({
+          scope: "yearLevel",
+          kind: "remove",
+          yearLevelLabel: scope.yearLevelLabel,
+          yearLevelKey: scope.yearLevelKey,
+          collegeLabel: scope.collegeLabel,
+          collegeKey: scope.collegeKey,
+          schoolYearId: selectedSchoolYearId,
+          before: scope.before,
+          after,
+          label: `Removed ${scope.removedCount} exemption${
+            scope.removedCount === 1 ? "" : "s"
+          } for ${scope.yearLevelLabel} · ${
+            scope.collegeLabel ?? "All colleges"
+          }`,
+        });
+      }
+
+      clearExemptionSelection();
+      setSelectedRemovalProgress({
+        progress: 100,
+        detail: "Selected exemptions removed and the page is up to date.",
+        steps: createExemptionRemovalSteps().map((step) => ({
+          ...step,
+          status: "done",
+        })),
+      });
+      toast.success(
+        `${removalCount} exemption${removalCount === 1 ? "" : "s"} removed. Absences and fines were recalculated.`,
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setSelectedRemovalProgress(null);
+    } catch (error) {
+      setSelectedRemovalProgress(null);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove selected exemptions.",
+      );
+    } finally {
+      setIsRemovingSelectedExemptions(false);
     }
   }
 
@@ -1433,7 +1754,7 @@ export default function EventsPage() {
         });
       }
 
-      const refreshed = await reloadExemptions(entry.schoolYearId);
+      const { collegeRows: refreshed } = await reloadExemptions(entry.schoolYearId);
       const applied = getCollegeExemptionSnapshot(refreshed, collegeKey);
       if (!exemptionSnapshotsMatch(applied, to)) {
         throw new Error(
@@ -1506,6 +1827,7 @@ export default function EventsPage() {
       historyApplyingRef.current ||
       isSavingExemptions ||
       deletingExemptionId ||
+      isRemovingSelectedExemptions ||
       !undoStack.length
     ) {
       return;
@@ -1544,6 +1866,7 @@ export default function EventsPage() {
       historyApplyingRef.current ||
       isSavingExemptions ||
       deletingExemptionId ||
+      isRemovingSelectedExemptions ||
       !redoStack.length
     ) {
       return;
@@ -1601,7 +1924,7 @@ export default function EventsPage() {
       ) {
         return;
       }
-      if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId) {
+      if (historyApplyingRef.current || isSavingExemptions || deletingExemptionId || isRemovingSelectedExemptions) {
         return;
       }
 
@@ -1629,13 +1952,17 @@ export default function EventsPage() {
     eventDialogOpen,
     exemptionDialogOpen,
     isSavingExemptions,
+    isRemovingSelectedExemptions,
     mergeDialogOpen,
     redoStack,
     undoStack,
   ]);
 
   const exemptionActionsBusy =
-    isApplyingHistory || isSavingExemptions || Boolean(deletingExemptionId);
+    isApplyingHistory ||
+    isSavingExemptions ||
+    isRemovingSelectedExemptions ||
+    Boolean(deletingExemptionId);
   const undoEntry = undoStack[undoStack.length - 1];
   const redoEntry = redoStack[redoStack.length - 1];
 
@@ -2158,74 +2485,162 @@ export default function EventsPage() {
 
       <Dialog
         open={currentExemptionsDialogOpen}
-        onOpenChange={setCurrentExemptionsDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && isRemovingSelectedExemptions) return;
+          setCurrentExemptionsDialogOpen(open);
+          if (!open) clearExemptionSelection();
+        }}
       >
         <DialogContent className="min-w-0 max-w-full max-h-[90svh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Current exemptions</DialogTitle>
+            <DialogDescription>
+              Select individual exemptions or groups to remove them with one recalculation.
+            </DialogDescription>
           </DialogHeader>
+
+          {selectedRemovalProgress ? (
+            <LoadingStatus
+              title="Removing selected exemptions"
+              detail={selectedRemovalProgress.detail}
+              progress={selectedRemovalProgress.progress}
+              steps={selectedRemovalProgress.steps}
+            />
+          ) : null}
+
           <div className="flex w-full flex-col gap-2 lg:items-end">
-              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!undoEntry || exemptionActionsBusy}
-                  title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
-                  onClick={() => setUndoConfirmationOpen(true)}
-                  className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
-                >
-                  {isApplyingHistory && applyingHistoryAction === "undo"
-                    ? "Recalculating..."
-                    : "Undo"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!redoEntry || exemptionActionsBusy}
-                  title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
-                  onClick={() => void handleRedoExemptions()}
-                  className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
-                >
-                  {isApplyingHistory && applyingHistoryAction === "redo"
-                    ? "Recalculating..."
-                    : "Redo"}
-                </Button>
-              </div>
-              <p className="max-w-lg text-left text-xs font-semibold leading-5 text-muted-foreground lg:text-right">
-                Undo history is kept for this session only and clears on reload or school-year change.
-              </p>
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!selectedExemptionCount || exemptionActionsBusy}
+                onClick={() => setSelectedRemovalConfirmationOpen(true)}
+                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+              >
+                Remove selected ({selectedExemptionCount})
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!undoEntry || exemptionActionsBusy}
+                title={undoEntry ? `Undo: ${undoEntry.label}` : "Nothing to undo"}
+                onClick={() => setUndoConfirmationOpen(true)}
+                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+              >
+                {isApplyingHistory && applyingHistoryAction === "undo"
+                  ? "Recalculating..."
+                  : "Undo"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!redoEntry || exemptionActionsBusy}
+                title={redoEntry ? `Redo: ${redoEntry.label}` : "Nothing to redo"}
+                onClick={() => void handleRedoExemptions()}
+                className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+              >
+                {isApplyingHistory && applyingHistoryAction === "redo"
+                  ? "Recalculating..."
+                  : "Redo"}
+              </Button>
+            </div>
+            <p className="max-w-lg text-left text-xs font-semibold leading-5 text-muted-foreground lg:text-right">
+              {selectedExemptionCount
+                ? `${selectedExemptionCount} exemption${selectedExemptionCount === 1 ? "" : "s"} selected.`
+                : "Undo history is kept for this session only and clears on reload or school-year change."}
+            </p>
           </div>
+
           {exemptions.length || yearLevelExemptions.length ? (
             <div className="mt-1 space-y-5">
               {exemptions.length ? (
                 <section className="space-y-3">
-                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
-                    College exemptions
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                      College exemptions
+                    </p>
+                    <label className="flex items-center gap-2 text-xs font-bold">
+                      <Checkbox
+                        checked={
+                          exemptions.length > 0 &&
+                          exemptions.every((item) =>
+                            selectedCollegeExemptionIds.includes(item.id),
+                          )
+                        }
+                        disabled={exemptionActionsBusy}
+                        onCheckedChange={(checked) =>
+                          setIdsSelected(
+                            exemptions.map((item) => item.id),
+                            checked === true,
+                            setSelectedCollegeExemptionIds,
+                          )
+                        }
+                      />
+                      Select all colleges
+                    </label>
+                  </div>
                   <div className="grid gap-3 lg:grid-cols-2">
                     {Array.from(
                       new Set(exemptions.map((item) => item.college_label)),
-                    ).map((collegeLabel) => (
-                      <div
-                        key={collegeLabel}
-                        className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5"
-                      >
-                        <p className="break-words font-black">{collegeLabel}</p>
-                        <div className="mt-3 grid gap-2">
-                          {exemptions
-                            .filter((item) => item.college_label === collegeLabel)
-                            .map((item) => (
+                    ).map((collegeLabel) => {
+                      const groupRows = exemptions.filter(
+                        (item) => item.college_label === collegeLabel,
+                      );
+                      const groupIds = groupRows.map((item) => item.id);
+                      return (
+                        <div
+                          key={collegeLabel}
+                          className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="break-words font-black">{collegeLabel}</p>
+                            <label className="flex shrink-0 items-center gap-2 text-xs font-bold">
+                              <Checkbox
+                                checked={
+                                  groupIds.length > 0 &&
+                                  groupIds.every((id) =>
+                                    selectedCollegeExemptionIds.includes(id),
+                                  )
+                                }
+                                disabled={exemptionActionsBusy}
+                                onCheckedChange={(checked) =>
+                                  setIdsSelected(
+                                    groupIds,
+                                    checked === true,
+                                    setSelectedCollegeExemptionIds,
+                                  )
+                                }
+                              />
+                              Select all
+                            </label>
+                          </div>
+                          <div className="mt-3 grid gap-2">
+                            {groupRows.map((item) => (
                               <div
                                 key={item.id}
                                 className="flex min-w-0 flex-col gap-3 rounded-xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
                               >
-                                <div className="min-w-0">
-                                  <p className="break-words font-bold">{item.event_name}</p>
-                                  {item.reason ? (
-                                    <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
-                                      {item.reason}
-                                    </p>
-                                  ) : null}
+                                <div className="flex min-w-0 items-start gap-3">
+                                  <Checkbox
+                                    className="mt-0.5"
+                                    checked={selectedCollegeExemptionIds.includes(item.id)}
+                                    disabled={exemptionActionsBusy}
+                                    onCheckedChange={(checked) =>
+                                      setIdsSelected(
+                                        [item.id],
+                                        checked === true,
+                                        setSelectedCollegeExemptionIds,
+                                      )
+                                    }
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="break-words font-bold">{item.event_name}</p>
+                                    {item.reason ? (
+                                      <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                                        {item.reason}
+                                      </p>
+                                    ) : null}
+                                  </div>
                                 </div>
                                 <ActionMenu
                                   ariaLabel={`Actions for ${item.event_name}`}
@@ -2247,36 +2662,72 @@ export default function EventsPage() {
                                 />
                               </div>
                             ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               ) : null}
 
               {yearLevelExemptions.length ? (
                 <section className="space-y-3">
-                  <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
-                    Year level exemptions
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
+                      Year level exemptions
+                    </p>
+                    <label className="flex items-center gap-2 text-xs font-bold">
+                      <Checkbox
+                        checked={
+                          yearLevelExemptions.length > 0 &&
+                          yearLevelExemptions.every((item) =>
+                            selectedYearLevelExemptionIds.includes(item.id),
+                          )
+                        }
+                        disabled={exemptionActionsBusy}
+                        onCheckedChange={(checked) =>
+                          setIdsSelected(
+                            yearLevelExemptions.map((item) => item.id),
+                            checked === true,
+                            setSelectedYearLevelExemptionIds,
+                          )
+                        }
+                      />
+                      Select all
+                    </label>
+                  </div>
                   <div className="grid gap-3 lg:grid-cols-2">
                     {yearLevelExemptions.map((item) => (
                       <div
                         key={item.id}
                         className="flex min-w-0 flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div className="min-w-0">
-                          <p className="break-words font-black">
-                            {item.year_level_label} · {item.college_label ?? "All colleges"}
-                          </p>
-                          <p className="mt-1 break-words text-sm font-semibold">
-                            {item.event_name}
-                          </p>
-                          {item.reason ? (
-                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
-                              {item.reason}
+                        <div className="flex min-w-0 items-start gap-3">
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={selectedYearLevelExemptionIds.includes(item.id)}
+                            disabled={exemptionActionsBusy}
+                            onCheckedChange={(checked) =>
+                              setIdsSelected(
+                                [item.id],
+                                checked === true,
+                                setSelectedYearLevelExemptionIds,
+                              )
+                            }
+                          />
+                          <div className="min-w-0">
+                            <p className="break-words font-black">
+                              {item.year_level_label} · {item.college_label ?? "All colleges"}
                             </p>
-                          ) : null}
+                            <p className="mt-1 break-words text-sm font-semibold">
+                              {item.event_name}
+                            </p>
+                            {item.reason ? (
+                              <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                                {item.reason}
+                              </p>
+                            ) : null}
+                          </div>
                         </div>
                         <ActionMenu
                           ariaLabel={`Actions for ${item.year_level_label} ${item.event_name}`}
@@ -2313,16 +2764,30 @@ export default function EventsPage() {
       <Dialog
         open={Boolean(exemptionDetailsEvent)}
         onOpenChange={(open) => {
-          if (!open) setExemptionDetailsEvent(null);
+          if (!open && isRemovingSelectedExemptions) return;
+          if (!open) {
+            setExemptionDetailsEvent(null);
+            clearExemptionSelection();
+          }
         }}
       >
         <DialogContent className="min-w-0 max-w-full max-h-[85svh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
-              View college and year level exemptions for this event.
+              View or remove college and year level exemptions for this event.
             </DialogDescription>
           </DialogHeader>
+
+          {selectedRemovalProgress ? (
+            <LoadingStatus
+              title="Removing selected exemptions"
+              detail={selectedRemovalProgress.detail}
+              progress={selectedRemovalProgress.progress}
+              steps={selectedRemovalProgress.steps}
+            />
+          ) : null}
+
           {exemptionDetailsEvent ? (
             <div className="space-y-4">
               <div className="rounded-xl border bg-muted/20 p-3">
@@ -2331,46 +2796,155 @@ export default function EventsPage() {
                   {getEventExemptionSummary(exemptionDetailsEvent)}
                 </p>
               </div>
+
               {exemptionDetailsEvent.exempted_colleges?.length ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                    Colleges
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Colleges
+                    </p>
+                    <label className="flex items-center gap-2 text-xs font-bold">
+                      <Checkbox
+                        checked={exemptionDetailsEvent.exempted_colleges.every((item) =>
+                          selectedCollegeExemptionIds.includes(item.id),
+                        )}
+                        disabled={exemptionActionsBusy}
+                        onCheckedChange={(checked) =>
+                          setIdsSelected(
+                            exemptionDetailsEvent.exempted_colleges.map((item) => item.id),
+                            checked === true,
+                            setSelectedCollegeExemptionIds,
+                          )
+                        }
+                      />
+                      Select all
+                    </label>
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {exemptionDetailsEvent.exempted_colleges.map((college) => (
-                      <div
+                      <label
                         key={college.id}
-                        className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
                       >
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={selectedCollegeExemptionIds.includes(college.id)}
+                          disabled={exemptionActionsBusy}
+                          onCheckedChange={(checked) =>
+                            setIdsSelected(
+                              [college.id],
+                              checked === true,
+                              setSelectedCollegeExemptionIds,
+                            )
+                          }
+                        />
                         <span className="break-words">{college.college_label}</span>
-                      </div>
+                      </label>
                     ))}
                   </div>
                 </div>
               ) : null}
+
               {exemptionDetailsEvent.exempted_year_levels?.length ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                    Year levels
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                      Year levels
+                    </p>
+                    <label className="flex items-center gap-2 text-xs font-bold">
+                      <Checkbox
+                        checked={exemptionDetailsEvent.exempted_year_levels.every((item) =>
+                          selectedYearLevelExemptionIds.includes(item.id),
+                        )}
+                        disabled={exemptionActionsBusy}
+                        onCheckedChange={(checked) =>
+                          setIdsSelected(
+                            exemptionDetailsEvent.exempted_year_levels.map((item) => item.id),
+                            checked === true,
+                            setSelectedYearLevelExemptionIds,
+                          )
+                        }
+                      />
+                      Select all
+                    </label>
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {exemptionDetailsEvent.exempted_year_levels.map((yearLevel) => (
-                      <div
+                      <label
                         key={yearLevel.id}
-                        className="min-w-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
                       >
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={selectedYearLevelExemptionIds.includes(yearLevel.id)}
+                          disabled={exemptionActionsBusy}
+                          onCheckedChange={(checked) =>
+                            setIdsSelected(
+                              [yearLevel.id],
+                              checked === true,
+                              setSelectedYearLevelExemptionIds,
+                            )
+                          }
+                        />
                         <span className="break-words">
                           {yearLevel.year_level_label} · {yearLevel.college_label ?? "All colleges"}
                         </span>
-                      </div>
+                      </label>
                     ))}
                   </div>
                 </div>
               ) : null}
+
+              <div className="flex items-center justify-between gap-3 border-t pt-3">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {selectedExemptionCount} selected
+                </p>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={!selectedExemptionCount || exemptionActionsBusy}
+                  onClick={() => setSelectedRemovalConfirmationOpen(true)}
+                >
+                  Remove selected ({selectedExemptionCount})
+                </Button>
+              </div>
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <ProtectedDeleteDialog
+        open={selectedRemovalConfirmationOpen}
+        onOpenChange={(open) => {
+          if (!isRemovingSelectedExemptions) {
+            setSelectedRemovalConfirmationOpen(open);
+          }
+        }}
+        title={`Remove ${selectedExemptionCount} selected exemption${selectedExemptionCount === 1 ? "" : "s"}?`}
+        description={
+          <div className="space-y-3">
+            <p>
+              The following exemptions will be removed:
+            </p>
+            <ul className="max-h-56 space-y-1 overflow-y-auto rounded-xl border bg-muted/20 p-3 text-sm font-semibold">
+              {selectedExemptionDescriptions.map((description) => (
+                <li key={description} className="break-words">
+                  {description}
+                </li>
+              ))}
+            </ul>
+            <p className="font-semibold">
+              Absences and fines will be recalculated once for the full selection.
+            </p>
+          </div>
+        }
+        confirmationPhrase="REMOVE"
+        confirmLabel="Remove selected"
+        pendingLabel="Removing..."
+        isPending={isRemovingSelectedExemptions}
+        confirmDisabled={!selectedExemptionCount}
+        onConfirm={handleRemoveSelectedExemptions}
+      />
 
       <Dialog
         open={Boolean(descriptionDetailsEvent)}

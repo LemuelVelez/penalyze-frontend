@@ -1,3 +1,5 @@
+import { readProgressStream } from "./progressStream";
+
 export type ImportStatus = "previewed" | "saved" | "failed";
 export type AttendanceImportProgressStage =
   | "preparing"
@@ -34,6 +36,27 @@ export type EventYearLevelExemption = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type RemoveSelectedEventExemptionsProgress = {
+  stage:
+    | "validating"
+    | "waiting_for_lock"
+    | "removing_exemptions"
+    | "syncing_absences"
+    | "refreshing_final_results"
+    | "refreshing_calculations"
+    | "refreshing_penalties"
+    | "finalizing";
+  percent: number;
+  message: string;
+  completed?: number;
+  total?: number;
+};
+
+export type RemoveSelectedEventExemptionsResult = {
+  removedCollegeExemptions: EventCollegeExemption[];
+  removedYearLevelExemptions: EventYearLevelExemption[];
 };
 
 export type EventExemptionImpact = {
@@ -642,11 +665,6 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   return payload as ApiEnvelope<T>;
 }
 
-type AttendanceImportProgressStreamMessage<T> =
-  | { type: "progress"; progress: AttendanceImportProgress }
-  | { type: "success"; message?: string; data?: T }
-  | { type: "error"; message?: string };
-
 function getApiRequestHeaders(options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   const token = getAuthToken();
@@ -664,86 +682,6 @@ function getApiRequestHeaders(options: RequestInit = {}) {
   }
 
   return headers;
-}
-
-function parseAttendanceProgressStreamLine<T>(line: string) {
-  try {
-    return JSON.parse(line) as AttendanceImportProgressStreamMessage<T>;
-  } catch {
-    return null;
-  }
-}
-
-async function readAttendanceProgressStream<T>(
-  response: Response,
-  onProgress?: AttendanceImportProgressCallback,
-): Promise<ApiEnvelope<T>> {
-  if (!response.body) {
-    const payload = (await response.json()) as ApiEnvelope<T>;
-    return payload;
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let successPayload: ApiEnvelope<T> | null = null;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-
-      const message = parseAttendanceProgressStreamLine<T>(line);
-      if (!message) continue;
-
-      if (message.type === "progress") {
-        onProgress?.(message.progress);
-        continue;
-      }
-
-      if (message.type === "success") {
-        successPayload = { message: message.message, data: message.data };
-        continue;
-      }
-
-      if (message.type === "error") {
-        throw new Error(message.message || "Unable to save attendance import.");
-      }
-    }
-
-    if (done) break;
-  }
-
-  const remainingMessage = buffer.trim()
-    ? parseAttendanceProgressStreamLine<T>(buffer.trim())
-    : null;
-
-  if (remainingMessage?.type === "progress") {
-    onProgress?.(remainingMessage.progress);
-  }
-
-  if (remainingMessage?.type === "success") {
-    successPayload = {
-      message: remainingMessage.message,
-      data: remainingMessage.data,
-    };
-  }
-
-  if (remainingMessage?.type === "error") {
-    throw new Error(
-      remainingMessage.message || "Unable to save attendance import.",
-    );
-  }
-
-  if (!successPayload) {
-    throw new Error("Attendance import finished without a saved result.");
-  }
-
-  return successPayload;
 }
 
 async function apiProgressRequest<T>(
@@ -767,7 +705,10 @@ async function apiProgressRequest<T>(
     );
   }
 
-  return readAttendanceProgressStream<T>(response, onProgress);
+  return readProgressStream<AttendanceImportProgress, T>(response, onProgress, {
+    errorFallback: "Unable to save attendance import.",
+    missingSuccessMessage: "Attendance import finished without a saved result.",
+  });
 }
 
 function appendSaveOptions(
@@ -1619,4 +1560,47 @@ export async function deleteEventYearLevelExemption(id: string) {
     { method: "DELETE" },
   );
   return response.data ?? null;
+}
+
+export async function removeSelectedEventExemptions(
+  input: {
+    schoolYearId: string;
+    collegeExemptionIds: string[];
+    yearLevelExemptionIds: string[];
+  },
+  onProgress?: (progress: RemoveSelectedEventExemptionsProgress) => void,
+) {
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/event-exemptions/remove-selected/progress`,
+    {
+      method: "POST",
+      headers: getApiRequestHeaders({
+        body: JSON.stringify(input),
+      }),
+      credentials: "include",
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
+  }
+
+  const payload = await readProgressStream<
+    RemoveSelectedEventExemptionsProgress,
+    RemoveSelectedEventExemptionsResult
+  >(response, onProgress, {
+    errorFallback: "Unable to remove selected exemptions.",
+    missingSuccessMessage: "Exemption removal finished without a result.",
+  });
+  return payload.data ?? {
+    removedCollegeExemptions: [],
+    removedYearLevelExemptions: [],
+  };
 }

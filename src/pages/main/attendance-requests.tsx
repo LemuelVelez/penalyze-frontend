@@ -5,9 +5,11 @@ import {
   listAttendanceRequests,
   removeAttendanceRequestEvent,
   reviewAttendanceRequest,
+  reviewAttendanceRequestWithProgress,
 } from "../../api/attendanceRequests";
 import type {
   AttendanceRequest,
+  AttendanceRequestReviewProgress,
   AttendanceRequestStatus,
   AttendanceRequestType,
 } from "../../api/attendanceRequests";
@@ -26,7 +28,6 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -54,6 +55,70 @@ type RequestsLoadProgress = {
   detail: string;
   steps: LoadingStatusStep[];
 };
+
+type ReviewProgressState = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+  error?: string;
+  done?: boolean;
+};
+
+const REVIEW_STEP_LABELS = [
+  "Validate",
+  "Resolve events",
+  "Add attendance",
+  "Recalculate absences",
+  "Refresh results & fines",
+  "Finalize",
+  "Refresh list",
+] as const;
+
+function createReviewSteps(): LoadingStatusStep[] {
+  return REVIEW_STEP_LABELS.map((label) => ({ label, status: "pending" }));
+}
+
+function getReviewStepIndex(
+  stage: AttendanceRequestReviewProgress["stage"],
+  requestType: AttendanceRequestType,
+) {
+  if (stage === "validating") return 0;
+  if (stage === "resolving_events") return 1;
+  if (stage === "adding_attendance") return 2;
+  if (stage === "waiting_for_lock" || stage === "syncing_absences") return 3;
+  if (
+    stage === "refreshing_final_results" ||
+    stage === "refreshing_calculations" ||
+    stage === "refreshing_penalties"
+  ) {
+    return 4;
+  }
+  if (stage === "updating_records") {
+    return requestType === "details_correction" ? 3 : 2;
+  }
+  return 5;
+}
+
+function buildReviewSteps(
+  progress: AttendanceRequestReviewProgress,
+  requestType: AttendanceRequestType,
+): LoadingStatusStep[] {
+  const activeIndex = getReviewStepIndex(progress.stage, requestType);
+  return createReviewSteps().map((step, index) => {
+    if (requestType === "details_correction" && (index === 1 || index === 2)) {
+      return {
+        ...step,
+        status: activeIndex >= 3 ? "done" : index < activeIndex ? "done" : "pending",
+        detail: activeIndex >= 3 ? "Not needed for a details correction" : undefined,
+      };
+    }
+    if (index < activeIndex) return { ...step, status: "done" };
+    if (index === activeIndex) {
+      return { ...step, status: "loading", detail: progress.message };
+    }
+    return step;
+  });
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -145,6 +210,8 @@ export default function AttendanceRequestsPage() {
     request: AttendanceRequest;
     status: "approved" | "rejected";
   } | null>(null);
+  const [reviewProgress, setReviewProgress] =
+    useState<ReviewProgressState | null>(null);
 
   const filteredRequests = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
@@ -340,13 +407,54 @@ export default function AttendanceRequestsPage() {
     status: "approved" | "rejected",
   ) {
     setReviewingId(request.id);
-    try {
-      const result = await reviewAttendanceRequest(request.id, {
-        status,
-        reviewNote: reviewNotes[request.id]?.trim() || undefined,
+
+    if (status === "approved") {
+      setReviewProgress({
+        progress: 2,
+        detail: "Starting approval.",
+        steps: createReviewSteps().map((step, index) =>
+          index === 0 ? { ...step, status: "loading" } : step,
+        ),
       });
 
-      if (status === "approved") {
+      try {
+        const result = await reviewAttendanceRequestWithProgress(
+          request.id,
+          {
+            status,
+            reviewNote: reviewNotes[request.id]?.trim() || undefined,
+          },
+          (progress) => {
+            setReviewProgress({
+              progress: Math.min(92, Math.max(2, progress.percent * 0.92)),
+              detail: progress.message,
+              steps: buildReviewSteps(progress, request.request_type),
+            });
+          },
+        );
+
+        setReviewProgress({
+          progress: 94,
+          detail: "Approval saved. Refreshing the request list.",
+          steps: createReviewSteps().map((step, index) => ({
+            ...step,
+            status: index < 6 ? "done" : "loading",
+            detail: index === 6 ? "Loading the updated request list" : undefined,
+          })),
+        });
+
+        await loadRequests();
+
+        setReviewProgress({
+          progress: 100,
+          detail: "Approval complete and the request list is up to date.",
+          done: true,
+          steps: createReviewSteps().map((step) => ({
+            ...step,
+            status: "done",
+          })),
+        });
+
         if (request.request_type === "details_correction") {
           toast.success(
             result?.updatedRowCount
@@ -360,13 +468,47 @@ export default function AttendanceRequestsPage() {
               : "Request approved. Existing attendance records were kept without duplicates.",
           );
         }
-      } else {
-        toast.success(
-          request.request_type === "details_correction"
-            ? "Details correction request rejected."
-            : "Attendance request rejected.",
-        );
+
+        setReviewNotes((current) => {
+          const next = { ...current };
+          delete next[request.id];
+          return next;
+        });
+
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        setReviewConfirmation(null);
+        setReviewProgress(null);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to review attendance request.";
+        setReviewProgress((current) => ({
+          progress: current?.progress ?? 0,
+          detail: message,
+          steps: current?.steps ?? createReviewSteps(),
+          error: message,
+        }));
+        toast.error(message);
+      } finally {
+        setReviewingId("");
       }
+      return;
+    }
+
+    setReviewConfirmation(null);
+    setReviewProgress(null);
+    try {
+      await reviewAttendanceRequest(request.id, {
+        status,
+        reviewNote: reviewNotes[request.id]?.trim() || undefined,
+      });
+
+      toast.success(
+        request.request_type === "details_correction"
+          ? "Details correction request rejected."
+          : "Attendance request rejected.",
+      );
 
       setReviewNotes((current) => {
         const next = { ...current };
@@ -749,7 +891,7 @@ export default function AttendanceRequestsPage() {
                               </span>
                             ),
                           disabled:
-                            reviewingId === request.id ||
+                            Boolean(reviewingId) ||
                             (request.request_type === "event_review" &&
                               request.events.some(
                                 (event) => event.id === removingEventId,
@@ -772,7 +914,7 @@ export default function AttendanceRequestsPage() {
                               </span>
                             ),
                           disabled:
-                            reviewingId === request.id ||
+                            Boolean(reviewingId) ||
                             (request.request_type === "event_review" &&
                               request.events.some(
                                 (event) => event.id === removingEventId,
@@ -835,63 +977,134 @@ export default function AttendanceRequestsPage() {
       <AlertDialog
         open={Boolean(reviewConfirmation)}
         onOpenChange={(open) => {
-          if (!open && !reviewingId) setReviewConfirmation(null);
+          if (!open && !reviewingId) {
+            setReviewConfirmation(null);
+            setReviewProgress(null);
+          }
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {reviewConfirmation?.status === "approved"
-                ? reviewConfirmation.request.request_type === "details_correction"
-                  ? "Approve details correction?"
-                  : "Approve attendance request?"
-                : reviewConfirmation?.request.request_type === "details_correction"
-                  ? "Reject details correction?"
-                  : "Reject attendance request?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {reviewConfirmation?.status === "approved" ? (
-                reviewConfirmation.request.request_type === "details_correction" ? (
-                  correctionChangesCollege(reviewConfirmation.request) ? (
-                    <>
-                      This will apply the requested student details. Changing the
-                      college will also recalculate this student's absences and fines.
-                    </>
-                  ) : (
-                    "This will apply the requested student detail changes."
-                  )
+        <AlertDialogContent
+          onEscapeKeyDown={(event) => {
+            if (reviewingId) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (reviewingId) event.preventDefault();
+          }}
+        >
+          {reviewProgress ? (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {reviewProgress.error
+                    ? "Approval failed"
+                    : reviewProgress.done
+                      ? "Approval complete"
+                      : reviewConfirmation?.request.request_type === "details_correction"
+                        ? "Approving details correction"
+                        : "Approving attendance request"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {reviewProgress.error
+                    ? "The request was not approved. Review the message below."
+                    : "Progress is reported by the server as each real approval step runs."}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <LoadingStatus
+                title={reviewProgress.done ? "Done" : "Processing approval"}
+                detail={reviewProgress.detail}
+                progress={reviewProgress.progress}
+                steps={reviewProgress.steps}
+              />
+
+              {reviewProgress.error ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                  {reviewProgress.error}
+                </div>
+              ) : null}
+
+              <AlertDialogFooter>
+                {reviewProgress.error ? (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setReviewConfirmation(null);
+                      setReviewProgress(null);
+                    }}
+                  >
+                    Close
+                  </Button>
                 ) : (
-                  "This will approve the request and add the verified attendance records."
-                )
-              ) : (
-                "This will reject the request. The student will see the review note, if provided."
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(reviewingId)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={Boolean(reviewingId)}
-              className={
-                reviewConfirmation?.status === "rejected"
-                  ? "!bg-red-600 !text-white hover:!bg-red-700"
-                  : "!bg-emerald-600 !text-white hover:!bg-emerald-700"
-              }
-              onClick={() => {
-                const confirmation = reviewConfirmation;
-                setReviewConfirmation(null);
-                if (confirmation) {
-                  void handleReview(confirmation.request, confirmation.status);
-                }
-              }}
-            >
-              {reviewConfirmation?.status === "approved"
-                ? reviewConfirmation.request.request_type === "details_correction"
-                  ? "Approve Correction"
-                  : "Approve Attendance"
-                : "Reject Request"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+                  <>
+                    <Button type="button" variant="outline" disabled>
+                      Cancel
+                    </Button>
+                    <Button type="button" disabled>
+                      {reviewProgress.done ? "Completed" : "Approving..."}
+                    </Button>
+                  </>
+                )}
+              </AlertDialogFooter>
+            </>
+          ) : (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {reviewConfirmation?.status === "approved"
+                    ? reviewConfirmation.request.request_type === "details_correction"
+                      ? "Approve details correction?"
+                      : "Approve attendance request?"
+                    : reviewConfirmation?.request.request_type === "details_correction"
+                      ? "Reject details correction?"
+                      : "Reject attendance request?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {reviewConfirmation?.status === "approved" ? (
+                    reviewConfirmation.request.request_type === "details_correction" ? (
+                      correctionChangesCollege(reviewConfirmation.request) ? (
+                        <>
+                          This will apply the requested student details. Changing the
+                          college will also recalculate this student's absences and fines.
+                        </>
+                      ) : (
+                        "This will apply the requested student detail changes."
+                      )
+                    ) : (
+                      "This will approve the request and add the verified attendance records."
+                    )
+                  ) : (
+                    "This will reject the request. The student will see the review note, if provided."
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={Boolean(reviewingId)}>
+                  Cancel
+                </AlertDialogCancel>
+                <Button
+                  type="button"
+                  disabled={Boolean(reviewingId)}
+                  className={
+                    reviewConfirmation?.status === "rejected"
+                      ? "!bg-red-600 !text-white hover:!bg-red-700"
+                      : "!bg-emerald-600 !text-white hover:!bg-emerald-700"
+                  }
+                  onClick={() => {
+                    const confirmation = reviewConfirmation;
+                    if (confirmation) {
+                      void handleReview(confirmation.request, confirmation.status);
+                    }
+                  }}
+                >
+                  {reviewConfirmation?.status === "approved"
+                    ? reviewConfirmation.request.request_type === "details_correction"
+                      ? "Approve Correction"
+                      : "Approve Attendance"
+                    : "Reject Request"}
+                </Button>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
     </main>
