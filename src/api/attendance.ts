@@ -54,6 +54,23 @@ export type RemoveSelectedEventExemptionsProgress = {
   total?: number;
 };
 
+export type SaveEventExemptionsProgress = {
+  stage:
+    | "validating"
+    | "waiting_for_lock"
+    | "saving_exemptions"
+    | "collecting_students"
+    | "syncing_absences"
+    | "refreshing_final_results"
+    | "refreshing_calculations"
+    | "refreshing_penalties"
+    | "finalizing";
+  percent: number;
+  message: string;
+  completed?: number;
+  total?: number;
+};
+
 export type RemoveSelectedEventExemptionsResult = {
   removedCollegeExemptions: EventCollegeExemption[];
   removedYearLevelExemptions: EventYearLevelExemption[];
@@ -1475,6 +1492,48 @@ export async function createEventCollegeExemptions(input: {
   return response.data ?? [];
 }
 
+export async function createEventCollegeExemptionsWithProgress(
+  input: {
+    college?: string;
+    colleges?: string[];
+    eventIds: string[];
+    reason?: string;
+    schoolYearId: string;
+  },
+  onProgress?: (progress: SaveEventExemptionsProgress) => void,
+) {
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/event-exemptions/progress`,
+    {
+      method: "POST",
+      headers: getApiRequestHeaders({
+        body: JSON.stringify(input),
+      }),
+      credentials: "include",
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
+  }
+
+  const payload = await readProgressStream<
+    SaveEventExemptionsProgress,
+    EventCollegeExemption[]
+  >(response, onProgress, {
+    errorFallback: "Unable to save college exemptions.",
+    missingSuccessMessage: "College exemption save finished without a result.",
+  });
+  return payload.data ?? [];
+}
+
 export async function deleteEventCollegeExemptionsBulk(input: {
   college: string;
   eventIds: string[];
@@ -1539,6 +1598,48 @@ export async function createEventYearLevelExemptions(input: {
     { method: "POST", body: JSON.stringify(input) },
   );
   return response.data ?? [];
+}
+
+export async function createEventYearLevelExemptionsWithProgress(
+  input: {
+    yearLevels: string[];
+    college?: string;
+    eventIds: string[];
+    reason?: string;
+    schoolYearId: string;
+  },
+  onProgress?: (progress: SaveEventExemptionsProgress) => void,
+) {
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/event-year-level-exemptions/progress`,
+    {
+      method: "POST",
+      headers: getApiRequestHeaders({
+        body: JSON.stringify(input),
+      }),
+      credentials: "include",
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(
+      payload?.message || `Request failed with status ${response.status}.`,
+    );
+  }
+
+  const payload = await readProgressStream<
+    SaveEventExemptionsProgress,
+    EventYearLevelExemption[]
+  >(response, onProgress, {
+    errorFallback: "Unable to save year level exemptions.",
+    missingSuccessMessage: "Year level exemption save finished without a result.",
+  });
+  return payload.data ?? [];
 }
 
 export async function deleteEventYearLevelExemptionsBulk(input: {

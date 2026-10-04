@@ -18,7 +18,9 @@ import {
   listAttendanceEvents,
   mergeAttendanceEvents,
   createEventCollegeExemptions,
+  createEventCollegeExemptionsWithProgress,
   createEventYearLevelExemptions,
+  createEventYearLevelExemptionsWithProgress,
   removeSelectedEventExemptions,
   saveAttendanceEvent,
   updateAttendanceEvent,
@@ -33,6 +35,7 @@ import type {
   EventExemptionImpact,
   EventYearLevelExemption,
   RemoveSelectedEventExemptionsProgress,
+  SaveEventExemptionsProgress,
 } from "../../api/attendance";
 import {
   ALL_SCHOOL_YEARS_VALUE,
@@ -104,6 +107,58 @@ type ExemptionRemovalProgressState = {
   detail: string;
   steps: LoadingStatusStep[];
 };
+
+type ExemptionSaveProgressState = {
+  progress: number;
+  detail: string;
+  steps: LoadingStatusStep[];
+};
+
+function createExemptionSaveSteps(): LoadingStatusStep[] {
+  return [
+    { label: "Validate selection", status: "pending" },
+    { label: "Wait for recalculation", status: "pending" },
+    { label: "Save exemptions", status: "pending" },
+    { label: "Find affected students", status: "pending" },
+    { label: "Recalculate absences", status: "pending" },
+    { label: "Refresh final results", status: "pending" },
+    { label: "Refresh calculations", status: "pending" },
+    { label: "Refresh fines", status: "pending" },
+    { label: "Finalize", status: "pending" },
+    { label: "Refresh exemptions", status: "pending" },
+  ];
+}
+
+function buildExemptionSaveSteps(
+  progress: SaveEventExemptionsProgress,
+): LoadingStatusStep[] {
+  const activeIndex =
+    progress.stage === "validating"
+      ? 0
+      : progress.stage === "waiting_for_lock"
+        ? 1
+        : progress.stage === "saving_exemptions"
+          ? 2
+          : progress.stage === "collecting_students"
+            ? 3
+            : progress.stage === "syncing_absences"
+              ? 4
+              : progress.stage === "refreshing_final_results"
+                ? 5
+                : progress.stage === "refreshing_calculations"
+                  ? 6
+                  : progress.stage === "refreshing_penalties"
+                    ? 7
+                    : 8;
+
+  return createExemptionSaveSteps().map((step, index) => {
+    if (index < activeIndex) return { ...step, status: "done" };
+    if (index === activeIndex) {
+      return { ...step, status: "loading", detail: progress.message };
+    }
+    return step;
+  });
+}
 
 function createExemptionRemovalSteps(): LoadingStatusStep[] {
   return [
@@ -456,6 +511,8 @@ export default function EventsPage() {
   const [hasPreviewedExemptions, setHasPreviewedExemptions] = useState(false);
   const [isPreviewingExemptions, setIsPreviewingExemptions] = useState(false);
   const [isSavingExemptions, setIsSavingExemptions] = useState(false);
+  const [exemptionSaveProgress, setExemptionSaveProgress] =
+    useState<ExemptionSaveProgressState | null>(null);
   const [deletingExemptionId, setDeletingExemptionId] = useState("");
   const [selectedCollegeExemptionIds, setSelectedCollegeExemptionIds] = useState<string[]>([]);
   const [selectedYearLevelExemptionIds, setSelectedYearLevelExemptionIds] = useState<string[]>([]);
@@ -1336,6 +1393,22 @@ export default function EventsPage() {
     if (historyApplyingRef.current || deletingExemptionId || isRemovingSelectedExemptions) return;
 
     setIsSavingExemptions(true);
+    setExemptionSaveProgress({
+      progress: 2,
+      detail: "Starting exemption save.",
+      steps: createExemptionSaveSteps().map((step, index) =>
+        index === 0 ? { ...step, status: "loading" } : step,
+      ),
+    });
+
+    const handleSaveProgress = (progress: SaveEventExemptionsProgress) => {
+      setExemptionSaveProgress({
+        progress: Math.min(94, Math.max(2, progress.percent * 0.95)),
+        detail: progress.message,
+        steps: buildExemptionSaveSteps(progress),
+      });
+    };
+
     try {
       if (exemptionMode === "college") {
         const selectedColleges = exemptionColleges
@@ -1355,13 +1428,35 @@ export default function EventsPage() {
           ]),
         );
 
-        await createEventCollegeExemptions({
-          colleges: exemptionColleges,
-          eventIds: exemptionEventIds,
-          reason: exemptionReason.trim() || undefined,
-          schoolYearId: selectedSchoolYearId,
+        await createEventCollegeExemptionsWithProgress(
+          {
+            colleges: exemptionColleges,
+            eventIds: exemptionEventIds,
+            reason: exemptionReason.trim() || undefined,
+            schoolYearId: selectedSchoolYearId,
+          },
+          handleSaveProgress,
+        );
+
+        setExemptionSaveProgress({
+          progress: 96,
+          detail: "Exemptions saved. Refreshing the updated exemption list.",
+          steps: createExemptionSaveSteps().map((step, index) => ({
+            ...step,
+            status: index < 9 ? "done" : "loading",
+            detail: index === 9 ? "Loading saved exemptions" : undefined,
+          })),
         });
         const { collegeRows: refreshed } = await reloadExemptions(selectedSchoolYearId);
+
+        setExemptionSaveProgress({
+          progress: 100,
+          detail: "College exemptions saved and recalculation completed.",
+          steps: createExemptionSaveSteps().map((step) => ({
+            ...step,
+            status: "done",
+          })),
+        });
 
         for (const college of selectedColleges) {
           const before = beforeByCollegeKey.get(college.key) ?? [];
@@ -1408,14 +1503,36 @@ export default function EventsPage() {
           };
         });
 
-        await createEventYearLevelExemptions({
-          yearLevels: exemptionYearLevels,
-          college: college?.label,
-          eventIds: exemptionEventIds,
-          reason: exemptionReason.trim() || undefined,
-          schoolYearId: selectedSchoolYearId,
+        await createEventYearLevelExemptionsWithProgress(
+          {
+            yearLevels: exemptionYearLevels,
+            college: college?.label,
+            eventIds: exemptionEventIds,
+            reason: exemptionReason.trim() || undefined,
+            schoolYearId: selectedSchoolYearId,
+          },
+          handleSaveProgress,
+        );
+
+        setExemptionSaveProgress({
+          progress: 96,
+          detail: "Exemptions saved. Refreshing the updated exemption list.",
+          steps: createExemptionSaveSteps().map((step, index) => ({
+            ...step,
+            status: index < 9 ? "done" : "loading",
+            detail: index === 9 ? "Loading saved exemptions" : undefined,
+          })),
         });
         const refreshed = await reloadYearLevelExemptions(selectedSchoolYearId);
+
+        setExemptionSaveProgress({
+          progress: 100,
+          detail: "Year level exemptions saved and recalculation completed.",
+          steps: createExemptionSaveSteps().map((step) => ({
+            ...step,
+            status: "done",
+          })),
+        });
 
         for (const scope of scopes) {
           const after = getYearLevelExemptionSnapshot(
@@ -1451,6 +1568,7 @@ export default function EventsPage() {
       toast.error(error instanceof Error ? error.message : "Unable to save exemptions.");
     } finally {
       setIsSavingExemptions(false);
+      setExemptionSaveProgress(null);
     }
   }
 
@@ -3003,7 +3121,13 @@ export default function EventsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={exemptionDialogOpen} onOpenChange={setExemptionDialogOpen}>
+      <Dialog
+        open={exemptionDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && isSavingExemptions) return;
+          setExemptionDialogOpen(open);
+        }}
+      >
         <DialogContent className="min-w-0 max-w-full max-h-[95svh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
@@ -3011,7 +3135,20 @@ export default function EventsPage() {
               Exempt whole colleges or selected year levels. Preview how absences and penalties change before saving.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-5">
+
+          {exemptionSaveProgress ? (
+            <LoadingStatus
+              title="Saving event exemptions"
+              detail={exemptionSaveProgress.detail}
+              progress={exemptionSaveProgress.progress}
+              steps={exemptionSaveProgress.steps}
+            />
+          ) : null}
+
+          <fieldset
+            disabled={isSavingExemptions}
+            className="space-y-5 border-0 p-0 disabled:cursor-wait"
+          >
             <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-1.5">
               <Button
                 type="button"
@@ -3243,7 +3380,7 @@ export default function EventsPage() {
                 </Button>
               ) : null}
             </div>
-          </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
 
