@@ -946,6 +946,7 @@ export default function CalculatePage() {
   const statusRequestControllerRef = useRef<AbortController | null>(null);
   const summaryRequestIdRef = useRef(0);
   const summaryRequestControllerRef = useRef<AbortController | null>(null);
+  const autoSelectedPendingSignatureRef = useRef("");
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1042,6 +1043,92 @@ export default function CalculatePage() {
     selectedImportIds,
   ]);
   const hasOutsideSelectionPending = pendingOutsideSelection.pending;
+
+  useEffect(() => {
+    const summary = calculationPendingSummary;
+
+    if (!summary?.needsCalculation) {
+      autoSelectedPendingSignatureRef.current = "";
+      return;
+    }
+
+    if (summary.uncalculatedImports.length > 0 && attendanceImports.length === 0) {
+      return;
+    }
+
+    const signature = JSON.stringify({
+      schoolYearId: selectedSchoolYearId,
+      latestInputChangeAt: summary.latestInputChangeAt,
+      uncalculatedImportIds: summary.uncalculatedImports
+        .map((item) => item.id)
+        .sort(),
+      changedSourceTypes: [...summary.changedSourceTypes].sort(),
+      dependencyChanges: [...summary.dependencyChanges].sort(),
+    });
+
+    if (autoSelectedPendingSignatureRef.current === signature) return;
+
+    const availableImportIds = new Set(
+      attendanceImports.map((importRecord) => importRecord.id),
+    );
+    const pendingImportIds = summary.uncalculatedImports
+      .map((item) => item.id)
+      .filter((id) => availableImportIds.has(id));
+    const hasDependencyChanges = summary.dependencyChanges.length > 0;
+    const shouldSelectAllImports =
+      hasDependencyChanges ||
+      (summary.changedSourceTypes.includes("imported") &&
+        pendingImportIds.length === 0);
+
+    const sourceTypesToSelect = hasDependencyChanges
+      ? DEFAULT_SELECTED_CALCULATION_SOURCES
+      : summary.changedSourceTypes;
+
+    if (
+      pendingImportIds.length > 0 ||
+      shouldSelectAllImports ||
+      sourceTypesToSelect.length > 0
+    ) {
+      setSelectedCalculationSources((currentSources) => {
+        const nextSources = sortCalculationSourceTypes(
+          Array.from(
+            new Set([
+              ...currentSources,
+              ...sourceTypesToSelect,
+              ...(pendingImportIds.length > 0 || shouldSelectAllImports
+                ? (["imported"] as CalculationSourceType[])
+                : []),
+            ]),
+          ),
+        );
+
+        return nextSources.length === currentSources.length &&
+          nextSources.every((sourceType, index) => sourceType === currentSources[index])
+          ? currentSources
+          : nextSources;
+      });
+
+      setSelectedImportIds((currentIds) => {
+        const idsToAdd = shouldSelectAllImports
+          ? attendanceImports.map((importRecord) => importRecord.id)
+          : pendingImportIds;
+        const nextIds = sortImportIdsByBackendEventOrder(
+          Array.from(new Set([...currentIds, ...idsToAdd])),
+        );
+
+        return nextIds.length === currentIds.length &&
+          nextIds.every((id, index) => id === currentIds[index])
+          ? currentIds
+          : nextIds;
+      });
+    }
+
+    autoSelectedPendingSignatureRef.current = signature;
+  }, [
+    attendanceImports,
+    calculationPendingSummary,
+    selectedSchoolYearId,
+  ]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
