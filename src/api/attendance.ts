@@ -210,6 +210,29 @@ export type AttendanceFinalResultRecord = {
   updated_at: string;
 };
 
+export type AttendanceFinalResultProfileField =
+  | "studentId"
+  | "name"
+  | "yearLevel"
+  | "college"
+  | "program"
+  | "institution";
+
+export type AttendanceFinalResultProfileUpdateInput = {
+  fields: AttendanceFinalResultProfileField[];
+  studentId?: string;
+  name?: string;
+  yearLevel?: string;
+  college?: string;
+  program?: string;
+  institution?: string;
+};
+
+export type AttendanceFinalResultProfileUpdateResult = {
+  finalResult: AttendanceFinalResultRecord;
+  updatedFields: AttendanceFinalResultProfileField[];
+};
+
 export type CalculationPendingImport = {
   id: string;
   name: string;
@@ -1050,6 +1073,26 @@ export async function refreshAttendanceFinalResults(
   );
 
   return response.data ?? [];
+}
+
+export async function updateAttendanceFinalResultProfile(
+  id: string,
+  input: AttendanceFinalResultProfileUpdateInput,
+) {
+  const response = await apiRequest<AttendanceFinalResultProfileUpdateResult>(
+    `/api/attendance/final-results/${encodeURIComponent(id)}/profile`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.data) {
+    throw new Error("Updated student attendance details are missing.");
+  }
+
+  notifyCalculationStatusUpdated();
+  return response.data;
 }
 
 export async function getCalculationStatus(options: {

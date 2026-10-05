@@ -16,6 +16,7 @@ import {
   previewAttendanceFile,
   refreshAttendanceFinalResults,
   saveAttendanceFile,
+  updateAttendanceFinalResultProfile,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
@@ -27,6 +28,7 @@ import type {
   AttendanceImportReconciliation,
   AttendanceImportRecord,
   AttendanceRecord,
+  AttendanceFinalResultProfileField,
   ManualAttendanceInput,
   ManualAttendanceRecord,
 } from "../../api/attendance";
@@ -109,6 +111,12 @@ type FinalResultFormState = {
   remarks: string;
 };
 
+type FinalResultSaveField =
+  | AttendanceFinalResultProfileField
+  | "totalAbsences"
+  | "latestScannedAt"
+  | "remarks";
+
 type AttendancePageLoadProgress = {
   progress: number;
   detail: string;
@@ -154,6 +162,33 @@ const emptyFinalResultForm: FinalResultFormState = {
   totalAbsences: "0",
   latestScannedAt: "",
   remarks: "",
+};
+
+const FINAL_RESULT_PROFILE_SAVE_FIELDS: AttendanceFinalResultProfileField[] = [
+  "studentId",
+  "name",
+  "yearLevel",
+  "college",
+  "program",
+  "institution",
+];
+
+const FINAL_RESULT_SOURCE_SAVE_FIELDS: FinalResultSaveField[] = [
+  "totalAbsences",
+  "latestScannedAt",
+  "remarks",
+];
+
+const FINAL_RESULT_SAVE_FIELD_LABELS: Record<FinalResultSaveField, string> = {
+  studentId: "Student ID",
+  name: "Name",
+  yearLevel: "Year level",
+  college: "College",
+  program: "Program",
+  institution: "Institution",
+  totalAbsences: "Total absences",
+  latestScannedAt: "Latest scan",
+  remarks: "Remarks",
 };
 
 function formatDate(value?: string | null) {
@@ -640,6 +675,18 @@ function getStudentSourceRecords(
   ];
 }
 
+function hasFinalResultFieldChanged(
+  field: FinalResultSaveField,
+  current: FinalResultFormState,
+  initial: FinalResultFormState,
+) {
+  if (field === "totalAbsences") {
+    return Number(current.totalAbsences) !== Number(initial.totalAbsences);
+  }
+
+  return String(current[field] ?? "").trim() !== String(initial[field] ?? "").trim();
+}
+
 export default function AttendancePage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
@@ -696,6 +743,12 @@ export default function AttendancePage() {
   const [finalResultDialogOpen, setFinalResultDialogOpen] = useState(false);
   const [finalResultForm, setFinalResultForm] =
     useState<FinalResultFormState>(emptyFinalResultForm);
+  const [initialFinalResultForm, setInitialFinalResultForm] =
+    useState<FinalResultFormState>(emptyFinalResultForm);
+  const [selectedFinalResultSaveFields, setSelectedFinalResultSaveFields] =
+    useState<FinalResultSaveField[]>([]);
+  const [selectedFinalResultSourceRecordIds, setSelectedFinalResultSourceRecordIds] =
+    useState<string[]>([]);
   const [isSavingFinalResult, setIsSavingFinalResult] = useState(false);
   const [finalResultSaveProgress, setFinalResultSaveProgress] =
     useState<FinalResultSaveProgress | null>(null);
@@ -1855,7 +1908,7 @@ export default function AttendancePage() {
   }
 
   function handleOpenEditFinalResult(result: AttendanceFinalResultRecord) {
-    setFinalResultForm({
+    const nextForm: FinalResultFormState = {
       id: result.id,
       originalStudentId: result.student_id,
       schoolYearId: result.school_year_id ?? "",
@@ -1868,7 +1921,11 @@ export default function AttendancePage() {
       totalAbsences: String(result.total_absences ?? 0),
       latestScannedAt: formatDateTimeInputValue(result.latest_scanned_at),
       remarks: "",
-    });
+    };
+    setFinalResultForm(nextForm);
+    setInitialFinalResultForm(nextForm);
+    setSelectedFinalResultSaveFields([]);
+    setSelectedFinalResultSourceRecordIds([]);
     setEditSourceRecords(emptyStudentSourceRecordBundle);
     setFinalResultDialogOpen(true);
     setIsLoadingEditSourceRecords(true);
@@ -1892,6 +1949,9 @@ export default function AttendancePage() {
 
     if (!open) {
       setFinalResultForm(emptyFinalResultForm);
+      setInitialFinalResultForm(emptyFinalResultForm);
+      setSelectedFinalResultSaveFields([]);
+      setSelectedFinalResultSourceRecordIds([]);
       setEditSourceRecords(emptyStudentSourceRecordBundle);
       setIsLoadingEditSourceRecords(false);
       setFinalResultSaveProgress(null);
@@ -1902,26 +1962,68 @@ export default function AttendancePage() {
     field: keyof FinalResultFormState,
     value: string,
   ) {
-    setFinalResultForm((current) => ({
-      ...current,
+    const nextForm = {
+      ...finalResultForm,
       [field]: value,
-    }));
+    };
+    setFinalResultForm(nextForm);
+
+    const saveField = field as FinalResultSaveField;
+    if (!(saveField in FINAL_RESULT_SAVE_FIELD_LABELS)) return;
+
+    setSelectedFinalResultSaveFields((current) => {
+      const hasChanged = hasFinalResultFieldChanged(
+        saveField,
+        nextForm,
+        initialFinalResultForm,
+      );
+      if (hasChanged) return Array.from(new Set([...current, saveField]));
+      return current.filter((item) => item !== saveField);
+    });
+  }
+
+  function handleFinalResultSaveFieldSelection(
+    field: FinalResultSaveField,
+    checked: boolean,
+  ) {
+    setSelectedFinalResultSaveFields((current) => {
+      if (checked) return Array.from(new Set([...current, field]));
+      return current.filter((item) => item !== field);
+    });
+  }
+
+  function handleFinalResultSourceRecordSelection(id: string, checked: boolean) {
+    setSelectedFinalResultSourceRecordIds((current) => {
+      if (checked) return Array.from(new Set([...current, id]));
+      return current.filter((item) => item !== id);
+    });
+  }
+
+  function getFinalResultSourceRecordExemptionReason(
+    record: AttendanceRecord | ManualAttendanceRecord,
+  ) {
+    if (!record.event_id) return "";
+    const attendanceEvent = attendanceEvents.find(
+      (item) => item.id === record.event_id,
+    );
+    if (!attendanceEvent) return "";
+
+    const college = record.college ?? "";
+    const yearLevel = record.year_level ?? "";
+
+    if (isCollegeExemptFromEvent(attendanceEvent, college)) {
+      return `${college || "This college"} is exempted from ${attendanceEvent.name}.`;
+    }
+
+    if (isYearLevelExemptFromEvent(attendanceEvent, yearLevel, college)) {
+      return `${yearLevel || "This year level"} is exempted from ${attendanceEvent.name}.`;
+    }
+
+    return "";
   }
 
   async function handleSaveFinalResult(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    const totalAbsences = Number(finalResultForm.totalAbsences);
-
-    if (!finalResultForm.studentId.trim() || !finalResultForm.name.trim()) {
-      toast.error("Student ID and name are required.");
-      return;
-    }
-
-    if (!Number.isInteger(totalAbsences) || totalAbsences < 0) {
-      toast.error("Total absences must be a whole number.");
-      return;
-    }
 
     const originalResult = finalResults.find(
       (result) => result.id === finalResultForm.id,
@@ -1932,20 +2034,60 @@ export default function AttendancePage() {
       return;
     }
 
-    setIsSavingFinalResult(true);
-    setFinalResultSaveProgress({
-      title: "Updating final attendance result",
-      progress: 0,
-      detail: "Preparing this student's source attendance records.",
-      steps: [
-        { label: "Prepare records", status: "loading", detail: "Checking source rows" },
-        { label: "Save source rows", status: "pending", detail: "Waiting" },
-        { label: "Recalculate results", status: "pending", detail: "Waiting" },
-        { label: "Refresh page", status: "pending", detail: "Waiting" },
-      ],
-    });
+    const changedFields = (
+      Object.keys(FINAL_RESULT_SAVE_FIELD_LABELS) as FinalResultSaveField[]
+    ).filter((field) =>
+      hasFinalResultFieldChanged(
+        field,
+        finalResultForm,
+        initialFinalResultForm,
+      ),
+    );
+    const changedFieldSet = new Set(changedFields);
+    const fieldsToSave = selectedFinalResultSaveFields.filter((field) =>
+      changedFieldSet.has(field),
+    );
+    const profileFields = fieldsToSave.filter(
+      (field): field is AttendanceFinalResultProfileField =>
+        FINAL_RESULT_PROFILE_SAVE_FIELDS.includes(
+          field as AttendanceFinalResultProfileField,
+        ),
+    );
+    const sourceFields = fieldsToSave.filter((field) =>
+      FINAL_RESULT_SOURCE_SAVE_FIELDS.includes(field),
+    );
+    const sourceFieldSet = new Set(sourceFields);
 
-    try {
+    if (!fieldsToSave.length) {
+      toast.error("Choose at least one changed field to save.");
+      return;
+    }
+
+    if (
+      profileFields.includes("studentId") &&
+      !finalResultForm.studentId.trim()
+    ) {
+      toast.error("Student ID is required.");
+      return;
+    }
+
+    if (profileFields.includes("name") && !finalResultForm.name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+
+    const totalAbsences = Number(finalResultForm.totalAbsences);
+    if (
+      sourceFieldSet.has("totalAbsences") &&
+      (!Number.isInteger(totalAbsences) || totalAbsences < 0)
+    ) {
+      toast.error("Total absences must be a whole number.");
+      return;
+    }
+
+    let selectedSourceRecords: Array<AttendanceRecord | ManualAttendanceRecord> = [];
+
+    if (sourceFields.length) {
       const sourceResult = {
         ...originalResult,
         student_id: finalResultForm.originalStudentId,
@@ -1954,97 +2096,128 @@ export default function AttendancePage() {
         normalizeStudentId(editSourceRecords.studentId) ===
           normalizeStudentId(finalResultForm.originalStudentId) &&
         editSourceRecords.schoolYearId === (originalResult.school_year_id ?? "");
-
-      if (!hasMatchingSourceBundle) {
-        setFinalResultSaveProgress((current) =>
-          current
-            ? {
-                ...current,
-                detail: "Loading the latest source attendance rows before saving.",
-                steps: current.steps.map((step) =>
-                  step.label === "Prepare records"
-                    ? { ...step, detail: "Loading latest source rows" }
-                    : step,
-                ),
-              }
-            : current,
+      let sourceBundle = editSourceRecords;
+      try {
+        sourceBundle = hasMatchingSourceBundle
+          ? editSourceRecords
+          : await fetchStudentSourceRecordBundle(sourceResult);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to load the selected source attendance records.",
         );
+        return;
       }
 
-      const sourceBundle = hasMatchingSourceBundle
-        ? editSourceRecords
-        : await fetchStudentSourceRecordBundle(sourceResult);
+      if (!hasMatchingSourceBundle) {
+        setEditSourceRecords(sourceBundle);
+      }
+
       const sourceRecords = getStudentSourceRecords(
         sourceResult,
         sourceBundle.uploaded,
         sourceBundle.manual,
       );
-
-      if (!sourceRecords.length) {
-        throw new Error("No source attendance records found for this final result.");
-      }
-
-      const totalWorkUnits = sourceRecords.length + 3;
-      let completedWorkUnits = 1;
-      const getSaveProgress = () =>
-        Math.round((completedWorkUnits / totalWorkUnits) * 100);
-
-      setFinalResultSaveProgress((current) =>
-        current
-          ? {
-              ...current,
-              progress: getSaveProgress(),
-              detail: `Prepared ${sourceRecords.length} source record${
-                sourceRecords.length === 1 ? "" : "s"
-              }. Saving changes now.`,
-              steps: current.steps.map((step) => {
-                if (step.label === "Prepare records") {
-                  return {
-                    ...step,
-                    status: "done",
-                    detail: `${sourceRecords.length} source record${
-                      sourceRecords.length === 1 ? "" : "s"
-                    } ready`,
-                  };
-                }
-                if (step.label === "Save source rows") {
-                  return {
-                    ...step,
-                    status: "loading",
-                    detail: `0 of ${sourceRecords.length} saved`,
-                  };
-                }
-                return step;
-              }),
-            }
-          : current,
+      const selectedSourceIdSet = new Set(selectedFinalResultSourceRecordIds);
+      selectedSourceRecords = sourceRecords.filter((record) =>
+        selectedSourceIdSet.has(record.id),
       );
 
+      if (!selectedSourceRecords.length) {
+        toast.error(
+          "Choose at least one source attendance record for the attendance fields you selected.",
+        );
+        return;
+      }
+
+      const blockedRecords = selectedSourceRecords
+        .map((record) => ({
+          record,
+          reason: getFinalResultSourceRecordExemptionReason(record),
+        }))
+        .filter((item) => item.reason);
+
+      if (blockedRecords.length) {
+        const first = blockedRecords[0];
+        const eventName =
+          first.record.event_name || "this exempted attendance event";
+        const cleanupLocation =
+          "attendance_type" in first.record
+            ? "Manual Attendance"
+            : "the uploaded attendance source";
+        toast.error(
+          `${first.reason} Unselect ${eventName} here. The exempted row is ignored by final attendance calculations and can be removed from ${cleanupLocation} if it should no longer exist.`,
+        );
+        return;
+      }
+    }
+
+    const progressSteps: LoadingStatusStep[] = [
+      {
+        label: "Prepare changes",
+        status: "loading",
+        detail: `${fieldsToSave.length} selected field${fieldsToSave.length === 1 ? "" : "s"}`,
+      },
+      ...(selectedSourceRecords.length
+        ? [
+            {
+              label: "Save source rows",
+              status: "pending" as const,
+              detail: `${selectedSourceRecords.length} selected record${selectedSourceRecords.length === 1 ? "" : "s"}`,
+            },
+          ]
+        : []),
+      ...(profileFields.length
+        ? [
+            {
+              label: "Save student details",
+              status: "pending" as const,
+              detail: `${profileFields.length} selected detail${profileFields.length === 1 ? "" : "s"}`,
+            },
+          ]
+        : []),
+      { label: "Refresh page", status: "pending", detail: "Waiting" },
+    ];
+    const totalWorkUnits =
+      1 + selectedSourceRecords.length + (profileFields.length ? 1 : 0) + 1;
+    let completedWorkUnits = 1;
+    const getSaveProgress = () =>
+      Math.min(100, Math.round((completedWorkUnits / totalWorkUnits) * 100));
+
+    setIsSavingFinalResult(true);
+    setFinalResultSaveProgress({
+      title: "Saving selected attendance changes",
+      progress: getSaveProgress(),
+      detail:
+        selectedSourceRecords.length > 0
+          ? "Only the checked source records and selected fields will be changed."
+          : "Only the selected student details will be changed. Attendance source rows will not be rewritten.",
+      steps: progressSteps.map((step) =>
+        step.label === "Prepare changes"
+          ? { ...step, status: "done", detail: "Selected changes are ready" }
+          : step,
+      ),
+    });
+
+    try {
       let savedSourceRecords = 0;
 
-      // Save one source row at a time. Each attendance update can refresh derived
-      // attendance data and touch the same student rows, so firing every PATCH in
-      // parallel can create database lock contention and leave the final request
-      // waiting indefinitely. Sequential writes keep the progress truthful and
-      // ensure each transaction finishes before the next one starts.
-      for (const [recordIndex, record] of sourceRecords.entries()) {
-        const currentRecordNumber = recordIndex + 1;
-        const recordLabel =
-          "event_name" in record && record.event_name
-            ? record.event_name
-            : `source record ${currentRecordNumber}`;
+      for (const [recordIndex, record] of selectedSourceRecords.entries()) {
+        const recordNumber = recordIndex + 1;
+        const recordLabel = record.event_name || `source record ${recordNumber}`;
 
         setFinalResultSaveProgress((current) =>
           current
             ? {
                 ...current,
-                detail: `Saving ${currentRecordNumber} of ${sourceRecords.length}: ${recordLabel}.`,
+                detail: `Saving selected source record ${recordNumber} of ${selectedSourceRecords.length}: ${recordLabel}.`,
                 steps: current.steps.map((step) =>
                   step.label === "Save source rows"
                     ? {
                         ...step,
                         status: "loading",
-                        detail: `${savedSourceRecords} of ${sourceRecords.length} saved • saving ${currentRecordNumber}`,
+                        detail: `${savedSourceRecords} of ${selectedSourceRecords.length} saved`,
                       }
                     : step,
                 ),
@@ -2053,26 +2226,24 @@ export default function AttendancePage() {
         );
 
         const payload: ManualAttendanceInput = {
-          schoolYearId:
-            finalResultForm.schoolYearId ||
-            record.school_year_id ||
-            undefined,
+          schoolYearId: record.school_year_id ?? undefined,
           eventId: record.event_id ?? undefined,
-          eventName:
-            "event_name" in record
-              ? (record.event_name ?? undefined)
-              : undefined,
-          scannedAt:
-            finalResultForm.latestScannedAt || record.scanned_at || undefined,
-          studentId: finalResultForm.studentId.trim(),
-          name: finalResultForm.name.trim(),
-          yearLevel: finalResultForm.yearLevel.trim(),
-          college: finalResultForm.college.trim(),
-          program: finalResultForm.program.trim(),
-          institution: finalResultForm.institution.trim(),
-          noOfAbsences: totalAbsences,
-          remarks:
-            finalResultForm.remarks.trim() || record.remarks || undefined,
+          eventName: record.event_name ?? undefined,
+          scannedAt: sourceFieldSet.has("latestScannedAt")
+            ? finalResultForm.latestScannedAt || undefined
+            : record.scanned_at || undefined,
+          studentId: record.student_id,
+          name: record.name,
+          yearLevel: record.year_level ?? "",
+          college: record.college ?? "",
+          program: record.program ?? "",
+          institution: record.institution ?? "",
+          noOfAbsences: sourceFieldSet.has("totalAbsences")
+            ? totalAbsences
+            : Number(record.no_of_absences ?? 0),
+          remarks: sourceFieldSet.has("remarks")
+            ? finalResultForm.remarks.trim()
+            : record.remarks ?? undefined,
           attendanceType:
             "attendance_type" in record ? record.attendance_type : undefined,
         };
@@ -2086,19 +2257,64 @@ export default function AttendancePage() {
             ? {
                 ...current,
                 progress: getSaveProgress(),
-                detail: `Saved ${savedSourceRecords} of ${sourceRecords.length} source record${
-                  sourceRecords.length === 1 ? "" : "s"
-                }.`,
+                detail: `Saved ${savedSourceRecords} of ${selectedSourceRecords.length} selected source record${selectedSourceRecords.length === 1 ? "" : "s"}.`,
                 steps: current.steps.map((step) =>
                   step.label === "Save source rows"
                     ? {
                         ...step,
                         status:
-                          savedSourceRecords === sourceRecords.length
+                          savedSourceRecords === selectedSourceRecords.length
                             ? "done"
                             : "loading",
-                        detail: `${savedSourceRecords} of ${sourceRecords.length} saved`,
+                        detail: `${savedSourceRecords} of ${selectedSourceRecords.length} saved`,
                       }
+                    : step,
+                ),
+              }
+            : current,
+        );
+      }
+
+      if (profileFields.length) {
+        setFinalResultSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                detail:
+                  "Saving the selected student details in one operation without resaving attendance events.",
+                steps: current.steps.map((step) =>
+                  step.label === "Save student details"
+                    ? {
+                        ...step,
+                        status: "loading",
+                        detail: "Updating canonical student profile",
+                      }
+                    : step,
+                ),
+              }
+            : current,
+        );
+
+        await updateAttendanceFinalResultProfile(originalResult.id, {
+          fields: profileFields,
+          studentId: finalResultForm.studentId.trim(),
+          name: finalResultForm.name.trim(),
+          yearLevel: finalResultForm.yearLevel.trim(),
+          college: finalResultForm.college.trim(),
+          program: finalResultForm.program.trim(),
+          institution: finalResultForm.institution.trim(),
+        });
+        completedWorkUnits += 1;
+
+        setFinalResultSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: getSaveProgress(),
+                detail: "Selected student details saved. Refreshing the page.",
+                steps: current.steps.map((step) =>
+                  step.label === "Save student details"
+                    ? { ...step, status: "done", detail: "Student details saved" }
                     : step,
                 ),
               }
@@ -2110,39 +2326,12 @@ export default function AttendancePage() {
         current
           ? {
               ...current,
-              detail: "Source records saved. Recalculating the final attendance results.",
+              detail: "Loading the updated attendance results.",
               steps: current.steps.map((step) =>
-                step.label === "Recalculate results"
-                  ? { ...step, status: "loading", detail: "Rebuilding final results" }
+                step.label === "Refresh page"
+                  ? { ...step, status: "loading", detail: "Loading updated results" }
                   : step,
               ),
-            }
-          : current,
-      );
-
-      await refreshAttendanceFinalResults({
-        schoolYearId:
-          selectedSchoolYearId === ALL_YEARS_VALUE
-            ? undefined
-            : selectedSchoolYearId,
-      });
-      completedWorkUnits += 1;
-
-      setFinalResultSaveProgress((current) =>
-        current
-          ? {
-              ...current,
-              progress: getSaveProgress(),
-              detail: "Final results recalculated. Refreshing the attendance page data.",
-              steps: current.steps.map((step) => {
-                if (step.label === "Recalculate results") {
-                  return { ...step, status: "done", detail: "Recalculation complete" };
-                }
-                if (step.label === "Refresh page") {
-                  return { ...step, status: "loading", detail: "Loading updated results" };
-                }
-                return step;
-              }),
             }
           : current,
       );
@@ -2155,7 +2344,7 @@ export default function AttendancePage() {
           ? {
               ...current,
               progress: getSaveProgress(),
-              detail: "All changes were saved and the displayed results are refreshed.",
+              detail: "All selected changes were saved successfully.",
               steps: current.steps.map((step) =>
                 step.label === "Refresh page"
                   ? { ...step, status: "done", detail: "Updated results loaded" }
@@ -2167,10 +2356,13 @@ export default function AttendancePage() {
 
       setFinalResultDialogOpen(false);
       setFinalResultForm(emptyFinalResultForm);
+      setInitialFinalResultForm(emptyFinalResultForm);
+      setSelectedFinalResultSaveFields([]);
+      setSelectedFinalResultSourceRecordIds([]);
       setEditSourceRecords(emptyStudentSourceRecordBundle);
       setIsLoadingEditSourceRecords(false);
       setFinalResultSaveProgress(null);
-      toast.success("Final attendance result updated.");
+      toast.success("Selected attendance changes saved.");
     } catch (error) {
       const message =
         error instanceof Error
@@ -2195,6 +2387,40 @@ export default function AttendancePage() {
       setIsSavingFinalResult(false);
     }
   }
+
+  const changedFinalResultSaveFields = (
+    Object.keys(FINAL_RESULT_SAVE_FIELD_LABELS) as FinalResultSaveField[]
+  ).filter((field) =>
+    hasFinalResultFieldChanged(
+      field,
+      finalResultForm,
+      initialFinalResultForm,
+    ),
+  );
+  const selectedChangedFinalResultSaveFields =
+    selectedFinalResultSaveFields.filter((field) =>
+      changedFinalResultSaveFields.includes(field),
+    );
+  const selectedFinalResultSourceFields =
+    selectedChangedFinalResultSaveFields.filter((field) =>
+      FINAL_RESULT_SOURCE_SAVE_FIELDS.includes(field),
+    );
+  const editFinalResult = finalResults.find(
+    (result) => result.id === finalResultForm.id,
+  );
+  const loadedEditSourceRecords = editFinalResult
+    ? getStudentSourceRecords(
+        {
+          ...editFinalResult,
+          student_id: finalResultForm.originalStudentId,
+        },
+        editSourceRecords.uploaded,
+        editSourceRecords.manual,
+      )
+    : [];
+  const eligibleEditSourceRecordIds = loadedEditSourceRecords
+    .filter((record) => !getFinalResultSourceRecordExemptionReason(record))
+    .map((record) => record.id);
 
   return (
     <main className="min-h-svh w-full min-w-0 max-w-full bg-muted/20 px-4 py-5 text-foreground sm:px-6 lg:px-8">
@@ -3020,14 +3246,14 @@ export default function AttendancePage() {
             <DialogHeader>
               <DialogTitle>Edit final attendance result</DialogTitle>
               <DialogDescription>
-                Update the student's final attendance details and underlying source records.
+                Edit the student details, then choose exactly which changed fields to save. Attendance source rows are never rewritten unless you explicitly select them.
               </DialogDescription>
             </DialogHeader>
             <form
               onSubmit={handleSaveFinalResult}
               className="grid gap-4 lg:grid-cols-4"
             >
-              {isLoadingEditSourceRecords ? (
+              {isLoadingEditSourceRecords && selectedFinalResultSourceFields.length > 0 ? (
                 <LoadingStatus
                   title="Preparing editable source records"
                   detail="Loading only this student's uploaded and manual source rows. The rest of the attendance database is not being downloaded."
@@ -3157,17 +3383,147 @@ export default function AttendancePage() {
                 />
               </label>
 
+              <section className="space-y-4 rounded-2xl border bg-muted/20 p-4 lg:col-span-4">
+                <div>
+                  <p className="font-bold">Choose changes to save</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Student details are saved in one safe profile operation without resaving each attendance event. Total absences, latest scan, and remarks are source-record values and are applied only to source rows you choose below.
+                  </p>
+                </div>
+
+                {changedFinalResultSaveFields.length ? (
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {changedFinalResultSaveFields.map((field) => {
+                      const isSourceField = FINAL_RESULT_SOURCE_SAVE_FIELDS.includes(field);
+                      return (
+                        <label
+                          key={field}
+                          className="flex min-h-12 items-center gap-3 rounded-xl border bg-background px-3 py-2 text-sm font-semibold"
+                        >
+                          <Checkbox
+                            checked={selectedFinalResultSaveFields.includes(field)}
+                            onCheckedChange={(checked) =>
+                              handleFinalResultSaveFieldSelection(field, checked === true)
+                            }
+                            aria-label={`Save ${FINAL_RESULT_SAVE_FIELD_LABELS[field]}`}
+                          />
+                          <span className="min-w-0">
+                            <span className="block">{FINAL_RESULT_SAVE_FIELD_LABELS[field]}</span>
+                            <span className="block text-xs font-normal text-muted-foreground">
+                              {isSourceField ? "Source attendance value" : "Student detail"}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed bg-background px-4 py-3 text-sm text-muted-foreground">
+                    Edit a field above. Only fields that actually changed will appear here.
+                  </div>
+                )}
+
+                {selectedFinalResultSourceFields.length > 0 ? (
+                  <div className="space-y-3 rounded-2xl border bg-background p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-bold">Choose source records to update</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Only these checked records will receive the selected attendance-value changes.
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isLoadingEditSourceRecords || !eligibleEditSourceRecordIds.length}
+                          onClick={() =>
+                            setSelectedFinalResultSourceRecordIds(eligibleEditSourceRecordIds)
+                          }
+                        >
+                          Select eligible
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!selectedFinalResultSourceRecordIds.length}
+                          onClick={() => setSelectedFinalResultSourceRecordIds([])}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+
+                    {isLoadingEditSourceRecords ? (
+                      <p className="text-sm text-muted-foreground">Loading this student's source records...</p>
+                    ) : loadedEditSourceRecords.length ? (
+                      <div className="grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                        {loadedEditSourceRecords.map((record) => {
+                          const exemptionReason = getFinalResultSourceRecordExemptionReason(record);
+                          const sourceLabel =
+                            "attendance_type" in record
+                              ? record.attendance_type === "zero_attendance"
+                                ? "Zero attendance"
+                                : "Manual attendance"
+                              : "Uploaded attendance";
+                          const eventLabel = record.event_name || "No event";
+
+                          return (
+                            <label
+                              key={record.id}
+                              className={`flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${
+                                exemptionReason
+                                  ? "border-amber-300 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/20"
+                                  : "bg-muted/20"
+                              }`}
+                            >
+                              <Checkbox
+                                checked={selectedFinalResultSourceRecordIds.includes(record.id)}
+                                disabled={Boolean(exemptionReason)}
+                                onCheckedChange={(checked) =>
+                                  handleFinalResultSourceRecordSelection(record.id, checked === true)
+                                }
+                                aria-label={`Select ${sourceLabel} ${eventLabel}`}
+                              />
+                              <span className="min-w-0">
+                                <span className="block break-words font-semibold">{eventLabel}</span>
+                                <span className="mt-0.5 block text-xs text-muted-foreground">{sourceLabel}</span>
+                                {exemptionReason ? (
+                                  <span className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-300">
+                                    {exemptionReason} This stale source row is blocked from editing here and is ignored by final attendance calculations. {"attendance_type" in record ? "Remove it from Manual Attendance" : "Remove or correct it in the uploaded attendance source"} if it should no longer exist.
+                                  </span>
+                                ) : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No source attendance records were found for this result.</p>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+
               <div className="flex flex-wrap gap-3 lg:col-span-4">
                 <Button
                   type="submit"
-                  disabled={isSavingFinalResult || isLoadingEditSourceRecords}
+                  disabled={
+                    isSavingFinalResult ||
+                    selectedChangedFinalResultSaveFields.length === 0 ||
+                    (selectedFinalResultSourceFields.length > 0 &&
+                      (isLoadingEditSourceRecords ||
+                        selectedFinalResultSourceRecordIds.length === 0))
+                  }
                   className="min-h-10 rounded-xl px-6 font-semibold"
                 >
-                  {isLoadingEditSourceRecords
-                    ? "Loading source records..."
-                    : isSavingFinalResult
-                      ? `Saving ${Math.round(finalResultSaveProgress?.progress ?? 0)}%...`
-                      : "Update Final Result"}
+                  {isSavingFinalResult
+                    ? `Saving ${Math.round(finalResultSaveProgress?.progress ?? 0)}%...`
+                    : selectedChangedFinalResultSaveFields.length
+                      ? `Save ${selectedChangedFinalResultSaveFields.length} selected change${selectedChangedFinalResultSaveFields.length === 1 ? "" : "s"}`
+                      : "Choose changes to save"}
                 </Button>
                 <Button
                   type="button"
