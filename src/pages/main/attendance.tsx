@@ -115,6 +115,10 @@ type AttendancePageLoadProgress = {
   steps: LoadingStatusStep[];
 };
 
+type FinalResultSaveProgress = AttendancePageLoadProgress & {
+  title: string;
+};
+
 type StudentSourceRecordBundle = {
   studentId: string;
   schoolYearId: string;
@@ -624,6 +628,8 @@ export default function AttendancePage() {
   const [finalResultForm, setFinalResultForm] =
     useState<FinalResultFormState>(emptyFinalResultForm);
   const [isSavingFinalResult, setIsSavingFinalResult] = useState(false);
+  const [finalResultSaveProgress, setFinalResultSaveProgress] =
+    useState<FinalResultSaveProgress | null>(null);
   const [isDeletingFinalResults, setIsDeletingFinalResults] = useState(false);
   const [deletingImportId, setDeletingImportId] = useState("");
   const [deleteImportTarget, setDeleteImportTarget] =
@@ -1787,6 +1793,7 @@ export default function AttendancePage() {
       setFinalResultForm(emptyFinalResultForm);
       setEditSourceRecords(emptyStudentSourceRecordBundle);
       setIsLoadingEditSourceRecords(false);
+      setFinalResultSaveProgress(null);
     }
   }
 
@@ -1825,6 +1832,17 @@ export default function AttendancePage() {
     }
 
     setIsSavingFinalResult(true);
+    setFinalResultSaveProgress({
+      title: "Updating final attendance result",
+      progress: 0,
+      detail: "Preparing this student's source attendance records.",
+      steps: [
+        { label: "Prepare records", status: "loading", detail: "Checking source rows" },
+        { label: "Save source rows", status: "pending", detail: "Waiting" },
+        { label: "Recalculate results", status: "pending", detail: "Waiting" },
+        { label: "Refresh page", status: "pending", detail: "Waiting" },
+      ],
+    });
 
     try {
       const sourceResult = {
@@ -1835,6 +1853,23 @@ export default function AttendancePage() {
         normalizeStudentId(editSourceRecords.studentId) ===
           normalizeStudentId(finalResultForm.originalStudentId) &&
         editSourceRecords.schoolYearId === (originalResult.school_year_id ?? "");
+
+      if (!hasMatchingSourceBundle) {
+        setFinalResultSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                detail: "Loading the latest source attendance rows before saving.",
+                steps: current.steps.map((step) =>
+                  step.label === "Prepare records"
+                    ? { ...step, detail: "Loading latest source rows" }
+                    : step,
+                ),
+              }
+            : current,
+        );
+      }
+
       const sourceBundle = hasMatchingSourceBundle
         ? editSourceRecords
         : await fetchStudentSourceRecordBundle(sourceResult);
@@ -1848,8 +1883,45 @@ export default function AttendancePage() {
         throw new Error("No source attendance records found for this final result.");
       }
 
+      const totalWorkUnits = sourceRecords.length + 3;
+      let completedWorkUnits = 1;
+      const getSaveProgress = () =>
+        Math.round((completedWorkUnits / totalWorkUnits) * 100);
+
+      setFinalResultSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: getSaveProgress(),
+              detail: `Prepared ${sourceRecords.length} source record${
+                sourceRecords.length === 1 ? "" : "s"
+              }. Saving changes now.`,
+              steps: current.steps.map((step) => {
+                if (step.label === "Prepare records") {
+                  return {
+                    ...step,
+                    status: "done",
+                    detail: `${sourceRecords.length} source record${
+                      sourceRecords.length === 1 ? "" : "s"
+                    } ready`,
+                  };
+                }
+                if (step.label === "Save source rows") {
+                  return {
+                    ...step,
+                    status: "loading",
+                    detail: `0 of ${sourceRecords.length} saved`,
+                  };
+                }
+                return step;
+              }),
+            }
+          : current,
+      );
+
+      let savedSourceRecords = 0;
       await Promise.all(
-        sourceRecords.map((record) => {
+        sourceRecords.map(async (record) => {
           const payload: ManualAttendanceInput = {
             schoolYearId:
               finalResultForm.schoolYearId ||
@@ -1875,8 +1947,48 @@ export default function AttendancePage() {
               "attendance_type" in record ? record.attendance_type : undefined,
           };
 
-          return updateAttendanceRecord(record.id, payload);
+          await updateAttendanceRecord(record.id, payload);
+          savedSourceRecords += 1;
+          completedWorkUnits += 1;
+
+          setFinalResultSaveProgress((current) =>
+            current
+              ? {
+                  ...current,
+                  progress: getSaveProgress(),
+                  detail: `Saved ${savedSourceRecords} of ${sourceRecords.length} source record${
+                    sourceRecords.length === 1 ? "" : "s"
+                  }.`,
+                  steps: current.steps.map((step) =>
+                    step.label === "Save source rows"
+                      ? {
+                          ...step,
+                          status:
+                            savedSourceRecords === sourceRecords.length
+                              ? "done"
+                              : "loading",
+                          detail: `${savedSourceRecords} of ${sourceRecords.length} saved`,
+                        }
+                      : step,
+                  ),
+                }
+              : current,
+          );
         }),
+      );
+
+      setFinalResultSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              detail: "Source records saved. Recalculating the final attendance results.",
+              steps: current.steps.map((step) =>
+                step.label === "Recalculate results"
+                  ? { ...step, status: "loading", detail: "Rebuilding final results" }
+                  : step,
+              ),
+            }
+          : current,
       );
 
       await refreshAttendanceFinalResults({
@@ -1885,15 +1997,67 @@ export default function AttendancePage() {
             ? undefined
             : selectedSchoolYearId,
       });
+      completedWorkUnits += 1;
+
+      setFinalResultSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: getSaveProgress(),
+              detail: "Final results recalculated. Refreshing the attendance page data.",
+              steps: current.steps.map((step) => {
+                if (step.label === "Recalculate results") {
+                  return { ...step, status: "done", detail: "Recalculation complete" };
+                }
+                if (step.label === "Refresh page") {
+                  return { ...step, status: "loading", detail: "Loading updated results" };
+                }
+                return step;
+              }),
+            }
+          : current,
+      );
+
       await loadPageData(selectedSchoolYearId);
+      completedWorkUnits += 1;
+
+      setFinalResultSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: getSaveProgress(),
+              detail: "All changes were saved and the displayed results are refreshed.",
+              steps: current.steps.map((step) =>
+                step.label === "Refresh page"
+                  ? { ...step, status: "done", detail: "Updated results loaded" }
+                  : step,
+              ),
+            }
+          : current,
+      );
+
       handleFinalResultDialogOpenChange(false);
       toast.success("Final attendance result updated.");
     } catch (error) {
-      toast.error(
+      const message =
         error instanceof Error
           ? error.message
-          : "Unable to update final attendance result.",
+          : "Unable to update final attendance result.";
+
+      setFinalResultSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              detail: `Saving stopped: ${message}`,
+              steps: current.steps.map((step) =>
+                step.status === "loading"
+                  ? { ...step, status: "pending", detail: "Stopped before completion" }
+                  : step,
+              ),
+            }
+          : current,
       );
+      toast.error(message);
     } finally {
       setIsSavingFinalResult(false);
     }
@@ -2713,6 +2877,15 @@ export default function AttendancePage() {
                   className="lg:col-span-4"
                 />
               ) : null}
+              {finalResultSaveProgress ? (
+                <LoadingStatus
+                  title={finalResultSaveProgress.title}
+                  detail={finalResultSaveProgress.detail}
+                  progress={finalResultSaveProgress.progress}
+                  steps={finalResultSaveProgress.steps}
+                  className="lg:col-span-4"
+                />
+              ) : null}
               <label className="space-y-2">
                 <span className="text-sm font-bold">Student ID</span>
                 <Input
@@ -2835,7 +3008,7 @@ export default function AttendancePage() {
                   {isLoadingEditSourceRecords
                     ? "Loading source records..."
                     : isSavingFinalResult
-                      ? "Saving..."
+                      ? `Saving ${Math.round(finalResultSaveProgress?.progress ?? 0)}%...`
                       : "Update Final Result"}
                 </Button>
                 <Button
