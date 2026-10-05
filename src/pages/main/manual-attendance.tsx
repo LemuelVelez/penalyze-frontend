@@ -80,7 +80,7 @@ type ManualAttendanceStudentGroup = {
   program: string;
   institution: string;
   remarks: string;
-  latestScannedAt: string | null;
+  latestChangedAt: string | null;
   attendanceType: ManualAttendanceRecord["attendance_type"];
   records: ManualAttendanceRecord[];
   events: ManualAttendanceRecord[];
@@ -320,7 +320,7 @@ function sortByBackendEventOrder<T extends BackendEventOrderedRecord>(
 }
 
 function getRecordTimestamp(record: ManualAttendanceRecord) {
-  const value = record.scanned_at ?? record.created_at;
+  const value = record.updated_at ?? record.created_at;
   const time = value ? new Date(value).getTime() : 0;
 
   return Number.isNaN(time) ? 0 : time;
@@ -377,8 +377,8 @@ function mergeManualAttendanceByStudent(
         program: latestRecord?.program ?? "",
         institution: latestRecord?.institution ?? "",
         remarks: latestRecord?.remarks ?? "",
-        latestScannedAt:
-          latestRecord?.scanned_at ?? latestRecord?.created_at ?? null,
+        latestChangedAt:
+          latestRecord?.updated_at ?? latestRecord?.created_at ?? null,
         attendanceType:
           eventRecords.length > 0 ||
           groupRecords.some((record) => record.attendance_type === "manual")
@@ -504,7 +504,7 @@ export default function ManualAttendancePage() {
       const matchesCollege =
         !targetCollege || group.college.trim().toLowerCase() === targetCollege;
       const matchesDate = matchesDateRange(
-        group.latestScannedAt,
+        group.latestChangedAt,
         fromDate,
         toDate,
       );
@@ -516,7 +516,7 @@ export default function ManualAttendancePage() {
       return matchesCollege && matchesDate && matchesStudent;
     });
 
-    return sortByDate(filtered, (group) => group.latestScannedAt, sortOrder);
+    return sortByDate(filtered, (group) => group.latestChangedAt, sortOrder);
   }, [studentGroups, collegeFilter, fromDate, toDate, studentSearch, sortOrder]);
 
   const manualAttendanceTotalPages = useMemo(() => {
@@ -2062,8 +2062,8 @@ export default function ManualAttendancePage() {
                       <p className="mt-1 truncate font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
                     </div>
                     <div className="col-span-2 min-w-0">
-                      <p className="text-xs font-bold uppercase text-muted-foreground">Latest scan</p>
-                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDateTime(group.latestScannedAt)}</p>
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDateTime(group.latestChangedAt)}</p>
                     </div>
                   </div>
                 </article>
@@ -2094,7 +2094,7 @@ export default function ManualAttendancePage() {
                   <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Program</th>
                   <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Latest Scan</th>
+                  <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -2142,7 +2142,7 @@ export default function ManualAttendancePage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {formatDateTime(group.latestScannedAt)}
+                        {formatDateTime(group.latestChangedAt)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <ActionMenu
