@@ -20,6 +20,10 @@ import { useNavigate } from "react-router-dom";
 
 import { getStoredUser } from "../api/auth";
 import {
+  CALCULATION_STATUS_UPDATED_EVENT,
+  getCalculationPendingSummary,
+} from "../api/attendance";
+import {
   ATTENDANCE_REQUESTS_UPDATED_EVENT,
   listAttendanceRequests,
 } from "../api/attendanceRequests";
@@ -65,6 +69,7 @@ type NavGroup = {
   label: string;
   items: NavItem[];
   showPendingBadge?: boolean;
+  showCalculationBadge?: boolean;
 };
 
 export function navigateTo(path: string) {
@@ -110,13 +115,30 @@ function LogoutConfirmation(props: {
   );
 }
 
-function PendingBadge(props: { count: number; className?: string }) {
+function PendingBadge(props: {
+  count: number;
+  className?: string;
+  ariaLabel?: string;
+  dot?: boolean;
+}) {
   if (props.count <= 0) return null;
+
+  if (props.dot) {
+    return (
+      <span
+        className={`inline-flex size-2.5 shrink-0 rounded-full bg-amber-500 ${props.className ?? ""}`}
+        aria-label={props.ariaLabel ?? "Pending item"}
+      />
+    );
+  }
 
   return (
     <span
       className={`inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground ${props.className ?? ""}`}
-      aria-label={`${props.count} pending request${props.count === 1 ? "" : "s"}`}
+      aria-label={
+        props.ariaLabel ??
+        `${props.count} pending request${props.count === 1 ? "" : "s"}`
+      }
     >
       {props.count > 99 ? "99+" : props.count}
     </span>
@@ -128,6 +150,7 @@ export default function AppLayout(props: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopGroupOpen, setDesktopGroupOpen] = useState<string | null>(null);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [calculationNeeded, setCalculationNeeded] = useState(false);
 
   const currentUser = useMemo(() => getStoredUser(), []);
   const isAdmin = currentUser?.role === "admin";
@@ -174,6 +197,7 @@ export default function AppLayout(props: LayoutProps) {
     {
       id: "records",
       label: "Records",
+      showCalculationBadge: true,
       items: [
         {
           path: "/history",
@@ -244,6 +268,38 @@ export default function AppLayout(props: LayoutProps) {
     return () => {
       active = false;
       window.removeEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshCalculationNeeded() {
+      try {
+        const summary = await getCalculationPendingSummary();
+        if (active) setCalculationNeeded(summary.needsCalculation);
+      } catch {
+        if (active) setCalculationNeeded(false);
+      }
+    }
+
+    const handleCalculationStatusUpdated = () => void refreshCalculationNeeded();
+    void refreshCalculationNeeded();
+    window.addEventListener(
+      CALCULATION_STATUS_UPDATED_EVENT,
+      handleCalculationStatusUpdated,
+    );
+    window.addEventListener("focus", handleCalculationStatusUpdated);
+    const intervalId = window.setInterval(refreshCalculationNeeded, 30_000);
+
+    return () => {
+      active = false;
+      window.removeEventListener(
+        CALCULATION_STATUS_UPDATED_EVENT,
+        handleCalculationStatusUpdated,
+      );
+      window.removeEventListener("focus", handleCalculationStatusUpdated);
       window.clearInterval(intervalId);
     };
   }, []);
@@ -356,6 +412,14 @@ export default function AppLayout(props: LayoutProps) {
                     {group.showPendingBadge ? (
                       <PendingBadge count={pendingRequestCount} className="ml-0.5" />
                     ) : null}
+                    {group.showCalculationBadge ? (
+                      <PendingBadge
+                        count={calculationNeeded ? 1 : 0}
+                        dot
+                        ariaLabel="Calculation needed"
+                        className="ml-0.5"
+                      />
+                    ) : null}
                     <ChevronDown
                       className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
                       aria-hidden="true"
@@ -401,6 +465,13 @@ export default function AppLayout(props: LayoutProps) {
                                 {item.label}
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} />
+                                ) : null}
+                                {item.path === "/calculate" ? (
+                                  <PendingBadge
+                                    count={calculationNeeded ? 1 : 0}
+                                    dot
+                                    ariaLabel="Calculation needed"
+                                  />
                                 ) : null}
                               </span>
                               <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
@@ -498,9 +569,18 @@ export default function AppLayout(props: LayoutProps) {
                           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                             {group.label}
                           </span>
-                          {group.showPendingBadge ? (
-                            <PendingBadge count={pendingRequestCount} />
-                          ) : null}
+                          <span className="flex items-center gap-2">
+                            {group.showPendingBadge ? (
+                              <PendingBadge count={pendingRequestCount} />
+                            ) : null}
+                            {group.showCalculationBadge ? (
+                              <PendingBadge
+                                count={calculationNeeded ? 1 : 0}
+                                dot
+                                ariaLabel="Calculation needed"
+                              />
+                            ) : null}
+                          </span>
                         </div>
 
                         <div className="flex flex-col gap-0.5">
@@ -524,6 +604,14 @@ export default function AppLayout(props: LayoutProps) {
                                 <span className="min-w-0 truncate">{item.label}</span>
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} className="ml-auto" />
+                                ) : null}
+                                {item.path === "/calculate" ? (
+                                  <PendingBadge
+                                    count={calculationNeeded ? 1 : 0}
+                                    dot
+                                    ariaLabel="Calculation needed"
+                                    className="ml-auto"
+                                  />
                                 ) : null}
                               </Button>
                             );

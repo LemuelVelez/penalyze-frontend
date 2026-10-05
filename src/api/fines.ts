@@ -1,3 +1,4 @@
+import { notifyCalculationStatusUpdated } from "./attendance";
 import type { AttendanceRecord } from "./attendance";
 
 export type FineStatus = "unpaid" | "paid" | "waived";
@@ -431,6 +432,7 @@ export async function registerZeroAttendanceFine(
     throw new Error("Unable to register zero attendance record.");
   }
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -463,6 +465,7 @@ export async function createPenalty(
     }),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -489,6 +492,7 @@ export async function updatePenalty(
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -500,6 +504,7 @@ export async function deletePenalty(id: string) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -511,6 +516,7 @@ export async function seedDefaultPenalties() {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 

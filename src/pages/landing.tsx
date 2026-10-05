@@ -5362,13 +5362,6 @@ export default function LandingPage() {
                   ) : null}
                 </Button>
 
-              {resultClassification === "Perfect attendance" ? (
-                <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-700">
-                  Perfect attendance record found. Use the attended events
-                  button to view the events this student attended.
-                </div>
-              ) : null}
-
               {resultClassification !== "Zero attendance" &&
               resultClassification !== "No attendance record" &&
               requiredEventCount > 0 ? (
@@ -5376,11 +5369,26 @@ export default function LandingPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setRequiredEventsDialogOpen(true)}
-                  className="min-h-0 w-full justify-start whitespace-normal rounded-3xl border-sky-200 bg-sky-50 p-5 text-left text-sm font-semibold text-sky-800 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+                  className={`min-h-0 w-full justify-start whitespace-normal rounded-3xl p-5 text-left text-sm font-semibold ${
+                    resultClassification === "Perfect attendance"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                      : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
+                  }`}
                 >
-                  You need to attend {requiredEventCount} event
-                  {requiredEventCount === 1 ? "" : "s"} overall for perfect
-                  attendance.
+                  <span>
+                    {resultClassification === "Perfect attendance" ? (
+                      <>
+                        You attended all {requiredEventCount} required {requiredEventCount === 1 ? "event" : "events"} for {selectedYearLabel}.
+                      </>
+                    ) : (
+                      <>
+                        You attended {Math.max(0, requiredEventCount - totalAbsences)} of {requiredEventCount} required {requiredEventCount === 1 ? "event" : "events"} ({totalAbsences} missed).
+                      </>
+                    )}{" "}
+                    <span className="font-black underline underline-offset-2">
+                      View events →
+                    </span>
+                  </span>
                 </Button>
               ) : null}
 

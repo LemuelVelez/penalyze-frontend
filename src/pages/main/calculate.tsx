@@ -635,6 +635,9 @@ function CalculationStatusBadge(props: {
   } else if (props.status?.pending) {
     label = "Pending Calculation";
     className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+  } else if (props.status?.outsideSelection.pending) {
+    label = "Selection up to date – new data not selected";
+    className = "border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200";
   } else if (props.status) {
     label = props.status.hasSourceData || props.status.hasSavedResults
       ? "Up to Date"
@@ -971,6 +974,11 @@ export default function CalculatePage() {
       calculationStatus?.pending &&
       !isCurrentCalculationPreviewed &&
       !isCheckingCalculationStatus,
+  );
+  const hasOutsideSelectionPending = Boolean(
+    isCalculationStatusCurrent &&
+      !calculationStatus?.pending &&
+      calculationStatus?.outsideSelection.pending,
   );
 
   useEffect(() => {
@@ -1587,6 +1595,42 @@ export default function CalculatePage() {
   ]);
 
   useEffect(() => {
+    const refreshStatus = () => {
+      void loadCalculationStatus(
+        selectedSchoolYearId,
+        selectedImportIds,
+        selectedCalculationSources,
+      );
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshStatus();
+    };
+
+    window.addEventListener("focus", refreshStatus);
+    window.addEventListener(
+      attendanceApi.CALCULATION_STATUS_UPDATED_EVENT,
+      refreshStatus,
+    );
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = window.setInterval(refreshStatus, 30_000);
+
+    return () => {
+      window.removeEventListener("focus", refreshStatus);
+      window.removeEventListener(
+        attendanceApi.CALCULATION_STATUS_UPDATED_EVENT,
+        refreshStatus,
+      );
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [
+    loadCalculationStatus,
+    selectedCalculationSources,
+    selectedImportIds,
+    selectedSchoolYearId,
+  ]);
+
+  useEffect(() => {
     return () => {
       activeRequestIdRef.current += 1;
       editRequestIdRef.current += 1;
@@ -1638,6 +1682,43 @@ export default function CalculatePage() {
   function handleSelectAllImports() {
     setSelectedImportIds(
       attendanceImports.map((importRecord) => importRecord.id),
+    );
+  }
+
+  function handleSelectNewData() {
+    if (!calculationStatus?.outsideSelection.pending) return;
+
+    const outside = calculationStatus.outsideSelection;
+    const outsideImportIds = outside.uncalculatedImports.map((item) => item.id);
+    const hasDependencyChanges = outside.dependencyChanges.length > 0;
+    const shouldSelectAllImports =
+      hasDependencyChanges ||
+      (outside.changedSourceTypes.includes("imported") &&
+        outsideImportIds.length === 0);
+
+    setSelectedCalculationSources((currentSources) =>
+      sortCalculationSourceTypes([
+        ...currentSources,
+        ...(hasDependencyChanges
+          ? DEFAULT_SELECTED_CALCULATION_SOURCES
+          : outside.changedSourceTypes),
+        ...(outsideImportIds.length || shouldSelectAllImports
+          ? (["imported"] as CalculationSourceType[])
+          : []),
+      ]),
+    );
+
+    setSelectedImportIds((currentIds) =>
+      sortImportIdsByBackendEventOrder(
+        Array.from(
+          new Set([
+            ...currentIds,
+            ...(shouldSelectAllImports
+              ? attendanceImports.map((importRecord) => importRecord.id)
+              : outsideImportIds),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -2162,21 +2243,31 @@ export default function CalculatePage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={handlePreviewCalculation}
-                  disabled={isPreviewing || isLoading || !canPreviewCalculation}
+                  onClick={
+                    hasOutsideSelectionPending
+                      ? handleSelectNewData
+                      : handlePreviewCalculation
+                  }
+                  disabled={
+                    isPreviewing ||
+                    isLoading ||
+                    (!hasOutsideSelectionPending && !canPreviewCalculation)
+                  }
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
                   {isPreviewing
                     ? "Calculating..."
                     : isCheckingCalculationStatus
                       ? "Checking..."
-                      : !canRunCalculation
-                        ? "Select Data"
-                        : isCurrentCalculationPreviewed
-                          ? "Already Calculated"
-                          : calculationStatus && !calculationStatus.pending
-                            ? "No New Data"
-                            : "Calculate Selected Files"}
+                      : hasOutsideSelectionPending
+                        ? "Select New Data"
+                        : !canRunCalculation
+                          ? "Select Data"
+                          : isCurrentCalculationPreviewed
+                            ? "Already Calculated"
+                            : calculationStatus && !calculationStatus.pending
+                              ? "No New Data"
+                              : "Calculate Selected Files"}
                 </Button>
 
                 <Button
@@ -2197,6 +2288,41 @@ export default function CalculatePage() {
               </div>
             </div>
           </div>
+
+          {hasOutsideSelectionPending && calculationStatus ? (
+            <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-black">New calculation data is not selected.</p>
+                  <p className="mt-1 font-semibold">
+                    {calculationStatus.outsideSelection.uncalculatedImports.length > 0
+                      ? `Files: ${calculationStatus.outsideSelection.uncalculatedImports
+                          .map((item) => item.name)
+                          .join(", ")}. `
+                      : ""}
+                    {calculationStatus.outsideSelection.changedSourceTypes.length > 0
+                      ? `Sources: ${calculationStatus.outsideSelection.changedSourceTypes
+                          .map(getCalculationSourceLabel)
+                          .join(", ")}. `
+                      : ""}
+                    {calculationStatus.outsideSelection.dependencyChanges.length > 0
+                      ? `Dependencies changed: ${calculationStatus.outsideSelection.dependencyChanges
+                          .map((value) => value.replaceAll("_", " "))
+                          .join(", ")}.`
+                      : ""}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSelectNewData}
+                  className="shrink-0 rounded-xl border-orange-300 bg-background font-black dark:border-orange-800"
+                >
+                  Select new data
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {calculationProgress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">

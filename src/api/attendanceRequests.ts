@@ -1,4 +1,5 @@
 import { getApiBaseUrl, getAuthToken } from "./auth";
+import { notifyCalculationStatusUpdated } from "./attendance";
 import { readProgressStream } from "./progressStream";
 import type { SchoolSemester } from "./schoolYears";
 
@@ -213,6 +214,7 @@ export async function reviewAttendanceRequest(
     },
   );
   notifyAttendanceRequestsUpdated();
+  notifyCalculationStatusUpdated();
   return response.data ?? null;
 }
 
@@ -255,6 +257,7 @@ export async function reviewAttendanceRequestWithProgress(
   });
 
   notifyAttendanceRequestsUpdated();
+  notifyCalculationStatusUpdated();
   return payload.data ?? null;
 }
 

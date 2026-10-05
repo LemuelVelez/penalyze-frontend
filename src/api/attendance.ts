@@ -1,5 +1,13 @@
 import { readProgressStream } from "./progressStream";
 
+export const CALCULATION_STATUS_UPDATED_EVENT = "calculation-status-updated";
+
+export function notifyCalculationStatusUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CALCULATION_STATUS_UPDATED_EVENT));
+  }
+}
+
 export type ImportStatus = "previewed" | "saved" | "failed";
 export type AttendanceImportProgressStage =
   | "preparing"
@@ -202,6 +210,20 @@ export type AttendanceFinalResultRecord = {
   updated_at: string;
 };
 
+export type CalculationPendingImport = {
+  id: string;
+  name: string;
+};
+
+export type CalculationPendingSummaryRecord = {
+  needsCalculation: boolean;
+  lastCalculatedAt: string | null;
+  latestInputChangeAt: string | null;
+  uncalculatedImports: CalculationPendingImport[];
+  changedSourceTypes: CalculationSourceType[];
+  dependencyChanges: string[];
+};
+
 export type CalculationStatusRecord = {
   calculationScopeKey: string;
   pending: boolean;
@@ -214,6 +236,12 @@ export type CalculationStatusRecord = {
   latestSourceUpdatedAt: string | null;
   lastCalculatedAt: string | null;
   revision: string;
+  outsideSelection: {
+    pending: boolean;
+    uncalculatedImports: CalculationPendingImport[];
+    changedSourceTypes: CalculationSourceType[];
+    dependencyChanges: string[];
+  };
 };
 
 export type CalculationResultRecord = {
@@ -808,6 +836,7 @@ export async function mergeAttendanceEvents(input: {
     "/api/attendance/events/merge",
     { method: "POST", body: JSON.stringify(input) },
   );
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -817,6 +846,7 @@ export async function saveAttendanceEvent(input: AttendanceEventInput) {
     body: JSON.stringify(input),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -832,6 +862,7 @@ export async function updateAttendanceEvent(
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -843,6 +874,7 @@ export async function deleteAttendanceEvent(id: string) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1046,6 +1078,23 @@ export async function getCalculationStatus(options: {
   return response.data;
 }
 
+export async function getCalculationPendingSummary(options: {
+  schoolYearId?: string;
+  signal?: AbortSignal;
+} = {}) {
+  const query = buildSearchParams({ schoolYearId: options.schoolYearId });
+  const response = await apiRequest<CalculationPendingSummaryRecord>(
+    `/api/attendance/calculation-results/pending-summary${query}`,
+    { signal: options.signal },
+  );
+
+  if (!response.data) {
+    throw new Error("Calculation pending summary response is missing data.");
+  }
+
+  return response.data;
+}
+
 export async function listCalculationResults(options: ListOptions = {}) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
@@ -1103,6 +1152,7 @@ export async function refreshCalculationResults(
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 
@@ -1116,6 +1166,7 @@ export async function deleteCalculationResultsByIds(
     body: JSON.stringify({ ids: calculationResultIds }),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
@@ -1129,6 +1180,7 @@ export async function deleteCalculationResultsBySchoolYear(
     body: JSON.stringify({ schoolYearId }),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
@@ -1217,6 +1269,7 @@ export async function deleteAttendanceImport(importId: string) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1229,6 +1282,7 @@ export async function deleteAttendanceImportsByIds(importIds: string[]) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedImports: [] };
 }
 
@@ -1241,6 +1295,7 @@ export async function deleteAllAttendanceImports(schoolYearId: string) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedImports: [] };
 }
 
@@ -1257,6 +1312,7 @@ export async function restoreAttendanceImport(importId: string) {
     `/api/attendance/imports/${encodeURIComponent(importId)}/restore`,
     { method: "POST" },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? null;
 }
 
@@ -1265,6 +1321,7 @@ export async function purgeAttendanceImport(importId: string) {
     `/api/attendance/imports/${encodeURIComponent(importId)}/purge`,
     { method: "DELETE" },
   );
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1304,6 +1361,7 @@ export async function deleteManualAttendanceRecordsByIds(
     body: JSON.stringify({ ids: manualRecordIds }),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
@@ -1317,6 +1375,7 @@ export async function deleteManualAttendanceRecordsBySchoolYear(
     body: JSON.stringify({ schoolYearId }),
   });
 
+  notifyCalculationStatusUpdated();
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
@@ -1363,6 +1422,7 @@ export async function saveAttendanceFile(
         },
       );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1388,6 +1448,7 @@ export async function saveAttendanceRows(input: AttendanceRowsSaveInput) {
         },
       );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1400,6 +1461,7 @@ export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1415,6 +1477,7 @@ export async function updateAttendanceRecord(
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1434,6 +1497,7 @@ export async function updateAttendanceRecords(
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1445,6 +1509,7 @@ export async function deleteAttendanceRecord(id: string) {
     },
   );
 
+  notifyCalculationStatusUpdated();
   return response.data;
 }
 
@@ -1492,6 +1557,7 @@ export async function createEventCollegeExemptions(input: {
     "/api/attendance/event-exemptions",
     { method: "POST", body: JSON.stringify(input) },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 
@@ -1534,6 +1600,7 @@ export async function createEventCollegeExemptionsWithProgress(
     errorFallback: "Unable to save college exemptions.",
     missingSuccessMessage: "College exemption save finished without a result.",
   });
+  notifyCalculationStatusUpdated();
   return payload.data ?? [];
 }
 
@@ -1546,6 +1613,7 @@ export async function deleteEventCollegeExemptionsBulk(input: {
     "/api/attendance/event-exemptions/bulk-delete",
     { method: "POST", body: JSON.stringify(input) },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 
@@ -1554,6 +1622,7 @@ export async function deleteEventCollegeExemption(id: string) {
     `/api/attendance/event-exemptions/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? null;
 }
 
@@ -1600,6 +1669,7 @@ export async function createEventYearLevelExemptions(input: {
     "/api/attendance/event-year-level-exemptions",
     { method: "POST", body: JSON.stringify(input) },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 
@@ -1642,6 +1712,7 @@ export async function createEventYearLevelExemptionsWithProgress(
     errorFallback: "Unable to save year level exemptions.",
     missingSuccessMessage: "Year level exemption save finished without a result.",
   });
+  notifyCalculationStatusUpdated();
   return payload.data ?? [];
 }
 
@@ -1655,6 +1726,7 @@ export async function deleteEventYearLevelExemptionsBulk(input: {
     "/api/attendance/event-year-level-exemptions/bulk-delete",
     { method: "POST", body: JSON.stringify(input) },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? [];
 }
 
@@ -1663,6 +1735,7 @@ export async function deleteEventYearLevelExemption(id: string) {
     `/api/attendance/event-year-level-exemptions/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
+  notifyCalculationStatusUpdated();
   return response.data ?? null;
 }
 
@@ -1703,6 +1776,7 @@ export async function removeSelectedEventExemptions(
     errorFallback: "Unable to remove selected exemptions.",
     missingSuccessMessage: "Exemption removal finished without a result.",
   });
+  notifyCalculationStatusUpdated();
   return payload.data ?? {
     removedCollegeExemptions: [],
     removedYearLevelExemptions: [],
