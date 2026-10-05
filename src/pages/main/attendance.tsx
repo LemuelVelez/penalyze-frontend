@@ -402,6 +402,75 @@ function formatNumber(value: number | string | null | undefined) {
   return Number.isFinite(numberValue) ? numberValue.toLocaleString() : "0";
 }
 
+function getAttendanceImportProgressSteps(
+  progress: AttendanceImportProgress,
+): LoadingStatusStep[] {
+  const stageOrder: AttendanceImportProgress["stage"][] = [
+    "preparing",
+    "parsing",
+    "validating",
+    "saving",
+    "syncing",
+    "completed",
+  ];
+  const currentStageIndex = stageOrder.indexOf(progress.stage);
+  const statusForStage = (stage: AttendanceImportProgress["stage"]) => {
+    const stageIndex = stageOrder.indexOf(stage);
+    if (progress.stage === "completed") return "done" as const;
+    if (stageIndex < 0 || currentStageIndex < 0) return "pending" as const;
+    if (stageIndex < currentStageIndex) return "done" as const;
+    if (stageIndex === currentStageIndex) return "loading" as const;
+    return "pending" as const;
+  };
+
+  return [
+    {
+      label: "Prepare batch",
+      status: statusForStage("preparing"),
+      detail:
+        progress.stage === "preparing"
+          ? progress.message
+          : "Upload batch prepared",
+    },
+    {
+      label: "Parse files",
+      status: statusForStage("parsing"),
+      detail: `${formatNumber(progress.processedRows)} of ${formatNumber(progress.totalRows)} row/s processed`,
+    },
+    {
+      label: "Validate records",
+      status: statusForStage("validating"),
+      detail: progress.stageCounts
+        ? `${formatNumber(progress.stageCounts.valid)} valid row/s`
+        : "Checking attendance rows",
+    },
+    {
+      label: "Save records",
+      status: statusForStage("saving"),
+      detail: `${formatNumber(progress.savedRecords)} attendance record/s saved`,
+    },
+    {
+      label: "Sync results",
+      status: statusForStage("syncing"),
+      detail:
+        progress.stage === "completed"
+          ? "Attendance results synchronized"
+          : `${formatNumber(progress.createdFines)} fine record/s created or updated`,
+    },
+  ];
+}
+
+function getAttendanceImportProgressDetail(progress: AttendanceImportProgress) {
+  const rowDetail = progress.totalRows
+    ? `${formatNumber(progress.processedRows)} of ${formatNumber(progress.totalRows)} row/s processed`
+    : "Preparing attendance rows";
+  const stageDetail = progress.stageCounts
+    ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)}`
+    : rowDetail;
+
+  return `${progress.message} ${stageDetail}.`;
+}
+
 function normalizeStudentId(value: unknown) {
   return String(value ?? "")
     .trim()
@@ -1468,7 +1537,6 @@ export default function AttendancePage() {
       savedRecords: 0,
       createdFines: 0,
     });
-    setUploadDialogOpen(false);
 
     try {
       const fileOptions = files.map((attendanceFile, index) => {
@@ -1513,6 +1581,17 @@ export default function AttendancePage() {
           })),
       );
 
+      setProgress((current) => ({
+        stage: "syncing",
+        percent: 98,
+        message: "Attendance saved. Refreshing the attendance page with the latest results...",
+        processedRows: current?.processedRows ?? recordsSaved,
+        totalRows: current?.totalRows ?? recordsSaved,
+        savedRecords: recordsSaved,
+        createdFines: current?.createdFines ?? 0,
+        stageCounts: current?.stageCounts,
+      }));
+
       toast.success(
         `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
       );
@@ -1528,15 +1607,35 @@ export default function AttendancePage() {
         eventEndAt: "",
       }));
       await loadPageData(selectedSchoolYearId);
+      setProgress((current) => ({
+        stage: "completed",
+        percent: 100,
+        message: "Attendance files and final results are fully saved and refreshed.",
+        processedRows: current?.processedRows ?? recordsSaved,
+        totalRows: current?.totalRows ?? recordsSaved,
+        savedRecords: recordsSaved,
+        createdFines: current?.createdFines ?? 0,
+        stageCounts: current?.stageCounts,
+      }));
+      setUploadDialogOpen(false);
+      setProgress(null);
     } catch (error) {
-      toast.error(
+      const message =
         error instanceof Error
           ? error.message
-          : "Unable to save attendance files.",
+          : "Unable to save attendance files.";
+      setProgress((current) =>
+        current
+          ? {
+              ...current,
+              stage: "cancelled",
+              message: `Saving stopped: ${message}`,
+            }
+          : current,
       );
+      toast.error(message);
     } finally {
       setIsSaving(false);
-      setProgress(null);
     }
   }
 
@@ -1787,6 +1886,8 @@ export default function AttendancePage() {
   }
 
   function handleFinalResultDialogOpenChange(open: boolean) {
+    if (!open && isSavingFinalResult) return;
+
     setFinalResultDialogOpen(open);
 
     if (!open) {
@@ -2036,7 +2137,11 @@ export default function AttendancePage() {
           : current,
       );
 
-      handleFinalResultDialogOpenChange(false);
+      setFinalResultDialogOpen(false);
+      setFinalResultForm(emptyFinalResultForm);
+      setEditSourceRecords(emptyStudentSourceRecordBundle);
+      setIsLoadingEditSourceRecords(false);
+      setFinalResultSaveProgress(null);
       toast.success("Final attendance result updated.");
     } catch (error) {
       const message =
@@ -2136,7 +2241,10 @@ export default function AttendancePage() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <Button
                 type="button"
-                onClick={() => setUploadDialogOpen(true)}
+                onClick={() => {
+                  setProgress(null);
+                  setUploadDialogOpen(true);
+                }}
                 className="min-h-10 rounded-xl px-6 font-semibold"
               >
                 Upload Attendance File
@@ -2210,7 +2318,14 @@ export default function AttendancePage() {
           })}
         </section>
 
-        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <Dialog
+          open={uploadDialogOpen}
+          onOpenChange={(open) => {
+            if (!open && isSaving) return;
+            setUploadDialogOpen(open);
+            if (!open) setProgress(null);
+          }}
+        >
           <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Upload attendance file</DialogTitle>
@@ -2219,6 +2334,19 @@ export default function AttendancePage() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
+              {progress ? (
+                <LoadingStatus
+                  title={
+                    progress.stage === "cancelled"
+                      ? "Attendance save stopped"
+                      : "Saving attendance files"
+                  }
+                  detail={getAttendanceImportProgressDetail(progress)}
+                  progress={progress.percent}
+                  steps={getAttendanceImportProgressSteps(progress)}
+                  className="lg:col-span-5"
+                />
+              ) : null}
               <div
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -2588,7 +2716,9 @@ export default function AttendancePage() {
                   disabled={isSaving || !files.length}
                   className="min-h-12 w-full rounded-2xl font-semibold"
                 >
-                  {isSaving ? "Saving..." : "Save Files"}
+                  {isSaving
+                    ? `Saving ${Math.round(progress?.percent ?? 0)}%...`
+                    : "Save Files"}
                 </Button>
               </div>
             </form>

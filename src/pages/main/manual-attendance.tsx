@@ -92,6 +92,10 @@ type ManualPageLoadProgress = {
   steps: LoadingStatusStep[];
 };
 
+type ManualAttendanceSaveProgress = ManualPageLoadProgress & {
+  title: string;
+};
+
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
 const ZERO_ATTENDANCE_REMARK =
@@ -467,6 +471,8 @@ export default function ManualAttendancePage() {
     useState<ManualPageLoadProgress | null>(null);
   const loadRequestIdRef = useRef(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] =
+    useState<ManualAttendanceSaveProgress | null>(null);
   const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
@@ -939,6 +945,7 @@ export default function ManualAttendancePage() {
   }
 
   function handleOpenCreateDialog() {
+    setSaveProgress(null);
     setEditingGroupKey("");
     setForm((current) => ({
       ...emptyForm,
@@ -951,6 +958,7 @@ export default function ManualAttendancePage() {
   }
 
   function handleEditGroup(group: ManualAttendanceStudentGroup) {
+    setSaveProgress(null);
     const latestRecord = getLatestRecord(group.records);
     const eventById = new Map(events.map((event) => [event.id, event]));
 
@@ -991,9 +999,12 @@ export default function ManualAttendancePage() {
   }
 
   function handleDialogOpenChange(open: boolean) {
+    if (!open && isSaving) return;
+
     setManualAttendanceDialogOpen(open);
 
     if (!open) {
+      setSaveProgress(null);
       setEditingGroupKey("");
       setForm((current) => ({
         ...emptyForm,
@@ -1057,43 +1068,211 @@ export default function ManualAttendancePage() {
 
   async function saveManualAttendance() {
     setIsSaving(true);
+    setManualUpdateConfirmOpen(false);
+
+    const { selectedEventIds, editingGroup, existingByEventId, recordsToDelete } =
+      getEditingDeletePlan();
+    const saveOperationCount = Math.max(1, selectedEventIds.length);
+    const totalWorkUnits = 2 + recordsToDelete.length + saveOperationCount;
+    let completedWorkUnits = 1;
+    let deletedRecords = 0;
+    let savedRecords = 0;
+    const progressPercent = () =>
+      Math.min(99, Math.round((completedWorkUnits / totalWorkUnits) * 100));
+
+    setSaveProgress({
+      title: editingGroup
+        ? "Updating manual attendance"
+        : "Creating manual attendance",
+      progress: progressPercent(),
+      detail: editingGroup
+        ? "Prepared the requested changes. Saving the student's manual attendance records now."
+        : "Prepared the new manual attendance records. Saving them now.",
+      steps: [
+        {
+          label: "Prepare changes",
+          status: "done",
+          detail: `${saveOperationCount} record operation${saveOperationCount === 1 ? "" : "s"} ready`,
+        },
+        {
+          label: "Remove old records",
+          status: recordsToDelete.length ? "loading" : "done",
+          detail: recordsToDelete.length
+            ? `0 of ${recordsToDelete.length} removed`
+            : "No old records need removal",
+        },
+        {
+          label: "Save attendance",
+          status: recordsToDelete.length ? "pending" : "loading",
+          detail: `0 of ${saveOperationCount} saved`,
+        },
+        {
+          label: "Refresh records",
+          status: "pending",
+          detail: "Waiting",
+        },
+      ],
+    });
+
+    const updateSaveProgress = (
+      detail: string,
+      updater: (step: LoadingStatusStep) => LoadingStatusStep,
+    ) => {
+      setSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: progressPercent(),
+              detail,
+              steps: current.steps.map(updater),
+            }
+          : current,
+      );
+    };
 
     try {
-      const { selectedEventIds, editingGroup, existingByEventId, recordsToDelete } = getEditingDeletePlan();
-
-      if (editingGroup) {
-        await Promise.all(recordsToDelete.map((record) => deleteAttendanceRecord(record.id)));
-
+      if (recordsToDelete.length) {
         await Promise.all(
-          selectedEventIds.map((eventId) => {
-            const existingRecord = existingByEventId.get(eventId);
-            const payload = buildManualPayload(eventId);
-            return existingRecord
-              ? updateAttendanceRecord(existingRecord.id, payload)
-              : saveManualAttendanceRecord(payload);
+          recordsToDelete.map(async (record) => {
+            await deleteAttendanceRecord(record.id);
+            deletedRecords += 1;
+            completedWorkUnits += 1;
+            updateSaveProgress(
+              `Removed ${deletedRecords} of ${recordsToDelete.length} old attendance record${recordsToDelete.length === 1 ? "" : "s"}.`,
+              (step) => {
+                if (step.label === "Remove old records") {
+                  return {
+                    ...step,
+                    status:
+                      deletedRecords === recordsToDelete.length
+                        ? "done"
+                        : "loading",
+                    detail: `${deletedRecords} of ${recordsToDelete.length} removed`,
+                  };
+                }
+                if (
+                  step.label === "Save attendance" &&
+                  deletedRecords === recordsToDelete.length
+                ) {
+                  return { ...step, status: "loading" };
+                }
+                return step;
+              },
+            );
           }),
         );
-
-        if (!selectedEventIds.length) {
-          await saveManualAttendanceRecord(buildManualPayload());
-        }
-
-        toast.success("Manual attendance updated.");
-      } else {
-        if (!selectedEventIds.length) {
-          await saveManualAttendanceRecord(buildManualPayload());
-        } else {
-          await Promise.all(
-            selectedEventIds.map((eventId) => saveManualAttendanceRecord(buildManualPayload(eventId))),
-          );
-        }
-        toast.success("Manual attendance saved.");
       }
 
-      handleDialogOpenChange(false);
+      const saveOne = async (
+        eventId: string | undefined,
+        existingRecord?: ManualAttendanceRecord,
+      ) => {
+        const payload = buildManualPayload(eventId);
+        if (existingRecord) {
+          await updateAttendanceRecord(existingRecord.id, payload);
+        } else {
+          await saveManualAttendanceRecord(payload);
+        }
+
+        savedRecords += 1;
+        completedWorkUnits += 1;
+        updateSaveProgress(
+          `${editingGroup ? "Updated" : "Saved"} ${savedRecords} of ${saveOperationCount} manual attendance record${saveOperationCount === 1 ? "" : "s"}.`,
+          (step) =>
+            step.label === "Save attendance"
+              ? {
+                  ...step,
+                  status:
+                    savedRecords === saveOperationCount ? "done" : "loading",
+                  detail: `${savedRecords} of ${saveOperationCount} saved`,
+                }
+              : step,
+        );
+      };
+
+      if (selectedEventIds.length) {
+        await Promise.all(
+          selectedEventIds.map((eventId) =>
+            saveOne(
+              eventId,
+              editingGroup ? existingByEventId.get(eventId) : undefined,
+            ),
+          ),
+        );
+      } else {
+        await saveOne(undefined);
+      }
+
+      setSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: progressPercent(),
+              detail: "Attendance records are saved. Refreshing the manual attendance list with the latest data.",
+              steps: current.steps.map((step) =>
+                step.label === "Refresh records"
+                  ? {
+                      ...step,
+                      status: "loading",
+                      detail: "Loading updated attendance records",
+                    }
+                  : step,
+              ),
+            }
+          : current,
+      );
+
       await loadPageData(selectedSchoolYearId);
+      completedWorkUnits += 1;
+
+      setSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: editingGroup
+                ? "Manual attendance was updated and the latest records are now displayed."
+                : "Manual attendance was created and the latest records are now displayed.",
+              steps: current.steps.map((step) =>
+                step.label === "Refresh records"
+                  ? { ...step, status: "done", detail: "Updated records loaded" }
+                  : step,
+              ),
+            }
+          : current,
+      );
+
+      toast.success(
+        editingGroup ? "Manual attendance updated." : "Manual attendance saved.",
+      );
+      setManualAttendanceDialogOpen(false);
+      setEditingGroupKey("");
+      setSaveProgress(null);
+      setForm((current) => ({
+        ...emptyForm,
+        schoolYearId: current.schoolYearId,
+        scannedAt: formatDateTimeInputValue(),
+      }));
     } catch (error) {
-      toast.error(getManualAttendanceSaveErrorMessage(error));
+      const message = getManualAttendanceSaveErrorMessage(error);
+      setSaveProgress((current) =>
+        current
+          ? {
+              ...current,
+              detail: `Saving stopped: ${message}`,
+              steps: current.steps.map((step) =>
+                step.status === "loading"
+                  ? {
+                      ...step,
+                      status: "pending",
+                      detail: "Stopped before completion",
+                    }
+                  : step,
+              ),
+            }
+          : current,
+      );
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -1333,6 +1512,15 @@ export default function ManualAttendancePage() {
               onSubmit={handleSubmit}
               className="mt-5 grid gap-4 lg:grid-cols-4"
             >
+              {saveProgress ? (
+                <LoadingStatus
+                  title={saveProgress.title}
+                  detail={saveProgress.detail}
+                  progress={saveProgress.progress}
+                  steps={saveProgress.steps}
+                  className="lg:col-span-4"
+                />
+              ) : null}
               <label className="space-y-2">
                 <span className="text-sm font-bold">School year / semester</span>
                 <SchoolYearBadge
@@ -1617,7 +1805,7 @@ export default function ManualAttendancePage() {
                   className="min-h-12 rounded-2xl px-6 font-black"
                 >
                   {isSaving
-                    ? "Saving..."
+                    ? `Saving ${Math.round(saveProgress?.progress ?? 0)}%...`
                     : editingGroupKey
                       ? "Update Manual Attendance"
                       : "Save Manual Attendance"}
@@ -1649,7 +1837,7 @@ export default function ManualAttendancePage() {
           }
           confirmationPhrase="UPDATE AND DELETE"
           confirmLabel="Update and Delete"
-          pendingLabel="Saving..."
+          pendingLabel={`Saving ${Math.round(saveProgress?.progress ?? 0)}%...`}
           isPending={isSaving}
           onConfirm={saveManualAttendance}
         />
