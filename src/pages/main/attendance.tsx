@@ -187,7 +187,7 @@ const FINAL_RESULT_SAVE_FIELD_LABELS: Record<FinalResultSaveField, string> = {
   program: "Program",
   institution: "Institution",
   totalAbsences: "Total absences",
-  latestScannedAt: "Latest scan",
+  latestScannedAt: "Date",
   remarks: "Remarks",
 };
 
@@ -3348,7 +3348,7 @@ export default function AttendancePage() {
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-bold">Latest scan</span>
+                <span className="text-sm font-bold">Date</span>
                 <DateTimePicker
                   value={finalResultForm.latestScannedAt}
                   onValueChange={(value) =>
@@ -3387,7 +3387,7 @@ export default function AttendancePage() {
                 <div>
                   <p className="font-bold">Choose changes to save</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Student details are saved in one safe profile operation without resaving each attendance event. Total absences, latest scan, and remarks are source-record values and are applied only to source rows you choose below.
+                    Student details are saved in one safe profile operation without resaving each attendance event. Total absences, date, and remarks are source-record values and are applied only to source rows you choose below.
                   </p>
                 </div>
 
@@ -3714,8 +3714,8 @@ export default function AttendancePage() {
                       <p className="mt-1 truncate font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-bold uppercase text-muted-foreground">Latest scan</p>
-                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDate(result.latest_scanned_at)}</p>
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>
+                      <p className="mt-1 text-xs font-semibold text-muted-foreground">{formatDateTime(result.latest_scanned_at)}</p>
                     </div>
                     <div className="flex items-end justify-end">
                       <span className="text-xs font-bold text-muted-foreground">{result.attended_events} attended</span>
@@ -3749,7 +3749,7 @@ export default function AttendancePage() {
                   <th className="px-4 py-3">Program</th>
                   <th className="px-4 py-3">Events</th>
                   <th className="px-4 py-3">Absences</th>
-                  <th className="px-4 py-3">Latest Scan</th>
+                  <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -3800,7 +3800,7 @@ export default function AttendancePage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          {formatDate(result.latest_scanned_at)}
+                          {formatDateTime(result.latest_scanned_at)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <ActionMenu
