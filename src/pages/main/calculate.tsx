@@ -13,6 +13,7 @@ import * as attendanceApi from "../../api/attendance";
 import type {
   AttendanceImportRecord,
   AttendanceRecord,
+  CalculationPendingSummaryRecord,
   CalculationResultRecord,
   CalculationSourceType,
   CalculationStatusRecord,
@@ -618,10 +619,10 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
 }
 
 function CalculationStatusBadge(props: {
-  canCalculate: boolean;
   isChecking: boolean;
   isPreviewed: boolean;
   status: CalculationStatusRecord | null;
+  summary: CalculationPendingSummaryRecord | null;
 }) {
   let label = "Select data";
   let className = "border-border bg-muted text-muted-foreground";
@@ -632,12 +633,22 @@ function CalculationStatusBadge(props: {
   } else if (props.isPreviewed) {
     label = "Calculated - Pending Save";
     className = "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200";
+  } else if (props.summary?.needsCalculation) {
+    label = "Pending Calculation";
+    className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+  } else if (props.summary) {
+    const hasAnyData =
+      Boolean(props.summary.lastCalculatedAt) ||
+      Boolean(props.status?.hasSourceData) ||
+      Boolean(props.status?.hasSavedResults);
+
+    label = hasAnyData ? "Up to Date" : "No Data";
+    className = hasAnyData
+      ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+      : "border-border bg-muted text-muted-foreground";
   } else if (props.status?.pending) {
     label = "Pending Calculation";
     className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
-  } else if (props.status?.outsideSelection.pending) {
-    label = "Selection up to date – new data not selected";
-    className = "border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200";
   } else if (props.status) {
     label = props.status.hasSourceData || props.status.hasSavedResults
       ? "Up to Date"
@@ -896,10 +907,16 @@ export default function CalculatePage() {
   );
   const [calculationStatus, setCalculationStatus] =
     useState<CalculationStatusRecord | null>(null);
+  const [calculationPendingSummary, setCalculationPendingSummary] =
+    useState<CalculationPendingSummaryRecord | null>(null);
   const [calculationStatusSelectionKey, setCalculationStatusSelectionKey] =
     useState<string | null>(null);
   const [isCheckingCalculationStatus, setIsCheckingCalculationStatus] =
     useState(false);
+  const [
+    isCheckingCalculationPendingSummary,
+    setIsCheckingCalculationPendingSummary,
+  ] = useState(false);
   const [previewedCalculationRevision, setPreviewedCalculationRevision] =
     useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<CalculationRow | null>(null);
@@ -927,6 +944,8 @@ export default function CalculatePage() {
   const editRequestControllerRef = useRef<AbortController | null>(null);
   const statusRequestIdRef = useRef(0);
   const statusRequestControllerRef = useRef<AbortController | null>(null);
+  const summaryRequestIdRef = useRef(0);
+  const summaryRequestControllerRef = useRef<AbortController | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -975,11 +994,54 @@ export default function CalculatePage() {
       !isCurrentCalculationPreviewed &&
       !isCheckingCalculationStatus,
   );
-  const hasOutsideSelectionPending = Boolean(
-    isCalculationStatusCurrent &&
-      !calculationStatus?.pending &&
-      calculationStatus?.outsideSelection.pending,
-  );
+  const pendingOutsideSelection = useMemo(() => {
+    const summary = calculationPendingSummary;
+    if (!summary?.needsCalculation) {
+      return {
+        pending: false,
+        uncalculatedImports: [],
+        changedSourceTypes: [] as CalculationSourceType[],
+        dependencyChanges: [] as string[],
+      };
+    }
+
+    const selectedImportIdSet = new Set(selectedImportIds);
+    const uncalculatedImports = summary.uncalculatedImports.filter(
+      (item) =>
+        !includesImportedSource || !selectedImportIdSet.has(item.id),
+    );
+    const changedSourceTypes = summary.changedSourceTypes.filter((sourceType) => {
+      if (!selectedCalculationSourceSet.has(sourceType)) return true;
+      if (sourceType !== "imported") return false;
+
+      return !selectedImportIds.length || uncalculatedImports.length > 0;
+    });
+    const dependencyChanges =
+      !canRunCalculation ||
+      !isCalculationStatusCurrent ||
+      !calculationStatus?.pending
+        ? summary.dependencyChanges
+        : [];
+
+    return {
+      pending:
+        uncalculatedImports.length > 0 ||
+        changedSourceTypes.length > 0 ||
+        dependencyChanges.length > 0,
+      uncalculatedImports,
+      changedSourceTypes,
+      dependencyChanges,
+    };
+  }, [
+    calculationPendingSummary,
+    calculationStatus?.pending,
+    canRunCalculation,
+    includesImportedSource,
+    isCalculationStatusCurrent,
+    selectedCalculationSourceSet,
+    selectedImportIds,
+  ]);
+  const hasOutsideSelectionPending = pendingOutsideSelection.pending;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1197,6 +1259,46 @@ export default function CalculatePage() {
 
     return { requestId, controller };
   }, []);
+
+  const loadCalculationPendingSummary = useCallback(
+    async (nextSchoolYearId: string) => {
+      summaryRequestControllerRef.current?.abort();
+
+      const controller = new AbortController();
+      const requestId = summaryRequestIdRef.current + 1;
+      summaryRequestIdRef.current = requestId;
+      summaryRequestControllerRef.current = controller;
+      const { signal } = controller;
+
+      setIsCheckingCalculationPendingSummary(true);
+
+      try {
+        const summary = await attendanceApi.getCalculationPendingSummary({
+          schoolYearId:
+            nextSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+              ? undefined
+              : nextSchoolYearId,
+          signal,
+        });
+
+        if (summaryRequestIdRef.current !== requestId || signal.aborted) {
+          return null;
+        }
+
+        setCalculationPendingSummary(summary);
+        return summary;
+      } catch (error) {
+        if (isAbortError(error) || signal.aborted) return null;
+        return null;
+      } finally {
+        if (summaryRequestIdRef.current === requestId) {
+          setIsCheckingCalculationPendingSummary(false);
+          summaryRequestControllerRef.current = null;
+        }
+      }
+    },
+    [],
+  );
 
   const loadCalculationStatus = useCallback(
     async (
@@ -1584,10 +1686,12 @@ export default function CalculatePage() {
         selectedImportIds,
         selectedCalculationSources,
       );
+      void loadCalculationPendingSummary(selectedSchoolYearId);
     }, 120);
 
     return () => window.clearTimeout(timeoutId);
   }, [
+    loadCalculationPendingSummary,
     loadCalculationStatus,
     selectedCalculationSources,
     selectedImportIds,
@@ -1601,6 +1705,7 @@ export default function CalculatePage() {
         selectedImportIds,
         selectedCalculationSources,
       );
+      void loadCalculationPendingSummary(selectedSchoolYearId);
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshStatus();
@@ -1624,6 +1729,7 @@ export default function CalculatePage() {
       window.clearInterval(intervalId);
     };
   }, [
+    loadCalculationPendingSummary,
     loadCalculationStatus,
     selectedCalculationSources,
     selectedImportIds,
@@ -1635,9 +1741,11 @@ export default function CalculatePage() {
       activeRequestIdRef.current += 1;
       editRequestIdRef.current += 1;
       statusRequestIdRef.current += 1;
+      summaryRequestIdRef.current += 1;
       activeRequestControllerRef.current?.abort();
       editRequestControllerRef.current?.abort();
       statusRequestControllerRef.current?.abort();
+      summaryRequestControllerRef.current?.abort();
     };
   }, []);
 
@@ -1686,9 +1794,9 @@ export default function CalculatePage() {
   }
 
   function handleSelectNewData() {
-    if (!calculationStatus?.outsideSelection.pending) return;
+    if (!pendingOutsideSelection.pending) return;
 
-    const outside = calculationStatus.outsideSelection;
+    const outside = pendingOutsideSelection;
     const outsideImportIds = outside.uncalculatedImports.map((item) => item.id);
     const hasDependencyChanges = outside.dependencyChanges.length > 0;
     const shouldSelectAllImports =
@@ -2081,6 +2189,7 @@ export default function CalculatePage() {
         requestImportIds,
         normalizedSourceTypes,
       );
+      await loadCalculationPendingSummary(selectedSchoolYearId);
     } catch (error) {
       if (isAbortError(error) || !isCurrentRun()) return;
 
@@ -2222,10 +2331,13 @@ export default function CalculatePage() {
                   className="w-full justify-center sm:w-auto"
                 />
                 <CalculationStatusBadge
-                  canCalculate={canRunCalculation}
-                  isChecking={isCheckingCalculationStatus}
+                  isChecking={
+                    isCheckingCalculationPendingSummary &&
+                    !calculationPendingSummary
+                  }
                   isPreviewed={isCurrentCalculationPreviewed}
                   status={isCalculationStatusCurrent ? calculationStatus : null}
+                  summary={calculationPendingSummary}
                 />
               </div>
 
@@ -2289,24 +2401,24 @@ export default function CalculatePage() {
             </div>
           </div>
 
-          {hasOutsideSelectionPending && calculationStatus ? (
+          {hasOutsideSelectionPending ? (
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-black">New calculation data is not selected.</p>
                   <p className="mt-1 font-semibold">
-                    {calculationStatus.outsideSelection.uncalculatedImports.length > 0
-                      ? `Files: ${calculationStatus.outsideSelection.uncalculatedImports
+                    {pendingOutsideSelection.uncalculatedImports.length > 0
+                      ? `Files: ${pendingOutsideSelection.uncalculatedImports
                           .map((item) => item.name)
                           .join(", ")}. `
                       : ""}
-                    {calculationStatus.outsideSelection.changedSourceTypes.length > 0
-                      ? `Sources: ${calculationStatus.outsideSelection.changedSourceTypes
+                    {pendingOutsideSelection.changedSourceTypes.length > 0
+                      ? `Sources: ${pendingOutsideSelection.changedSourceTypes
                           .map(getCalculationSourceLabel)
                           .join(", ")}. `
                       : ""}
-                    {calculationStatus.outsideSelection.dependencyChanges.length > 0
-                      ? `Dependencies changed: ${calculationStatus.outsideSelection.dependencyChanges
+                    {pendingOutsideSelection.dependencyChanges.length > 0
+                      ? `Dependencies changed: ${pendingOutsideSelection.dependencyChanges
                           .map((value) => value.replaceAll("_", " "))
                           .join(", ")}.`
                       : ""}
