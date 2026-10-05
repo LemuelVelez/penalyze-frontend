@@ -2021,62 +2021,90 @@ export default function AttendancePage() {
       );
 
       let savedSourceRecords = 0;
-      await Promise.all(
-        sourceRecords.map(async (record) => {
-          const payload: ManualAttendanceInput = {
-            schoolYearId:
-              finalResultForm.schoolYearId ||
-              record.school_year_id ||
-              undefined,
-            eventId: record.event_id ?? undefined,
-            eventName:
-              "event_name" in record
-                ? (record.event_name ?? undefined)
-                : undefined,
-            scannedAt:
-              finalResultForm.latestScannedAt || record.scanned_at || undefined,
-            studentId: finalResultForm.studentId.trim(),
-            name: finalResultForm.name.trim(),
-            yearLevel: finalResultForm.yearLevel.trim(),
-            college: finalResultForm.college.trim(),
-            program: finalResultForm.program.trim(),
-            institution: finalResultForm.institution.trim(),
-            noOfAbsences: totalAbsences,
-            remarks:
-              finalResultForm.remarks.trim() || record.remarks || undefined,
-            attendanceType:
-              "attendance_type" in record ? record.attendance_type : undefined,
-          };
 
-          await updateAttendanceRecord(record.id, payload);
-          savedSourceRecords += 1;
-          completedWorkUnits += 1;
+      // Save one source row at a time. Each attendance update can refresh derived
+      // attendance data and touch the same student rows, so firing every PATCH in
+      // parallel can create database lock contention and leave the final request
+      // waiting indefinitely. Sequential writes keep the progress truthful and
+      // ensure each transaction finishes before the next one starts.
+      for (const [recordIndex, record] of sourceRecords.entries()) {
+        const currentRecordNumber = recordIndex + 1;
+        const recordLabel =
+          "event_name" in record && record.event_name
+            ? record.event_name
+            : `source record ${currentRecordNumber}`;
 
-          setFinalResultSaveProgress((current) =>
-            current
-              ? {
-                  ...current,
-                  progress: getSaveProgress(),
-                  detail: `Saved ${savedSourceRecords} of ${sourceRecords.length} source record${
-                    sourceRecords.length === 1 ? "" : "s"
-                  }.`,
-                  steps: current.steps.map((step) =>
-                    step.label === "Save source rows"
-                      ? {
-                          ...step,
-                          status:
-                            savedSourceRecords === sourceRecords.length
-                              ? "done"
-                              : "loading",
-                          detail: `${savedSourceRecords} of ${sourceRecords.length} saved`,
-                        }
-                      : step,
-                  ),
-                }
-              : current,
-          );
-        }),
-      );
+        setFinalResultSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                detail: `Saving ${currentRecordNumber} of ${sourceRecords.length}: ${recordLabel}.`,
+                steps: current.steps.map((step) =>
+                  step.label === "Save source rows"
+                    ? {
+                        ...step,
+                        status: "loading",
+                        detail: `${savedSourceRecords} of ${sourceRecords.length} saved • saving ${currentRecordNumber}`,
+                      }
+                    : step,
+                ),
+              }
+            : current,
+        );
+
+        const payload: ManualAttendanceInput = {
+          schoolYearId:
+            finalResultForm.schoolYearId ||
+            record.school_year_id ||
+            undefined,
+          eventId: record.event_id ?? undefined,
+          eventName:
+            "event_name" in record
+              ? (record.event_name ?? undefined)
+              : undefined,
+          scannedAt:
+            finalResultForm.latestScannedAt || record.scanned_at || undefined,
+          studentId: finalResultForm.studentId.trim(),
+          name: finalResultForm.name.trim(),
+          yearLevel: finalResultForm.yearLevel.trim(),
+          college: finalResultForm.college.trim(),
+          program: finalResultForm.program.trim(),
+          institution: finalResultForm.institution.trim(),
+          noOfAbsences: totalAbsences,
+          remarks:
+            finalResultForm.remarks.trim() || record.remarks || undefined,
+          attendanceType:
+            "attendance_type" in record ? record.attendance_type : undefined,
+        };
+
+        await updateAttendanceRecord(record.id, payload);
+        savedSourceRecords += 1;
+        completedWorkUnits += 1;
+
+        setFinalResultSaveProgress((current) =>
+          current
+            ? {
+                ...current,
+                progress: getSaveProgress(),
+                detail: `Saved ${savedSourceRecords} of ${sourceRecords.length} source record${
+                  sourceRecords.length === 1 ? "" : "s"
+                }.`,
+                steps: current.steps.map((step) =>
+                  step.label === "Save source rows"
+                    ? {
+                        ...step,
+                        status:
+                          savedSourceRecords === sourceRecords.length
+                            ? "done"
+                            : "loading",
+                        detail: `${savedSourceRecords} of ${sourceRecords.length} saved`,
+                      }
+                    : step,
+                ),
+              }
+            : current,
+        );
+      }
 
       setFinalResultSaveProgress((current) =>
         current
