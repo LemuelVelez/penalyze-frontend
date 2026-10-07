@@ -3277,13 +3277,10 @@ function AttendanceRequestDialog(props: {
     >,
     value: string,
   ) => void;
-  onSchoolYearChange: (schoolYearId: string) => void;
   onToggleEvent: (eventId: string, selected: boolean) => void;
   onEvidenceChange: (eventId: string, value: string) => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
-  const programOptions = getStudentProgramOptions(props.form.college);
-  const selectableSchoolYears = props.schoolYears;
   const excludedEventIds = new Set(props.excludedEventIds);
   const availableEvents = props.events.filter(
     (event) =>
@@ -3293,6 +3290,10 @@ function AttendanceRequestDialog(props: {
         props.form.college,
         props.form.yearLevel,
       ),
+  );
+  const schoolYearLabel = getSchoolYearLabel(
+    props.schoolYears,
+    props.form.schoolYearId,
   );
 
   return (
@@ -3304,7 +3305,8 @@ function AttendanceRequestDialog(props: {
         <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Request Event Attendance Review</DialogTitle>
           <DialogDescription>
-            Select attended events and provide public evidence links for officer review.
+            Student ID {props.form.studentId || "—"} · {schoolYearLabel}. Select
+            attended events and provide public evidence links for officer review.
           </DialogDescription>
         </DialogHeader>
 
@@ -3312,6 +3314,9 @@ function AttendanceRequestDialog(props: {
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
             <p>
               Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
+            </p>
+            <p className="mt-3">
+              To change your name, year level, college or program, use Request Details Correction instead.
             </p>
             <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
               Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
@@ -3323,191 +3328,6 @@ function AttendanceRequestDialog(props: {
               {props.error}
             </div>
           ) : null}
-
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
-            <label className="space-y-2 text-sm font-bold">
-              <span>Student ID</span>
-              <Input
-                value={props.form.studentId}
-                onChange={(event) =>
-                  props.onFieldChange("studentId", event.target.value)
-                }
-                placeholder="Student ID"
-                className={textInputClassName}
-              />
-            </label>
-
-            <label className="space-y-2 text-sm font-bold">
-              <span>Name</span>
-              <Input
-                value={props.form.name}
-                onChange={(event) =>
-                  props.onFieldChange("name", event.target.value)
-                }
-                placeholder="Full name"
-                className={textInputClassName}
-              />
-            </label>
-
-            <div className="min-w-0 space-y-2 text-sm font-bold sm:col-span-2">
-              <span>School Year / Semester</span>
-              <Select
-                value={props.form.schoolYearId}
-                onValueChange={props.onSchoolYearChange}
-              >
-                <SelectTrigger className="min-h-12 w-full rounded-2xl border bg-background px-4 text-left text-base font-semibold">
-                  <SelectValue placeholder="Select school year / semester" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {selectableSchoolYears.map((schoolYear) => (
-                    <SelectItem key={schoolYear.id} value={schoolYear.id}>
-                      {getSchoolYearLabel(props.schoolYears, schoolYear.id)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>Year Level</span>
-              <Select
-                value={props.form.yearLevel}
-                onValueChange={(value) =>
-                  props.onFieldChange("yearLevel", value)
-                }
-              >
-                <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select year level" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
-                  {renderCurrentStudentSelectOption(
-                    QR_CODE_YEAR_LEVEL_OPTIONS,
-                    props.form.yearLevel,
-                  )}
-                  {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
-                    <SelectItem key={yearLevel} value={yearLevel}>
-                      {yearLevel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={props.form.yearLevel}
-                onChange={(event) =>
-                  props.onFieldChange("yearLevel", event.target.value)
-                }
-                placeholder="Type custom year level if not listed"
-                className={customSelectInputClassName}
-              />
-            </div>
-
-            <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>College</span>
-              <Select
-                value={props.form.college}
-                onValueChange={(value) => props.onFieldChange("college", value)}
-              >
-                <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select college" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
-                  {renderCurrentStudentSelectOption(
-                    QR_CODE_COLLEGE_OPTIONS,
-                    props.form.college,
-                  )}
-                  {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                    <SelectItem key={college} value={college}>
-                      {college}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={props.form.college}
-                onChange={(event) =>
-                  props.onFieldChange("college", event.target.value)
-                }
-                placeholder="Type custom college if not listed"
-                className={customSelectInputClassName}
-              />
-            </div>
-
-            <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>Program</span>
-              <Select
-                value={props.form.program}
-                onValueChange={(value) => props.onFieldChange("program", value)}
-                disabled={!props.form.college}
-              >
-                <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue
-                    placeholder={
-                      props.form.college
-                        ? "Select program"
-                        : "Select college first"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
-                  {renderCurrentStudentSelectOption(
-                    programOptions,
-                    props.form.program,
-                  )}
-                  {programOptions.map((program) => (
-                    <SelectItem key={program} value={program}>
-                      {program}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={props.form.program}
-                onChange={(event) =>
-                  props.onFieldChange("program", event.target.value)
-                }
-                placeholder={
-                  props.form.college
-                    ? "Type custom program if not listed"
-                    : "Select college before typing program"
-                }
-                disabled={!props.form.college}
-                className={customSelectInputClassName}
-              />
-            </div>
-
-            <div className="min-w-0 space-y-2 text-sm font-bold">
-              <span>Institution</span>
-              <Select
-                value={props.form.institution}
-                onValueChange={(value) =>
-                  props.onFieldChange("institution", value)
-                }
-              >
-                <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="Select institution" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
-                  {renderCurrentStudentSelectOption(
-                    QR_CODE_INSTITUTION_OPTIONS,
-                    props.form.institution,
-                  )}
-                  {QR_CODE_INSTITUTION_OPTIONS.map((institution) => (
-                    <SelectItem key={institution} value={institution}>
-                      {institution}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={props.form.institution}
-                onChange={(event) =>
-                  props.onFieldChange("institution", event.target.value)
-                }
-                placeholder="Type custom institution if not listed"
-                className={customSelectInputClassName}
-              />
-            </div>
-          </div>
 
           <label className="block space-y-2 text-sm font-bold">
             <span>Request note (optional)</span>
@@ -4370,7 +4190,7 @@ export default function LandingPage() {
   }
 
   function handleLookupAttendanceRequestReview() {
-    const profile = displayedAttendance[0] ?? lookup?.attendance[0];
+    const attendanceProfile = displayedAttendance[0] ?? lookup?.attendance[0];
     const schoolYearId =
       resultYearFilter && resultYearFilter !== ALL_YEARS_VALUE
         ? resultYearFilter
@@ -4380,11 +4200,21 @@ export default function LandingPage() {
       {
         studentId: searchedId,
         schoolYearId,
-        name: profile?.name || studentDisplayName || "",
-        yearLevel: profile?.year_level || "",
-        college: profile?.college || "",
-        program: profile?.program || "",
-        institution: profile?.institution || DEFAULT_STUDENT_INSTITUTION,
+        name:
+          displayedFinalResult?.name ||
+          attendanceProfile?.name ||
+          studentDisplayName ||
+          "",
+        yearLevel:
+          displayedFinalResult?.year_level || attendanceProfile?.year_level || "",
+        college:
+          displayedFinalResult?.college || attendanceProfile?.college || "",
+        program:
+          displayedFinalResult?.program || attendanceProfile?.program || "",
+        institution:
+          displayedFinalResult?.institution ||
+          attendanceProfile?.institution ||
+          DEFAULT_STUDENT_INSTITUTION,
       },
       getExcludedAttendanceRequestEventIds(schoolYearId),
     );
@@ -4548,19 +4378,7 @@ export default function LandingPage() {
     }));
   }
 
-  function handleAttendanceRequestSchoolYearChange(schoolYearId: string) {
-    setAttendanceRequestError("");
-    setAttendanceRequestForm((current) => ({
-      ...current,
-      schoolYearId,
-      selectedEventIds: [],
-      evidenceByEvent: {},
-    }));
-    setAttendanceRequestExcludedEventIds(
-      getExcludedAttendanceRequestEventIds(schoolYearId),
-    );
-    void loadAttendanceRequestEvents(schoolYearId);
-  }
+
 
   function handleAttendanceRequestEventToggle(
     eventId: string,
@@ -4605,10 +4423,6 @@ export default function LandingPage() {
 
     if (!studentIdValue) {
       setAttendanceRequestError("Student ID is required.");
-      return;
-    }
-    if (!name) {
-      setAttendanceRequestError("Name is required.");
       return;
     }
     if (!schoolYearId) {
@@ -5728,7 +5542,6 @@ export default function LandingPage() {
         isSaving={isSavingAttendanceRequest}
         isLoadingEvents={isLoadingAttendanceRequestEvents}
         onFieldChange={handleAttendanceRequestFieldChange}
-        onSchoolYearChange={handleAttendanceRequestSchoolYearChange}
         onToggleEvent={handleAttendanceRequestEventToggle}
         onEvidenceChange={handleAttendanceRequestEvidenceChange}
         onSubmit={handleAttendanceRequestSubmit}

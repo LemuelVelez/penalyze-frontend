@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
 
@@ -8,11 +8,13 @@ import {
   listAllAttendanceRecords,
   listAllManualAttendanceRecords,
   listAttendanceEvents,
+  listAttendanceFinalResults,
   saveManualAttendanceRecord,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
   AttendanceEvent,
+  AttendanceFinalResultRecord,
   AttendanceRecord,
   ManualAttendanceInput,
   ManualAttendanceRecord,
@@ -96,6 +98,25 @@ type ManualAttendanceSaveProgress = ManualPageLoadProgress & {
   title: string;
 };
 
+
+type CalculatedEventDetail = NonNullable<
+  AttendanceFinalResultRecord["event_details"]
+>[number];
+
+type StudentCalculatedEventsEntry = {
+  finalResult: AttendanceFinalResultRecord | null;
+  attendedEvents: CalculatedEventDetail[];
+};
+
+type CombinedAttendedEvent = {
+  id: string;
+  name: string;
+  event_order: number | null;
+  scanned_at: string | null;
+  remarks: string | null;
+  source: "Uploaded" | "Manual";
+};
+
 const DEFAULT_STUDENT_INSTITUTION =
   "Jose Rizal Memorial State University - Tampilisan Campus";
 const ZERO_ATTENDANCE_REMARK =
@@ -165,6 +186,150 @@ function normalizeStudentId(value: unknown) {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+
+function getStudentCalculatedEventsCacheKey(
+  studentId: unknown,
+  schoolYearId: unknown,
+) {
+  const normalizedStudentId = normalizeStudentId(studentId);
+  const normalizedSchoolYearId = String(schoolYearId ?? "").trim();
+
+  return normalizedStudentId && normalizedSchoolYearId
+    ? `${normalizedStudentId}|${normalizedSchoolYearId}`
+    : "";
+}
+
+function useStudentCalculatedEvents(studentId: string, schoolYearId: string) {
+  const cacheRef = useRef(new Map<string, StudentCalculatedEventsEntry>());
+  const errorsRef = useRef(new Map<string, string>());
+  const loadingKeysRef = useRef(new Set<string>());
+  const inFlightRef = useRef(
+    new Map<string, Promise<StudentCalculatedEventsEntry | null>>(),
+  );
+  const [, setCacheVersion] = useState(0);
+
+  const refresh = useCallback(() => {
+    setCacheVersion((version) => version + 1);
+  }, []);
+
+  const getCached = useCallback(
+    (targetStudentId: string, targetSchoolYearId: string) => {
+      const key = getStudentCalculatedEventsCacheKey(
+        targetStudentId,
+        targetSchoolYearId,
+      );
+      return key ? cacheRef.current.get(key) : undefined;
+    },
+    [],
+  );
+
+  const getError = useCallback(
+    (targetStudentId: string, targetSchoolYearId: string) => {
+      const key = getStudentCalculatedEventsCacheKey(
+        targetStudentId,
+        targetSchoolYearId,
+      );
+      return key ? errorsRef.current.get(key) ?? "" : "";
+    },
+    [],
+  );
+
+  const isLoading = useCallback(
+    (targetStudentId: string, targetSchoolYearId: string) => {
+      const key = getStudentCalculatedEventsCacheKey(
+        targetStudentId,
+        targetSchoolYearId,
+      );
+      return Boolean(key && loadingKeysRef.current.has(key));
+    },
+    [],
+  );
+
+  const load = useCallback(
+    async (
+      targetStudentId = studentId,
+      targetSchoolYearId = schoolYearId,
+    ): Promise<StudentCalculatedEventsEntry | null> => {
+      const normalizedStudentId = normalizeStudentId(targetStudentId);
+      const normalizedSchoolYearId = String(targetSchoolYearId ?? "").trim();
+      const key = getStudentCalculatedEventsCacheKey(
+        normalizedStudentId,
+        normalizedSchoolYearId,
+      );
+
+      if (!key) return null;
+
+      const cached = cacheRef.current.get(key);
+      if (cached) return cached;
+
+      const inFlight = inFlightRef.current.get(key);
+      if (inFlight) return inFlight;
+
+      const request = (async () => {
+        loadingKeysRef.current.add(key);
+        errorsRef.current.delete(key);
+        refresh();
+
+        try {
+          const results = await listAttendanceFinalResults({
+            studentId: normalizedStudentId,
+            schoolYearId: normalizedSchoolYearId,
+            includeEventDetails: true,
+          });
+          const finalResult =
+            results.find(
+              (result) =>
+                normalizeStudentId(result.student_id) === normalizedStudentId &&
+                result.school_year_id === normalizedSchoolYearId,
+            ) ?? null;
+          const entry: StudentCalculatedEventsEntry = {
+            finalResult,
+            attendedEvents: (finalResult?.event_details ?? []).filter(
+              (event) => event.attended === true,
+            ),
+          };
+
+          cacheRef.current.set(key, entry);
+          return entry;
+        } catch (error) {
+          errorsRef.current.set(
+            key,
+            error instanceof Error
+              ? error.message
+              : "Unable to load calculated attendance events.",
+          );
+          return null;
+        } finally {
+          loadingKeysRef.current.delete(key);
+          inFlightRef.current.delete(key);
+          refresh();
+        }
+      })();
+
+      inFlightRef.current.set(key, request);
+      return request;
+    },
+    [refresh, schoolYearId, studentId],
+  );
+
+  const invalidate = useCallback(
+    (targetStudentId: string, targetSchoolYearId: string) => {
+      const key = getStudentCalculatedEventsCacheKey(
+        targetStudentId,
+        targetSchoolYearId,
+      );
+      if (!key) return;
+
+      cacheRef.current.delete(key);
+      errorsRef.current.delete(key);
+      refresh();
+    },
+    [refresh],
+  );
+
+  return { getCached, getError, isLoading, load, invalidate };
 }
 
 function normalizeManualValue(value: unknown) {
@@ -408,6 +573,70 @@ function getSelectedEventRecords(
   );
 }
 
+function getManualGroupSchoolYearId(group: ManualAttendanceStudentGroup) {
+  return String(
+    getLatestRecord(group.records)?.school_year_id ??
+      group.records.find((record) => record.school_year_id)?.school_year_id ??
+      "",
+  ).trim();
+}
+
+function mergeCalculatedAndManualEvents(
+  calculatedEntry: StudentCalculatedEventsEntry | undefined,
+  manualRecords: ManualAttendanceRecord[],
+) {
+  const combined = new Map<string, CombinedAttendedEvent>();
+  const uniqueManualRecords = getUniqueManualEventRecords(manualRecords);
+  const manualEventIds = new Set(
+    uniqueManualRecords
+      .map((record) => String(record.event_id ?? "").trim())
+      .filter(Boolean),
+  );
+
+  calculatedEntry?.attendedEvents.forEach((event) => {
+    combined.set(`event-id:${event.id}`, {
+      id: event.id,
+      name: event.name || `Event ${event.id}`,
+      event_order: event.event_order,
+      scanned_at: event.scanned_at,
+      remarks: event.remarks,
+      source:
+        event.source === "Manual" ||
+        (event.source === null && manualEventIds.has(event.id))
+          ? "Manual"
+          : "Uploaded",
+    });
+  });
+
+  uniqueManualRecords.forEach((record) => {
+    const eventId = String(record.event_id ?? "").trim();
+    const key = eventId ? `event-id:${eventId}` : `manual-record:${record.id}`;
+    const existing = combined.get(key);
+
+    if (existing) {
+      if (existing.source === "Manual") {
+        combined.set(key, {
+          ...existing,
+          scanned_at: record.scanned_at ?? record.created_at ?? existing.scanned_at,
+          remarks: record.remarks ?? existing.remarks,
+        });
+      }
+      return;
+    }
+
+    combined.set(key, {
+      id: eventId || record.id,
+      name: getRecordEventLabel(record),
+      event_order: record.event_order ?? null,
+      scanned_at: record.scanned_at ?? record.created_at ?? null,
+      remarks: record.remarks ?? null,
+      source: "Manual",
+    });
+  });
+
+  return sortByBackendEventOrder(Array.from(combined.values()));
+}
+
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
@@ -480,6 +709,10 @@ export default function ManualAttendancePage() {
     useState<ManualAttendanceStudentGroup | null>(null);
   const [selectedRecordsDialogOpen, setSelectedRecordsDialogOpen] = useState(false);
   const [manualUpdateConfirmOpen, setManualUpdateConfirmOpen] = useState(false);
+  const calculatedAttendance = useStudentCalculatedEvents(
+    form.studentId,
+    form.schoolYearId,
+  );
 
   const studentGroups = useMemo(
     () => mergeManualAttendanceByStudent(records),
@@ -625,6 +858,60 @@ export default function ManualAttendancePage() {
       form.schoolYearId || selectedSchoolYearId,
     );
   }, [schoolYears, form.schoolYearId, selectedSchoolYearId]);
+  const formCalculatedEntry = calculatedAttendance.getCached(
+    form.studentId,
+    form.schoolYearId,
+  );
+  const uploadedCalculatedEvents = useMemo(
+    () =>
+      (formCalculatedEntry?.attendedEvents ?? []).filter(
+        (event) => event.source === "Uploaded",
+      ),
+    [formCalculatedEntry],
+  );
+  const uploadedEventIds = useMemo(
+    () => new Set(uploadedCalculatedEvents.map((event) => event.id)),
+    [uploadedCalculatedEvents],
+  );
+  const eventsDialogSchoolYearId = eventsDialogGroup
+    ? getManualGroupSchoolYearId(eventsDialogGroup)
+    : "";
+  const eventsDialogCalculatedEntry = eventsDialogGroup
+    ? calculatedAttendance.getCached(
+        eventsDialogGroup.studentId,
+        eventsDialogSchoolYearId,
+      )
+    : undefined;
+  const eventsDialogCombinedEvents = eventsDialogGroup
+    ? mergeCalculatedAndManualEvents(
+        eventsDialogCalculatedEntry,
+        eventsDialogGroup.events,
+      )
+    : [];
+  const eventsDialogIsLoading = eventsDialogGroup
+    ? calculatedAttendance.isLoading(
+        eventsDialogGroup.studentId,
+        eventsDialogSchoolYearId,
+      )
+    : false;
+  const eventsDialogError = eventsDialogGroup
+    ? calculatedAttendance.getError(
+        eventsDialogGroup.studentId,
+        eventsDialogSchoolYearId,
+      )
+    : "";
+
+  function getGroupCombinedEventCount(group: ManualAttendanceStudentGroup) {
+    const schoolYearId = getManualGroupSchoolYearId(group);
+    const calculatedEntry = calculatedAttendance.getCached(
+      group.studentId,
+      schoolYearId,
+    );
+
+    return calculatedEntry
+      ? mergeCalculatedAndManualEvents(calculatedEntry, group.events).length
+      : group.events.length;
+  }
 
   function updatePageLoadStep(
     label: string,
@@ -854,6 +1141,42 @@ export default function ManualAttendancePage() {
     void loadPageData();
   }, []);
 
+  useEffect(() => {
+    if (
+      !manualAttendanceDialogOpen ||
+      editingGroupKey ||
+      !normalizeStudentId(form.studentId) ||
+      !form.schoolYearId
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void calculatedAttendance.load();
+    }, 400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    calculatedAttendance.load,
+    editingGroupKey,
+    form.schoolYearId,
+    form.studentId,
+    manualAttendanceDialogOpen,
+  ]);
+
+  useEffect(() => {
+    if (!uploadedEventIds.size) return;
+
+    setForm((current) => {
+      const eventIds = current.eventIds.filter(
+        (eventId) => !uploadedEventIds.has(eventId),
+      );
+      return eventIds.length === current.eventIds.length
+        ? current
+        : { ...current, eventIds };
+    });
+  }, [uploadedEventIds]);
+
   function handleFieldChange(
     field: Exclude<keyof ManualAttendanceFormState, "eventIds">,
     value: string,
@@ -889,6 +1212,8 @@ export default function ManualAttendancePage() {
   }
 
   function handleEventToggle(eventId: string) {
+    if (uploadedEventIds.has(eventId)) return;
+
     setForm((current) => {
       const isSelected = current.eventIds.includes(eventId);
 
@@ -961,12 +1286,13 @@ export default function ManualAttendancePage() {
     setSaveProgress(null);
     const latestRecord = getLatestRecord(group.records);
     const eventById = new Map(events.map((event) => [event.id, event]));
+    const schoolYearId =
+      latestRecord?.school_year_id ||
+      (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId);
 
     setEditingGroupKey(group.key);
     setForm({
-      schoolYearId:
-        latestRecord?.school_year_id ||
-        (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId),
+      schoolYearId,
       eventIds: Array.from(
         new Set(
           group.events
@@ -996,6 +1322,17 @@ export default function ManualAttendancePage() {
       remarks: group.remarks,
     });
     setManualAttendanceDialogOpen(true);
+    if (schoolYearId) {
+      void calculatedAttendance.load(group.studentId, schoolYearId);
+    }
+  }
+
+  function handleOpenEventsDialog(group: ManualAttendanceStudentGroup) {
+    setEventsDialogGroup(group);
+    const schoolYearId = getManualGroupSchoolYearId(group);
+    if (schoolYearId) {
+      void calculatedAttendance.load(group.studentId, schoolYearId);
+    }
   }
 
   function handleDialogOpenChange(open: boolean) {
@@ -1034,8 +1371,16 @@ export default function ManualAttendancePage() {
     };
   }
 
-  function getEditingDeletePlan() {
-    const selectedEventIds = Array.from(new Set(form.eventIds));
+  function getEditingDeletePlan(
+    blockedUploadedEventIds: ReadonlySet<string> = uploadedEventIds,
+  ) {
+    const selectedEventIds = Array.from(
+      new Set(
+        form.eventIds.filter(
+          (eventId) => !blockedUploadedEventIds.has(eventId),
+        ),
+      ),
+    );
     const editingGroup = editingGroupKey
       ? studentGroups.find((group) => group.key === editingGroupKey)
       : null;
@@ -1066,12 +1411,14 @@ export default function ManualAttendancePage() {
     return { selectedEventIds, editingGroup, existingByEventId, recordsToDelete };
   }
 
-  async function saveManualAttendance() {
+  async function saveManualAttendance(
+    blockedUploadedEventIds: ReadonlySet<string> = uploadedEventIds,
+  ) {
     setIsSaving(true);
     setManualUpdateConfirmOpen(false);
 
     const { selectedEventIds, editingGroup, existingByEventId, recordsToDelete } =
-      getEditingDeletePlan();
+      getEditingDeletePlan(blockedUploadedEventIds);
     const saveOperationCount = Math.max(1, selectedEventIds.length);
     const totalWorkUnits = 2 + recordsToDelete.length + saveOperationCount;
     let completedWorkUnits = 1;
@@ -1203,6 +1550,8 @@ export default function ManualAttendancePage() {
         await saveOne(undefined);
       }
 
+      calculatedAttendance.invalidate(form.studentId, form.schoolYearId);
+
       setSaveProgress((current) =>
         current
           ? {
@@ -1291,13 +1640,39 @@ export default function ManualAttendancePage() {
       return;
     }
 
-    const { recordsToDelete } = getEditingDeletePlan();
+    const calculatedEntry = await calculatedAttendance.load();
+    const calculatedError = calculatedAttendance.getError(
+      form.studentId,
+      form.schoolYearId,
+    );
+    if (calculatedError) {
+      toast.error(
+        "Unable to verify calculated attendance. Refresh and try again before saving manual attendance.",
+      );
+      return;
+    }
+
+    const blockedUploadedEventIds = new Set(
+      (calculatedEntry?.attendedEvents ?? [])
+        .filter((eventItem) => eventItem.source === "Uploaded")
+        .map((eventItem) => eventItem.id),
+    );
+    if (blockedUploadedEventIds.size) {
+      setForm((current) => ({
+        ...current,
+        eventIds: current.eventIds.filter(
+          (eventId) => !blockedUploadedEventIds.has(eventId),
+        ),
+      }));
+    }
+
+    const { recordsToDelete } = getEditingDeletePlan(blockedUploadedEventIds);
     if (recordsToDelete.length) {
       setManualUpdateConfirmOpen(true);
       return;
     }
 
-    await saveManualAttendance();
+    await saveManualAttendance(blockedUploadedEventIds);
   }
 
   async function handleDeleteGroup(group: ManualAttendanceStudentGroup) {
@@ -1311,6 +1686,10 @@ export default function ManualAttendancePage() {
         current.filter(
           (recordId) => !getManualGroupRecordIds(group).includes(recordId),
         ),
+      );
+      calculatedAttendance.invalidate(
+        group.studentId,
+        getManualGroupSchoolYearId(group),
       );
       await loadPageData(selectedSchoolYearId);
       toast.success("Manual attendance deleted.");
@@ -1327,6 +1706,10 @@ export default function ManualAttendancePage() {
 
   async function handleDeleteSelectedManualRecords() {
     const recordIds = Array.from(new Set(selectedManualRecordIds));
+    const recordIdSet = new Set(recordIds);
+    const affectedGroups = studentGroups.filter((group) =>
+      group.records.some((record) => recordIdSet.has(record.id)),
+    );
 
     if (!recordIds.length) {
       toast.error("Select at least one manual attendance record.");
@@ -1338,6 +1721,12 @@ export default function ManualAttendancePage() {
     try {
       const result = await deleteManualAttendanceRecordsByIds(recordIds);
 
+      affectedGroups.forEach((group) =>
+        calculatedAttendance.invalidate(
+          group.studentId,
+          getManualGroupSchoolYearId(group),
+        ),
+      );
       await loadPageData(selectedSchoolYearId);
       toast.success(
         `${result.deletedCount.toLocaleString()} manual attendance record/s deleted.`,
@@ -1365,6 +1754,13 @@ export default function ManualAttendancePage() {
 
     try {
       const result = await deleteManualAttendanceRecordsByIds(recordIds);
+
+      filteredGroups.forEach((group) =>
+        calculatedAttendance.invalidate(
+          group.studentId,
+          getManualGroupSchoolYearId(group),
+        ),
+      );
 
       await loadPageData(selectedSchoolYearId);
       toast.success(
@@ -1547,6 +1943,11 @@ export default function ManualAttendancePage() {
                   onChange={(event) =>
                     handleFieldChange("studentId", event.target.value)
                   }
+                  onBlur={() => {
+                    if (normalizeStudentId(form.studentId) && form.schoolYearId) {
+                      void calculatedAttendance.load();
+                    }
+                  }}
                   placeholder="Student ID"
                   className="min-h-12 rounded-2xl"
                 />
@@ -1722,7 +2123,7 @@ export default function ManualAttendancePage() {
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <span className="text-sm font-bold">Events attended</span>
                   <span className="text-xs font-bold text-muted-foreground">
-                    {form.eventIds.length} selected
+                    {form.eventIds.length} manual + {uploadedCalculatedEvents.length} from upload
                   </span>
                 </div>
                 {editingExemptedEventRecords.length ? (
@@ -1749,17 +2150,27 @@ export default function ManualAttendancePage() {
                 <div className="grid max-h-80 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2">
                   {availableEvents.length ? (
                     availableEvents.map((eventItem) => {
-                      const isSelected = form.eventIds.includes(eventItem.id);
+                      const isUploaded = uploadedEventIds.has(eventItem.id);
+                      const isSelected =
+                        isUploaded || form.eventIds.includes(eventItem.id);
 
                       return (
                         <Button
                           key={eventItem.id}
                           type="button"
                           variant={isSelected ? "default" : "outline"}
+                          disabled={isUploaded}
                           onClick={() => handleEventToggle(eventItem.id)}
                           className="h-auto min-h-12 justify-start whitespace-normal rounded-2xl px-4 py-3 text-left text-sm font-bold"
                         >
-                          {getEventLabel(eventItem)}
+                          <span className="flex w-full flex-wrap items-center gap-2">
+                            <span>{getEventLabel(eventItem)}</span>
+                            {isUploaded ? (
+                              <span className="rounded-full border border-current px-2 py-0.5 text-[10px] font-black uppercase tracking-wide">
+                                Already recorded (upload)
+                              </span>
+                            ) : null}
+                          </span>
                         </Button>
                       );
                     })
@@ -1893,43 +2304,75 @@ export default function ManualAttendancePage() {
                 {eventsDialogGroup?.name || eventsDialogGroup?.studentId}
               </DialogTitle>
               <DialogDescription>
-                Review the manual attendance events recorded for this student.
+                Review calculated uploaded attendance together with manual attendance records for this student.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              {eventsDialogGroup?.events.length ? (
-                eventsDialogGroup.events.map((record, index) => (
+              {eventsDialogCalculatedEntry?.finalResult ? (
+                <div className="rounded-2xl border bg-muted/40 px-4 py-3 text-sm font-black">
+                  Attended {eventsDialogCalculatedEntry.finalResult.attended_events.toLocaleString()} of {eventsDialogCalculatedEntry.finalResult.expected_events.toLocaleString()} expected
+                </div>
+              ) : null}
+
+              {eventsDialogIsLoading ? (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  Loading calculated attendance events...
+                </div>
+              ) : null}
+
+              {eventsDialogError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                  {eventsDialogError}
+                </div>
+              ) : null}
+
+              {!eventsDialogIsLoading &&
+              !eventsDialogError &&
+              eventsDialogCalculatedEntry &&
+              !eventsDialogCalculatedEntry.finalResult ? (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                  Not calculated yet. Showing manual records only. Run Calculate to include uploaded attendance.
+                </div>
+              ) : null}
+
+              {!eventsDialogIsLoading && eventsDialogCombinedEvents.length ? (
+                eventsDialogCombinedEvents.map((eventItem, index) => (
                   <article
-                    key={record.id}
+                    key={`${eventItem.source}:${eventItem.id}`}
                     className="rounded-2xl border bg-background p-4"
                   >
                     <div className="flex gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-black">
                         {index + 1}
                       </span>
-                      <div>
-                        <p className="font-black">
-                          {getRecordEventLabel(record)}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {formatDateTime(
-                            record.scanned_at ?? record.created_at,
-                          )}
-                        </p>
-                        {record.remarks ? (
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {record.remarks}
-                          </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-black">{eventItem.name}</p>
+                          <span className="rounded-full border bg-muted px-2.5 py-1 text-[10px] font-black uppercase tracking-wide">
+                            {eventItem.source}
+                          </span>
+                        </div>
+                        {eventItem.source === "Manual" ? (
+                          <>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {formatDateTime(eventItem.scanned_at)}
+                            </p>
+                            {eventItem.remarks ? (
+                              <p className="mt-2 break-words text-sm text-muted-foreground">
+                                {eventItem.remarks}
+                              </p>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                     </div>
                   </article>
                 ))
-              ) : (
+              ) : !eventsDialogIsLoading ? (
                 <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                   No attended events selected.
                 </div>
-              )}
+              ) : null}
             </div>
           </DialogContent>
         </Dialog>
@@ -2045,10 +2488,10 @@ export default function ManualAttendancePage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setEventsDialogGroup(group)}
+                      onClick={() => handleOpenEventsDialog(group)}
                       className="min-h-11 rounded-xl px-3 text-xs font-black"
                     >
-                      Events ({group.events.length})
+                      Events ({getGroupCombinedEventCount(group)})
                     </Button>
                   </div>
 
@@ -2122,10 +2565,10 @@ export default function ManualAttendancePage() {
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => setEventsDialogGroup(group)}
+                          onClick={() => handleOpenEventsDialog(group)}
                           className="min-h-10 rounded-xl px-4 py-2 text-xs font-black"
                         >
-                          Events ({group.events.length})
+                          Events ({getGroupCombinedEventCount(group)})
                         </Button>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
