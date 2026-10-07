@@ -141,18 +141,43 @@ export default function LoginPage() {
   return (
     <main className="relative isolate flex min-h-svh items-center justify-center px-4 py-10 text-foreground sm:px-6">
       <PageBackground image={BACKGROUNDS.auth} overlay="medium" />
-      <section className="w-full max-w-md rounded-3xl border bg-card/85 p-6 shadow-xl shadow-black/5 backdrop-blur-xl sm:p-8">
-        <div className="mb-8 text-center">
-          <a href="/" className="inline-flex justify-center">
-            <LogoMark textClassName="text-3xl" />
-          </a>
-          <h1 className="mt-6 text-2xl font-black">SSG Login</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Sign in to manage attendance uploads, fines, penalties, and users.
-          </p>
-        </div>
+      <section className="grid w-full max-w-5xl overflow-hidden rounded-3xl border bg-card/90 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
+        <aside className="relative hidden min-h-[38rem] overflow-hidden md:flex md:flex-col md:justify-end">
+          <img
+            src={BACKGROUNDS.loginPanel}
+            alt=""
+            aria-hidden="true"
+            decoding="async"
+            loading="eager"
+            fetchPriority="high"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/35 to-black/10" />
+          <div className="relative z-10 p-8 text-white lg:p-10">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-white/75">
+              Student services
+            </p>
+            <h2 className="mt-3 max-w-sm text-3xl font-black leading-tight">
+              Attendance, fines, and records in one clear workspace.
+            </h2>
+            <p className="mt-4 max-w-md text-sm leading-6 text-white/80">
+              A focused dashboard for daily SSG operations and student record management.
+            </p>
+          </div>
+        </aside>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="p-6 sm:p-8 md:p-10">
+          <div className="mb-8 text-center md:text-left">
+            <a href="/" className="inline-flex justify-center md:justify-start">
+              <LogoMark textClassName="text-3xl" />
+            </a>
+            <h1 className="mt-6 text-2xl font-black">SSG Login</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Sign in to manage attendance uploads, fines, penalties, and users.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="text-sm font-bold">
               Email
@@ -220,16 +245,17 @@ export default function LoginPage() {
           >
             {isSubmitting ? "Signing in..." : "Sign In"}
           </Button>
-        </form>
+          </form>
 
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => navigateTo("/")}
-          className="mt-5 w-full text-sm font-bold text-muted-foreground hover:text-foreground"
-        >
-          Back to student lookup
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => navigateTo("/")}
+            className="mt-5 w-full text-sm font-bold text-muted-foreground hover:text-foreground"
+          >
+            Back to student lookup
+          </Button>
+        </div>
       </section>
     </main>
   );

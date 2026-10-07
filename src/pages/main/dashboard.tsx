@@ -17,6 +17,7 @@ import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { navigateTo } from "../../components/layout";
+import { BACKGROUNDS } from "../../lib/backgrounds";
 import { Button } from "../../components/ui/button";
 
 const AttendanceTrendChart = lazy(() =>
@@ -70,12 +71,22 @@ function StatCard(props: {
   label: string;
   value: string | number;
   helper: string;
+  image: string;
 }) {
   return (
-    <article className="rounded-3xl border bg-card/90 p-5 shadow-sm backdrop-blur">
+    <article className="relative isolate overflow-hidden rounded-3xl border bg-card/90 p-5 shadow-sm backdrop-blur">
+      <img
+        src={props.image}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        className="absolute inset-0 -z-20 h-full w-full object-cover opacity-55 dark:opacity-35"
+      />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card via-card/92 to-card/55 dark:via-card/95 dark:to-card/75" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
-      <p className="mt-2 text-xs font-semibold text-muted-foreground">
+      <p className="mt-2 max-w-[80%] text-xs font-semibold text-muted-foreground">
         {props.helper}
       </p>
     </article>
@@ -347,21 +358,25 @@ export default function DashboardPage() {
             label="Attendance records"
             value={attendanceRecordCount}
             helper={`${yearLabel} saved entries`}
+            image={BACKGROUNDS.dashboardAttendance}
           />
           <StatCard
             label="Unpaid fines"
             value={fineSummary.unpaid}
             helper={`${yearLabel} needs settlement`}
+            image={BACKGROUNDS.dashboardUnpaid}
           />
           <StatCard
             label="Paid fines"
             value={fineSummary.paid}
             helper={`${yearLabel} settled penalties`}
+            image={BACKGROUNDS.dashboardPaid}
           />
           <StatCard
             label="Waived fines"
             value={fineSummary.waived}
             helper={`${yearLabel} approved waivers`}
+            image={BACKGROUNDS.dashboardWaived}
           />
         </section>
 
