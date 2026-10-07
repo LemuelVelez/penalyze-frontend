@@ -327,6 +327,8 @@ export type AttendanceDashboardOverview = {
   attendanceRecordCount: number;
   recentAttendanceRecords: AttendanceRecord[];
   recentImports: AttendanceImportRecord[];
+  attendanceTrend: Array<{ date: string; count: number }>;
+  attendanceByCollege: Array<{ college: string; count: number }>;
 };
 
 export type AttendanceImportDeleteImpact = {
@@ -913,13 +915,15 @@ export async function getAttendanceDashboardOverview(options: {
     { signal: options.signal },
   );
 
-  return (
-    response.data ?? {
-      attendanceRecordCount: 0,
-      recentAttendanceRecords: [],
-      recentImports: [],
-    }
-  );
+  const data = response.data;
+
+  return {
+    attendanceRecordCount: data?.attendanceRecordCount ?? 0,
+    recentAttendanceRecords: data?.recentAttendanceRecords ?? [],
+    recentImports: data?.recentImports ?? [],
+    attendanceTrend: data?.attendanceTrend ?? [],
+    attendanceByCollege: data?.attendanceByCollege ?? [],
+  };
 }
 
 export async function listAttendanceRecords(options: ListOptions = {}) {

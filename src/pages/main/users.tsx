@@ -262,7 +262,7 @@ export default function UsersPage() {
   }, []);
 
   return (
-    <main className="min-h-svh w-full min-w-0 max-w-full bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-400">
         <div className="mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">

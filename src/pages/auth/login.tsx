@@ -3,6 +3,8 @@ import type { SyntheticEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 import { login } from "../../api/auth";
+import PageBackground from "../../components/page-background";
+import { BACKGROUNDS } from "../../lib/backgrounds";
 import { LogoMark, navigateTo } from "../../components/layout";
 import ThemeToggle from "../../components/theme-toggle";
 import { Button } from "../../components/ui/button";
@@ -128,16 +130,18 @@ export default function LoginPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-muted/40 text-foreground">
+      <main className="relative isolate flex min-h-svh items-center justify-center text-foreground">
+        <PageBackground image={BACKGROUNDS.auth} overlay="medium" />
         <ThemeToggle />
-          <LogoMark textClassName="text-3xl" />
+        <LogoMark textClassName="text-3xl" />
       </main>
     );
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
-      <section className="w-full max-w-md rounded-3xl border bg-card p-6 shadow-xl shadow-black/5 sm:p-8">
+    <main className="relative isolate flex min-h-svh items-center justify-center px-4 py-10 text-foreground sm:px-6">
+      <PageBackground image={BACKGROUNDS.auth} overlay="medium" />
+      <section className="w-full max-w-md rounded-3xl border bg-card/85 p-6 shadow-xl shadow-black/5 backdrop-blur-xl sm:p-8">
         <div className="mb-8 text-center">
           <a href="/" className="inline-flex justify-center">
             <LogoMark textClassName="text-3xl" />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import {
   getAttendanceDashboardOverview,
@@ -16,7 +16,36 @@ import {
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
+import { navigateTo } from "../../components/layout";
 import { Button } from "../../components/ui/button";
+
+const AttendanceTrendChart = lazy(() =>
+  import("../../components/dashboard-charts").then((module) => ({
+    default: module.AttendanceTrendChart,
+  })),
+);
+
+const FineStatusDonutChart = lazy(() =>
+  import("../../components/dashboard-charts").then((module) => ({
+    default: module.FineStatusDonutChart,
+  })),
+);
+
+const RecentImportsQualityChart = lazy(() =>
+  import("../../components/dashboard-charts").then((module) => ({
+    default: module.RecentImportsQualityChart,
+  })),
+);
+
+const AttendanceByCollegeChart = lazy(() =>
+  import("../../components/dashboard-charts").then((module) => ({
+    default: module.AttendanceByCollegeChart,
+  })),
+);
+
+function ChartSuspenseFallback({ heightClass = "h-72" }: { heightClass?: string }) {
+  return <div className={`${heightClass} animate-pulse rounded-2xl bg-muted`} />;
+}
 
 type DashboardLoadProgress = {
   progress: number;
@@ -43,7 +72,7 @@ function StatCard(props: {
   helper: string;
 }) {
   return (
-    <article className="rounded-3xl border bg-card p-5 shadow-sm">
+    <article className="rounded-3xl border bg-card/90 p-5 shadow-sm backdrop-blur">
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
       <p className="mt-2 text-xs font-semibold text-muted-foreground">
@@ -67,6 +96,12 @@ export default function DashboardPage() {
   const [recentRecords, setRecentRecords] = useState<AttendanceRecord[]>([]);
   const [recentImports, setRecentImports] = useState<AttendanceImportRecord[]>([]);
   const [attendanceRecordCount, setAttendanceRecordCount] = useState(0);
+  const [attendanceTrend, setAttendanceTrend] = useState<
+    Array<{ date: string; count: number }>
+  >([]);
+  const [attendanceByCollege, setAttendanceByCollege] = useState<
+    Array<{ college: string; count: number }>
+  >([]);
   const [fineSummary, setFineSummary] = useState<FineSummary>({
     unpaid: 0,
     paid: 0,
@@ -146,6 +181,8 @@ export default function DashboardPage() {
         setRecentRecords([]);
         setRecentImports([]);
         setAttendanceRecordCount(0);
+        setAttendanceTrend([]);
+        setAttendanceByCollege([]);
         setFineSummary({ unpaid: 0, paid: 0, waived: 0 });
         setLoadProgress((current) =>
           current
@@ -187,6 +224,8 @@ export default function DashboardPage() {
         setAttendanceRecordCount(overview.attendanceRecordCount);
         setRecentRecords(overview.recentAttendanceRecords);
         setRecentImports(overview.recentImports);
+        setAttendanceTrend(overview.attendanceTrend);
+        setAttendanceByCollege(overview.attendanceByCollege);
         updateLoadStep(
           "Attendance",
           "done",
@@ -254,7 +293,7 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <main className="min-h-svh bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-svh px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-400">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -326,115 +365,163 @@ export default function DashboardPage() {
           />
         </section>
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+        <section className="mt-6 grid gap-6 lg:grid-cols-3">
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6 lg:col-span-2">
+            <h2 className="text-xl font-black">Attendance trend</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Attendance records from the last 14 days for {yearLabel}.
+            </p>
+            <div className="mt-4">
+              <Suspense fallback={<ChartSuspenseFallback />}>
+                <AttendanceTrendChart data={attendanceTrend} isLoading={isLoading} />
+              </Suspense>
+            </div>
+          </article>
+
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
+            <h2 className="text-xl font-black">Fine status breakdown</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Unpaid, paid, and waived fine records for {yearLabel}.
+            </p>
+            <div className="mt-4">
+              <Suspense fallback={<ChartSuspenseFallback />}>
+                <FineStatusDonutChart fineSummary={fineSummary} isLoading={isLoading} />
+              </Suspense>
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-6 lg:grid-cols-3">
+          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6 lg:col-span-2">
             <h2 className="text-xl font-black">Recent attendance</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Latest saved attendance records for {yearLabel}.
             </p>
 
-            <div className="mt-4 space-y-3 lg:hidden">
-              {recentRecords.length ? (
-                recentRecords.map((record) => (
-                  <article
-                    key={record.id}
-                    className="min-w-0 rounded-2xl border bg-background p-4"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="break-words font-black">{record.name}</p>
-                        <p className="break-all text-sm text-muted-foreground">
-                          {record.student_id}
+            <div className="flex-1">
+              <div className="mt-4 space-y-3 lg:hidden">
+                {recentRecords.length ? (
+                  recentRecords.map((record) => (
+                    <article
+                      key={record.id}
+                      className="min-w-0 rounded-2xl border bg-background p-4"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="break-words font-black">{record.name}</p>
+                          <p className="break-all text-sm text-muted-foreground">
+                            {record.student_id}
+                          </p>
+                        </div>
+                        <p className="text-sm font-bold">
+                          {record.no_of_absences} absence/s
                         </p>
                       </div>
-                      <p className="text-sm font-bold">
-                        {record.no_of_absences} absence/s
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {formatDate(record.scanned_at ?? record.created_at)}
                       </p>
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {formatDate(record.scanned_at ?? record.created_at)}
-                    </p>
-                  </article>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                  {isLoading ? "Loading recent attendance..." : "No attendance records available."}
-                </div>
-              )}
-            </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                    {isLoading
+                      ? "Loading recent attendance..."
+                      : "No attendance records available."}
+                  </div>
+                )}
+              </div>
 
-            <div className="mt-4 hidden overflow-x-auto lg:block">
-              <table className="w-full min-w-max text-left text-sm">
-                <thead className="border-b text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-3">Date</th>
-                    <th className="px-3 py-3">Student ID</th>
-                    <th className="px-3 py-3">Name</th>
-                    <th className="px-3 py-3">Absences</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentRecords.length ? (
-                    recentRecords.map((record) => (
-                      <tr key={record.id} className="border-b last:border-b-0">
-                        <td className="px-3 py-3 font-semibold">
-                          {formatDate(record.scanned_at ?? record.created_at)}
-                        </td>
-                        <td className="max-w-40 break-all px-3 py-3">
-                          {record.student_id}
-                        </td>
-                        <td className="max-w-56 break-words px-3 py-3">
-                          {record.name}
-                        </td>
-                        <td className="px-3 py-3">{record.no_of_absences}</td>
-                      </tr>
-                    ))
-                  ) : (
+              <div className="mt-4 hidden overflow-x-auto lg:block">
+                <table className="w-full min-w-max text-left text-sm">
+                  <thead className="border-b text-xs uppercase text-muted-foreground">
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="px-3 py-8 text-center text-sm font-semibold text-muted-foreground"
-                      >
-                        {isLoading ? "Loading recent attendance..." : "No attendance records available."}
-                      </td>
+                      <th className="px-3 py-3">Date</th>
+                      <th className="px-3 py-3">Student ID</th>
+                      <th className="px-3 py-3">Name</th>
+                      <th className="px-3 py-3">Absences</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentRecords.length ? (
+                      recentRecords.map((record) => (
+                        <tr key={record.id} className="border-b last:border-b-0">
+                          <td className="px-3 py-3 font-semibold">
+                            {formatDate(record.scanned_at ?? record.created_at)}
+                          </td>
+                          <td className="max-w-40 break-all px-3 py-3">
+                            {record.student_id}
+                          </td>
+                          <td className="max-w-56 break-words px-3 py-3">
+                            {record.name}
+                          </td>
+                          <td className="px-3 py-3">{record.no_of_absences}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-8 text-center text-sm font-semibold text-muted-foreground"
+                        >
+                          {isLoading
+                            ? "Loading recent attendance..."
+                            : "No attendance records available."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
+            <button
+              type="button"
+              onClick={() => navigateTo("/attendance")}
+              className="mt-auto self-start pt-4 text-sm font-black text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              View all attendance
+            </button>
+          </article>
+
+          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
             <h2 className="text-xl font-black">Recent imports</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Latest attendance import batches for {yearLabel}.
             </p>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4">
+              <Suspense fallback={<ChartSuspenseFallback heightClass="h-40" />}>
+                <RecentImportsQualityChart data={recentImports} isLoading={isLoading} />
+              </Suspense>
+            </div>
+
+            <div className="mt-4 flex-1 space-y-2">
               {recentImports.length ? (
                 recentImports.map((item) => (
                   <article
                     key={item.id}
-                    className="rounded-2xl border bg-background p-4"
+                    className="overflow-x-auto rounded-xl border bg-background px-2.5 py-2"
                   >
-                    <p className="break-all text-sm font-black">{item.file_name}</p>
-                    <div className="mt-3 flex flex-col gap-2 text-xs">
-                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
-                        <p className="font-bold text-muted-foreground">Total</p>
-                        <p className="font-black">{item.rows_total}</p>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
-                        <p className="font-bold text-muted-foreground">Valid</p>
-                        <p className="font-black">{item.rows_valid}</p>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
-                        <p className="font-bold text-muted-foreground">Invalid</p>
-                        <p className="font-black">{item.rows_invalid}</p>
-                      </div>
+                    <div className="flex min-w-[22.5rem] items-center gap-2 whitespace-nowrap">
+                      <p
+                        className="min-w-0 flex-1 truncate text-xs font-black"
+                        title={item.file_name}
+                      >
+                        {item.file_name}
+                      </p>
+                      <p className="shrink-0 text-[10px] font-semibold text-muted-foreground">
+                        {formatDate(item.created_at)}
+                      </p>
+                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                        Total <strong className="text-foreground">{item.rows_total}</strong>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                        Valid <strong className="text-foreground">{item.rows_valid}</strong>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                        Invalid <strong className="text-foreground">{item.rows_invalid}</strong>
+                      </span>
                     </div>
-                    <p className="mt-3 text-xs font-semibold text-muted-foreground">
-                      {formatDate(item.created_at)}
-                    </p>
                   </article>
                 ))
               ) : (
@@ -443,7 +530,32 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-          </div>
+
+            <button
+              type="button"
+              onClick={() => navigateTo("/attendance")}
+              className="mt-auto self-start pt-4 text-sm font-black text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              View all imports
+            </button>
+          </article>
+        </section>
+
+        <section className="mt-6">
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
+            <h2 className="text-xl font-black">Attendance by college</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Top colleges by visible attendance records for {yearLabel}.
+            </p>
+            <div className="mt-4">
+              <Suspense fallback={<ChartSuspenseFallback />}>
+                <AttendanceByCollegeChart
+                  data={attendanceByCollege}
+                  isLoading={isLoading}
+                />
+              </Suspense>
+            </div>
+          </article>
         </section>
       </div>
     </main>

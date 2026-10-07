@@ -39,6 +39,7 @@ import {
   listSchoolYears,
 } from "../api/schoolYears";
 import type { SchoolYearRecord } from "../api/schoolYears";
+import { BACKGROUNDS } from "../lib/backgrounds";
 import {
   QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
@@ -50,6 +51,7 @@ import {
   normalizeYearLevelKey,
 } from "../lib/year-levels";
 import { LogoMark } from "../components/layout";
+import PageBackground from "../components/page-background";
 import ThemeToggle from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
@@ -5094,16 +5096,29 @@ export default function LandingPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="flex min-h-svh items-center justify-center bg-background text-foreground">
+      <main className="relative isolate flex min-h-svh items-center justify-center text-foreground">
+        <PageBackground image={BACKGROUNDS.landing} overlay="medium" />
         <ThemeToggle />
-          <LogoMark textClassName="text-2xl" />
+        <LogoMark textClassName="text-2xl" />
       </main>
     );
   }
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <section className="border-b bg-linear-to-b from-muted/80 to-background">
+    <main className="relative isolate min-h-svh text-foreground">
+      <PageBackground image={BACKGROUNDS.landingAlt} overlay="strong" />
+      <section className="relative isolate overflow-hidden border-b">
+        <div className="absolute inset-0 -z-20 bg-linear-to-b from-primary/10 via-background/70 to-background" />
+        <img
+          src={BACKGROUNDS.landing}
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          loading="eager"
+          fetchPriority="high"
+          className="absolute inset-0 -z-20 h-full w-full object-cover opacity-45 dark:opacity-30"
+        />
+        <div className="absolute inset-0 -z-10 bg-linear-to-b from-background/45 via-background/75 to-background" />
         <div className="mx-auto min-h-svh max-w-400 px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
@@ -5128,7 +5143,7 @@ export default function LandingPage() {
 
             <form
               onSubmit={handleSearch}
-              className="mx-auto mt-8 flex w-full max-w-3xl flex-col gap-3 rounded-3xl border bg-card p-3 text-left shadow-xl shadow-black/5 sm:flex-row sm:items-center"
+              className="mx-auto mt-8 flex w-full max-w-3xl flex-col gap-3 rounded-3xl border bg-card/90 p-3 text-left shadow-xl shadow-black/5 backdrop-blur sm:flex-row sm:items-center"
             >
               <label className="sr-only" htmlFor="student-id-search">
                 Student ID
@@ -5150,7 +5165,7 @@ export default function LandingPage() {
             </form>
 
             {isSearching ? (
-              <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card p-4 text-left shadow-sm">
+              <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
                   <span className="min-w-0 truncate">
                     {searchProgress.message || "Searching student records..."}
@@ -5173,7 +5188,7 @@ export default function LandingPage() {
               </div>
             ) : null}
 
-            <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/80 p-4 text-left shadow-xl shadow-black/5 sm:p-6">
+            <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/90 p-4 text-left shadow-xl shadow-black/5 backdrop-blur sm:p-6">
               <div className="flex flex-col gap-2 text-center sm:text-left">
                 <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
                   Quick access services

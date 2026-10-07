@@ -1,11 +1,14 @@
 import { LogoMark, navigateTo } from "../components/layout";
+import PageBackground from "../components/page-background";
+import { BACKGROUNDS } from "../lib/backgrounds";
 import ThemeToggle from "../components/theme-toggle";
 import { Button } from "../components/ui/button";
 
 export default function NotFoundPage() {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-muted/40 px-4 py-10 text-foreground sm:px-6">
-      <section className="w-full max-w-lg rounded-3xl border bg-card p-6 text-center shadow-xl shadow-black/5 sm:p-8">
+    <main className="relative isolate flex min-h-svh items-center justify-center px-4 py-10 text-foreground sm:px-6">
+      <PageBackground image={BACKGROUNDS.notFound} overlay="medium" />
+      <section className="w-full max-w-lg rounded-3xl border bg-card/85 p-6 text-center shadow-xl shadow-black/5 backdrop-blur-xl sm:p-8">
         <div className="mb-6 flex justify-center">
           <ThemeToggle />
           <LogoMark textClassName="text-2xl" />
