@@ -17,7 +17,7 @@ import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { navigateTo } from "../../components/layout";
-import { BACKGROUNDS, BACKGROUND_CARD } from "../../lib/backgrounds";
+import { BACKGROUND_CARD } from "../../lib/backgrounds";
 import { Button } from "../../components/ui/button";
 
 const AttendanceTrendChart = lazy(() =>
