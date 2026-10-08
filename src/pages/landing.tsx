@@ -4941,7 +4941,7 @@ export default function LandingPage() {
           </header>
 
           <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
-            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-md sm:bg-card/85 sm:px-6 sm:py-5 sm:text-5xl sm:shadow-lg dark:sm:bg-card/85 lg:text-6xl">
+            <h1 className="mx-auto max-w-4xl text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight [text-shadow:0_1px_9px_rgba(245,247,255,0.95),0_0_20px_rgba(245,247,255,0.8)] sm:text-5xl dark:[text-shadow:0_2px_10px_rgba(0,0,0,0.95),0_0_24px_rgba(0,0,0,0.8)] lg:text-6xl">
               Search your Student ID and view attendance records instantly.
             </h1>
 
