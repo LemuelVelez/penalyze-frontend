@@ -14,19 +14,21 @@ type PageBackgroundProps = {
   className?: string;
 };
 
-// A theme-coloured scrim keeps text legible over bright and high-contrast photos.
-// Dark mode needs slightly more coverage because the photos themselves are not dark.
+// Shade the photograph just enough to harmonize with each theme. The text
+// itself is protected by opaque-enough cards and heading panels, so images
+// remain recognizable instead of disappearing under a near-solid overlay.
 const overlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/58 via-background/66 to-background/74 dark:from-background/70 dark:via-background/76 dark:to-background/82",
-  medium: "bg-linear-to-b from-background/70 via-background/77 to-background/84 dark:from-background/77 dark:via-background/83 dark:to-background/88",
-  strong: "bg-linear-to-b from-background/78 via-background/84 to-background/90 dark:from-background/82 dark:via-background/87 dark:to-background/92",
+  light: "bg-linear-to-b from-background/12 via-background/20 to-background/30 dark:from-background/23 dark:via-background/33 dark:to-background/45",
+  medium: "bg-linear-to-b from-background/17 via-background/26 to-background/38 dark:from-background/29 dark:via-background/40 dark:to-background/52",
+  strong: "bg-linear-to-b from-background/22 via-background/31 to-background/44 dark:from-background/34 dark:via-background/45 dark:to-background/58",
 };
 
-// Small screens put more text directly over the photograph; shade them more strongly.
+// On smaller screens a modest extra tint supports compact content without
+// losing the photo; dense text still sits on its own readable surface.
 const mobileOverlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/70 via-background/78 to-background/86 dark:from-background/78 dark:via-background/84 dark:to-background/90",
-  medium: "bg-linear-to-b from-background/77 via-background/83 to-background/89 dark:from-background/82 dark:via-background/87 dark:to-background/92",
-  strong: "bg-linear-to-b from-background/83 via-background/89 to-background/94 dark:from-background/87 dark:via-background/92 dark:to-background/96",
+  light: "bg-linear-to-b from-background/21 via-background/31 to-background/43 dark:from-background/33 dark:via-background/44 dark:to-background/56",
+  medium: "bg-linear-to-b from-background/29 via-background/40 to-background/52 dark:from-background/39 dark:via-background/49 dark:to-background/61",
+  strong: "bg-linear-to-b from-background/35 via-background/46 to-background/59 dark:from-background/44 dark:via-background/55 dark:to-background/66",
 };
 
 export default function PageBackground({
@@ -65,7 +67,7 @@ export default function PageBackground({
             onLoad={() => setLightLoaded(true)}
             onError={() => setLightFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} saturate-110 contrast-105 ${lightLoaded ? "opacity-100" : ""}`}
+            className={`${imageClassName} saturate-105 contrast-105 ${lightLoaded ? "opacity-100" : ""}`}
           />
         </picture>
       )}
@@ -81,7 +83,7 @@ export default function PageBackground({
             onLoad={() => setDarkLoaded(true)}
             onError={() => setDarkFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} saturate-105 contrast-105 ${darkLoaded ? "opacity-100" : ""}`}
+            className={`${imageClassName} saturate-105 contrast-105 brightness-90 ${darkLoaded ? "opacity-100" : ""}`}
           />
         </picture>
       )}

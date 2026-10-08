@@ -74,7 +74,7 @@ function StatCard(props: {
   image: string;
 }) {
   return (
-    <article className="relative isolate min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card/80 p-5 shadow-sm dark:bg-card/80">
+    <article className="relative isolate min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card/30 p-5 shadow-sm dark:bg-card/30">
       <img
         src={props.image}
         alt=""
@@ -83,7 +83,7 @@ function StatCard(props: {
         decoding="async"
         className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-100 saturate-105"
       />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/98 via-card/94 to-card/86 dark:from-card/98 dark:via-card/95 dark:to-card/88" />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/96 via-card/86 to-card/51 dark:from-card/97 dark:via-card/90 dark:to-card/60" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
       <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
