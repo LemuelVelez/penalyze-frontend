@@ -14,17 +14,19 @@ type PageBackgroundProps = {
   className?: string;
 };
 
+// A theme-coloured scrim keeps text legible over bright and high-contrast photos.
+// Dark mode needs slightly more coverage because the photos themselves are not dark.
 const overlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/12 via-background/24 to-background/38 dark:from-background/12 dark:via-background/23 dark:to-background/39",
-  medium: "bg-linear-to-b from-background/19 via-background/30 to-background/46 dark:from-background/18 dark:via-background/31 dark:to-background/48",
-  strong: "bg-linear-to-b from-background/25 via-background/39 to-background/55 dark:from-background/25 dark:via-background/39 dark:to-background/57",
+  light: "bg-linear-to-b from-background/58 via-background/66 to-background/74 dark:from-background/70 dark:via-background/76 dark:to-background/82",
+  medium: "bg-linear-to-b from-background/70 via-background/77 to-background/84 dark:from-background/77 dark:via-background/83 dark:to-background/88",
+  strong: "bg-linear-to-b from-background/78 via-background/84 to-background/90 dark:from-background/82 dark:via-background/87 dark:to-background/92",
 };
 
-// Mobile needs slightly more tint around the text while keeping the photograph visible.
+// Small screens put more text directly over the photograph; shade them more strongly.
 const mobileOverlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/19 via-background/30 to-background/44 dark:from-background/18 dark:via-background/30 dark:to-background/46",
-  medium: "bg-linear-to-b from-background/26 via-background/40 to-background/54 dark:from-background/26 dark:via-background/40 dark:to-background/55",
-  strong: "bg-linear-to-b from-background/33 via-background/46 to-background/61 dark:from-background/33 dark:via-background/47 dark:to-background/63",
+  light: "bg-linear-to-b from-background/70 via-background/78 to-background/86 dark:from-background/78 dark:via-background/84 dark:to-background/90",
+  medium: "bg-linear-to-b from-background/77 via-background/83 to-background/89 dark:from-background/82 dark:via-background/87 dark:to-background/92",
+  strong: "bg-linear-to-b from-background/83 via-background/89 to-background/94 dark:from-background/87 dark:via-background/92 dark:to-background/96",
 };
 
 export default function PageBackground({

@@ -96,7 +96,7 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6">
+      <div className="page-heading mb-6">
         <div className="mb-1 flex items-center gap-2 text-primary">
           <ShieldCheck className="size-5" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase tracking-[0.18em]">Your account</span>

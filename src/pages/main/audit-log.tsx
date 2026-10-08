@@ -132,7 +132,7 @@ export default function AuditLogPage() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div className="page-heading mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-primary">
             <ShieldCheck className="size-5" aria-hidden="true" />

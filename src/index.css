@@ -65,7 +65,7 @@
     --secondary: oklch(0.885 0.028 264);
     --secondary-foreground: oklch(0.27 0.065 264);
     --muted: oklch(0.893 0.021 264);
-    --muted-foreground: oklch(0.40 0.03 264);
+    --muted-foreground: oklch(0.34 0.03 264);
     --accent: oklch(0.871 0.039 264);
     --accent-foreground: oklch(0.29 0.065 264);
     --destructive: oklch(0.49 0.19 27);
@@ -104,7 +104,7 @@
     --secondary: oklch(0.29 0.06 264);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
+    --muted-foreground: oklch(0.80 0 0);
     --accent: oklch(0.29 0.06 264);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
@@ -253,48 +253,57 @@
 
 
 
-/* Light mode: blue-grey glass surfaces show the photographs instead of hiding them.
-   Solid backgrounds and interactive controls stay opaque for readable text. */
-html:not(.dark) .bg-card\/85 {
-  background-color: color-mix(in oklch, var(--card) 83%, transparent);
-}
+/* Photo-backed layouts use opaque-enough, theme-aware surfaces for text contrast.
+   Controls and overlays must remain legible even when the photograph is bright. */
+html:not(.dark) .bg-card\/85,
 html:not(.dark) .bg-card\/90 {
-  background-color: color-mix(in oklch, var(--card) 88%, transparent);
+  background-color: color-mix(in oklch, var(--card) 94%, transparent);
 }
 html:not(.dark) .bg-card\/95 {
-  background-color: color-mix(in oklch, var(--card) 93%, transparent);
+  background-color: color-mix(in oklch, var(--card) 97%, transparent);
 }
-html:not(.dark) .bg-background\/70 {
-  background-color: color-mix(in oklch, var(--background) 72%, transparent);
-}
+html:not(.dark) .bg-background\/70,
 html:not(.dark) .bg-background\/80 {
-  background-color: color-mix(in oklch, var(--background) 81%, transparent);
+  background-color: color-mix(in oklch, var(--background) 92%, transparent);
 }
-html:not(.dark) .bg-background\/85 {
-  background-color: color-mix(in oklch, var(--background) 86%, transparent);
-}
+html:not(.dark) .bg-background\/85,
 html:not(.dark) .bg-background\/90 {
-  background-color: color-mix(in oklch, var(--background) 90%, transparent);
+  background-color: color-mix(in oklch, var(--background) 96%, transparent);
 }
-/* On photo-backed pages only, large solid cards become readable glass panels.
-   Keep dialogs, popovers, inputs, sticky table cells and controls solid. */
+
 html:not(.dark) .photo-layout :is(section, article, div).bg-card {
-  background-color: color-mix(in oklch, var(--card) 82%, transparent);
+  background-color: color-mix(in oklch, var(--card) 94%, transparent);
   backdrop-filter: blur(5px);
 }
-
 html.dark .photo-layout :is(section, article, div).bg-card {
-  background-color: color-mix(in oklch, var(--card) 78%, transparent);
+  background-color: color-mix(in oklch, var(--card) 96%, transparent);
   backdrop-filter: blur(5px);
 }
-
-html:not(.dark) .photo-layout .bg-card\/90 {
-  background-color: color-mix(in oklch, var(--card) 85%, transparent);
+html:not(.dark) .photo-layout .bg-card\/90,
+html:not(.dark) .photo-layout .bg-card\/85 {
+  background-color: color-mix(in oklch, var(--card) 95%, transparent);
 }
-
 html.dark .photo-layout .bg-card\/90,
 html.dark .photo-layout .bg-card\/85 {
-  background-color: color-mix(in oklch, var(--card) 84%, transparent);
+  background-color: color-mix(in oklch, var(--card) 97%, transparent);
+}
+
+/* Shared heading panel for pages whose titles previously sat on the raw photo.
+   Consistent in light/dark themes and at desktop/mobile sizes. */
+.photo-layout .page-heading {
+  padding: 1.25rem;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  background-color: color-mix(in oklch, var(--card) 96%, transparent);
+  box-shadow: 0 14px 30px -22px oklch(0.20 0.03 264 / 32%);
+  backdrop-filter: blur(12px);
+}
+html.dark .photo-layout .page-heading {
+  background-color: color-mix(in oklch, var(--card) 98%, transparent);
+}
+@media (min-width: 640px) {
+  .photo-layout .page-heading { padding: 1.5rem; }
 }
 
 html:not(.dark) :is([data-slot="card"], .bg-card\/85, .bg-card\/90, .bg-card\/95) {
@@ -345,22 +354,22 @@ html.theme-switching *::after {
     max-width: calc(100vw - 1rem);
   }
 
-  /* Small screens need an extra layer behind dense content, in both themes. */
+  /* Compact surfaces need higher opacity to preserve readable labels and tables. */
   html:not(.dark) .bg-card\/90,
-  html:not(.dark) .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 92%, transparent); }
-  html.dark .bg-card\/90, html.dark .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 96%, transparent); }
+  html:not(.dark) .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 96%, transparent); }
+  html.dark .bg-card\/90, html.dark .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 98%, transparent); }
 
   /* Preserve legibility of compact tables and cards without hiding the photos. */
   html:not(.dark) .photo-layout :is(section, article, div).bg-card,
   html.dark .photo-layout :is(section, article, div).bg-card {
-    background-color: color-mix(in oklch, var(--card) 89%, transparent);
+    background-color: color-mix(in oklch, var(--card) 97%, transparent);
   }
 
   html:not(.dark) .photo-layout .bg-card\/90,
   html:not(.dark) .photo-layout .bg-card\/85,
   html.dark .photo-layout .bg-card\/90,
   html.dark .photo-layout .bg-card\/85 {
-    background-color: color-mix(in oklch, var(--card) 92%, transparent);
+    background-color: color-mix(in oklch, var(--card) 98%, transparent);
   }
 
   :where(pre, code, [data-audit-json]) {

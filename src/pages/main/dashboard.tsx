@@ -74,7 +74,7 @@ function StatCard(props: {
   image: string;
 }) {
   return (
-    <article className="relative isolate min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card/30 p-5 shadow-sm dark:bg-card/30">
+    <article className="relative isolate min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card/80 p-5 shadow-sm dark:bg-card/80">
       <img
         src={props.image}
         alt=""
@@ -83,7 +83,7 @@ function StatCard(props: {
         decoding="async"
         className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-100 saturate-105"
       />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/96 via-card/88 to-card/50 dark:from-card/96 dark:via-card/88 dark:to-card/52" />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/98 via-card/94 to-card/86 dark:from-card/98 dark:via-card/95 dark:to-card/88" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
       <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
@@ -306,7 +306,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full min-w-0 max-w-400">
-        <div className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="page-heading mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
               Overview

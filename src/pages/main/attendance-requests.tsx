@@ -529,7 +529,7 @@ export default function AttendanceRequestsPage() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur space-y-2">
+      <header className="page-heading space-y-2">
         <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
           Attendance verification
         </p>
