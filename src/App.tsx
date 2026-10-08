@@ -26,6 +26,7 @@ import DashboardPage from "./pages/main/dashboard";
 import FinesPage from "./pages/main/fines";
 import UsersPage from "./pages/main/users";
 import AuditLogPage from "./pages/main/audit-log";
+import SettingsPage from "./pages/main/settings";
 import LandingPage from "./pages/landing";
 import NotFoundPage from "./pages/notfound";
 
@@ -97,6 +98,7 @@ function AppRoutes() {
       { path: "/fines", element: <FinesPage /> },
       { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },
       { path: "/audit-log", element: <AuditLogPage />, allowedRoles: ["admin"] as UserRole[] },
+      { path: "/settings", element: <SettingsPage /> },
     ],
     [],
   );

@@ -13,6 +13,7 @@ import {
   Menu,
   ReceiptText,
   ScrollText,
+  Settings,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -238,6 +239,18 @@ export default function AppLayout(props: LayoutProps) {
           description: "Review accountable actions",
           icon: ScrollText,
           adminOnly: true,
+        },
+      ],
+    },
+    {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          path: "/settings",
+          label: "Settings",
+          description: "Change your account password",
+          icon: Settings,
         },
       ],
     },

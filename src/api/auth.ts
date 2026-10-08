@@ -33,6 +33,12 @@ export type UpdateUserInput = {
   role?: UserRole;
 };
 
+export type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+};
+
 type ApiEnvelope<T> = {
   message?: string;
   data?: T;
@@ -208,6 +214,17 @@ export async function register(input: RegisterInput, remember = false) {
     return response.data;
   } catch (error) {
     throw new Error(getErrorMessage(error, "Unable to register account."));
+  }
+}
+
+export async function changePassword(input: ChangePasswordInput) {
+  try {
+    await apiRequest<null>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    throw new Error(getErrorMessage(error, "Unable to change password."));
   }
 }
 
