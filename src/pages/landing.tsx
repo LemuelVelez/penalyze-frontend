@@ -4910,7 +4910,7 @@ export default function LandingPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="relative isolate flex min-h-svh items-center justify-center text-foreground">
+      <main className="photo-layout relative isolate flex min-h-svh items-center justify-center text-foreground">
         <PageBackground image={BACKGROUNDS.landing} overlay="medium" />
         <ThemeToggle />
         <LogoMark textClassName="text-2xl" />
@@ -4919,10 +4919,10 @@ export default function LandingPage() {
   }
 
   return (
-    <main className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
+    <main className="photo-layout relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
       <PageBackground image={BACKGROUNDS.landing} overlay="strong" mobileOverlay="light" objectPosition="center 36%" />
       <section className="relative isolate overflow-hidden border-b">
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/10 via-background/10 to-background/40 sm:from-background/10 sm:via-background/24 sm:to-background/55 dark:from-background/35 dark:via-background/15 dark:to-background/70 dark:sm:from-background/45 dark:sm:via-background/75 dark:sm:to-background" />
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/0 via-background/5 to-background/20 sm:from-background/0 sm:via-background/10 sm:to-background/25 dark:from-background/5 dark:via-background/10 dark:to-background/28 dark:sm:from-background/5 dark:sm:via-background/12 dark:sm:to-background/30" />
         <div className="mx-auto min-h-svh w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
@@ -4941,7 +4941,7 @@ export default function LandingPage() {
           </header>
 
           <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
-            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-md sm:bg-card/85 sm:px-6 sm:py-5 sm:text-5xl sm:shadow-lg dark:sm:bg-transparent dark:sm:px-0 dark:sm:py-0 dark:sm:shadow-none lg:text-6xl">
+            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-md sm:bg-card/85 sm:px-6 sm:py-5 sm:text-5xl sm:shadow-lg dark:sm:bg-card/85 lg:text-6xl">
               Search your Student ID and view attendance records instantly.
             </h1>
 

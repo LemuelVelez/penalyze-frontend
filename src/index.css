@@ -276,6 +276,27 @@ html:not(.dark) .bg-background\/85 {
 html:not(.dark) .bg-background\/90 {
   background-color: color-mix(in oklch, var(--background) 90%, transparent);
 }
+/* On photo-backed pages only, large solid cards become readable glass panels.
+   Keep dialogs, popovers, inputs, sticky table cells and controls solid. */
+html:not(.dark) .photo-layout :is(section, article, div).bg-card {
+  background-color: color-mix(in oklch, var(--card) 82%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+html.dark .photo-layout :is(section, article, div).bg-card {
+  background-color: color-mix(in oklch, var(--card) 78%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+html:not(.dark) .photo-layout .bg-card\/90 {
+  background-color: color-mix(in oklch, var(--card) 85%, transparent);
+}
+
+html.dark .photo-layout .bg-card\/90,
+html.dark .photo-layout .bg-card\/85 {
+  background-color: color-mix(in oklch, var(--card) 84%, transparent);
+}
+
 html:not(.dark) :is([data-slot="card"], .bg-card\/85, .bg-card\/90, .bg-card\/95) {
   box-shadow: 0 12px 32px -20px oklch(0.33 0.09 264 / 24%), 0 3px 12px -7px oklch(0.33 0.09 264 / 14%);
 }
@@ -328,6 +349,19 @@ html.theme-switching *::after {
   html:not(.dark) .bg-card\/90,
   html:not(.dark) .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 92%, transparent); }
   html.dark .bg-card\/90, html.dark .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 96%, transparent); }
+
+  /* Preserve legibility of compact tables and cards without hiding the photos. */
+  html:not(.dark) .photo-layout :is(section, article, div).bg-card,
+  html.dark .photo-layout :is(section, article, div).bg-card {
+    background-color: color-mix(in oklch, var(--card) 89%, transparent);
+  }
+
+  html:not(.dark) .photo-layout .bg-card\/90,
+  html:not(.dark) .photo-layout .bg-card\/85,
+  html.dark .photo-layout .bg-card\/90,
+  html.dark .photo-layout .bg-card\/85 {
+    background-color: color-mix(in oklch, var(--card) 92%, transparent);
+  }
 
   :where(pre, code, [data-audit-json]) {
     overflow-wrap: anywhere;

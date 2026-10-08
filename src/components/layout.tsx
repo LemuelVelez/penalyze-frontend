@@ -360,7 +360,7 @@ export default function AppLayout(props: LayoutProps) {
 
   if (!props.authenticated) {
     return (
-      <div className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
+      <div className="photo-layout relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
         <PageBackground
           image={BACKGROUNDS.mainLight}
           darkImage={BACKGROUNDS.mainDark}
@@ -377,7 +377,7 @@ export default function AppLayout(props: LayoutProps) {
   }
 
   return (
-    <div className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
+    <div className="photo-layout relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
       <PageBackground
         image={BACKGROUNDS.mainLight}
         darkImage={BACKGROUNDS.mainDark}

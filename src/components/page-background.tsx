@@ -15,17 +15,16 @@ type PageBackgroundProps = {
 };
 
 const overlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/12 via-background/25 to-background/43 dark:from-background/25 dark:via-background/45 dark:to-background/75",
-  medium: "bg-linear-to-b from-background/20 via-background/36 to-background/54 dark:from-background/45 dark:via-background/70 dark:to-background/90",
-  strong: "bg-linear-to-b from-background/28 via-background/44 to-background/62 dark:from-background/70 dark:via-background/85",
+  light: "bg-linear-to-b from-background/12 via-background/24 to-background/38 dark:from-background/12 dark:via-background/23 dark:to-background/39",
+  medium: "bg-linear-to-b from-background/19 via-background/30 to-background/46 dark:from-background/18 dark:via-background/31 dark:to-background/48",
+  strong: "bg-linear-to-b from-background/25 via-background/39 to-background/55 dark:from-background/25 dark:via-background/39 dark:to-background/57",
 };
 
-// Mobile scrims stay a little stronger to protect text at narrow widths.
-// Dark-mode classes remain untouched.
+// Mobile needs slightly more tint around the text while keeping the photograph visible.
 const mobileOverlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/25 via-background/41 to-background/57 dark:from-background/15 dark:via-background/30 dark:to-background/60",
-  medium: "bg-linear-to-b from-background/32 via-background/48 to-background/64 dark:from-background/25 dark:via-background/45 dark:to-background/70",
-  strong: "bg-linear-to-b from-background/37 via-background/54 to-background/70 dark:from-background/30 dark:via-background/50 dark:to-background/75",
+  light: "bg-linear-to-b from-background/19 via-background/30 to-background/44 dark:from-background/18 dark:via-background/30 dark:to-background/46",
+  medium: "bg-linear-to-b from-background/26 via-background/40 to-background/54 dark:from-background/26 dark:via-background/40 dark:to-background/55",
+  strong: "bg-linear-to-b from-background/33 via-background/46 to-background/61 dark:from-background/33 dark:via-background/47 dark:to-background/63",
 };
 
 export default function PageBackground({
@@ -53,7 +52,7 @@ export default function PageBackground({
     >
       <div className="absolute inset-0 bg-linear-to-b from-primary/10 via-background to-background" />
       {!lightFailed && (
-        <picture className={darkImage ? "absolute inset-0 dark:hidden" : "absolute inset-0"}>
+        <picture className={darkImage && !darkFailed ? "absolute inset-0 dark:hidden" : "absolute inset-0"}>
           <source media="(max-width: 639px)" srcSet={mobileImage ?? portraitBackground(image)} />
           <img
             src={image}
@@ -64,12 +63,12 @@ export default function PageBackground({
             onLoad={() => setLightLoaded(true)}
             onError={() => setLightFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} saturate-90 dark:saturate-100 ${lightLoaded ? "opacity-95 dark:opacity-100" : ""}`}
+            className={`${imageClassName} saturate-110 contrast-105 ${lightLoaded ? "opacity-100" : ""}`}
           />
         </picture>
       )}
       {darkImage && !darkFailed && (
-        <picture className="absolute inset-0 hidden dark:block">
+        <picture className={lightFailed ? "absolute inset-0" : "absolute inset-0 hidden dark:block"}>
           <source media="(max-width: 639px)" srcSet={mobileDarkImage ?? portraitBackground(darkImage)} />
           <img
             src={darkImage}
@@ -80,7 +79,7 @@ export default function PageBackground({
             onLoad={() => setDarkLoaded(true)}
             onError={() => setDarkFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} ${darkLoaded ? "opacity-100" : ""}`}
+            className={`${imageClassName} saturate-105 contrast-105 ${darkLoaded ? "opacity-100" : ""}`}
           />
         </picture>
       )}

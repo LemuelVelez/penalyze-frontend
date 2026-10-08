@@ -6,7 +6,8 @@ export const BACKGROUNDS = {
   landingAlt: `https://images.unsplash.com/photo-1562774053-701939374585${params}`,
   notFound: `https://images.unsplash.com/photo-1524178232363-1fb2b075b655${params}`,
   mainLight: `https://images.unsplash.com/photo-1562774053-701939374585${params}`,
-  mainDark: `https://images.unsplash.com/photo-1557683316-973673baf926${params}`,
+  // A real campus photograph works with the translucent app panels in dark mode.
+  mainDark: `https://images.unsplash.com/photo-1523050854058-8df90110c9f1${params}`,
   loginPanel: `https://images.unsplash.com/photo-1541339907198-e08756dedf3f${params}`,
   dashboardAttendance: `https://images.unsplash.com/photo-1523050854058-8df90110c9f1${params}`,
   dashboardUnpaid: `https://images.unsplash.com/photo-1524178232363-1fb2b075b655${params}`,

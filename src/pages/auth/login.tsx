@@ -53,7 +53,7 @@ export default function LoginPage() {
 
   if (isCheckingSession) {
     return (
-      <main className="relative isolate flex min-h-svh items-center justify-center text-foreground">
+      <main className="photo-layout relative isolate flex min-h-svh items-center justify-center text-foreground">
         <PageBackground image={BACKGROUNDS.auth} overlay="medium" mobileOverlay="light" objectPosition="center 32%" />
         <ThemeToggle />
         <LogoMark textClassName="text-3xl" />
@@ -62,7 +62,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative isolate flex min-h-svh w-full min-w-0 items-center justify-center px-3 py-5 text-foreground sm:px-6 sm:py-10">
+    <main className="photo-layout relative isolate flex min-h-svh w-full min-w-0 items-center justify-center px-3 py-5 text-foreground sm:px-6 sm:py-10">
       <PageBackground image={BACKGROUNDS.auth} overlay="medium" mobileOverlay="light" objectPosition="center 32%" />
       <section className="grid w-full min-w-0 max-w-5xl grid-cols-[minmax(0,1fr)] overflow-hidden rounded-3xl border bg-card/95 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
         <aside className="relative flex h-40 min-w-0 flex-col justify-end overflow-hidden md:h-auto md:min-h-[38rem]">
@@ -77,7 +77,7 @@ export default function LoginPage() {
             className="absolute inset-0 h-full w-full object-cover object-[center_36%]"
             />
           </picture>
-          <div className="absolute inset-0 bg-linear-to-t from-black/74 via-black/37 to-black/10 dark:from-black/85 dark:via-black/50 dark:to-black/25" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/75 via-black/32 to-black/5 dark:from-black/78 dark:via-black/38 dark:to-black/5" />
           <div className="relative z-10 p-4 text-white sm:p-6 md:p-8 lg:p-10">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/75">
               Student services
