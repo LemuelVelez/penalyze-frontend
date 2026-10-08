@@ -83,7 +83,7 @@ function StatCard(props: {
         decoding="async"
         className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-100 saturate-105"
       />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/96 via-card/86 to-card/51 dark:from-card/97 dark:via-card/90 dark:to-card/60" />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/88 via-card/65 to-card/22 dark:from-card/90 dark:via-card/70 dark:to-card/26" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
       <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
