@@ -226,12 +226,13 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <label className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 text-sm font-semibold">
+          <label className="flex min-h-12 w-full min-w-0 cursor-pointer items-center gap-3 rounded-2xl border bg-background px-3 py-3 text-sm font-semibold sm:px-4">
             <Checkbox
+              className="size-4 shrink-0"
               checked={remember}
               onCheckedChange={(checked) => setRemember(checked === true)}
             />
-            Remember this device
+            <span className="min-w-0 break-words">Remember this device</span>
           </label>
 
           {error ? (
