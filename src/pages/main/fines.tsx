@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
+import { Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -274,6 +275,7 @@ export default function FinesPage() {
   const [pageLoadProgress, setPageLoadProgress] =
     useState<FinesPageLoadProgress | null>(null);
   const loadRequestIdRef = useRef(0);
+  const studentSearchInputRef = useRef<HTMLInputElement>(null);
   const [isRefreshingResults, setIsRefreshingResults] = useState(false);
   const [isSavingPenalty, setIsSavingPenalty] = useState(false);
   const [penaltyDialogOpen, setPenaltyDialogOpen] = useState(false);
@@ -288,6 +290,41 @@ export default function FinesPage() {
     useState(false);
   const [updatingStatusId, setUpdatingStatusId] = useState("");
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const activeStudentSearch = studentSearch.trim();
+
+  function handleClearStudentSearch() {
+    setStudentSearch("");
+    studentSearchInputRef.current?.focus();
+  }
+
+  useEffect(() => {
+    function handleSearchShortcut(event: KeyboardEvent) {
+      if (
+        event.key !== "/" ||
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey
+      ) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select, [contenteditable]"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      studentSearchInputRef.current?.focus();
+    }
+
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, []);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -972,15 +1009,6 @@ export default function FinesPage() {
                 className="w-full justify-center"
               />
 
-              <Input
-                type="search"
-                aria-label="Search student by name or ID"
-                placeholder="Search student name or ID..."
-                value={studentSearch}
-                onChange={(event) => setStudentSearch(event.target.value)}
-                className="min-h-12 rounded-2xl"
-              />
-
               <SortSelect
                 value={sortOrder}
                 onValueChange={setSortOrder}
@@ -1006,25 +1034,6 @@ export default function FinesPage() {
                 </SelectContent>
               </Select>
 
-              <div className="grid grid-cols-2 gap-2 lg:col-span-2 xl:col-span-2">
-                <Input
-                  type="date"
-                  aria-label="Fines from date"
-                  value={fromDate}
-                  max={toDate || undefined}
-                  onChange={(event) => setFromDate(event.target.value)}
-                  className="min-h-12 rounded-2xl"
-                />
-                <Input
-                  type="date"
-                  aria-label="Fines to date"
-                  value={toDate}
-                  min={fromDate || undefined}
-                  onChange={(event) => setToDate(event.target.value)}
-                  className="min-h-12 rounded-2xl"
-                />
-              </div>
-
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
                 <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-64">
                   <SelectValue placeholder="College" />
@@ -1041,6 +1050,25 @@ export default function FinesPage() {
                   ))}
                 </SelectContent>
               </Select>
+
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:col-span-2 lg:col-span-2 xl:col-span-4">
+                <Input
+                  type="date"
+                  aria-label="Fines from date"
+                  value={fromDate}
+                  max={toDate || undefined}
+                  onChange={(event) => setFromDate(event.target.value)}
+                  className="min-h-12 min-w-0 rounded-2xl"
+                />
+                <Input
+                  type="date"
+                  aria-label="Fines to date"
+                  value={toDate}
+                  min={fromDate || undefined}
+                  onChange={(event) => setToDate(event.target.value)}
+                  className="min-h-12 min-w-0 rounded-2xl"
+                />
+              </div>
             </div>
           </div>
         </section>
@@ -1166,6 +1194,62 @@ export default function FinesPage() {
             </div>
           </div>
 
+          <div className="mt-5 min-w-0 space-y-3 rounded-2xl border border-primary/25 bg-muted/20 p-4 sm:p-5">
+            <label htmlFor="penalty-student-search" className="block text-sm font-bold">
+              Search student
+            </label>
+            <div className="relative min-w-0">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-primary"
+              />
+              <Input
+                ref={studentSearchInputRef}
+                id="penalty-student-search"
+                type="search"
+                placeholder="Search by student name or ID..."
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && studentSearch) {
+                    event.preventDefault();
+                    handleClearStudentSearch();
+                  }
+                }}
+                className="min-h-14 w-full min-w-0 rounded-2xl border-2 border-primary/30 bg-background pl-12 pr-24 text-base font-semibold shadow-sm focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/20 [&::-webkit-search-cancel-button]:hidden"
+              />
+              <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+                {studentSearch ? (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={handleClearStudentSearch}
+                    className="flex size-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <X aria-hidden="true" className="size-4" />
+                  </button>
+                ) : null}
+                <kbd
+                  aria-label="Press slash to focus search"
+                  className="flex size-7 items-center justify-center rounded-lg border bg-muted/60 text-xs font-black text-muted-foreground"
+                >
+                  /
+                </kbd>
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
+              <p aria-live="polite" aria-atomic="true" className="min-w-0 break-words font-semibold">
+                {filteredPenaltyResults.length.toLocaleString()} of {penaltyResults.length.toLocaleString()} results
+                {activeStudentSearch ? ` match '${activeStudentSearch}'` : ""}
+              </p>
+              {activeStudentSearch ? (
+                <p className="min-w-0 break-words text-xs font-medium">
+                  Delete All and Fines Report apply to the filtered results.
+                </p>
+              ) : null}
+            </div>
+          </div>
+
           <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
             <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
               <Checkbox
@@ -1241,8 +1325,19 @@ export default function FinesPage() {
                 </article>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
-                {isLoading ? "Loading penalty results..." : "No penalty results found."}
+              <div className="flex min-w-0 flex-col items-center gap-3 rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+                {isLoading ? (
+                  "Loading penalty results..."
+                ) : activeStudentSearch ? (
+                  <>
+                    <p className="max-w-full break-all">No students match '{activeStudentSearch}'</p>
+                    <Button type="button" variant="outline" onClick={handleClearStudentSearch} className="rounded-xl font-black">
+                      Clear search
+                    </Button>
+                  </>
+                ) : (
+                  "No penalty results found."
+                )}
               </div>
             )}
           </div>
@@ -1354,9 +1449,18 @@ export default function FinesPage() {
                       colSpan={8}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
-                      {isLoading
-                        ? "Loading penalty results..."
-                        : "No penalty results found."}
+                      {isLoading ? (
+                        "Loading penalty results..."
+                      ) : activeStudentSearch ? (
+                        <div className="flex min-w-0 flex-col items-center gap-3">
+                          <p className="max-w-full break-all">No students match '{activeStudentSearch}'</p>
+                          <Button type="button" variant="outline" onClick={handleClearStudentSearch} className="rounded-xl font-black">
+                            Clear search
+                          </Button>
+                        </div>
+                      ) : (
+                        "No penalty results found."
+                      )}
                     </td>
                   </tr>
                 )}
