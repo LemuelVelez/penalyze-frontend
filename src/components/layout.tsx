@@ -385,7 +385,7 @@ export default function AppLayout(props: LayoutProps) {
           mobileOverlay="light"
           objectPosition="center 30%"
       />
-      <header className="fixed inset-x-0 top-0 z-40 min-w-0 max-w-full border-b bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+      <header className="site-header-glass fixed inset-x-0 top-0 z-40 min-w-0 max-w-full border-b border-border/60 pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-16 max-w-400 min-w-0 items-center gap-2 px-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:gap-3 sm:px-6 lg:px-8">
           <Button
             type="button"

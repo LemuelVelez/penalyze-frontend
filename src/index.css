@@ -271,6 +271,19 @@ html:not(.dark) .bg-background\/90 {
   background-color: color-mix(in oklch, var(--background) 94%, transparent);
 }
 
+/* A readable, semitransparent navigation surface shared by the public
+   landing page and the authenticated dashboard. Keep the photograph visible
+   behind the headers in both themes without fading the header's content. */
+.photo-layout .site-header-glass {
+  background-color: color-mix(in oklch, var(--background) 68%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px -22px oklch(0.15 0.03 264 / 45%);
+}
+html.dark .photo-layout .site-header-glass {
+  background-color: color-mix(in oklch, var(--background) 72%, transparent);
+}
+
 /* Translucent glass cards reveal the photographs without sacrificing readable
    foreground colours. Keep form controls, popovers and sticky table cells solid. */
 html:not(.dark) .photo-layout :is(section, article, div).bg-card {
