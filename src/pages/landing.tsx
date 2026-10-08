@@ -4924,9 +4924,9 @@ export default function LandingPage() {
       <section className="relative isolate overflow-hidden border-b">
         <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/0 via-background/5 to-background/20 sm:from-background/0 sm:via-background/10 sm:to-background/25 dark:from-background/5 dark:via-background/10 dark:to-background/28 dark:sm:from-background/5 dark:sm:via-background/12 dark:sm:to-background/30" />
         <div className="mx-auto min-h-svh w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8">
-          <header className="site-header-glass flex flex-col gap-4 rounded-2xl border border-border/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <a href="/" className="inline-flex">
-              <LogoMark textClassName="text-2xl" />
+          <header className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <a href="/" className="inline-flex drop-shadow-sm">
+              <LogoMark textClassName="text-2xl [text-shadow:0_1px_8px_rgba(255,255,255,0.9)] dark:[text-shadow:0_2px_8px_rgba(0,0,0,0.9)]" />
             </a>
             <div className="flex items-center gap-3">
               <ThemeToggle />
