@@ -985,10 +985,10 @@ export default function FinesPage() {
   }
 
   return (
-    <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-400 flex-col gap-6">
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <main className="min-h-svh w-full min-w-0 max-w-full overflow-x-clip px-3 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full min-w-0 max-w-400 flex-col gap-6">
+        <section className="min-w-0 max-w-full rounded-3xl border bg-card p-4 shadow-sm sm:p-5">
+          <div className="flex min-w-0 flex-col gap-4">
             <div>
               <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
                 Fines
@@ -1003,17 +1003,17 @@ export default function FinesPage() {
               </p>
             </div>
 
-            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
-                className="w-full justify-center"
+                className="min-w-0 w-full justify-center text-center whitespace-normal break-words"
               />
 
               <SortSelect
                 value={sortOrder}
                 onValueChange={setSortOrder}
                 ariaLabel="Sort penalty results"
-                className="min-h-12 rounded-2xl"
+                className="min-h-12 min-w-0 w-full rounded-2xl sm:w-full"
               />
 
               <Select
@@ -1022,7 +1022,7 @@ export default function FinesPage() {
                   setStatusFilter(value as StatusFilter)
                 }
               >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-56">
+                <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl sm:w-full">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1035,7 +1035,7 @@ export default function FinesPage() {
               </Select>
 
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-none rounded-2xl lg:max-w-64">
+                <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl sm:w-full">
                   <SelectValue placeholder="College" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1051,7 +1051,7 @@ export default function FinesPage() {
                 </SelectContent>
               </Select>
 
-              <div className="grid min-w-0 grid-cols-2 gap-2 sm:col-span-2 lg:col-span-2 xl:col-span-4">
+              <div className="grid min-w-0 grid-cols-1 gap-2 sm:col-span-2 sm:grid-cols-2 lg:col-span-2 xl:col-span-4">
                 <Input
                   type="date"
                   aria-label="Fines from date"
@@ -1082,50 +1082,50 @@ export default function FinesPage() {
           />
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-5">
-          <div className="rounded-3xl border bg-card p-5 md:col-span-2">
+        <section className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="min-w-0 rounded-3xl border bg-card p-4 sm:col-span-2 sm:p-5 xl:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               School Year / Semester
             </p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
               {selectedSchoolYearLabel}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Results</p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
               {summary.total.toLocaleString()}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Unpaid</p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
               {summary.unpaid.toLocaleString()}
             </p>
           </div>
-          <div className="rounded-3xl border bg-card p-5">
+          <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Absences</p>
-            <p className="mt-2 text-2xl font-black">
+            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
               {summary.absences.toLocaleString()}
             </p>
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="min-w-0 max-w-full rounded-3xl border bg-card p-4 shadow-sm sm:p-5">
+          <div className="flex min-w-0 flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
             <div>
               <h2 className="text-xl font-black">Penalty results</h2>
               <p className="text-sm text-muted-foreground">
                 Saved final penalty records generated from absence counts.
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 2xl:flex 2xl:w-auto 2xl:flex-wrap 2xl:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 disabled={!filteredPenaltyResults.length}
                 onClick={() => setReportDialogOpen(true)}
-                className="min-h-12 rounded-2xl px-5 text-xs font-black"
+                className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-3 py-2 text-center text-xs font-black 2xl:w-auto 2xl:px-5"
               >
                 Fines Report
               </Button>
@@ -1139,7 +1139,7 @@ export default function FinesPage() {
                       isRefreshingResults ||
                       isDeletingPenaltyResults
                     }
-                    className="min-h-12 rounded-2xl px-5 text-xs font-black"
+                    className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-3 py-2 text-center text-xs font-black 2xl:w-auto 2xl:px-5"
                   >
                     {isDeletingPenaltyResults ? "Deleting..." : "Delete Selected"}
                   </Button>
@@ -1165,7 +1165,7 @@ export default function FinesPage() {
                       isRefreshingResults ||
                       isDeletingPenaltyResults
                     }
-                    className="min-h-12 rounded-2xl px-5 text-xs font-black"
+                    className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-3 py-2 text-center text-xs font-black 2xl:w-auto 2xl:px-5"
                   >
                     {isDeletingPenaltyResults ? "Deleting..." : "Delete All"}
                   </Button>
@@ -1185,7 +1185,7 @@ export default function FinesPage() {
                 type="button"
                 onClick={handleRefreshPenaltyResults}
                 disabled={isRefreshingResults || isDeletingPenaltyResults}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-3 py-2 text-center font-black 2xl:w-auto 2xl:px-6"
               >
                 {isRefreshingResults
                   ? "Refreshing..."
@@ -1194,7 +1194,7 @@ export default function FinesPage() {
             </div>
           </div>
 
-          <div className="mt-5 min-w-0 space-y-3 rounded-2xl border border-primary/25 bg-muted/20 p-4 sm:p-5">
+          <div className="mt-5 min-w-0 max-w-full space-y-3 rounded-2xl border border-primary/25 bg-muted/20 p-3 sm:p-5">
             <label htmlFor="penalty-student-search" className="block text-sm font-bold">
               Search student
             </label>
@@ -1238,20 +1238,20 @@ export default function FinesPage() {
               </div>
             </div>
             <div className="flex min-w-0 flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
-              <p aria-live="polite" aria-atomic="true" className="min-w-0 break-words font-semibold">
+              <p aria-live="polite" aria-atomic="true" className="min-w-0 break-words font-semibold [overflow-wrap:anywhere]">
                 {filteredPenaltyResults.length.toLocaleString()} of {penaltyResults.length.toLocaleString()} results
                 {activeStudentSearch ? ` match '${activeStudentSearch}'` : ""}
               </p>
               {activeStudentSearch ? (
-                <p className="min-w-0 break-words text-xs font-medium">
+                <p className="min-w-0 break-words text-xs font-medium [overflow-wrap:anywhere]">
                   Delete All and Fines Report apply to the filtered results.
                 </p>
               ) : null}
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:hidden">
-            <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold md:col-span-2">
+          <div className="mt-5 grid min-w-0 grid-cols-1 gap-3 lg:hidden">
+            <label className="flex min-w-0 min-h-11 items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm font-semibold">
               <Checkbox
                 checked={allDisplayedPenaltyResultsSelected}
                 onCheckedChange={(checked) => handleSelectAllPenaltyResults(checked === true)}
@@ -1265,7 +1265,7 @@ export default function FinesPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
-                      <p className="mt-1 break-words text-sm font-semibold" title={result.name}>{result.name}</p>
+                      <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]" title={result.name}>{result.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -1288,13 +1288,13 @@ export default function FinesPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleOpenAbsentEvents(result)}
-                      className="min-h-11 rounded-xl px-3 text-xs font-black"
+                      className="min-h-11 min-w-0 max-w-full whitespace-normal rounded-xl px-3 py-2 text-xs font-black"
                     >
                       Absences ({result.no_of_absences})
                     </Button>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
                       <p className="mt-1 truncate font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
@@ -1306,7 +1306,7 @@ export default function FinesPage() {
                         onValueChange={(value) => handleStatusChange(result, value as FineStatus)}
                         disabled={updatingStatusId === result.id}
                       >
-                        <SelectTrigger className="mt-1 min-h-11 w-full rounded-xl text-xs font-bold">
+                        <SelectTrigger className="mt-1 min-h-11 w-full min-w-0 rounded-xl text-xs font-bold sm:w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1318,14 +1318,14 @@ export default function FinesPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-xl bg-muted/40 p-3">
+                  <div className="mt-4 min-w-0 rounded-xl bg-muted/40 p-3 [overflow-wrap:anywhere]">
                     <p className="text-xs font-bold uppercase text-muted-foreground">Prescribed penalty</p>
-                    <p className="mt-1 break-words text-sm font-semibold">{result.prescribed_penalty || "—"}</p>
+                    <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">{result.prescribed_penalty || "—"}</p>
                   </div>
                 </article>
               ))
             ) : (
-              <div className="flex min-w-0 flex-col items-center gap-3 rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground md:col-span-2">
+              <div className="flex min-w-0 flex-col items-center gap-3 rounded-2xl border border-dashed bg-background p-4 text-center text-sm font-semibold text-muted-foreground sm:p-6">
                 {isLoading ? (
                   "Loading penalty results..."
                 ) : activeStudentSearch ? (
@@ -1401,7 +1401,7 @@ export default function FinesPage() {
                         {result.prescribed_penalty}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <span
                             className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}
                           >
@@ -1468,11 +1468,11 @@ export default function FinesPage() {
             </table>
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-4 flex min-w-0 flex-col gap-3 rounded-2xl border bg-muted/20 p-3 xl:flex-row xl:items-center xl:justify-between">
             <p className="text-sm font-semibold text-muted-foreground">
               Showing {penaltyRangeStart.toLocaleString()}–{penaltyRangeEnd.toLocaleString()} of {filteredPenaltyResults.length.toLocaleString()} result/s
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
               <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
                 <SelectTrigger className="h-10 w-28 rounded-xl bg-background">
@@ -1486,21 +1486,21 @@ export default function FinesPage() {
                 </SelectContent>
               </Select>
               <Button type="button" variant="outline" disabled={currentPage <= 1 || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="h-10 rounded-xl px-4 text-xs font-black">Previous</Button>
-              <span className="min-w-20 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {penaltyResultsTotalPages}</span>
+              <span className="min-w-0 text-center text-xs font-black text-muted-foreground">Page {currentPage} of {penaltyResultsTotalPages}</span>
               <Button type="button" variant="outline" disabled={currentPage >= penaltyResultsTotalPages || rowsPerPage === "all"} onClick={() => setCurrentPage((page) => Math.min(penaltyResultsTotalPages, page + 1))} className="h-10 rounded-xl px-4 text-xs font-black">Next</Button>
             </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="min-w-0 max-w-full rounded-3xl border bg-card p-4 shadow-sm sm:p-5">
+          <div className="mb-5 flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-black">Penalty rules</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Create and edit penalty rules in a dialog.
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Button
                 type="button"
                 onClick={handleOpenCreatePenaltyDialog}
@@ -1524,14 +1524,14 @@ export default function FinesPage() {
               penalties.map((penalty) => (
                 <article
                   key={penalty.id}
-                  className="rounded-2xl border bg-background p-4"
+                  className="min-w-0 rounded-2xl border bg-background p-4"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-black">
                         {penalty.no_of_absences} absence/s
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      <p className="mt-1 break-words text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">
                         {penalty.prescribed_penalty}
                       </p>
                     </div>
@@ -1577,9 +1577,9 @@ export default function FinesPage() {
             </DialogHeader>
 
             <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto">
-              <div className="grid min-w-0 gap-3 md:grid-cols-2 lg:hidden">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
                 {filteredPenaltyResults.map((result) => (
-                  <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-4 text-sm">
+                  <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-3 text-sm sm:p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="break-all font-black">{result.student_id}</p>
@@ -1587,11 +1587,11 @@ export default function FinesPage() {
                       </div>
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>{result.status}</span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                       <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 break-all font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
                       <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 break-words">{result.prescribed_penalty || "—"}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Fine amount</p><p className="mt-1 font-black">{formatFineReportCurrency(getFineReportAmount(result))}</p></div>
+                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Fine amount</p><p className="mt-1 break-all font-black">{formatFineReportCurrency(getFineReportAmount(result))}</p></div>
                     </div>
                   </article>
                 ))}
@@ -1650,10 +1650,10 @@ export default function FinesPage() {
             </DialogHeader>
             <form
               onSubmit={handleSavePenaltyResult}
-              className="rounded-3xl border bg-card p-5 shadow-sm"
+              className="min-w-0 max-w-full rounded-3xl border bg-card p-4 shadow-sm sm:p-5"
             >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2">
+              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">Student ID</span>
                   <Input
                     value={penaltyResultForm.studentId}
@@ -1663,11 +1663,11 @@ export default function FinesPage() {
                         studentId: event.target.value,
                       }))
                     }
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-12 min-w-0 rounded-2xl"
                   />
                 </label>
 
-                <label className="space-y-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">Name</span>
                   <Input
                     value={penaltyResultForm.name}
@@ -1677,11 +1677,11 @@ export default function FinesPage() {
                         name: event.target.value,
                       }))
                     }
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-12 min-w-0 rounded-2xl"
                   />
                 </label>
 
-                <label className="space-y-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">No. of absences</span>
                   <Input
                     type="number"
@@ -1693,11 +1693,11 @@ export default function FinesPage() {
                         noOfAbsences: event.target.value,
                       }))
                     }
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-12 min-w-0 rounded-2xl"
                   />
                 </label>
 
-                <label className="space-y-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">Status</span>
                   <Select
                     value={penaltyResultForm.status}
@@ -1721,7 +1721,7 @@ export default function FinesPage() {
                   </Select>
                 </label>
 
-                <label className="space-y-2 sm:col-span-2">
+                <label className="min-w-0 space-y-2 sm:col-span-2">
                   <span className="text-sm font-bold">Prescribed penalty</span>
                   <Textarea
                     value={penaltyResultForm.prescribedPenalty}
@@ -1740,7 +1740,7 @@ export default function FinesPage() {
                 <Button
                   type="submit"
                   disabled={isSavingPenaltyResult}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-6 font-black sm:w-auto"
                 >
                   {isSavingPenaltyResult ? "Saving..." : "Update Result"}
                 </Button>
@@ -1749,7 +1749,7 @@ export default function FinesPage() {
                   variant="outline"
                   disabled={isSavingPenaltyResult}
                   onClick={() => handlePenaltyResultDialogOpenChange(false)}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-6 font-black sm:w-auto"
                 >
                   Cancel
                 </Button>
@@ -1780,7 +1780,7 @@ export default function FinesPage() {
             ) : absentEventsResult ? (
               <div className="space-y-3">
                 {absentEventsResult.absentEvents.map((event, index) => (
-                  <article key={`${event.eventId ?? event.eventName}-${index}`} className="rounded-2xl border bg-background p-4">
+                  <article key={`${event.eventId ?? event.eventName}-${index}`} className="min-w-0 rounded-2xl border bg-background p-4">
                     <div className="flex gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">{index + 1}</span>
                       <div className="min-w-0">
@@ -1824,14 +1824,14 @@ export default function FinesPage() {
             </DialogHeader>
             <form
               onSubmit={handleSavePenalty}
-              className="rounded-3xl border bg-card p-5 shadow-sm"
+              className="min-w-0 max-w-full rounded-3xl border bg-card p-4 shadow-sm sm:p-5"
             >
               <h2 className="text-xl font-black">
                 {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}
               </h2>
 
               <div className="mt-5 grid gap-4">
-                <label className="space-y-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">No. of absences</span>
                   <Input
                     type="number"
@@ -1844,11 +1844,11 @@ export default function FinesPage() {
                       }))
                     }
                     placeholder="Example: 3"
-                    className="min-h-12 rounded-2xl"
+                    className="min-h-12 min-w-0 rounded-2xl"
                   />
                 </label>
 
-                <label className="space-y-2">
+                <label className="min-w-0 space-y-2">
                   <span className="text-sm font-bold">Prescribed penalty</span>
                   <Textarea
                     value={penaltyForm.prescribedPenalty}
@@ -1868,7 +1868,7 @@ export default function FinesPage() {
                 <Button
                   type="submit"
                   disabled={isSavingPenalty}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-6 font-black sm:w-auto"
                 >
                   {isSavingPenalty
                     ? "Saving..."
@@ -1882,7 +1882,7 @@ export default function FinesPage() {
                     variant="outline"
                     disabled={isSavingPenalty}
                     onClick={() => handlePenaltyDialogOpenChange(false)}
-                    className="min-h-12 rounded-2xl px-6 font-black"
+                    className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-6 font-black sm:w-auto"
                   >
                     Cancel Edit
                   </Button>
