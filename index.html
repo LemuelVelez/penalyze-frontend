@@ -6,12 +6,12 @@
         try {
           var storedTheme = localStorage.getItem("theme");
           var legacyTheme = localStorage.getItem("darkMode");
-          var dark = storedTheme === "dark" || (!storedTheme && legacyTheme === "true");
+          var dark = storedTheme !== "light" && (Boolean(storedTheme) || legacyTheme !== "false");
           document.documentElement.classList.toggle("dark", dark);
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
         } catch (error) {
-          document.documentElement.classList.remove("dark");
-          document.documentElement.style.colorScheme = "light";
+          document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = "dark";
         }
       })();
     </script>

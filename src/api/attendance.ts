@@ -1,3 +1,4 @@
+import { getAuthToken, checkUnauthorized } from "./auth";
 import { readProgressStream } from "./progressStream";
 
 export const CALCULATION_STATUS_UPDATED_EVENT = "calculation-status-updated";
@@ -679,14 +680,6 @@ function getApiBaseUrl() {
   return LOCAL_API_BASE_URL;
 }
 
-function getAuthToken() {
-  return (
-    localStorage.getItem("penalyze.auth.token") ||
-    sessionStorage.getItem("penalyze.auth.token") ||
-    ""
-  );
-}
-
 function buildSearchParams(
   params: Record<string, string | number | undefined>,
 ) {
@@ -721,6 +714,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers,
     credentials: "include",
   });
+  checkUnauthorized(response);
 
   const contentType = response.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json")
@@ -765,6 +759,7 @@ async function apiProgressRequest<T>(
     headers: getApiRequestHeaders(options),
     credentials: "include",
   });
+  checkUnauthorized(response);
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
@@ -1629,6 +1624,7 @@ export async function createEventCollegeExemptionsWithProgress(
       body: JSON.stringify(input),
     },
   );
+  checkUnauthorized(response);
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
@@ -1741,6 +1737,7 @@ export async function createEventYearLevelExemptionsWithProgress(
       body: JSON.stringify(input),
     },
   );
+  checkUnauthorized(response);
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
@@ -1805,6 +1802,7 @@ export async function removeSelectedEventExemptions(
       body: JSON.stringify(input),
     },
   );
+  checkUnauthorized(response);
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";

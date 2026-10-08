@@ -15,16 +15,16 @@ type PageBackgroundProps = {
 };
 
 const overlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/25 via-background/45 to-background/75",
-  medium: "bg-linear-to-b from-background/45 via-background/70 to-background/90",
-  strong: "bg-linear-to-b from-background/70 via-background/85 to-background",
+  light: "bg-linear-to-b from-background/78 via-background/85 to-background/95 dark:from-background/25 dark:via-background/45 dark:to-background/75",
+  medium: "bg-linear-to-b from-background/84 via-background/91 to-background/97 dark:from-background/45 dark:via-background/70 dark:to-background/90",
+  strong: "bg-linear-to-b from-background/90 via-background/95 to-background dark:from-background/70 dark:via-background/85",
 };
 
-// Preserve the photo on small screens. The content itself provides local scrims.
+// In dark mode preserve the existing photo treatment; in light mode use a tinted, denser scrim.
 const mobileOverlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/15 via-background/30 to-background/60",
-  medium: "bg-linear-to-b from-background/25 via-background/45 to-background/70",
-  strong: "bg-linear-to-b from-background/30 via-background/50 to-background/75",
+  light: "bg-linear-to-b from-background/79 via-background/86 to-background/95 dark:from-background/15 dark:via-background/30 dark:to-background/60",
+  medium: "bg-linear-to-b from-background/85 via-background/91 to-background/98 dark:from-background/25 dark:via-background/45 dark:to-background/70",
+  strong: "bg-linear-to-b from-background/90 via-background/96 to-background dark:from-background/30 dark:via-background/50 dark:to-background/75",
 };
 
 export default function PageBackground({
@@ -63,7 +63,7 @@ export default function PageBackground({
             onLoad={() => setLightLoaded(true)}
             onError={() => setLightFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} ${lightLoaded ? "opacity-100" : ""}`}
+            className={`${imageClassName} saturate-75 ${lightLoaded ? "opacity-65 dark:opacity-100" : ""}`}
           />
         </picture>
       )}

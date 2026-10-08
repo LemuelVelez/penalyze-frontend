@@ -149,12 +149,12 @@ function matchesDateRange(
 
 function getStatusClassName(status: AttendanceRequestStatus) {
   if (status === "approved") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300";
   }
   if (status === "rejected") {
-    return "border-red-200 bg-red-50 text-red-700";
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300";
   }
-  return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200";
 }
 
 function normalizeComparisonValue(value: unknown) {

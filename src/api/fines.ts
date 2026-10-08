@@ -1,3 +1,4 @@
+import { getAuthToken, checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import type { AttendanceRecord } from "./attendance";
 
@@ -169,14 +170,6 @@ function getApiBaseUrl() {
   return LOCAL_API_BASE_URL;
 }
 
-function getAuthToken() {
-  return (
-    localStorage.getItem("penalyze.auth.token") ||
-    sessionStorage.getItem("penalyze.auth.token") ||
-    ""
-  );
-}
-
 function buildSearchParams(
   params: Record<string, string | number | undefined>,
 ) {
@@ -211,6 +204,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers,
     credentials: "include",
   });
+  checkUnauthorized(response);
 
   const contentType = response.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json")

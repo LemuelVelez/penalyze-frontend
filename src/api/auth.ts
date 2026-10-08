@@ -12,6 +12,7 @@ export type AuthUser = {
 export type AuthSession = {
   user: AuthUser;
   token: string;
+  expiresAt?: string;
 };
 
 export type LoginInput = {
@@ -46,6 +47,10 @@ type ApiEnvelope<T> = {
 
 const AUTH_TOKEN_KEY = "penalyze.auth.token";
 const AUTH_USER_KEY = "penalyze.auth.user";
+const AUTH_EXPIRY_KEY = "penalyze.auth.expiresAt";
+const LAST_EMAIL_KEY = "penalyze.auth.lastEmail";
+export const SESSION_EXPIRED_EVENT = "penalyze:session-expired";
+let sessionExpiredNotified = false;
 const LOCAL_API_BASE_URL = "http://localhost:3000";
 
 function normalizeBaseUrl(value: unknown) {
@@ -135,20 +140,60 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const payload = contentType.includes("application/json") ? await response.json() : null;
 
   if (!response.ok) {
+    if (
+      (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/register") ||
+      (response.status === 404 && path === "/api/auth/me")
+    ) {
+      handleUnauthorized();
+    }
     throw new Error(payload?.message || `Request failed with status ${response.status}.`);
   }
 
   return payload as ApiEnvelope<T>;
 }
 
-export function getAuthToken() {
-  return localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY) || "";
+function getTokenExpiry(token: string): number | null {
+  try {
+    const encoded = token.split(".")[1];
+    if (!encoded) return null;
+    const payload = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: unknown };
+    return typeof payload.exp === "number" && Number.isFinite(payload.exp)
+      ? payload.exp * 1000
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-export function getStoredUser() {
-  const value = localStorage.getItem(AUTH_USER_KEY) || sessionStorage.getItem(AUTH_USER_KEY);
-  if (!value) return null;
+function readSession(): { token: string; storage: Storage } | null {
+  if (typeof window === "undefined") return null;
+  for (const storage of [localStorage, sessionStorage]) {
+    const token = storage.getItem(AUTH_TOKEN_KEY);
+    if (!token) continue;
+    const storedExpiry = storage.getItem(AUTH_EXPIRY_KEY);
+    const expiry = storedExpiry ? Date.parse(storedExpiry) : NaN;
+    const jwtExpiry = getTokenExpiry(token);
+    // The JWT is authoritative even when a separately stored expiry has been altered.
+    const expiresAt = jwtExpiry === null ? null : Number.isFinite(expiry)
+      ? Math.min(expiry, jwtExpiry) : jwtExpiry;
+    if (expiresAt === null || expiresAt <= Date.now()) {
+      handleUnauthorized();
+      return null;
+    }
+    return { token, storage };
+  }
+  return null;
+}
 
+export function getAuthToken(): string {
+  return readSession()?.token ?? "";
+}
+
+export function getStoredUser(): AuthUser | null {
+  const session = readSession();
+  if (!session) return null;
+  const value = session.storage.getItem(AUTH_USER_KEY);
+  if (!value) return null;
   try {
     return JSON.parse(value) as AuthUser;
   } catch {
@@ -156,33 +201,60 @@ export function getStoredUser() {
   }
 }
 
-export function isAuthenticated() {
+export function isAuthenticated(): boolean {
   return Boolean(getAuthToken());
+}
+
+export function getLastRememberedEmail(): string {
+  return typeof window !== "undefined" ? localStorage.getItem(LAST_EMAIL_KEY) ?? "" : "";
 }
 
 export function persistSession(session: AuthSession, remember = true) {
   const storage = remember ? localStorage : sessionStorage;
   const otherStorage = remember ? sessionStorage : localStorage;
 
+  // Clear both storages before installing a new session, so no stale token survives.
+  clearSession();
+  sessionExpiredNotified = false;
   storage.setItem(AUTH_TOKEN_KEY, session.token);
   storage.setItem(AUTH_USER_KEY, JSON.stringify(session.user));
+  const expiry = session.expiresAt ?? getTokenExpiry(session.token);
+  if (expiry) storage.setItem(AUTH_EXPIRY_KEY, typeof expiry === "number" ? new Date(expiry).toISOString() : expiry);
+  otherStorage.removeItem(AUTH_EXPIRY_KEY);
 
-  otherStorage.removeItem(AUTH_TOKEN_KEY);
-  otherStorage.removeItem(AUTH_USER_KEY);
+  if (remember) localStorage.setItem(LAST_EMAIL_KEY, session.user.email);
+  else localStorage.removeItem(LAST_EMAIL_KEY);
 }
 
 export function clearSession() {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
-  localStorage.removeItem(AUTH_USER_KEY);
-  sessionStorage.removeItem(AUTH_TOKEN_KEY);
-  sessionStorage.removeItem(AUTH_USER_KEY);
+  if (typeof window === "undefined") return;
+  for (const storage of [localStorage, sessionStorage]) {
+    storage.removeItem(AUTH_TOKEN_KEY);
+    storage.removeItem(AUTH_USER_KEY);
+    storage.removeItem(AUTH_EXPIRY_KEY);
+  }
+}
+
+/** Broadcast an invalid/expired authenticated session exactly once until the next login. */
+export function handleUnauthorized() {
+  if (typeof window === "undefined") return;
+  const hadSession = Boolean(localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY));
+  clearSession();
+  if (!hadSession || sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+}
+
+export function checkUnauthorized(response: Response): Response {
+  if (response.status === 401) handleUnauthorized();
+  return response;
 }
 
 export async function login(input: LoginInput, remember = true) {
   try {
     const response = await apiRequest<AuthSession>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify({ ...input, remember })
     });
 
     if (!response.data?.token || !response.data?.user) {

@@ -1,3 +1,4 @@
+import { getAuthToken, checkUnauthorized } from "./auth";
 export const ALL_SCHOOL_YEARS_VALUE = "__all_school_years__";
 
 export type SchoolSemester = "first_semester" | "second_semester";
@@ -145,14 +146,6 @@ function getApiBaseUrl() {
   return LOCAL_API_BASE_URL;
 }
 
-function getAuthToken() {
-  return (
-    localStorage.getItem("penalyze.auth.token") ||
-    sessionStorage.getItem("penalyze.auth.token") ||
-    ""
-  );
-}
-
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   const token = getAuthToken();
@@ -170,6 +163,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers,
     credentials: "include",
   });
+  checkUnauthorized(response);
 
   const contentType = response.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json") ? await response.json() : null;

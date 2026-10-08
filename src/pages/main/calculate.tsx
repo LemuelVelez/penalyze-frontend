@@ -758,7 +758,7 @@ const CalculationTableRow = memo(function CalculationTableRow({
               "No prescribed penalty configured."}
           </p>
         ) : (
-          <p className="font-semibold text-emerald-700">No fine</p>
+          <p className="font-semibold text-emerald-700 dark:text-emerald-300">No fine</p>
         )}
       </td>
       <td className="px-4 py-3 align-top">
@@ -769,8 +769,8 @@ const CalculationTableRow = memo(function CalculationTableRow({
               : row.expectedEvents > 0 &&
                   row.attendedEvents >= row.expectedEvents &&
                   row.totalAbsences <= 0
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-amber-200 bg-amber-50 text-amber-800"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300"
+                : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
           }`}
         >
           {row.attendanceStatus === "unresolved_college"
@@ -817,8 +817,8 @@ const CalculationCard = memo(function CalculationCard({
       : row.expectedEvents > 0 &&
           row.attendedEvents >= row.expectedEvents &&
           row.totalAbsences <= 0
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-amber-200 bg-amber-50 text-amber-800";
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300"
+        : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200";
 
   return (
     <article className="min-w-0 rounded-2xl border bg-background p-4">
@@ -869,7 +869,7 @@ const CalculationCard = memo(function CalculationCard({
 
       <div className="mt-4 rounded-xl bg-muted/40 p-3">
         <p className="text-xs font-bold uppercase text-muted-foreground">Fine / Penalty</p>
-        <p className={`mt-1 break-words text-sm font-semibold ${row.totalAbsences > 0 ? "" : "text-emerald-700"}`}>
+        <p className={`mt-1 break-words text-sm font-semibold ${row.totalAbsences > 0 ? "" : "text-emerald-700 dark:text-emerald-300"}`}>
           {row.totalAbsences > 0
             ? row.prescribedPenalty ?? row.penalty?.prescribed_penalty ?? "No prescribed penalty configured."
             : "No fine"}
@@ -2696,7 +2696,7 @@ export default function CalculatePage() {
           </div>
 
           {calculationRows.some((row) => Boolean(row.consistencyWarning)) ? (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-200">
               Attendance consistency warning: students in the same college and year level have conflicting expected-event totals. Review the attendance audit log before saving results.
             </div>
           ) : null}

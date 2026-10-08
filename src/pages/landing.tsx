@@ -468,8 +468,8 @@ function formatDate(value?: string | null) {
 
 function statusBadge(status: FineRecord["status"]) {
   const styles: Record<FineRecord["status"], string> = {
-    unpaid: "border-red-200 bg-red-50 text-red-700",
-    paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    unpaid: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300",
+    paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300",
     waived: "border-blue-200 bg-blue-50 text-blue-700",
   };
 
@@ -2441,11 +2441,11 @@ function getResultClassification(props: {
 
 function getClassificationStyle(classification: string) {
   if (classification === "Perfect attendance")
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300";
   if (classification === "Zero attendance")
-    return "border-red-200 bg-red-50 text-red-700";
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300";
   if (classification === "With absences")
-    return "border-amber-200 bg-amber-50 text-amber-800";
+    return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200";
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
@@ -2557,7 +2557,7 @@ function RequiredEventsDialog(props: {
         </DialogHeader>
 
         {props.absentEvents.length ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
             <p className="font-black">
               You have missed perfect attendance by missing these events:
             </p>
@@ -2565,7 +2565,7 @@ function RequiredEventsDialog(props: {
               {props.absentEvents.map((eventSummary) => (
                 <div
                   key={eventSummary.key}
-                  className="min-w-0 rounded-xl border border-amber-200/80 bg-background/70 px-3 py-2 dark:border-red-900/50"
+                  className="min-w-0 rounded-xl border border-amber-200/80 bg-background/70 px-3 py-2 dark:border-amber-900/50"
                 >
                   <p className="break-words text-sm font-bold">
                     {eventSummary.eventName}
@@ -2691,7 +2691,7 @@ function ZeroAttendanceRegistrationDialog(props: {
           }}
           className="w-full min-w-0 space-y-5"
         >
-          <div className="space-y-3 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800">
+          <div className="space-y-3 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
             <p>
               This Student ID has no saved attendance or fine record. If you attended one or more events, use{" "}
               <strong>Request Event Review</strong>{" "}
@@ -2707,7 +2707,7 @@ function ZeroAttendanceRegistrationDialog(props: {
           </div>
 
           {props.error ? (
-            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere]">
+            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere] dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
               {props.error}
             </div>
           ) : null}
@@ -3025,7 +3025,7 @@ function DetailsCorrectionDialog(props: {
     nameChanged || yearLevelChanged || collegeChanged || programChanged;
   const canSubmit = hasChanges;
   const changedFieldClassName =
-    "min-w-0 rounded-2xl border border-amber-300 bg-amber-50/60 p-3";
+    "min-w-0 rounded-2xl border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-950/35";
   const unchangedFieldClassName = "min-w-0 rounded-2xl border bg-background p-3";
 
   return (
@@ -3049,7 +3049,7 @@ function DetailsCorrectionDialog(props: {
           </div>
 
           {props.error ? (
-            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere]">
+            <div className="min-w-0 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 [overflow-wrap:anywhere] dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
               {props.error}
             </div>
           ) : null}
@@ -3089,7 +3089,7 @@ function DetailsCorrectionDialog(props: {
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>Name</span>
                   {nameChanged ? (
-                    <span className="text-xs font-black uppercase text-amber-700">
+                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-300">
                       Changed
                     </span>
                   ) : null}
@@ -3106,7 +3106,7 @@ function DetailsCorrectionDialog(props: {
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>Year Level</span>
                   {yearLevelChanged ? (
-                    <span className="text-xs font-black uppercase text-amber-700">
+                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-300">
                       Changed
                     </span>
                   ) : null}
@@ -3144,7 +3144,7 @@ function DetailsCorrectionDialog(props: {
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>College</span>
                   {collegeChanged ? (
-                    <span className="text-xs font-black uppercase text-amber-700">
+                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-300">
                       Changed
                     </span>
                   ) : null}
@@ -3180,7 +3180,7 @@ function DetailsCorrectionDialog(props: {
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>Program</span>
                   {programChanged ? (
-                    <span className="text-xs font-black uppercase text-amber-700">
+                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-300">
                       Changed
                     </span>
                   ) : null}
@@ -3318,13 +3318,13 @@ function AttendanceRequestDialog(props: {
             <p className="mt-3">
               To change your name, year level, college or program, use Request Details Correction instead.
             </p>
-            <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+            <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
               Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
             </p>
           </div>
 
           {props.error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
               {props.error}
             </div>
           ) : null}
@@ -3413,7 +3413,7 @@ function AttendanceRequestDialog(props: {
                             placeholder="https://drive.google.com/... (set sharing to Anyone with the link)"
                             className={textInputClassName}
                           />
-                          <span className="block text-xs font-semibold text-amber-700">
+                          <span className="block text-xs font-semibold text-amber-700 dark:text-amber-300">
                             Make sure this link is set to public access. Non-public links will not be accepted.
                           </span>
                         </label>
@@ -4987,7 +4987,7 @@ export default function LandingPage() {
             ) : null}
 
             {error ? (
-              <div className="mx-auto mt-4 max-w-3xl rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-semibold text-red-700">
+              <div className="mx-auto mt-4 max-w-3xl rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
                 {error}
               </div>
             ) : null}
@@ -5212,14 +5212,14 @@ export default function LandingPage() {
               ) : null}
 
               {resultClassification === "Zero attendance" ? (
-                <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
+                <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
                   Zero attendance record found. This student has been recorded
                   with no attended events and the related fine is shown below.
                 </div>
               ) : null}
 
               {fallbackFineActive ? (
-                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
+                <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
                   No saved fine record was returned. A computed unpaid fine is
                   shown using the configured penalty table.
                 </div>
@@ -5283,7 +5283,7 @@ export default function LandingPage() {
                                   {fine.prescribed_penalty}
                                 </p>
                                 {isZeroAttendanceFine(fine) ? (
-                                  <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
+                                  <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
                                     Zero attendance
                                   </span>
                                 ) : null}

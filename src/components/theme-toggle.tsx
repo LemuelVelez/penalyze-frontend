@@ -8,7 +8,7 @@ type Theme = "light" | "dark";
 
 function getTheme(): Theme {
   try {
-    return localStorage.getItem("theme") === "dark" ? "dark" : "light";
+    return localStorage.getItem("theme") === "light" ? "light" : "dark";
   } catch {
     return document.documentElement.classList.contains("dark") ? "dark" : "light";
   }
@@ -49,7 +49,7 @@ export default function ThemeToggle() {
 
     function handleStorage(event: StorageEvent) {
       if (event.key === "theme") {
-        setTheme(event.newValue === "dark" ? "dark" : "light");
+        setTheme(event.newValue === "light" ? "light" : "dark");
       }
     }
 

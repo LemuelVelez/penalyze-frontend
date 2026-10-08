@@ -1,4 +1,4 @@
-import { getApiBaseUrl, getAuthToken } from "./auth";
+import { getApiBaseUrl, getAuthToken, checkUnauthorized } from "./auth";
 import type { SortOrder } from "../lib/sort";
 
 export type AuditLogOutcome = "all" | "success" | "failed";
@@ -60,6 +60,7 @@ export async function listAuditLogs(options: AuditLogListOptions = {}) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     credentials: "include",
   });
+  checkUnauthorized(response);
 
   const payload = (await response.json().catch(() => null)) as AuditLogEnvelope | null;
 

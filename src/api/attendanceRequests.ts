@@ -1,4 +1,4 @@
-import { getApiBaseUrl, getAuthToken } from "./auth";
+import { getApiBaseUrl, getAuthToken, checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import { readProgressStream } from "./progressStream";
 import type { SchoolSemester } from "./schoolYears";
@@ -156,6 +156,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers,
     credentials: "include",
   });
+  checkUnauthorized(response);
   const contentType = response.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json")
     ? await response.json()
@@ -237,6 +238,7 @@ export async function reviewAttendanceRequestWithProgress(
       body: JSON.stringify(input),
     },
   );
+  checkUnauthorized(response);
 
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
@@ -283,6 +285,7 @@ export async function getStudentAttendanceRequestStatus(
     `${getApiBaseUrl()}/api/attendance/requests/student-status?${params.toString()}`,
     { credentials: "include" },
   );
+  checkUnauthorized(response);
   const contentType = response.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json")
     ? await response.json()

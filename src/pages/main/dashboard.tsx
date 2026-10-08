@@ -81,9 +81,9 @@ function StatCard(props: {
         aria-hidden="true"
         loading="lazy"
         decoding="async"
-        className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-75 dark:opacity-55"
+        className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-35 saturate-75 dark:opacity-55 dark:saturate-100"
       />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card via-card/95 to-card/60 dark:via-card/95 dark:to-card/70" />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card via-card/98 to-card/92 dark:via-card/95 dark:to-card/70" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
       <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
@@ -337,7 +337,7 @@ export default function DashboardPage() {
         </div>
 
         {error ? (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
             {error}
           </div>
         ) : null}

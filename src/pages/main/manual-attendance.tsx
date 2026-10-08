@@ -2127,7 +2127,7 @@ export default function ManualAttendancePage() {
                   </span>
                 </div>
                 {editingExemptedEventRecords.length ? (
-                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
                     <p className="font-black">Saved events that are now exempted</p>
                     <p className="mt-1 text-xs font-semibold leading-5">
                       These records are no longer selectable for {form.college || "this college"} and will be removed when you save this edit.
@@ -2136,10 +2136,10 @@ export default function ManualAttendancePage() {
                       {editingExemptedEventRecords.map((record) => (
                         <span
                           key={record.id}
-                          className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold"
+                          className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-card px-3 dark:border-amber-800 py-1.5 text-xs font-bold"
                         >
                           {getRecordEventLabel(record)}
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide">
+                          <span className="rounded-full bg-amber-100 px-2 dark:bg-amber-950/70 py-0.5 text-[10px] font-black uppercase tracking-wide">
                             Exempted
                           </span>
                         </span>
@@ -2321,7 +2321,7 @@ export default function ManualAttendancePage() {
               ) : null}
 
               {eventsDialogError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
                   {eventsDialogError}
                 </div>
               ) : null}
@@ -2330,7 +2330,7 @@ export default function ManualAttendancePage() {
               !eventsDialogError &&
               eventsDialogCalculatedEntry &&
               !eventsDialogCalculatedEntry.finalResult ? (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
                   Not calculated yet. Showing manual records only. Run Calculate to include uploaded attendance.
                 </div>
               ) : null}

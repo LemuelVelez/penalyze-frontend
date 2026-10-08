@@ -2047,7 +2047,7 @@ export default function HistoryPage() {
               <span
                 className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
                   selectedSchoolYear.is_active
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300"
                     : "border-slate-200 bg-slate-50 text-slate-600"
                 }`}
               >

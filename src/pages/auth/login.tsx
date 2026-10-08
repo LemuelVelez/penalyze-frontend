@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
-import { login } from "../../api/auth";
+import { getLastRememberedEmail, isAuthenticated, login } from "../../api/auth";
+import { useLocation, useNavigate } from "react-router-dom";
 import PageBackground from "../../components/page-background";
 import { BACKGROUNDS, BACKGROUND_CARD } from "../../lib/backgrounds";
 import { LogoMark, navigateTo } from "../../components/layout";
@@ -11,91 +12,10 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Input } from "../../components/ui/input";
 
-const AUTH_STORAGE_KEYS = [
-  "penalyze.auth.session",
-  "penalyze.auth.token",
-  "penalyze.session",
-  "penalyze.token",
-  "auth.session",
-  "auth.token",
-  "session",
-  "token",
-  "accessToken"
-];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getExpiryTime(value: unknown) {
-  if (typeof value === "number") {
-    return value < 1_000_000_000_000 ? value * 1000 : value;
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    const parsedNumericValue = Number(value);
-    if (!Number.isNaN(parsedNumericValue)) {
-      return parsedNumericValue < 1_000_000_000_000 ? parsedNumericValue * 1000 : parsedNumericValue;
-    }
-
-    const parsedDateValue = new Date(value).getTime();
-    if (!Number.isNaN(parsedDateValue)) return parsedDateValue;
-  }
-
-  return null;
-}
-
-function hasUsableSessionPayload(payload: Record<string, unknown>) {
-  const expiresAt = payload.expiresAt ?? payload.expires_at ?? payload.exp;
-  const expiryTime = getExpiryTime(expiresAt);
-
-  if (expiryTime !== null && expiryTime <= Date.now()) return false;
-
-  return Boolean(
-    payload.token ||
-      payload.accessToken ||
-      payload.access_token ||
-      payload.jwt ||
-      payload.user ||
-      payload.email ||
-      payload.id
-  );
-}
-
-function hasStoredSessionValue(value: string | null) {
-  if (!value) return false;
-
-  const cleanValue = value.trim();
-  if (!cleanValue || cleanValue === "null" || cleanValue === "undefined") return false;
-
-  try {
-    const parsedValue: unknown = JSON.parse(cleanValue);
-
-    if (typeof parsedValue === "string") return parsedValue.trim().length > 0;
-    if (!isRecord(parsedValue)) return Boolean(parsedValue);
-
-    return hasUsableSessionPayload(parsedValue);
-  } catch {
-    return true;
-  }
-}
-
-function hasCurrentSession() {
-  if (typeof window === "undefined") return false;
-
-  const storageAreas: Storage[] = [window.localStorage, window.sessionStorage];
-
-  return storageAreas.some((storageArea) => {
-    try {
-      return AUTH_STORAGE_KEYS.some((key) => hasStoredSessionValue(storageArea.getItem(key)));
-    } catch {
-      return false;
-    }
-  });
-}
-
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [email, setEmail] = useState(getLastRememberedEmail);
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -104,13 +24,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (hasCurrentSession()) {
-      navigateTo("/dashboard");
+    if (isAuthenticated()) {
+      navigate("/dashboard", { replace: true });
       return;
     }
 
     setIsCheckingSession(false);
-  }, []);
+  }, [navigate]);
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -120,7 +40,10 @@ export default function LoginPage() {
 
     try {
       await login({ email, password }, remember);
-      navigateTo("/dashboard");
+      const from = (location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+      const destination = from?.pathname && from.pathname !== "/login"
+        ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}` : "/dashboard";
+      navigate(destination, { replace: true, state: null });
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Unable to login.");
     } finally {
@@ -154,7 +77,7 @@ export default function LoginPage() {
             className="absolute inset-0 h-full w-full object-cover object-[center_36%]"
             />
           </picture>
-          <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/35 to-black/10" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/85 via-black/50 to-black/25" />
           <div className="relative z-10 p-4 text-white sm:p-6 md:p-8 lg:p-10">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/75">
               Student services
@@ -226,9 +149,10 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <label className="flex min-h-12 w-full min-w-0 cursor-pointer items-center gap-3 rounded-2xl border bg-background px-3 py-3 text-sm font-semibold sm:px-4">
+          <label htmlFor="remember-device" className="flex min-h-12 w-full min-w-0 cursor-pointer items-center gap-3 rounded-2xl border bg-background px-3 py-3 text-sm font-semibold sm:px-4">
             <Checkbox
-              className="size-4 shrink-0"
+              id="remember-device"
+              className="size-4 shrink-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               checked={remember}
               onCheckedChange={(checked) => setRemember(checked === true)}
             />
@@ -236,7 +160,7 @@ export default function LoginPage() {
           </label>
 
           {error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-200">
               {error}
             </div>
           ) : null}

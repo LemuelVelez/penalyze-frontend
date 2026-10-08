@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   BrowserRouter,
@@ -10,7 +10,7 @@ import {
 } from "react-router-dom";
 import { toast } from "sonner";
 
-import { getStoredUser, isAuthenticated, logout } from "./api/auth";
+import { getCurrentUser, getStoredUser, handleUnauthorized, isAuthenticated, logout, SESSION_EXPIRED_EVENT } from "./api/auth";
 import type { AuthUser, UserRole } from "./api/auth";
 import AppLayout from "./components/layout";
 import Loading from "./components/loading";
@@ -41,18 +41,21 @@ type ProtectedPageProps = {
 function ProtectedPage(props: ProtectedPageProps) {
   const location = useLocation();
 
-  if (!props.authenticated) {
+  const authenticated = props.authenticated || isAuthenticated();
+  const currentUser = props.currentUser ?? (authenticated ? getStoredUser() : null);
+
+  if (!authenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (props.allowedRoles?.length && (!props.currentUser || !props.allowedRoles.includes(props.currentUser.role))) {
+  if (props.allowedRoles?.length && (!currentUser || !props.allowedRoles.includes(currentUser.role))) {
     return <Navigate to="/dashboard" replace />;
   }
 
   return (
     <AppLayout
       currentPath={location.pathname}
-      authenticated={props.authenticated}
+      authenticated={authenticated}
       onLogout={props.onLogout}
     >
       {props.children}
@@ -73,18 +76,66 @@ function AppRoutes() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
-  useEffect(() => {
-    const hasSession = isAuthenticated();
-    setAuthenticated(hasSession);
-    setCurrentUser(hasSession ? getStoredUser() : null);
-    setIsCheckingSession(false);
-  }, []);
+  const currentLocation = useRef(location);
+  currentLocation.current = location;
 
   useEffect(() => {
+    let mounted = true;
+
+    function onSessionExpired() {
+      if (!mounted) return;
+      setAuthenticated(false);
+      setCurrentUser(null);
+      toast.error("Your session expired, please sign in again.", { id: "session-expired" });
+      const from = currentLocation.current;
+      if (from.pathname !== "/login") {
+        navigate("/login", { replace: true, state: { from } });
+      }
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+
+    async function validateSession() {
+      if (!isAuthenticated()) {
+        if (mounted) setIsCheckingSession(false);
+        return;
+      }
+
+      try {
+        const user = await getCurrentUser();
+        if (!user) {
+          handleUnauthorized();
+          return;
+        }
+        if (mounted) {
+          setAuthenticated(true);
+          setCurrentUser(user);
+        }
+      } catch {
+        // An HTTP 401 is handled by the shared API helper. On a network failure,
+        // retain the unexpired local session; subsequent requests can still retry.
+        if (mounted && isAuthenticated()) {
+          setAuthenticated(true);
+          setCurrentUser(getStoredUser());
+        }
+      } finally {
+        if (mounted) setIsCheckingSession(false);
+      }
+    }
+
+    void validateSession();
+    return () => {
+      mounted = false;
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (isCheckingSession) return;
     const hasSession = isAuthenticated();
     setAuthenticated(hasSession);
     setCurrentUser(hasSession ? getStoredUser() : null);
-  }, [location.pathname]);
+  }, [location.pathname, isCheckingSession]);
 
   const protectedRoutes = useMemo(
     () => [

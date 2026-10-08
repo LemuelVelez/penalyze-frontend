@@ -146,8 +146,8 @@ function matchesDateRange(
 
 function getStatusBadgeClassName(status: FineStatus) {
   const styles: Record<FineStatus, string> = {
-    unpaid: "border-red-200 bg-red-50 text-red-700",
-    paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    unpaid: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300",
+    paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300",
     waived: "border-blue-200 bg-blue-50 text-blue-700",
   };
 

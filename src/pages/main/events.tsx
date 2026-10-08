@@ -2422,7 +2422,7 @@ export default function EventsPage() {
                         type="button"
                         variant="outline"
                         onClick={() => setExemptionDetailsEvent(event)}
-                        className="min-h-11 max-w-full rounded-xl border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800"
+                        className="min-h-11 max-w-full rounded-xl border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
                       >
                         Exemptions ({getEventExemptionSummary(event)})
                       </Button>
@@ -2495,7 +2495,7 @@ export default function EventsPage() {
                             type="button"
                             variant="outline"
                             onClick={() => setExemptionDetailsEvent(event)}
-                            className="mt-1 h-8 max-w-full rounded-lg border-amber-200 bg-amber-50 px-2.5 text-[11px] font-black text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+                            className="mt-1 h-8 max-w-full rounded-lg border-amber-200 bg-amber-50 px-2.5 text-[11px] font-black text-amber-800 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
                           >
                             View exemptions ({getEventExemptionSummary(event)})
                           </Button>
@@ -2942,7 +2942,7 @@ export default function EventsPage() {
                     {exemptionDetailsEvent.exempted_colleges.map((college) => (
                       <label
                         key={college.id}
-                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
                       >
                         <Checkbox
                           className="mt-0.5"
@@ -2990,7 +2990,7 @@ export default function EventsPage() {
                     {exemptionDetailsEvent.exempted_year_levels.map((yearLevel) => (
                       <label
                         key={yearLevel.id}
-                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900"
+                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
                       >
                         <Checkbox
                           className="mt-0.5"
