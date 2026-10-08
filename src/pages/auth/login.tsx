@@ -77,7 +77,7 @@ export default function LoginPage() {
             className="absolute inset-0 h-full w-full object-cover object-[center_36%]"
             />
           </picture>
-          <div className="absolute inset-0 bg-linear-to-t from-black/85 via-black/50 to-black/25" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/74 via-black/37 to-black/10 dark:from-black/85 dark:via-black/50 dark:to-black/25" />
           <div className="relative z-10 p-4 text-white sm:p-6 md:p-8 lg:p-10">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/75">
               Student services

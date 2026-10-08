@@ -15,16 +15,17 @@ type PageBackgroundProps = {
 };
 
 const overlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/78 via-background/85 to-background/95 dark:from-background/25 dark:via-background/45 dark:to-background/75",
-  medium: "bg-linear-to-b from-background/84 via-background/91 to-background/97 dark:from-background/45 dark:via-background/70 dark:to-background/90",
-  strong: "bg-linear-to-b from-background/90 via-background/95 to-background dark:from-background/70 dark:via-background/85",
+  light: "bg-linear-to-b from-background/12 via-background/25 to-background/43 dark:from-background/25 dark:via-background/45 dark:to-background/75",
+  medium: "bg-linear-to-b from-background/20 via-background/36 to-background/54 dark:from-background/45 dark:via-background/70 dark:to-background/90",
+  strong: "bg-linear-to-b from-background/28 via-background/44 to-background/62 dark:from-background/70 dark:via-background/85",
 };
 
-// In dark mode preserve the existing photo treatment; in light mode use a tinted, denser scrim.
+// Mobile scrims stay a little stronger to protect text at narrow widths.
+// Dark-mode classes remain untouched.
 const mobileOverlayClassNames: Record<Overlay, string> = {
-  light: "bg-linear-to-b from-background/79 via-background/86 to-background/95 dark:from-background/15 dark:via-background/30 dark:to-background/60",
-  medium: "bg-linear-to-b from-background/85 via-background/91 to-background/98 dark:from-background/25 dark:via-background/45 dark:to-background/70",
-  strong: "bg-linear-to-b from-background/90 via-background/96 to-background dark:from-background/30 dark:via-background/50 dark:to-background/75",
+  light: "bg-linear-to-b from-background/25 via-background/41 to-background/57 dark:from-background/15 dark:via-background/30 dark:to-background/60",
+  medium: "bg-linear-to-b from-background/32 via-background/48 to-background/64 dark:from-background/25 dark:via-background/45 dark:to-background/70",
+  strong: "bg-linear-to-b from-background/37 via-background/54 to-background/70 dark:from-background/30 dark:via-background/50 dark:to-background/75",
 };
 
 export default function PageBackground({
@@ -63,7 +64,7 @@ export default function PageBackground({
             onLoad={() => setLightLoaded(true)}
             onError={() => setLightFailed(true)}
             style={{ objectPosition }}
-            className={`${imageClassName} saturate-75 ${lightLoaded ? "opacity-65 dark:opacity-100" : ""}`}
+            className={`${imageClassName} saturate-90 dark:saturate-100 ${lightLoaded ? "opacity-95 dark:opacity-100" : ""}`}
           />
         </picture>
       )}

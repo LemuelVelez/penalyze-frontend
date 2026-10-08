@@ -4922,7 +4922,7 @@ export default function LandingPage() {
     <main className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
       <PageBackground image={BACKGROUNDS.landing} overlay="strong" mobileOverlay="light" objectPosition="center 36%" />
       <section className="relative isolate overflow-hidden border-b">
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/35 via-background/15 to-background/70 sm:from-background/45 sm:via-background/75 sm:to-background" />
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/10 via-background/10 to-background/40 sm:from-background/10 sm:via-background/24 sm:to-background/55 dark:from-background/35 dark:via-background/15 dark:to-background/70 dark:sm:from-background/45 dark:sm:via-background/75 dark:sm:to-background" />
         <div className="mx-auto min-h-svh w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
@@ -4941,7 +4941,7 @@ export default function LandingPage() {
           </header>
 
           <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
-            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-sm sm:bg-transparent sm:px-0 sm:py-0 sm:text-5xl sm:shadow-none lg:text-6xl">
+            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-md sm:bg-card/85 sm:px-6 sm:py-5 sm:text-5xl sm:shadow-lg dark:sm:bg-transparent dark:sm:px-0 dark:sm:py-0 dark:sm:shadow-none lg:text-6xl">
               Search your Student ID and view attendance records instantly.
             </h1>
 
