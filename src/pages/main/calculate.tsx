@@ -2525,7 +2525,7 @@ export default function CalculatePage() {
 
           {calculationProgress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">
                     {calculationProgress.label}
@@ -2727,7 +2727,7 @@ export default function CalculatePage() {
             )}
           </div>
 
-          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border lg:block">
+          <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border lg:block">
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>

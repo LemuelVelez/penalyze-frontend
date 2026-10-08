@@ -56,7 +56,7 @@ export function ActionMenu({
             size="icon"
             disabled={triggerDisabled}
             aria-label={ariaLabel}
-            className={cn("rounded-xl", className)}
+            className={cn("min-h-11 min-w-11 rounded-xl", className)}
           >
             <EllipsisVertical className="size-4" aria-hidden="true" />
           </Button>
@@ -66,7 +66,7 @@ export function ActionMenu({
           <DropdownMenuPrimitive.Content
             align={align}
             sideOffset={6}
-            className="z-50 min-w-40 rounded-xl border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
+            className="z-50 min-w-40 max-w-[calc(100vw-1rem)] break-words rounded-xl border bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95"
           >
             {actions.map((action, index) => (
               <DropdownMenuPrimitive.Item

@@ -4,7 +4,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { login } from "../../api/auth";
 import PageBackground from "../../components/page-background";
-import { BACKGROUNDS } from "../../lib/backgrounds";
+import { BACKGROUNDS, BACKGROUND_CARD } from "../../lib/backgrounds";
 import { LogoMark, navigateTo } from "../../components/layout";
 import ThemeToggle from "../../components/theme-toggle";
 import { Button } from "../../components/ui/button";
@@ -131,7 +131,7 @@ export default function LoginPage() {
   if (isCheckingSession) {
     return (
       <main className="relative isolate flex min-h-svh items-center justify-center text-foreground">
-        <PageBackground image={BACKGROUNDS.auth} overlay="medium" />
+        <PageBackground image={BACKGROUNDS.auth} overlay="medium" mobileOverlay="light" objectPosition="center 32%" />
         <ThemeToggle />
         <LogoMark textClassName="text-3xl" />
       </main>
@@ -139,34 +139,36 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative isolate flex min-h-svh items-center justify-center px-4 py-10 text-foreground sm:px-6">
-      <PageBackground image={BACKGROUNDS.auth} overlay="medium" />
-      <section className="grid w-full max-w-5xl overflow-hidden rounded-3xl border bg-card/90 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
-        <aside className="relative hidden min-h-[38rem] overflow-hidden md:flex md:flex-col md:justify-end">
-          <img
+    <main className="relative isolate flex min-h-svh w-full min-w-0 items-center justify-center px-3 py-5 text-foreground sm:px-6 sm:py-10">
+      <PageBackground image={BACKGROUNDS.auth} overlay="medium" mobileOverlay="light" objectPosition="center 32%" />
+      <section className="grid w-full min-w-0 max-w-5xl grid-cols-[minmax(0,1fr)] overflow-hidden rounded-3xl border bg-card/95 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
+        <aside className="relative flex h-40 min-w-0 flex-col justify-end overflow-hidden md:h-auto md:min-h-[38rem]">
+          <picture className="absolute inset-0">
+            <source media="(max-width: 767px)" srcSet={BACKGROUND_CARD.loginPanel} />
+            <img
             src={BACKGROUNDS.loginPanel}
             alt=""
             aria-hidden="true"
             decoding="async"
-            loading="eager"
-            fetchPriority="high"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+            loading="lazy"
+            className="absolute inset-0 h-full w-full object-cover object-[center_36%]"
+            />
+          </picture>
           <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/35 to-black/10" />
-          <div className="relative z-10 p-8 text-white lg:p-10">
+          <div className="relative z-10 p-4 text-white sm:p-6 md:p-8 lg:p-10">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/75">
               Student services
             </p>
-            <h2 className="mt-3 max-w-sm text-3xl font-black leading-tight">
+            <h2 className="mt-2 max-w-sm text-lg font-black leading-tight sm:text-2xl md:mt-3 md:text-3xl">
               Attendance, fines, and records in one clear workspace.
             </h2>
-            <p className="mt-4 max-w-md text-sm leading-6 text-white/80">
+            <p className="mt-4 hidden max-w-md text-sm leading-6 text-white/90 md:block">
               A focused dashboard for daily SSG operations and student record management.
             </p>
           </div>
         </aside>
 
-        <div className="p-6 sm:p-8 md:p-10">
+        <div className="min-w-0 p-4 sm:p-8 md:p-10">
           <div className="mb-8 text-center md:text-left">
             <a href="/" className="inline-flex justify-center md:justify-start">
               <LogoMark textClassName="text-3xl" />

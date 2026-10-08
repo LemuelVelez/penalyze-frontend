@@ -267,3 +267,68 @@ html.theme-switching *::before,
 html.theme-switching *::after {
   transition: none !important;
 }
+
+
+/* Responsive content constraints. Tables keep their own scroll containers and sticky cells. */
+@media (max-width: 639px) {
+  :where(main, section, article, form, [data-slot="dialog-content"], [data-slot="sheet-content"]) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  :where(main, section, article, form) :where(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  :where(input, textarea, select, [data-slot="select-trigger"]) {
+    font-size: 16px;
+  }
+
+  :where(button, [role="button"], [role="menuitem"], [role="option"], [data-slot="select-trigger"]) {
+    min-height: 44px;
+  }
+
+  :where([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+    width: calc(100% - 1rem);
+    max-width: calc(100vw - 1rem);
+  }
+
+  /* Translucent cards, not the underlying photograph, supply AA-friendly scrims. */
+  .bg-card\/90 { background-color: color-mix(in oklch, var(--card) 96%, transparent); }
+  .bg-card\/85 { background-color: color-mix(in oklch, var(--card) 96%, transparent); }
+
+  :where(pre, code, [data-audit-json]) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .table-scroll-hint::before {
+    content: "Swipe to see more →";
+    display: block;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--muted-foreground);
+  }
+}
+
+@media (min-width: 640px) {
+  .table-scroll-hint::before { display: none; }
+}
+
+
+/* Keep tablet-width grids from inheriting their widest table or form child. */
+@media (max-width: 1023px) {
+  main :where(.grid, .flex) {
+    min-width: 0;
+  }
+
+  main :where(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  main :where([class*="overflow-x-auto"]) {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
+}

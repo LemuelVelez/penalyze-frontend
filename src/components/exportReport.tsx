@@ -463,7 +463,7 @@ export default function ExportReport(props: ExportReportProps) {
         </div>
 
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className="grid gap-3 md:grid-cols-2 lg:hidden">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2 lg:hidden">
             {Object.entries(rowsByCollege).length ? (
               Object.entries(rowsByCollege).flatMap(([college, rows]) =>
                 rows.map((row) => (
@@ -472,7 +472,7 @@ export default function ExportReport(props: ExportReportProps) {
                       <p className="break-all font-black" title={row.studentId || "—"}>{row.studentId || "—"}</p>
                       <p className="mt-1 break-words text-sm font-semibold" title={row.name || "—"}>{row.name || "—"}</p>
                     </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
                         <p className="mt-1 truncate font-semibold" title={college}>{college}</p>
@@ -496,7 +496,7 @@ export default function ExportReport(props: ExportReportProps) {
             )}
           </div>
 
-          <div className="hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
+          <div className="table-scroll-hint hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="sticky top-0 z-10 border-b bg-background text-xs uppercase text-muted-foreground">
               <tr>

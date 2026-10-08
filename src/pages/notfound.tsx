@@ -6,9 +6,9 @@ import { Button } from "../components/ui/button";
 
 export default function NotFoundPage() {
   return (
-    <main className="relative isolate flex min-h-svh items-center justify-center px-4 py-10 text-foreground sm:px-6">
-      <PageBackground image={BACKGROUNDS.notFound} overlay="medium" />
-      <section className="w-full max-w-lg rounded-3xl border bg-card/85 p-6 text-center shadow-xl shadow-black/5 backdrop-blur-xl sm:p-8">
+    <main className="relative isolate flex min-h-svh min-w-0 max-w-full items-center justify-center px-4 py-10 text-foreground sm:px-6">
+      <PageBackground image={BACKGROUNDS.notFound} overlay="medium" mobileOverlay="light" objectPosition="center 35%" />
+      <section className="w-full min-w-0 max-w-lg rounded-3xl border bg-card/95 p-6 text-center shadow-xl shadow-black/5 backdrop-blur-xl sm:p-8">
         <div className="mb-6 flex justify-center">
           <ThemeToggle />
           <LogoMark textClassName="text-2xl" />

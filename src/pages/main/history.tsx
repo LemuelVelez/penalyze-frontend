@@ -1374,7 +1374,7 @@ export default function HistoryPage() {
 
     return (
       <div className="mt-4 flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
-        <label className="flex items-center gap-3">
+        <label className="flex min-w-0 flex-wrap items-center gap-3">
           <Checkbox
             checked={getSelectionCheckboxState(
               selectedRecords[selectionKey],
@@ -2030,7 +2030,7 @@ export default function HistoryPage() {
           />
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
+        <section className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-7">
           <div className="rounded-2xl border bg-card p-5 sm:col-span-2 lg:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               Selected School Year / Semester

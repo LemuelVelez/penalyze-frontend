@@ -264,7 +264,7 @@ export default function UsersPage() {
   return (
     <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-400">
-        <div className="mb-6">
+        <div className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur mb-6">
           <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
             User management
           </p>
@@ -277,7 +277,7 @@ export default function UsersPage() {
           <Button
             type="button"
             onClick={handleOpenCreateUserDialog}
-            className="min-h-11 rounded-2xl px-5 font-black"
+            className="min-h-11 w-full rounded-2xl px-5 font-black sm:w-auto"
           >
             Create User
           </Button>
@@ -405,7 +405,7 @@ export default function UsersPage() {
               )}
             </div>
 
-            <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto lg:block">
+            <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overflow-x-auto lg:block">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b text-xs uppercase text-muted-foreground">
                   <tr>

@@ -347,13 +347,15 @@ export default function AppLayout(props: LayoutProps) {
 
   if (!props.authenticated) {
     return (
-      <div className="relative isolate min-h-svh text-foreground">
+      <div className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
         <PageBackground
           image={BACKGROUNDS.mainLight}
           darkImage={BACKGROUNDS.mainDark}
           overlay="strong"
+          mobileOverlay="light"
+          objectPosition="center 30%"
         />
-        <div className="fixed right-4 top-4 z-100 rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <div className="fixed right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-100 rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
           <ThemeToggle />
         </div>
         {props.children}
@@ -362,19 +364,21 @@ export default function AppLayout(props: LayoutProps) {
   }
 
   return (
-    <div className="relative isolate min-h-svh text-foreground">
+    <div className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
       <PageBackground
         image={BACKGROUNDS.mainLight}
         darkImage={BACKGROUNDS.mainDark}
         overlay="strong"
+          mobileOverlay="light"
+          objectPosition="center 30%"
       />
-      <header className="fixed inset-x-0 top-0 z-40 border-b bg-background/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-400 items-center gap-3 px-4 sm:px-6 lg:px-8">
+      <header className="fixed inset-x-0 top-0 z-40 min-w-0 max-w-full border-b bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-400 min-w-0 items-center gap-2 px-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:gap-3 sm:px-6 lg:px-8">
           <Button
             type="button"
             variant="ghost"
             onClick={() => handleNavigate("/dashboard")}
-            className="h-10 shrink-0 justify-start rounded-xl px-1.5 hover:bg-muted/60"
+            className="min-w-0 max-sm:px-0 h-11 shrink justify-start rounded-xl px-1.5 hover:bg-muted/60 [&_span]:max-sm:gap-1.5"
             aria-label="Go to dashboard"
           >
             <LogoMark textClassName="text-lg" />
@@ -500,7 +504,7 @@ export default function AppLayout(props: LayoutProps) {
             })}
           </nav>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-1.5">
             <div className="rounded-lg border bg-background p-0.5">
               <ThemeToggle />
             </div>
@@ -538,7 +542,7 @@ export default function AppLayout(props: LayoutProps) {
 
               <SheetContent
                 side="right"
-                className="h-svh min-h-svh w-full min-w-0 max-w-80 overflow-x-hidden overflow-y-auto border-l bg-background px-4 py-5 sm:px-5 lg:hidden"
+                className="h-svh min-h-svh w-[min(20rem,100vw)] min-w-0 max-w-full overflow-x-hidden overflow-y-auto border-l bg-background px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-5 lg:hidden"
               >
                 <SheetHeader className="mb-5 border-b pb-4 text-left">
                   <SheetTitle>
@@ -653,7 +657,7 @@ export default function AppLayout(props: LayoutProps) {
         </div>
       </header>
 
-      <div className="scroll-pt-16 pt-16">{props.children}</div>
+      <div className="min-w-0 max-w-full scroll-pt-16 pt-[calc(4rem+env(safe-area-inset-top))]">{props.children}</div>
     </div>
   );
 }

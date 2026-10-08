@@ -26,14 +26,14 @@ export function LoadingStatus(props: LoadingStatusProps) {
 
   return (
     <div
-      className={`rounded-2xl border bg-background p-4 shadow-sm ${props.className ?? ""}`}
+      className={`min-w-0 max-w-full rounded-2xl border bg-background p-4 shadow-sm ${props.className ?? ""}`}
       role="status"
       aria-live="polite"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-black">{props.title}</p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-muted-foreground">
+          <p className="mt-1 break-words text-xs font-semibold leading-5 text-muted-foreground">
             {props.detail}
           </p>
         </div>

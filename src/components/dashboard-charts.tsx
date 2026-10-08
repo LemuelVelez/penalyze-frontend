@@ -126,7 +126,7 @@ export function AttendanceTrendChart({
 
   return (
     <div
-      className="h-72 w-full min-w-0"
+      className="h-72 w-full min-w-0 max-w-full"
       role="img"
       aria-label={`Attendance trend for the last 14 days with ${total.toLocaleString()} total records.`}
     >
@@ -145,7 +145,7 @@ export function AttendanceTrendChart({
             tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             axisLine={{ stroke: "var(--border)" }}
             tickLine={false}
-            minTickGap={20}
+            minTickGap={32}
           />
           <YAxis
             allowDecimals={false}
@@ -197,7 +197,7 @@ export function FineStatusDonutChart({
 
   return (
     <div
-      className="relative h-72 w-full min-w-0"
+      className="relative h-72 w-full min-w-0 max-w-full"
       role="img"
       aria-label={`Fine status breakdown: ${fineSummary.unpaid.toLocaleString()} unpaid, ${fineSummary.paid.toLocaleString()} paid, and ${fineSummary.waived.toLocaleString()} waived.`}
     >
@@ -256,7 +256,7 @@ export function RecentImportsQualityChart({
 
   return (
     <div
-      className="h-40 w-full min-w-0"
+      className="h-40 w-full min-w-0 max-w-full"
       role="img"
       aria-label={`Recent import quality with ${totalValid.toLocaleString()} valid rows and ${totalInvalid.toLocaleString()} invalid rows across ${data.length} imports.`}
     >
@@ -265,12 +265,13 @@ export function RecentImportsQualityChart({
           <CartesianGrid stroke="var(--border)" strokeDasharray="4 4" vertical={false} />
           <XAxis
             dataKey="file_name"
-            tickFormatter={(value) => truncateLabel(value, 12)}
+            tickFormatter={(value) => truncateLabel(value, 8)}
             tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
             axisLine={{ stroke: "var(--border)" }}
             tickLine={false}
-            interval={0}
-            angle={-18}
+            interval="preserveStartEnd"
+            minTickGap={14}
+            angle={-25}
             textAnchor="end"
             height={42}
           />
@@ -315,7 +316,7 @@ export function AttendanceByCollegeChart({
 
   return (
     <div
-      className="h-72 w-full min-w-0"
+      className="h-72 w-full min-w-0 max-w-full"
       role="img"
       aria-label={`Attendance by college for the top ${data.length} colleges, totaling ${total.toLocaleString()} records.`}
     >
@@ -336,8 +337,8 @@ export function AttendanceByCollegeChart({
           <YAxis
             type="category"
             dataKey="college"
-            width={150}
-            tickFormatter={(value) => truncateLabel(value, 22)}
+            width={92}
+            tickFormatter={(value) => truncateLabel(value, 12)}
             tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             axisLine={false}
             tickLine={false}

@@ -2518,7 +2518,7 @@ export default function ManualAttendancePage() {
             )}
           </div>
 
-          <div className="hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="table-scroll-hint hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>

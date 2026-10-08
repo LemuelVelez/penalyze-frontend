@@ -2516,7 +2516,7 @@ export default function AttendancePage() {
           </div>
           {progress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">
-              <div className="flex items-center justify-between gap-3 text-sm font-bold">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 text-sm font-bold">
                 <span>{progress.message}</span>
                 <span>{progress.percent}%</span>
               </div>
@@ -2625,7 +2625,7 @@ export default function AttendancePage() {
                       return (
                         <div
                           key={fileKey}
-                          className="flex items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2"
+                          className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2"
                         >
                           <span className="min-w-0 flex-1 break-all text-xs font-bold">
                             {attendanceFile.name}
@@ -2667,7 +2667,7 @@ export default function AttendancePage() {
 
               {files.length ? (
                 <div className="space-y-3 lg:col-span-5">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                     <span className="text-sm font-semibold">Selected files</span>
                     <span className="rounded-full border px-3 py-1 text-xs font-semibold">
                       {files.length.toLocaleString()} total
@@ -3730,7 +3730,7 @@ export default function AttendancePage() {
             )}
           </div>
 
-          <div className="hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="table-scroll-hint hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>

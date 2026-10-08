@@ -2447,7 +2447,7 @@ export default function EventsPage() {
             )}
           </div>
 
-          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border lg:block">
+          <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border lg:block">
             <table className="w-full min-w-[1100px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
@@ -2460,8 +2460,8 @@ export default function EventsPage() {
                       }
                     />
                   </th>
-                  <th className="sticky left-12 z-20 w-16 bg-muted/95 px-4 py-3">Order</th>
-                  <th className="sticky left-28 z-20 bg-muted/95 px-4 py-3">Event</th>
+                  <th className="sm:sticky sm:left-12 z-20 w-16 bg-muted/95 px-4 py-3">Order</th>
+                  <th className="sm:sticky sm:left-28 z-20 bg-muted/95 px-4 py-3">Event</th>
                   <th className="px-4 py-3">Schedule</th>
                   <th className="px-4 py-3">School Year / Semester</th>
                   <th className="px-4 py-3">Attendees</th>
@@ -2485,10 +2485,10 @@ export default function EventsPage() {
                           }
                         />
                       </td>
-                      <td className="sticky left-12 z-10 bg-background px-4 py-3 align-top text-base font-black">
+                      <td className="sm:sticky sm:left-12 z-10 bg-background px-4 py-3 align-top text-base font-black">
                         {(event.event_order || (rowsPerPage === "all" ? index + 1 : (currentPage - 1) * Number(rowsPerPage) + index + 1)).toLocaleString()}
                       </td>
-                      <td className="sticky left-28 z-10 bg-background px-4 py-3 align-top">
+                      <td className="sm:sticky sm:left-28 z-10 bg-background px-4 py-3 align-top">
                         <p className="font-black">{event.name}</p>
                         {eventHasExemptions(event) ? (
                           <Button
@@ -2677,7 +2677,7 @@ export default function EventsPage() {
                     <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
                       College exemptions
                     </p>
-                    <label className="flex items-center gap-2 text-xs font-bold">
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                       <Checkbox
                         checked={
                           exemptions.length > 0 &&
@@ -2710,7 +2710,7 @@ export default function EventsPage() {
                           key={collegeLabel}
                           className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5"
                         >
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                             <p className="break-words font-black">{collegeLabel}</p>
                             <label className="flex shrink-0 items-center gap-2 text-xs font-bold">
                               <Checkbox
@@ -2794,7 +2794,7 @@ export default function EventsPage() {
                     <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
                       Year level exemptions
                     </p>
-                    <label className="flex items-center gap-2 text-xs font-bold">
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                       <Checkbox
                         checked={
                           yearLevelExemptions.length > 0 &&
@@ -2917,11 +2917,11 @@ export default function EventsPage() {
 
               {exemptionDetailsEvent.exempted_colleges?.length ? (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                     <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                       Colleges
                     </p>
-                    <label className="flex items-center gap-2 text-xs font-bold">
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                       <Checkbox
                         checked={exemptionDetailsEvent.exempted_colleges.every((item) =>
                           selectedCollegeExemptionIds.includes(item.id),
@@ -2965,11 +2965,11 @@ export default function EventsPage() {
 
               {exemptionDetailsEvent.exempted_year_levels?.length ? (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                     <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
                       Year levels
                     </p>
-                    <label className="flex items-center gap-2 text-xs font-bold">
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                       <Checkbox
                         checked={exemptionDetailsEvent.exempted_year_levels.every((item) =>
                           selectedYearLevelExemptionIds.includes(item.id),
@@ -3013,7 +3013,7 @@ export default function EventsPage() {
                 </div>
               ) : null}
 
-              <div className="flex items-center justify-between gap-3 border-t pt-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t pt-3">
                 <p className="text-xs font-semibold text-muted-foreground">
                   {selectedExemptionCount} selected
                 </p>
@@ -3243,7 +3243,7 @@ export default function EventsPage() {
             ) : (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                     <p className="text-sm font-black">1. Select year levels</p>
                     <div className="flex gap-1">
                       <Button

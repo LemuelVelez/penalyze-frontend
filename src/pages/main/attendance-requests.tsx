@@ -528,8 +528,8 @@ export default function AttendanceRequestsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-400 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="space-y-2">
+    <main className="mx-auto w-full min-w-0 max-w-400 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <header className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur space-y-2">
         <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
           Attendance verification
         </p>
@@ -551,7 +551,7 @@ export default function AttendanceRequestsPage() {
         />
       ) : null}
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-3 sm:p-5">
+      <section className="grid min-w-0 gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-3 sm:p-5">
         <div className="rounded-2xl border bg-background p-4">
           <p className="text-xs font-bold uppercase text-muted-foreground">
             Loaded requests
@@ -577,7 +577,7 @@ export default function AttendanceRequestsPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:p-5">
+      <section className="grid min-w-0 gap-3 rounded-3xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 sm:p-5">
         <div className="space-y-2">
           <label className="text-sm font-bold">Search student</label>
           <Input
@@ -722,7 +722,7 @@ export default function AttendanceRequestsPage() {
                   <h3 className="text-sm font-black uppercase tracking-wide">
                     Current → requested
                   </h3>
-                  <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
                     {getCorrectionChanges(request).map(
                       ([label, currentValue, requestedValue]) => (
                         <div key={label} className="rounded-2xl border bg-background p-4">
@@ -738,7 +738,7 @@ export default function AttendanceRequestsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-2xl border bg-background p-3">
                     <p className="text-xs font-bold uppercase text-muted-foreground">
                       Year Level

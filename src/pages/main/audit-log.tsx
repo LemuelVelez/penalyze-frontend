@@ -132,7 +132,7 @@ export default function AuditLogPage() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-primary">
             <ShieldCheck className="size-5" aria-hidden="true" />
@@ -262,12 +262,12 @@ export default function AuditLogPage() {
           )}
         </div>
 
-        <div className="hidden min-w-0 max-w-full overflow-x-auto lg:block">
+        <div className="table-scroll-hint hidden min-w-0 max-w-full overflow-x-auto lg:block">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="sticky left-0 z-20 bg-muted/95 px-4 py-3 font-medium">Date &amp; time</th>
-                <th className="sticky left-40 z-20 bg-muted/95 px-4 py-3 font-medium">Accountable user</th>
+                <th className="sm:sticky sm:left-40 z-20 bg-muted/95 px-4 py-3 font-medium">Accountable user</th>
                 <th className="px-4 py-3 font-medium">Action</th>
                 <th className="px-4 py-3 font-medium">Resource</th>
                 <th className="px-4 py-3 font-medium">Outcome</th>
@@ -295,7 +295,7 @@ export default function AuditLogPage() {
                       onClick={() => setSelectedLog(log)}
                     >
                       <td className="sticky left-0 z-10 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
-                      <td className="sticky left-40 z-10 bg-background px-4 py-3.5">
+                      <td className="sm:sticky sm:left-40 z-10 bg-background px-4 py-3.5">
                         <div className="font-medium">{actor.name}</div>
                         <div className="mt-0.5 max-w-64 truncate text-xs text-muted-foreground">{actor.detail}</div>
                       </td>
@@ -310,7 +310,7 @@ export default function AuditLogPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="font-mono text-xs font-medium">{log.method}</div>
+                        <div className="break-all font-mono text-xs font-medium">{log.method}</div>
                         <div className="mt-0.5 max-w-56 truncate font-mono text-xs text-muted-foreground">{log.route}</div>
                       </td>
                     </tr>

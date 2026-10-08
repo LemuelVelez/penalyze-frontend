@@ -17,7 +17,7 @@ import type { SchoolYearRecord } from "../../api/schoolYears";
 import { LoadingStatus } from "../../components/loading-status";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { navigateTo } from "../../components/layout";
-import { BACKGROUNDS } from "../../lib/backgrounds";
+import { BACKGROUNDS, BACKGROUND_CARD } from "../../lib/backgrounds";
 import { Button } from "../../components/ui/button";
 
 const AttendanceTrendChart = lazy(() =>
@@ -74,19 +74,19 @@ function StatCard(props: {
   image: string;
 }) {
   return (
-    <article className="relative isolate overflow-hidden rounded-3xl border bg-card/90 p-5 shadow-sm backdrop-blur">
+    <article className="relative isolate min-w-0 max-w-full overflow-hidden rounded-3xl border bg-card/90 p-5 shadow-sm backdrop-blur">
       <img
         src={props.image}
         alt=""
         aria-hidden="true"
         loading="lazy"
         decoding="async"
-        className="absolute inset-0 -z-20 h-full w-full object-cover opacity-55 dark:opacity-35"
+        className="absolute inset-0 -z-20 h-full w-full object-cover object-center opacity-75 dark:opacity-55"
       />
-      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card via-card/92 to-card/55 dark:via-card/95 dark:to-card/75" />
+      <div className="absolute inset-0 -z-10 bg-linear-to-r from-card via-card/95 to-card/60 dark:via-card/95 dark:to-card/70" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
-      <p className="mt-2 max-w-[80%] text-xs font-semibold text-muted-foreground">
+      <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
         {props.helper}
       </p>
     </article>
@@ -304,9 +304,9 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <main className="min-h-svh px-4 py-6 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-400">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto w-full min-w-0 max-w-400">
+        <div className="max-sm:rounded-2xl max-sm:border max-sm:bg-card/95 max-sm:p-4 max-sm:shadow-sm max-sm:backdrop-blur mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
               Overview
@@ -329,7 +329,7 @@ export default function DashboardPage() {
               variant="outline"
               onClick={loadDashboard}
               disabled={isLoading}
-              className="min-h-11 rounded-xl px-5 py-2 text-sm font-black"
+              className="min-h-11 w-full rounded-xl px-5 py-2 text-sm font-black sm:w-auto"
             >
               {isLoading ? "Loading..." : "Refresh"}
             </Button>
@@ -358,25 +358,25 @@ export default function DashboardPage() {
             label="Attendance records"
             value={attendanceRecordCount}
             helper={`${yearLabel} saved entries`}
-            image={BACKGROUNDS.dashboardAttendance}
+            image={BACKGROUND_CARD.dashboardAttendance}
           />
           <StatCard
             label="Unpaid fines"
             value={fineSummary.unpaid}
             helper={`${yearLabel} needs settlement`}
-            image={BACKGROUNDS.dashboardUnpaid}
+            image={BACKGROUND_CARD.dashboardUnpaid}
           />
           <StatCard
             label="Paid fines"
             value={fineSummary.paid}
             helper={`${yearLabel} settled penalties`}
-            image={BACKGROUNDS.dashboardPaid}
+            image={BACKGROUND_CARD.dashboardPaid}
           />
           <StatCard
             label="Waived fines"
             value={fineSummary.waived}
             helper={`${yearLabel} approved waivers`}
-            image={BACKGROUNDS.dashboardWaived}
+            image={BACKGROUND_CARD.dashboardWaived}
           />
         </section>
 
@@ -515,16 +515,16 @@ export default function DashboardPage() {
                 recentImports.map((item) => (
                   <article
                     key={item.id}
-                    className="overflow-x-auto rounded-xl border bg-background px-2.5 py-2"
+                    className="min-w-0 max-w-full rounded-xl border bg-background px-2.5 py-2"
                   >
-                    <div className="flex min-w-[22.5rem] items-center gap-2 whitespace-nowrap">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
                       <p
-                        className="min-w-0 flex-1 truncate text-xs font-black"
+                        className="w-full min-w-0 flex-none truncate text-xs font-black sm:w-auto sm:flex-1"
                         title={item.file_name}
                       >
                         {item.file_name}
                       </p>
-                      <p className="shrink-0 text-[10px] font-semibold text-muted-foreground">
+                      <p className="mr-auto shrink-0 text-[10px] font-semibold text-muted-foreground sm:mr-0">
                         {formatDate(item.created_at)}
                       </p>
                       <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">

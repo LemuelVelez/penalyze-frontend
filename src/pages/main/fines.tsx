@@ -1247,7 +1247,7 @@ export default function FinesPage() {
             )}
           </div>
 
-          <div className="mt-5 hidden min-w-0 max-w-full overflow-x-auto rounded-2xl border bg-background lg:block">
+          <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
             <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
@@ -1492,7 +1492,7 @@ export default function FinesPage() {
                   </article>
                 ))}
               </div>
-              <div className="hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
+              <div className="table-scroll-hint hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
               <table className="w-max min-w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-primary text-primary-foreground">
                   <tr>

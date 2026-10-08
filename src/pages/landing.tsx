@@ -4919,21 +4919,11 @@ export default function LandingPage() {
   }
 
   return (
-    <main className="relative isolate min-h-svh text-foreground">
-      <PageBackground image={BACKGROUNDS.landingAlt} overlay="strong" />
+    <main className="relative isolate min-h-svh w-full min-w-0 max-w-full text-foreground">
+      <PageBackground image={BACKGROUNDS.landing} overlay="strong" mobileOverlay="light" objectPosition="center 36%" />
       <section className="relative isolate overflow-hidden border-b">
-        <div className="absolute inset-0 -z-20 bg-linear-to-b from-primary/10 via-background/70 to-background" />
-        <img
-          src={BACKGROUNDS.landing}
-          alt=""
-          aria-hidden="true"
-          decoding="async"
-          loading="eager"
-          fetchPriority="high"
-          className="absolute inset-0 -z-20 h-full w-full object-cover opacity-45 dark:opacity-30"
-        />
-        <div className="absolute inset-0 -z-10 bg-linear-to-b from-background/45 via-background/75 to-background" />
-        <div className="mx-auto min-h-svh max-w-400 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-linear-to-b from-background/35 via-background/15 to-background/70 sm:from-background/45 sm:via-background/75 sm:to-background" />
+        <div className="mx-auto min-h-svh w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8">
           <header className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <a href="/" className="inline-flex">
               <LogoMark textClassName="text-2xl" />
@@ -4950,8 +4940,8 @@ export default function LandingPage() {
             </div>
           </header>
 
-          <div className="mx-auto w-full max-w-4xl py-10 text-center lg:py-14">
-            <h1 className="text-3xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+          <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
+            <h1 className="mx-auto max-w-4xl rounded-3xl bg-card/90 px-3 py-4 text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight shadow-sm backdrop-blur-sm sm:bg-transparent sm:px-0 sm:py-0 sm:text-5xl sm:shadow-none lg:text-6xl">
               Search your Student ID and view attendance records instantly.
             </h1>
 
