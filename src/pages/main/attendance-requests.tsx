@@ -686,9 +686,9 @@ export default function AttendanceRequestsPage() {
           {paginatedRequests.map((request) => (
             <article
               key={request.id}
-              className="space-y-5 rounded-3xl border bg-card p-5 shadow-sm"
+              className="min-w-0 space-y-5 rounded-3xl border bg-card p-5 shadow-sm [overflow-wrap:anywhere]"
             >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
                     {request.school_year_name} /{" "}
@@ -696,7 +696,7 @@ export default function AttendanceRequestsPage() {
                       ? "Second Semester"
                       : "First Semester"}
                   </p>
-                  <h2 className="mt-1 text-xl font-black">
+                  <h2 className="mt-1 break-words text-xl font-black [overflow-wrap:anywhere]">
                     {request.student_id} · {request.name}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">

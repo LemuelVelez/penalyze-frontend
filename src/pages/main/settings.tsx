@@ -114,11 +114,11 @@ export default function SettingsPage() {
           <div className="space-y-4 text-sm">
             <div>
               <p className="text-xs text-muted-foreground">Name</p>
-              <p className="mt-1 break-words font-medium">{user?.name || "—"}</p>
+              <p className="mt-1 break-words font-medium [overflow-wrap:anywhere]">{user?.name || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Email</p>
-              <p className="mt-1 break-words font-medium">{user?.email || "—"}</p>
+              <p className="mt-1 break-words font-medium [overflow-wrap:anywhere]">{user?.email || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Role</p>
@@ -127,7 +127,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border bg-card/95 p-5 shadow-sm sm:p-6">
+        <section className="min-w-0 rounded-2xl border bg-card/95 p-5 shadow-sm sm:p-6">
           <div className="mb-5 flex items-start gap-3">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <LockKeyhole className="size-5" aria-hidden="true" />

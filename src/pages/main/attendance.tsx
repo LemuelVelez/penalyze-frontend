@@ -425,7 +425,7 @@ function getSchoolYearBadgeLabel(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-semibold ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-semibold ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -2492,14 +2492,14 @@ export default function AttendancePage() {
                 Drag and drop or choose one or more .xlsx files.
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-w-0 flex-col flex-wrap gap-3 sm:flex-row">
               <Button
                 type="button"
                 onClick={() => {
                   setProgress(null);
                   setUploadDialogOpen(true);
                 }}
-                className="min-h-10 rounded-xl px-6 font-semibold"
+                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-6"
               >
                 Upload Attendance File
               </Button>
@@ -2508,7 +2508,7 @@ export default function AttendancePage() {
                 variant="outline"
                 onClick={handleRefreshFinalResults}
                 disabled={isSaving || isLoading}
-                className="min-h-10 rounded-xl px-5 font-semibold"
+                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-5"
               >
                 Refresh Final Results
               </Button>
@@ -2521,7 +2521,7 @@ export default function AttendancePage() {
                 <span>{progress.percent}%</span>
               </div>
               <Progress value={progress.percent} className="mt-3 h-3" />
-              <p className="mt-2 text-xs font-semibold text-muted-foreground">
+              <p className="mt-2 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                 {progress.stageCounts
                   ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)} → distinct final results ${formatNumber(progress.stageCounts.distinctFinalResults)}`
                   : `${formatNumber(progress.savedRecords)} saved record/s from ${formatNumber(progress.totalRows)} row/s`}

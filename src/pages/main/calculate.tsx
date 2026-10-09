@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
+import { CheckIcon } from "@phosphor-icons/react";
 
 import * as attendanceApi from "../../api/attendance";
 import type {
@@ -611,7 +612,7 @@ async function runWithConcurrency<T>(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -848,7 +849,7 @@ const CalculationCard = memo(function CalculationCard({
         <span className="text-lg font-black">{row.totalAbsences.toLocaleString()} absences</span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+      <div className="mt-4 grid min-w-0 grid-cols-2 gap-3 text-sm">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
           <p className="mt-1 truncate font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
@@ -2392,12 +2393,55 @@ export default function CalculatePage() {
     }
   }
 
+  // Keep the label, click action, and disabled state in one priority-ordered decision.
+  function getCalculateButtonState(): {
+    label: string;
+    disabled: boolean;
+    onClick?: () => void;
+    icon?: boolean;
+  } {
+    if (isPreviewing) return { label: "Calculating...", disabled: true };
+    if (
+      isCheckingCalculationStatus ||
+      (isCheckingCalculationPendingSummary && !calculationPendingSummary)
+    ) {
+      return { label: "Checking...", disabled: true };
+    }
+    if (hasOutsideSelectionPending) {
+      return {
+        label: "Select New Data",
+        disabled: false,
+        onClick: handleSelectNewData,
+      };
+    }
+    if (isCurrentCalculationPreviewed) {
+      return { label: "Already Calculated", disabled: true };
+    }
+    if (
+      (calculationPendingSummary && !calculationPendingSummary.needsCalculation) ||
+      (isCalculationStatusCurrent && !calculationStatus?.pending)
+    ) {
+      return { label: "Up to Date", disabled: true, icon: true };
+    }
+    if (!canRunCalculation) return { label: "Select Data", disabled: true };
+    if (canPreviewCalculation) {
+      return {
+        label: "Calculate Selected Files",
+        disabled: false,
+        onClick: handlePreviewCalculation,
+      };
+    }
+    return { label: "Checking...", disabled: true };
+  }
+
+  const calculateButtonState = getCalculateButtonState();
+
   return (
     <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-400 flex-col gap-6">
         <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
+          <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-black uppercase tracking-wide text-muted-foreground">
                 Calculate
               </p>
@@ -2412,7 +2456,7 @@ export default function CalculatePage() {
             </div>
 
             <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto lg:items-end">
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <div className="flex w-full min-w-0 flex-wrap flex-col gap-2 sm:w-auto sm:flex-row">
                 <SchoolYearBadge
                   label={selectedSchoolYearLabel}
                   className="w-full justify-center sm:w-auto"
@@ -2428,46 +2472,47 @@ export default function CalculatePage() {
                 />
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex min-w-0 flex-col flex-wrap gap-3 sm:flex-row">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleLoadSavedResults}
                   disabled={isLoading}
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-12 min-w-0 rounded-2xl px-4 font-black max-sm:w-full sm:px-6"
                 >
                   {isLoading ? "Loading..." : "Load Saved Results"}
                 </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={
-                    hasOutsideSelectionPending
-                      ? handleSelectNewData
-                      : handlePreviewCalculation
+                <span
+                  className="min-w-0 max-sm:w-full"
+                  title={
+                    calculateButtonState.icon
+                      ? "No attendance changes are pending calculation."
+                      : undefined
                   }
-                  disabled={
-                    isPreviewing ||
-                    isLoading ||
-                    (!hasOutsideSelectionPending && !canPreviewCalculation)
-                  }
-                  className="min-h-12 rounded-2xl px-6 font-black"
                 >
-                  {isPreviewing
-                    ? "Calculating..."
-                    : isCheckingCalculationStatus
-                      ? "Checking..."
-                      : hasOutsideSelectionPending
-                        ? "Select New Data"
-                        : !canRunCalculation
-                          ? "Select Data"
-                          : isCurrentCalculationPreviewed
-                            ? "Already Calculated"
-                            : calculationStatus && !calculationStatus.pending
-                              ? "No New Data"
-                              : "Calculate Selected Files"}
-                </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={calculateButtonState.onClick}
+                    disabled={calculateButtonState.disabled}
+                    title={
+                      calculateButtonState.icon
+                        ? "No attendance changes are pending calculation."
+                        : undefined
+                    }
+                    className={`min-h-12 min-w-0 rounded-2xl px-4 font-black max-sm:w-full sm:px-6 ${
+                      calculateButtonState.icon
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800 disabled:opacity-60 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                        : ""
+                    }`}
+                  >
+                    {calculateButtonState.icon ? (
+                      <CheckIcon weight="bold" aria-hidden="true" />
+                    ) : null}
+                    {calculateButtonState.label}
+                  </Button>
+                </span>
 
                 <Button
                   type="button"
@@ -2480,7 +2525,7 @@ export default function CalculatePage() {
                     calculationMode !== "preview" ||
                     !isCurrentCalculationPreviewed
                   }
-                  className="min-h-12 rounded-2xl px-6 font-black"
+                  className="min-h-12 min-w-0 rounded-2xl px-4 font-black max-sm:w-full sm:px-6"
                 >
                   {isSavingResults ? "Saving..." : "Save Results"}
                 </Button>
@@ -2490,10 +2535,10 @@ export default function CalculatePage() {
 
           {hasOutsideSelectionPending ? (
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                   <p className="font-black">New calculation data is not selected.</p>
-                  <p className="mt-1 font-semibold">
+                  <p className="mt-1 min-w-0 break-words font-semibold">
                     {pendingOutsideSelection.uncalculatedImports.length > 0
                       ? `Files: ${pendingOutsideSelection.uncalculatedImports
                           .map((item) => item.name)
@@ -2524,7 +2569,7 @@ export default function CalculatePage() {
           ) : null}
 
           {calculationProgress ? (
-            <div className="mt-5 rounded-2xl border bg-background p-4">
+            <div className="mt-5 min-w-0 rounded-2xl border bg-background p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">
@@ -2594,7 +2639,7 @@ export default function CalculatePage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Choose attendance sources and imported files in the selection dialog.
               </p>
-              <div className="mt-4 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground">
+              <div className="mt-4 min-w-0 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                 <p>
                   Selected sources:{" "}
                   {selectedCalculationSourceLabels.length
@@ -2621,9 +2666,9 @@ export default function CalculatePage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+        <section className="min-w-0 rounded-3xl border bg-card p-5 shadow-sm">
+          <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+            <div className="min-w-0 flex-1">
               <h2 className="text-xl font-black">Calculation preview</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Mode:{" "}
@@ -2632,18 +2677,18 @@ export default function CalculatePage() {
                 calculated: {formatDateTime(lastCalculatedAt)}
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
               <Input
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 placeholder="Search student, college, program, or penalty"
-                className="min-h-12 rounded-2xl lg:max-w-md"
+                className="min-h-12 min-w-0 w-full flex-1 rounded-2xl sm:basis-56 lg:max-w-md"
               />
               <SortSelect
                 value={sortOrder}
                 onValueChange={setSortOrder}
                 ariaLabel="Sort calculation results"
-                className="min-h-12 rounded-2xl sm:w-44"
+                className="min-h-12 min-w-0 rounded-2xl sm:w-44"
               />
               <ProtectedDeleteDialog
                 trigger={
@@ -2654,7 +2699,7 @@ export default function CalculatePage() {
                       isDeletingCalculationRows ||
                       !selectedCalculationRowKeys.length
                     }
-                    className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                    className="min-h-12 min-w-0 rounded-2xl px-4 text-xs font-black"
                   >
                     Delete Selected
                   </Button>
@@ -2676,7 +2721,7 @@ export default function CalculatePage() {
                     type="button"
                     variant="destructive"
                     disabled={isDeletingCalculationRows || !calculationRows.length}
-                    className="min-h-12 rounded-2xl px-4 text-xs font-black"
+                    className="min-h-12 min-w-0 rounded-2xl px-4 text-xs font-black"
                   >
                     Delete All
                   </Button>
@@ -2839,7 +2884,7 @@ export default function CalculatePage() {
             {CALCULATION_SOURCE_OPTIONS.map((sourceOption) => (
               <label
                 key={sourceOption.value}
-                className="flex cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
+                className="flex min-w-0 cursor-pointer items-start gap-3 rounded-2xl border bg-background p-4 text-sm"
               >
                 <Checkbox
                   checked={selectedCalculationSources.includes(sourceOption.value)}
@@ -2852,10 +2897,10 @@ export default function CalculatePage() {
                   className="mt-1"
                 />
                 <span className="min-w-0">
-                  <span className="block truncate font-black">
+                  <span className="block min-w-0 truncate font-black">
                     {sourceOption.title}
                   </span>
-                  <span className="mt-1 block text-muted-foreground">
+                  <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
                     {sourceOption.description}
                   </span>
                 </span>
@@ -2900,7 +2945,7 @@ export default function CalculatePage() {
                 attendanceImports.map((importRecord) => (
                   <label
                     key={importRecord.id}
-                    className={`flex items-start gap-3 rounded-2xl border bg-background p-4 text-sm ${
+                    className={`flex min-w-0 items-start gap-3 rounded-2xl border bg-background p-4 text-sm ${
                       includesImportedSource
                         ? "cursor-pointer"
                         : "cursor-not-allowed opacity-60"
@@ -2913,10 +2958,10 @@ export default function CalculatePage() {
                       className="mt-1"
                     />
                     <span className="min-w-0">
-                      <span className="block truncate font-black">
+                      <span className="block min-w-0 truncate font-black">
                         {importRecord.file_name}
                       </span>
-                      <span className="mt-1 block text-muted-foreground">
+                      <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
                         {importRecord.event_name || "No linked event"} •{" "}
                         {formatDateTime(importRecord.created_at)}
                       </span>

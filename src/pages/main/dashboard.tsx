@@ -96,7 +96,7 @@ function StatCard(props: {
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-11 items-center rounded-xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-11 items-center rounded-xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -306,7 +306,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto w-full min-w-0 max-w-400">
-        <div className="page-heading mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="page-heading mb-6 flex min-w-0 flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
               Overview
@@ -319,7 +319,7 @@ export default function DashboardPage() {
               penalties by selected year in one responsive view.
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
             <SchoolYearBadge
               label={yearLabel}
               className="justify-center sm:w-auto"
@@ -446,7 +446,7 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="mt-4 hidden overflow-x-auto lg:block">
+              <div className="mt-4 hidden min-w-0 max-w-full overflow-x-auto lg:block">
                 <table className="w-full min-w-max text-left text-sm">
                   <thead className="border-b text-xs uppercase text-muted-foreground">
                     <tr>

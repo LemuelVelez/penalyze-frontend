@@ -640,7 +640,7 @@ function mergeCalculatedAndManualEvents(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -1796,20 +1796,20 @@ export default function ManualAttendancePage() {
               </p>
             </div>
 
-            <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-3">
+            <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:w-auto lg:grid-cols-3">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center"
               />
 
-              <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:col-span-2">
                 <Input
                   type="date"
                   aria-label="Manual attendance from date"
                   value={fromDate}
                   max={toDate || undefined}
                   onChange={(event) => setFromDate(event.target.value)}
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-12 min-w-0 rounded-2xl"
                 />
                 <Input
                   type="date"
@@ -1817,7 +1817,7 @@ export default function ManualAttendancePage() {
                   value={toDate}
                   min={fromDate || undefined}
                   onChange={(event) => setToDate(event.target.value)}
-                  className="min-h-12 rounded-2xl"
+                  className="min-h-12 min-w-0 rounded-2xl"
                 />
               </div>
 

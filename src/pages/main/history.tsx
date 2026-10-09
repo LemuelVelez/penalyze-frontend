@@ -2361,12 +2361,12 @@ export default function HistoryPage() {
                 {selectedSchoolYearLabel}.
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-w-0 flex-col flex-wrap gap-3 sm:flex-row">
               <Select
                 value={transferTargetSchoolYearId}
                 onValueChange={setTransferTargetSchoolYearId}
               >
-                <SelectTrigger className="min-h-12 w-full min-w-0 max-w-64 rounded-2xl sm:w-64">
+                <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl sm:w-56 lg:w-64">
                   <SelectValue placeholder="Target school year / semester" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2382,7 +2382,7 @@ export default function HistoryPage() {
                 variant="outline"
                 onClick={() => setSelectedRecords(emptySelectedRecords)}
                 disabled={!selectedRecordCount}
-                className="min-h-10 rounded-xl px-6 font-semibold"
+                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-6"
               >
                 Clear
               </Button>
@@ -2394,7 +2394,7 @@ export default function HistoryPage() {
                   !selectedRecordCount ||
                   !transferTargetSchoolYearId
                 }
-                className="min-h-10 rounded-xl px-6 font-semibold"
+                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-6"
               >
                 {isTransferring ? "Transferring..." : "Transfer Selected"}
               </Button>

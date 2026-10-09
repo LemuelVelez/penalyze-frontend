@@ -285,14 +285,14 @@ export default function UsersPage() {
 
         <div className="space-y-6">
           <section className="rounded-3xl border bg-card p-4 shadow-sm sm:p-6">
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="mb-5 flex min-w-0 flex-col flex-wrap gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-xl font-black">Existing users</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Saved admin and officer accounts loaded from the database.
                 </p>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <div className="flex w-full min-w-0 flex-col flex-wrap gap-2 sm:w-auto sm:flex-row">
                 <SortSelect
                   value={sortOrder}
                   onValueChange={setSortOrder}

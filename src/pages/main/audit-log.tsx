@@ -132,7 +132,7 @@ export default function AuditLogPage() {
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="page-heading mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div className="page-heading mb-6 flex min-w-0 flex-col flex-wrap gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-1 flex items-center gap-2 text-primary">
             <ShieldCheck className="size-5" aria-hidden="true" />
@@ -150,7 +150,7 @@ export default function AuditLogPage() {
       </div>
 
       <section className="mb-5 rounded-2xl border bg-background p-4 shadow-sm">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_180px_180px_170px_170px_auto]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,180px)_minmax(0,180px)_minmax(0,170px)_minmax(0,170px)_auto]">
           <form onSubmit={handleSearch} className="flex gap-2">
             <Input
               value={search}

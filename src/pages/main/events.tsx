@@ -66,6 +66,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -446,7 +447,7 @@ function buildEventPayload(form: EventFormState): AttendanceEventInput {
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -2102,7 +2103,7 @@ export default function EventsPage() {
               </p>
             </div>
 
-            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row lg:items-center">
+            <div className="flex w-full min-w-0 flex-col flex-wrap gap-3 sm:w-auto sm:flex-row lg:items-center">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
                 className="w-full justify-center sm:w-auto"
@@ -2112,7 +2113,7 @@ export default function EventsPage() {
                 type="button"
                 variant="outline"
                 onClick={() => setCurrentExemptionsDialogOpen(true)}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-12 min-w-0 rounded-2xl px-4 font-black sm:px-6"
               >
                 Current exemptions
               </Button>
@@ -2121,7 +2122,7 @@ export default function EventsPage() {
                 type="button"
                 variant="outline"
                 onClick={handleOpenExemptionDialog}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-12 min-w-0 rounded-2xl px-4 font-black sm:px-6"
               >
                 Add Exemptions
               </Button>
@@ -2129,7 +2130,7 @@ export default function EventsPage() {
               <Button
                 type="button"
                 onClick={handleOpenCreateDialog}
-                className="min-h-12 rounded-2xl px-6 font-black"
+                className="min-h-12 min-w-0 rounded-2xl px-4 font-black sm:px-6"
               >
                 Create Event
               </Button>
@@ -2221,12 +2222,12 @@ export default function EventsPage() {
                           ))}
                         </div>
                         {group.reasons.length ? (
-                          <p className="mt-3 text-xs font-semibold text-muted-foreground">
+                          <p className="mt-3 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                             {group.reasons.join(" • ")}
                           </p>
                         ) : null}
                       </div>
-                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                      <div className="flex min-w-0 flex-col flex-wrap gap-2 sm:flex-row">
                         <Button
                           type="button"
                           variant="secondary"
@@ -2889,7 +2890,7 @@ export default function EventsPage() {
           }
         }}
       >
-        <DialogContent className="min-w-0 max-w-full max-h-[85svh] overflow-y-auto sm:max-w-xl">
+        <DialogContent className="flex min-w-0 max-w-full max-h-[85svh] flex-col overflow-hidden sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -2903,130 +2904,146 @@ export default function EventsPage() {
               detail={selectedRemovalProgress.detail}
               progress={selectedRemovalProgress.progress}
               steps={selectedRemovalProgress.steps}
+              className="max-h-40 shrink-0 overflow-y-auto"
             />
           ) : null}
 
           {exemptionDetailsEvent ? (
-            <div className="space-y-4">
-              <div className="rounded-xl border bg-muted/20 p-3">
-                <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
-                <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                  {getEventExemptionSummary(exemptionDetailsEvent)}
-                </p>
-              </div>
+            <>
+              <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto pr-1 [overflow-wrap:anywhere]">
+                  <div className="rounded-xl border bg-muted/20 p-3">
+                  <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
+                  <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                    {getEventExemptionSummary(exemptionDetailsEvent)}
+                  </p>
+                </div>
 
-              {exemptionDetailsEvent.exempted_colleges?.length ? (
-                <div className="space-y-2">
-                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                      Colleges
-                    </p>
-                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
-                      <Checkbox
-                        checked={exemptionDetailsEvent.exempted_colleges.every((item) =>
-                          selectedCollegeExemptionIds.includes(item.id),
-                        )}
-                        disabled={exemptionActionsBusy}
-                        onCheckedChange={(checked) =>
-                          setIdsSelected(
-                            exemptionDetailsEvent.exempted_colleges.map((item) => item.id),
-                            checked === true,
-                            setSelectedCollegeExemptionIds,
-                          )
-                        }
-                      />
-                      Select all
-                    </label>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {exemptionDetailsEvent.exempted_colleges.map((college) => (
-                      <label
-                        key={college.id}
-                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
-                      >
+                {exemptionDetailsEvent.exempted_colleges?.length ? (
+                  <div className="space-y-2">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                        Colleges
+                      </p>
+                      <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                         <Checkbox
-                          className="mt-0.5"
-                          checked={selectedCollegeExemptionIds.includes(college.id)}
+                          checked={exemptionDetailsEvent.exempted_colleges.every((item) =>
+                            selectedCollegeExemptionIds.includes(item.id),
+                          )}
                           disabled={exemptionActionsBusy}
                           onCheckedChange={(checked) =>
                             setIdsSelected(
-                              [college.id],
+                              exemptionDetailsEvent.exempted_colleges.map((item) => item.id),
                               checked === true,
                               setSelectedCollegeExemptionIds,
                             )
                           }
                         />
-                        <span className="break-words">{college.college_label}</span>
+                        Select all
                       </label>
-                    ))}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {exemptionDetailsEvent.exempted_colleges.map((college) => (
+                        <label
+                          key={college.id}
+                          className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
+                        >
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={selectedCollegeExemptionIds.includes(college.id)}
+                            disabled={exemptionActionsBusy}
+                            onCheckedChange={(checked) =>
+                              setIdsSelected(
+                                [college.id],
+                                checked === true,
+                                setSelectedCollegeExemptionIds,
+                              )
+                            }
+                          />
+                          <span className="break-words">{college.college_label}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
-              {exemptionDetailsEvent.exempted_year_levels?.length ? (
-                <div className="space-y-2">
-                  <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
-                      Year levels
-                    </p>
-                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
-                      <Checkbox
-                        checked={exemptionDetailsEvent.exempted_year_levels.every((item) =>
-                          selectedYearLevelExemptionIds.includes(item.id),
-                        )}
-                        disabled={exemptionActionsBusy}
-                        onCheckedChange={(checked) =>
-                          setIdsSelected(
-                            exemptionDetailsEvent.exempted_year_levels.map((item) => item.id),
-                            checked === true,
-                            setSelectedYearLevelExemptionIds,
-                          )
-                        }
-                      />
-                      Select all
-                    </label>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {exemptionDetailsEvent.exempted_year_levels.map((yearLevel) => (
-                      <label
-                        key={yearLevel.id}
-                        className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
-                      >
+                {exemptionDetailsEvent.exempted_year_levels?.length ? (
+                  <div className="space-y-2">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
+                        Year levels
+                      </p>
+                      <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
                         <Checkbox
-                          className="mt-0.5"
-                          checked={selectedYearLevelExemptionIds.includes(yearLevel.id)}
+                          checked={exemptionDetailsEvent.exempted_year_levels.every((item) =>
+                            selectedYearLevelExemptionIds.includes(item.id),
+                          )}
                           disabled={exemptionActionsBusy}
                           onCheckedChange={(checked) =>
                             setIdsSelected(
-                              [yearLevel.id],
+                              exemptionDetailsEvent.exempted_year_levels.map((item) => item.id),
                               checked === true,
                               setSelectedYearLevelExemptionIds,
                             )
                           }
                         />
-                        <span className="break-words">
-                          {yearLevel.year_level_label} · {yearLevel.college_label ?? "All colleges"}
-                        </span>
+                        Select all
                       </label>
-                    ))}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {exemptionDetailsEvent.exempted_year_levels.map((yearLevel) => (
+                        <label
+                          key={yearLevel.id}
+                          className="flex min-w-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200"
+                        >
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={selectedYearLevelExemptionIds.includes(yearLevel.id)}
+                            disabled={exemptionActionsBusy}
+                            onCheckedChange={(checked) =>
+                              setIdsSelected(
+                                [yearLevel.id],
+                                checked === true,
+                                setSelectedYearLevelExemptionIds,
+                              )
+                            }
+                          />
+                          <span className="break-words">
+                            {yearLevel.year_level_label} · {yearLevel.college_label ?? "All colleges"}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
 
-              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t pt-3">
-                <p className="text-xs font-semibold text-muted-foreground">
+              </div>
+              <DialogFooter className="min-w-0 flex-col-reverse border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="min-w-0 text-xs font-semibold text-muted-foreground">
                   {selectedExemptionCount} selected
                 </p>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={!selectedExemptionCount || exemptionActionsBusy}
-                  onClick={() => setSelectedRemovalConfirmationOpen(true)}
-                >
-                  Remove selected ({selectedExemptionCount})
-                </Button>
-              </div>
-            </div>
+                <div className="flex min-w-0 flex-col-reverse gap-2 sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isRemovingSelectedExemptions}
+                    onClick={() => {
+                      setExemptionDetailsEvent(null);
+                      clearExemptionSelection();
+                    }}
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={!selectedExemptionCount || exemptionActionsBusy}
+                    onClick={() => setSelectedRemovalConfirmationOpen(true)}
+                  >
+                    Remove selected ({selectedExemptionCount})
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
           ) : null}
         </DialogContent>
       </Dialog>
@@ -3128,7 +3145,7 @@ export default function EventsPage() {
           setExemptionDialogOpen(open);
         }}
       >
-        <DialogContent className="min-w-0 max-w-full max-h-[95svh] overflow-y-auto sm:max-w-3xl">
+        <DialogContent className="flex min-w-0 max-w-full max-h-[95svh] flex-col overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -3142,12 +3159,13 @@ export default function EventsPage() {
               detail={exemptionSaveProgress.detail}
               progress={exemptionSaveProgress.progress}
               steps={exemptionSaveProgress.steps}
+              className="max-h-40 shrink-0 overflow-y-auto"
             />
           ) : null}
 
           <fieldset
             disabled={isSavingExemptions}
-            className="space-y-5 border-0 p-0 disabled:cursor-wait"
+            className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto border-0 p-0 pr-1 disabled:cursor-wait [overflow-wrap:anywhere]"
           >
             <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-1.5">
               <Button
@@ -3348,39 +3366,40 @@ export default function EventsPage() {
                 }
               />
             </label>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setExemptionDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isPreviewingExemptions || exemptionActionsBusy}
-                onClick={() => {
-                  if (hasPreviewedExemptions) {
-                    setImpactPreviewDialogOpen(true);
-                    return;
-                  }
-                  void handlePreviewExemptions();
-                }}
-              >
-                {isPreviewingExemptions ? "Previewing..." : "Impact preview"}
-              </Button>
-              {hasPreviewedExemptions ? (
-                <Button
-                  type="button"
-                  disabled={exemptionActionsBusy}
-                  onClick={() => void handleSaveExemptions()}
-                >
-                  {isSavingExemptions ? "Saving..." : "Confirm & Save"}
-                </Button>
-              ) : null}
-            </div>
           </fieldset>
+          <DialogFooter className="min-w-0 border-t pt-3 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSavingExemptions}
+              onClick={() => setExemptionDialogOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isPreviewingExemptions || exemptionActionsBusy}
+              onClick={() => {
+                if (hasPreviewedExemptions) {
+                  setImpactPreviewDialogOpen(true);
+                  return;
+                }
+                void handlePreviewExemptions();
+              }}
+            >
+              {isPreviewingExemptions ? "Previewing..." : "Impact preview"}
+            </Button>
+            {hasPreviewedExemptions ? (
+              <Button
+                type="button"
+                disabled={exemptionActionsBusy}
+                onClick={() => void handleSaveExemptions()}
+              >
+                {isSavingExemptions ? "Saving..." : "Confirm & Save"}
+              </Button>
+            ) : null}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
