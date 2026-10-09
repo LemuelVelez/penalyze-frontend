@@ -368,7 +368,7 @@ export default function AppLayout(props: LayoutProps) {
           mobileOverlay="light"
           objectPosition="center 30%"
         />
-        <div className="fixed right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-100 rounded-xl border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <div className="fixed right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-100">
           <ThemeToggle />
         </div>
         {props.children}
@@ -518,9 +518,7 @@ export default function AppLayout(props: LayoutProps) {
           </nav>
 
           <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 sm:gap-1.5">
-            <div className="rounded-lg border bg-background p-0.5">
-              <ThemeToggle />
-            </div>
+            <ThemeToggle />
 
             <LogoutConfirmation
               onConfirm={handleLogout}

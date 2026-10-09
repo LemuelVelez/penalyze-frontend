@@ -1,6 +1,5 @@
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Button } from "./ui/button";
 
 const THEME_CHANGE_EVENT = "penalyze:theme-change";
 
@@ -63,14 +62,13 @@ export default function ThemeToggle() {
   }, []);
 
   return (
-    <Button
+    <button
       type="button"
-      variant="outline"
-      size="icon"
-      aria-label="Toggle dark mode"
+      className="inline-flex size-11 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-foreground shadow-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
       onClick={() => applyTheme(darkMode ? "light" : "dark")}
     >
-      {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
-    </Button>
+      {darkMode ? <Sun className="size-5" aria-hidden="true" /> : <Moon className="size-5" aria-hidden="true" />}
+    </button>
   );
 }
