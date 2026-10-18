@@ -556,6 +556,7 @@ type ListOptions = {
 
 export type AttendanceFileSaveOption = {
   college?: string;
+  rowCollegeOverrides?: Record<string, string>;
   index?: number;
   fileName?: string;
   schoolYearId?: string;
@@ -605,6 +606,7 @@ export type AttendanceImportSaveOptions = AttendanceFileSaveOption & {
 
 export type AttendanceRowsSaveInput = {
   college?: string;
+  rowCollegeOverrides?: Record<string, string>;
   schoolYearId?: string;
   eventId?: string;
   eventName?: string;

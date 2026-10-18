@@ -28,6 +28,7 @@ import type {
   AttendanceImportReconciliation,
   AttendanceImportRecord,
   AttendanceRecord,
+  ParsedAttendanceRow,
   AttendanceFinalResultProfileField,
   ManualAttendanceInput,
   ManualAttendanceRecord,
@@ -78,7 +79,7 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
-import { isCollegeExemptFromEvent, normalizeCollegeKey } from "../../lib/colleges";
+import { isCollegeExemptFromEvent, normalizeCollegeKey, QR_CODE_COLLEGE_OPTIONS } from "../../lib/colleges";
 import {
   getYearLevelLabel,
   isYearLevelExemptFromEvent,
@@ -268,7 +269,13 @@ type AttendanceUploadFileDetails = {
   previewError: string;
   rowsTotal: number;
   collegeLabels: string[];
+  previewRows: ParsedAttendanceRow[];
+  rowCollegeOverrides: Record<string, string>;
+  selectedRowNumbers: number[];
+  assignmentCollege: string;
+  rowSearch: string;
   collegeMismatchRows: Array<{ rowNumber: number; studentId: string; name: string; college: string }>;
+  invalidCollegeRows: Array<{ rowNumber: number; studentId: string; name: string; college: string }>;
   yearLevelScopes: Array<{ yearLevel: string; college: string }>;
   mergeCandidates: AttendanceEventMergeCandidate[];
   mergeDecisionConfirmed: boolean;
@@ -295,6 +302,36 @@ function getAttendancePreviewCollegeLabels(
   });
 
   return Array.from(collegesByKey.values());
+}
+
+// Rows from different recognised colleges remain valid. Unknown / misspelled
+// college labels must be corrected using the per-row assignment editor.
+function getAttendanceCollegeSummary(
+  rows: ParsedAttendanceRow[],
+  overrides: Record<string, string>,
+  defaultCollege: string,
+) {
+  const effectiveRows = rows.map((row) => ({
+    ...row,
+    college: overrides[String(row.rowNumber)] || row.college || defaultCollege,
+  }));
+  const knownKeys = new Set(QR_CODE_COLLEGE_OPTIONS.map(normalizeCollegeKey));
+  const rowInfo = (row: ParsedAttendanceRow) => ({
+    rowNumber: row.rowNumber,
+    studentId: row.studentId,
+    name: row.name,
+    college: row.college ?? "",
+  });
+  return {
+    collegeLabels: getAttendancePreviewCollegeLabels(effectiveRows),
+    collegeMismatchRows: effectiveRows.filter((row) =>
+      Boolean(row.college && normalizeCollegeKey(row.college) !== normalizeCollegeKey(defaultCollege)),
+    ).map(rowInfo),
+    invalidCollegeRows: effectiveRows.filter((row) =>
+      !knownKeys.has(normalizeCollegeKey(row.college)),
+    ).map(rowInfo),
+    yearLevelScopes: getAttendancePreviewYearLevelScopes(effectiveRows),
+  };
 }
 
 function getEventExemptedPreviewColleges(
@@ -1246,18 +1283,12 @@ export default function AttendancePage() {
             eventEndAt: metadata.eventEndAt ?? "",
             previewError: "",
             rowsTotal: preview.rowsTotal,
-            collegeLabels: getAttendancePreviewCollegeLabels(preview.rows),
-            collegeMismatchRows: preview.rows
-              .filter((row) =>
-                Boolean(row.college && normalizeCollegeKey(row.college) !== normalizeCollegeKey(uploadForm.college)),
-              )
-              .map((row) => ({
-                rowNumber: row.rowNumber,
-                studentId: row.studentId,
-                name: row.name,
-                college: row.college ?? "",
-              })),
-            yearLevelScopes: getAttendancePreviewYearLevelScopes(preview.rows),
+            previewRows: preview.rows,
+            rowCollegeOverrides: {},
+            selectedRowNumbers: [],
+            assignmentCollege: "",
+            rowSearch: "",
+            ...getAttendanceCollegeSummary(preview.rows, {}, uploadForm.college),
             mergeCandidates,
             mergeDecisionConfirmed: !mergeCandidates.some(
               (candidate) => candidate.confidence !== "low",
@@ -1293,7 +1324,13 @@ export default function AttendancePage() {
             previewError: message,
             rowsTotal: 0,
             collegeLabels: [],
+            previewRows: [],
+            rowCollegeOverrides: {},
+            selectedRowNumbers: [],
+            assignmentCollege: "",
+            rowSearch: "",
             collegeMismatchRows: [],
+            invalidCollegeRows: [],
             yearLevelScopes: [],
             mergeCandidates: [],
             mergeDecisionConfirmed: true,
@@ -1307,6 +1344,60 @@ export default function AttendancePage() {
       );
       setFileDetails(fallbackDetails);
     }
+  }
+
+  function updateAttendanceRowSelection(fileKey: string, rows: number[]) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      return details ? {
+        ...current,
+        [fileKey]: { ...details, selectedRowNumbers: rows },
+      } : current;
+    });
+  }
+
+  function updateAttendanceAssignmentCollege(fileKey: string, college: string) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      return details ? {
+        ...current,
+        [fileKey]: { ...details, assignmentCollege: college },
+      } : current;
+    });
+  }
+
+  function updateAttendanceRowSearch(fileKey: string, search: string) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      return details ? {
+        ...current,
+        [fileKey]: { ...details, rowSearch: search },
+      } : current;
+    });
+  }
+
+  function applyAttendanceCollegeAssignments(fileKey: string, clear = false) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      if (!details || !details.selectedRowNumbers.length || (!clear && !details.assignmentCollege)) {
+        return current;
+      }
+      const overrides = { ...details.rowCollegeOverrides };
+      details.selectedRowNumbers.forEach((rowNumber) => {
+        if (clear) delete overrides[String(rowNumber)];
+        else overrides[String(rowNumber)] = details.assignmentCollege;
+      });
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          ...getAttendanceCollegeSummary(details.previewRows, overrides, uploadForm.college),
+          rowCollegeOverrides: overrides,
+          selectedRowNumbers: [],
+        },
+      };
+    });
+    toast.success(clear ? "Selected college assignments reset." : "College assigned to selected records.");
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1409,7 +1500,7 @@ export default function AttendancePage() {
 
       const exemptedColleges = getEventExemptedPreviewColleges(
         selectedEvent,
-        [uploadForm.college],
+        details.collegeLabels,
       );
       const exemptedYearLevels = getEventExemptedPreviewYearLevels(
         selectedEvent,
@@ -1516,7 +1607,7 @@ export default function AttendancePage() {
       );
       const exemptedColleges = getEventExemptedPreviewColleges(
         selectedEvent,
-        [uploadForm.college],
+        details.collegeLabels,
       );
       const exemptedYearLevels = getEventExemptedPreviewYearLevels(
         selectedEvent,
@@ -1586,11 +1677,11 @@ export default function AttendancePage() {
       return;
     }
 
-    const mismatchFile = files.find(
-      (file) => (fileDetails[getAttendanceUploadFileKey(file)]?.collegeMismatchRows.length ?? 0) > 0,
+    const invalidCollegeFile = files.find(
+      (file) => (fileDetails[getAttendanceUploadFileKey(file)]?.invalidCollegeRows.length ?? 0) > 0,
     );
-    if (mismatchFile) {
-      toast.error(`College mismatch in ${mismatchFile.name}. Remove rows from other colleges before saving.`);
+    if (invalidCollegeFile) {
+      toast.error(`Correct the unrecognised college names in ${invalidCollegeFile.name} before saving.`);
       return;
     }
 
@@ -1631,6 +1722,7 @@ export default function AttendancePage() {
         return {
           index,
           college: uploadForm.college,
+          rowCollegeOverrides: details?.rowCollegeOverrides ?? {},
           fileName: attendanceFile.name,
           schoolYearId:
             details?.schoolYearId || uploadForm.schoolYearId || undefined,
@@ -2610,7 +2702,7 @@ export default function AttendancePage() {
           open={uploadCollegeDialogOpen}
           onOpenChange={setUploadCollegeDialogOpen}
           title="Which college is this upload for?"
-          description="Choose the college to assign to every file in this upload."
+          description="Choose the default college for blank rows. You can assign other colleges to individual records before saving."
           confirmLabel="Continue"
           initialCollege={uploadForm.college}
           onConfirm={(college) => {
@@ -2776,7 +2868,7 @@ export default function AttendancePage() {
                           Boolean(
                             getEventExemptedPreviewColleges(
                               attendanceEvent,
-                              [uploadForm.college],
+                              details.collegeLabels,
                             ).length ||
                               getEventExemptedPreviewYearLevels(
                                 attendanceEvent,
@@ -2787,6 +2879,16 @@ export default function AttendancePage() {
                       : [];
                     const exemptionOverrideEnabled =
                       exemptionOverrideFileKeys.has(fileKey);
+                    const collegeSearch = details?.rowSearch.trim().toLowerCase() ?? "";
+                    const matchingCollegeRows = details
+                      ? details.previewRows.filter((row) => {
+                          const college = details.rowCollegeOverrides[String(row.rowNumber)] || row.college || uploadForm.college;
+                          return `${row.rowNumber} ${row.name} ${row.studentId} ${college}`.toLowerCase().includes(collegeSearch);
+                        })
+                      : [];
+                    const shownCollegeRows = matchingCollegeRows.slice(0, 300);
+                    const invalidRowNumbers = new Set(details?.invalidCollegeRows.map((row) => row.rowNumber) ?? []);
+                    const selectedRowNumbers = new Set(details?.selectedRowNumbers ?? []);
 
                     return (
                       <div
@@ -2812,16 +2914,25 @@ export default function AttendancePage() {
                                   {details.rowsTotal.toLocaleString()} incoming row/s
                                 </p>
                                 <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                                  Colleges found: {details.collegeLabels.join(", ") || "None (blank rows assigned to selected college)"}
+                                  Colleges in file: {getAttendancePreviewCollegeLabels(details.previewRows).join(", ") || "None"}
+                                </p>
+                                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                  Colleges after assignments: {details.collegeLabels.join(", ") || uploadForm.college}
                                 </p>
                                 {details.collegeMismatchRows.length ? (
+                                  <div className="mt-2 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs" role="status">
+                                    <p className="font-bold">{details.collegeMismatchRows.length} record(s) belong to a different college than the upload default ({uploadForm.college}). Valid colleges are allowed; use the editor below if any record needs correcting.</p>
+                                  </div>
+                                ) : null}
+                                {details.invalidCollegeRows.length ? (
                                   <div className="mt-2 rounded-xl border border-destructive p-3 text-xs text-destructive" role="alert">
-                                    <p className="font-bold">{details.collegeMismatchRows.length} college mismatch row(s). Expected: {uploadForm.college}.</p>
-                                    {details.collegeMismatchRows.map((row) => (
+                                    <p className="font-bold">{details.invalidCollegeRows.length} unrecognised college row(s) must be corrected before saving:</p>
+                                    {details.invalidCollegeRows.slice(0, 10).map((row) => (
                                       <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1">
                                         Row {row.rowNumber} — {row.name || row.studentId || "Unknown student"} ({row.studentId || "no ID"}): {row.college}
                                       </p>
                                     ))}
+                                    {details.invalidCollegeRows.length > 10 ? <p className="mt-1">And {details.invalidCollegeRows.length - 10} more — select these rows in the editor below.</p> : null}
                                   </div>
                                 ) : null}
                               </>
@@ -2833,6 +2944,86 @@ export default function AttendancePage() {
                             </span>
                           ) : null}
                         </div>
+
+                        {details?.previewRows.length ? (
+                          <details className="mt-4 rounded-xl border bg-muted/15 p-3">
+                            <summary className="cursor-pointer text-sm font-semibold">
+                              Review / change colleges for records ({details.previewRows.length})
+                            </summary>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Select one, several, or all records and assign the correct college. The assignment is saved with each student's attendance record, even if it differs from the upload default.
+                            </p>
+                            <Input className="mt-3 w-full" value={details.rowSearch}
+                              onChange={(event) => updateAttendanceRowSearch(fileKey, event.target.value)}
+                              placeholder="Filter by row number, student name, ID, or college"
+                              aria-label="Filter attendance records for college assignment" disabled={isSaving} />
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                                onClick={() => updateAttendanceRowSelection(fileKey, details.previewRows.map((row) => row.rowNumber))}>
+                                Select all
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                                onClick={() => updateAttendanceRowSelection(fileKey, matchingCollegeRows.map((row) => row.rowNumber))}>
+                                Select filtered ({matchingCollegeRows.length})
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                                onClick={() => updateAttendanceRowSelection(fileKey, [
+                                  ...new Set([...details.collegeMismatchRows, ...details.invalidCollegeRows].map((row) => row.rowNumber)),
+                                ])}>
+                                Select different / unrecognised
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                                onClick={() => updateAttendanceRowSelection(fileKey, [])}>
+                                Clear selection
+                              </Button>
+                              <span className="text-xs font-semibold">{details.selectedRowNumbers.length} selected</span>
+                            </div>
+                            <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-background">
+                              {shownCollegeRows.map((row) => {
+                                const effectiveCollege = details.rowCollegeOverrides[String(row.rowNumber)] || row.college || uploadForm.college;
+                                const isInvalid = invalidRowNumbers.has(row.rowNumber);
+                                return (
+                                  <label key={row.rowNumber} className={`flex cursor-pointer items-center gap-3 border-b p-2 text-xs last:border-b-0 ${isInvalid ? "bg-destructive/5" : ""}`}>
+                                    <Checkbox
+                                      checked={selectedRowNumbers.has(row.rowNumber)}
+                                      disabled={isSaving}
+                                      onCheckedChange={(checked) => updateAttendanceRowSelection(fileKey,
+                                        checked === true
+                                          ? [...details.selectedRowNumbers, row.rowNumber]
+                                          : details.selectedRowNumbers.filter((value) => value !== row.rowNumber),
+                                      )}
+                                      aria-label={`Select row ${row.rowNumber}`}
+                                    />
+                                    <span className="w-14 shrink-0 font-bold">Row {row.rowNumber}</span>
+                                    <span className="min-w-0 flex-1 break-words">{row.name || "Unnamed"} ({row.studentId || "no ID"})</span>
+                                    <span className={`min-w-0 flex-1 break-words text-right ${isInvalid ? "font-bold text-destructive" : "text-muted-foreground"}`}>
+                                      {effectiveCollege}{details.rowCollegeOverrides[String(row.rowNumber)] ? " (assigned)" : ""}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {matchingCollegeRows.length > shownCollegeRows.length ? (
+                              <p className="mt-2 text-xs text-muted-foreground">Showing the first 300 of {matchingCollegeRows.length} matching records. Use the filter to find others; Select all and Select filtered still work for every matching record.</p>
+                            ) : null}
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <Select value={details.assignmentCollege} onValueChange={(value) => updateAttendanceAssignmentCollege(fileKey, value)} disabled={isSaving}>
+                                <SelectTrigger className="min-w-56 flex-1"><SelectValue placeholder="Choose college for selected records" /></SelectTrigger>
+                                <SelectContent>
+                                  {QR_CODE_COLLEGE_OPTIONS.map((college) => <SelectItem key={college} value={college}>{college}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <Button type="button" size="sm" disabled={isSaving || !details.selectedRowNumbers.length || !details.assignmentCollege}
+                                onClick={() => applyAttendanceCollegeAssignments(fileKey)}>
+                                Apply to selected
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" disabled={isSaving || !details.selectedRowNumbers.length}
+                                onClick={() => applyAttendanceCollegeAssignments(fileKey, true)}>
+                                Reset selected
+                              </Button>
+                            </div>
+                          </details>
+                        ) : null}
 
                         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
@@ -2938,7 +3129,7 @@ export default function AttendancePage() {
                                     const exemptedColleges =
                                       getEventExemptedPreviewColleges(
                                         attendanceEvent,
-                                        [uploadForm.college],
+                                        details.collegeLabels,
                                       );
                                     const exemptedYearLevels =
                                       getEventExemptedPreviewYearLevels(
