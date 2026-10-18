@@ -1255,7 +1255,7 @@ export default function AttendancePage() {
                 rowNumber: row.rowNumber,
                 studentId: row.studentId,
                 name: row.name,
-                college: row.college,
+                college: row.college ?? "",
               })),
             yearLevelScopes: getAttendancePreviewYearLevelScopes(preview.rows),
             mergeCandidates,
