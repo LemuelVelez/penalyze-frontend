@@ -304,6 +304,8 @@ export type AttendanceImportRecord = {
   event_id: string | null;
   event_name: string | null;
   event_name_snapshot: string | null;
+  college_key: string | null;
+  college_label: string | null;
   needs_reattachment: boolean;
   uploaded_by: string | null;
   uploader_name?: string | null;
@@ -553,6 +555,7 @@ type ListOptions = {
 };
 
 export type AttendanceFileSaveOption = {
+  college?: string;
   index?: number;
   fileName?: string;
   schoolYearId?: string;
@@ -601,6 +604,7 @@ export type AttendanceImportSaveOptions = AttendanceFileSaveOption & {
 };
 
 export type AttendanceRowsSaveInput = {
+  college?: string;
   schoolYearId?: string;
   eventId?: string;
   eventName?: string;
@@ -781,6 +785,7 @@ function appendSaveOptions(
   body: FormData,
   options: AttendanceImportSaveOptions = {},
 ) {
+  if (options.college) body.set("college", options.college);
   if (options.schoolYearId) body.set("schoolYearId", options.schoolYearId);
   if (options.eventId) body.set("eventId", options.eventId);
   if (options.eventName) body.set("eventName", options.eventName);
@@ -1421,9 +1426,10 @@ export async function deleteManualAttendanceRecordsBySchoolYear(
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
-export async function previewAttendanceFile(files: File[]) {
+export async function previewAttendanceFile(files: File[], college?: string) {
   const body = new FormData();
   files.forEach((file) => body.append("files", file));
+  if (college) body.set("college", college);
 
   const response = await apiRequest<AttendancePreviewResult[]>(
     "/api/attendance/import/preview",

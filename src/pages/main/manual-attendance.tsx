@@ -27,6 +27,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ActionMenu } from "../../components/action-menu";
+import { CollegeSelectDialog } from "../../components/college-select-dialog";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -52,7 +53,6 @@ import {
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
 import {
-  QR_CODE_COLLEGE_OPTIONS,
   getStudentProgramOptions,
 } from "../../lib/colleges";
 import {
@@ -705,6 +705,7 @@ export default function ManualAttendancePage() {
   const [isDeletingManualRecords, setIsDeletingManualRecords] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] =
     useState(false);
+  const [manualCollegeDialogOpen, setManualCollegeDialogOpen] = useState(false);
   const [eventsDialogGroup, setEventsDialogGroup] =
     useState<ManualAttendanceStudentGroup | null>(null);
   const [selectedRecordsDialogOpen, setSelectedRecordsDialogOpen] = useState(false);
@@ -1279,7 +1280,7 @@ export default function ManualAttendancePage() {
         (selectedSchoolYearId === ALL_YEARS_VALUE ? "" : selectedSchoolYearId),
       scannedAt: formatDateTimeInputValue(),
     }));
-    setManualAttendanceDialogOpen(true);
+    setManualCollegeDialogOpen(true);
   }
 
   function handleEditGroup(group: ManualAttendanceStudentGroup) {
@@ -1321,6 +1322,7 @@ export default function ManualAttendancePage() {
       institution: group.institution,
       remarks: group.remarks,
     });
+    setManualCollegeDialogOpen(false);
     setManualAttendanceDialogOpen(true);
     if (schoolYearId) {
       void calculatedAttendance.load(group.studentId, schoolYearId);
@@ -1630,6 +1632,11 @@ export default function ManualAttendancePage() {
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!form.college.trim()) {
+      toast.error("Select a college before saving manual attendance.");
+      return;
+    }
+
     if (!form.schoolYearId) {
       toast.error("Active school year is required.");
       return;
@@ -1887,6 +1894,19 @@ export default function ManualAttendancePage() {
           </div>
         </section>
 
+        <CollegeSelectDialog
+          open={manualCollegeDialogOpen}
+          onOpenChange={setManualCollegeDialogOpen}
+          title="Which college is this manual attendance for?"
+          description="Confirm the college before entering attendance details."
+          confirmLabel="Continue"
+          initialCollege={form.college}
+          onConfirm={(college) => {
+            handleFieldChange("college", college);
+            setManualAttendanceDialogOpen(true);
+          }}
+        />
+
         <Dialog
           open={manualAttendanceDialogOpen}
           onOpenChange={handleDialogOpenChange}
@@ -2002,40 +2022,16 @@ export default function ManualAttendancePage() {
                 />
               </label>
 
-              <label className="space-y-2">
+              <div className="space-y-2">
                 <span className="text-sm font-bold">College</span>
-                <Select
-                  value={form.college}
-                  onValueChange={(value) => handleFieldChange("college", value)}
-                >
-                  <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl">
-                    <SelectValue placeholder="Select college" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72 max-w-80">
-                    {renderCurrentStudentSelectOption(
-                      QR_CODE_COLLEGE_OPTIONS,
-                      form.college,
-                    )}
-                    {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                      <SelectItem
-                        key={college}
-                        value={college}
-                        className="max-w-full truncate"
-                      >
-                        {college}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={form.college}
-                  onChange={(event) =>
-                    handleFieldChange("college", event.target.value)
-                  }
-                  placeholder="Type custom college if not listed"
-                  className={customSelectInputClassName}
-                />
-              </label>
+                <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-2xl border bg-muted/30 px-3">
+                  <span className="min-w-0 flex-1 break-words font-semibold">{form.college || "No college selected"}</span>
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => setManualCollegeDialogOpen(true)}>
+                    Change college
+                  </Button>
+                </div>
+              </div>
 
               <label className="space-y-2">
                 <span className="text-sm font-bold">Program</span>

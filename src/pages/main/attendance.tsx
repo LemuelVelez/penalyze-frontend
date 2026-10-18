@@ -41,6 +41,7 @@ import {
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ActionMenu } from "../../components/action-menu";
+import { CollegeSelectDialog } from "../../components/college-select-dialog";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -89,6 +90,7 @@ const CUSTOM_UPLOAD_EVENT_VALUE = "__custom_upload_event__";
 const FILE_UPLOAD_EVENT_VALUE = "__file_upload_event__";
 
 type UploadFormState = {
+  college: string;
   schoolYearId: string;
   eventId: string;
   eventName: string;
@@ -142,6 +144,7 @@ const emptyStudentSourceRecordBundle: StudentSourceRecordBundle = {
 };
 
 const emptyUploadForm: UploadFormState = {
+  college: "",
   schoolYearId: "",
   eventId: "",
   eventName: "",
@@ -265,6 +268,7 @@ type AttendanceUploadFileDetails = {
   previewError: string;
   rowsTotal: number;
   collegeLabels: string[];
+  collegeMismatchRows: Array<{ rowNumber: number; studentId: string; name: string; college: string }>;
   yearLevelScopes: Array<{ yearLevel: string; college: string }>;
   mergeCandidates: AttendanceEventMergeCandidate[];
   mergeDecisionConfirmed: boolean;
@@ -699,6 +703,7 @@ export default function AttendancePage() {
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadCollegeDialogOpen, setUploadCollegeDialogOpen] = useState(false);
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
   const [files, setFiles] = useState<File[]>([]);
@@ -1170,6 +1175,10 @@ export default function AttendancePage() {
   }, []);
 
   async function selectAttendanceFiles(nextFiles: File[]) {
+    if (!uploadForm.college) {
+      toast.error("Select a college before uploading.");
+      return;
+    }
     if (!nextFiles.length) {
       setFiles([]);
       setFileDetails({});
@@ -1196,7 +1205,7 @@ export default function AttendancePage() {
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
 
     try {
-      const previews = await previewAttendanceFile(acceptedFiles);
+      const previews = await previewAttendanceFile(acceptedFiles, uploadForm.college);
       const detailsEntries = await Promise.all(
         acceptedFiles.map(async (nextFile, index) => {
           const fileKey = getAttendanceUploadFileKey(nextFile);
@@ -1238,6 +1247,16 @@ export default function AttendancePage() {
             previewError: "",
             rowsTotal: preview.rowsTotal,
             collegeLabels: getAttendancePreviewCollegeLabels(preview.rows),
+            collegeMismatchRows: preview.rows
+              .filter((row) =>
+                Boolean(row.college && normalizeCollegeKey(row.college) !== normalizeCollegeKey(uploadForm.college)),
+              )
+              .map((row) => ({
+                rowNumber: row.rowNumber,
+                studentId: row.studentId,
+                name: row.name,
+                college: row.college,
+              })),
             yearLevelScopes: getAttendancePreviewYearLevelScopes(preview.rows),
             mergeCandidates,
             mergeDecisionConfirmed: !mergeCandidates.some(
@@ -1274,6 +1293,7 @@ export default function AttendancePage() {
             previewError: message,
             rowsTotal: 0,
             collegeLabels: [],
+            collegeMismatchRows: [],
             yearLevelScopes: [],
             mergeCandidates: [],
             mergeDecisionConfirmed: true,
@@ -1389,7 +1409,7 @@ export default function AttendancePage() {
 
       const exemptedColleges = getEventExemptedPreviewColleges(
         selectedEvent,
-        details.collegeLabels,
+        [uploadForm.college],
       );
       const exemptedYearLevels = getEventExemptedPreviewYearLevels(
         selectedEvent,
@@ -1496,7 +1516,7 @@ export default function AttendancePage() {
       );
       const exemptedColleges = getEventExemptedPreviewColleges(
         selectedEvent,
-        details.collegeLabels,
+        [uploadForm.college],
       );
       const exemptedYearLevels = getEventExemptedPreviewYearLevels(
         selectedEvent,
@@ -1556,8 +1576,21 @@ export default function AttendancePage() {
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!uploadForm.college) {
+      toast.error("Select a college before uploading.");
+      return;
+    }
+
     if (!files.length) {
       toast.error("Please choose at least one attendance file first.");
+      return;
+    }
+
+    const mismatchFile = files.find(
+      (file) => (fileDetails[getAttendanceUploadFileKey(file)]?.collegeMismatchRows.length ?? 0) > 0,
+    );
+    if (mismatchFile) {
+      toast.error(`College mismatch in ${mismatchFile.name}. Remove rows from other colleges before saving.`);
       return;
     }
 
@@ -1597,6 +1630,7 @@ export default function AttendancePage() {
 
         return {
           index,
+          college: uploadForm.college,
           fileName: attendanceFile.name,
           schoolYearId:
             details?.schoolYearId || uploadForm.schoolYearId || undefined,
@@ -2489,7 +2523,7 @@ export default function AttendancePage() {
             <div>
               <h2 className="text-lg font-semibold">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Drag and drop or choose one or more .xlsx files.
+                Drag and drop or choose one or more .xlsx or .csv files.
               </p>
             </div>
             <div className="flex min-w-0 flex-col flex-wrap gap-3 sm:flex-row">
@@ -2497,7 +2531,7 @@ export default function AttendancePage() {
                 type="button"
                 onClick={() => {
                   setProgress(null);
-                  setUploadDialogOpen(true);
+                  setUploadCollegeDialogOpen(true);
                 }}
                 className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-6"
               >
@@ -2572,15 +2606,42 @@ export default function AttendancePage() {
           })}
         </section>
 
+        <CollegeSelectDialog
+          open={uploadCollegeDialogOpen}
+          onOpenChange={setUploadCollegeDialogOpen}
+          title="Which college is this upload for?"
+          description="Choose the college to assign to every file in this upload."
+          confirmLabel="Continue"
+          initialCollege={uploadForm.college}
+          onConfirm={(college) => {
+            setUploadForm((current) => ({ ...current, college }));
+            setFiles([]);
+            setFileDetails({});
+            setExemptionOverrideFileKeys(new Set());
+            setUploadDialogOpen(true);
+          }}
+        />
+
         <Dialog
           open={uploadDialogOpen}
           onOpenChange={(open) => {
             if (!open && isSaving) return;
             setUploadDialogOpen(open);
-            if (!open) setProgress(null);
+            if (!open) {
+              setProgress(null);
+              setUploadForm((current) => ({ ...current, college: "" }));
+              setFiles([]);
+              setFileDetails({});
+              setExemptionOverrideFileKeys(new Set());
+            }
           }}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent
+            className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl"
+            onCloseAutoFocus={() => {
+              setUploadForm((current) => ({ ...current, college: "" }));
+            }}
+          >
             <DialogHeader>
               <DialogTitle>Upload attendance file</DialogTitle>
               <DialogDescription>
@@ -2615,7 +2676,7 @@ export default function AttendancePage() {
                     : "Drop attendance files here"}
                 </span>
                 <span className="mt-2 max-w-full break-words text-sm font-semibold text-muted-foreground">
-                  Only .xlsx files are supported.
+                  Only .xlsx and .csv files are supported.
                 </span>
                 {files.length ? (
                   <div className="mt-4 w-full space-y-2 text-left">
@@ -2657,13 +2718,20 @@ export default function AttendancePage() {
                 />
               </div>
 
-              <label className="space-y-2 lg:col-span-5">
-                <span className="text-sm font-bold">Default school year / semester</span>
-                <SchoolYearBadge
-                  label={uploadSchoolYearLabel}
-                  className="w-full justify-center"
-                />
-              </label>
+              <div className="flex flex-wrap items-end gap-3 lg:col-span-5">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <span className="text-sm font-bold">Default school year / semester</span>
+                  <SchoolYearBadge label={uploadSchoolYearLabel} className="w-full justify-center" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <span className="text-sm font-bold">College</span>
+                  <SchoolYearBadge label={uploadForm.college} className="w-full justify-center" />
+                </div>
+                <Button type="button" variant="outline" disabled={isSaving}
+                  onClick={() => setUploadCollegeDialogOpen(true)}>
+                  Change college
+                </Button>
+              </div>
 
               {files.length ? (
                 <div className="space-y-3 lg:col-span-5">
@@ -2708,7 +2776,7 @@ export default function AttendancePage() {
                           Boolean(
                             getEventExemptedPreviewColleges(
                               attendanceEvent,
-                              details.collegeLabels,
+                              [uploadForm.college],
                             ).length ||
                               getEventExemptedPreviewYearLevels(
                                 attendanceEvent,
@@ -2739,9 +2807,24 @@ export default function AttendancePage() {
                                 : "Reading workbook metadata..."}
                             </p>
                             {details ? (
-                              <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                                {details.rowsTotal.toLocaleString()} incoming row/s
-                              </p>
+                              <>
+                                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                  {details.rowsTotal.toLocaleString()} incoming row/s
+                                </p>
+                                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                  Colleges found: {details.collegeLabels.join(", ") || "None (blank rows assigned to selected college)"}
+                                </p>
+                                {details.collegeMismatchRows.length ? (
+                                  <div className="mt-2 rounded-xl border border-destructive p-3 text-xs text-destructive" role="alert">
+                                    <p className="font-bold">{details.collegeMismatchRows.length} college mismatch row(s). Expected: {uploadForm.college}.</p>
+                                    {details.collegeMismatchRows.map((row) => (
+                                      <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1">
+                                        Row {row.rowNumber} — {row.name || row.studentId || "Unknown student"} ({row.studentId || "no ID"}): {row.college}
+                                      </p>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </>
                             ) : null}
                           </div>
                           {matchedExistingEvent ? (
@@ -2855,7 +2938,7 @@ export default function AttendancePage() {
                                     const exemptedColleges =
                                       getEventExemptedPreviewColleges(
                                         attendanceEvent,
-                                        details.collegeLabels,
+                                        [uploadForm.college],
                                       );
                                     const exemptedYearLevels =
                                       getEventExemptedPreviewYearLevels(
@@ -3896,6 +3979,7 @@ export default function AttendancePage() {
                       <p className="break-all font-semibold">{item.file_name}</p>
                       <p className="mt-1 break-words text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
+                        {item.college_label || "College not recorded"} •{" "}
                         {formatDate(item.created_at)}
                       </p>
                     </div>
