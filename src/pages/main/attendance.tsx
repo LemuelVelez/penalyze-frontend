@@ -65,6 +65,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -741,6 +742,10 @@ export default function AttendancePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadCollegeDialogOpen, setUploadCollegeDialogOpen] = useState(false);
+  const [collegeReviewFileKey, setCollegeReviewFileKey] = useState("");
+  const [collegeReviewFilter, setCollegeReviewFilter] = useState<
+    "different" | "unrecognised" | "all" | "assigned"
+  >("different");
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
   const [files, setFiles] = useState<File[]>([]);
@@ -815,6 +820,31 @@ export default function AttendancePage() {
     Array<{ fileName: string; reconciliation: AttendanceImportReconciliation }>
   >([]);
   const acceptedFileTypes = getAcceptedAttendanceFileTypes();
+  const collegeReviewFile = files.find(
+    (file) => getAttendanceUploadFileKey(file) === collegeReviewFileKey,
+  );
+  const collegeReviewDetails = collegeReviewFileKey
+    ? fileDetails[collegeReviewFileKey]
+    : undefined;
+  const collegeReviewInvalidNumbers = new Set(
+    collegeReviewDetails?.invalidCollegeRows.map((row) => row.rowNumber) ?? [],
+  );
+  const collegeReviewRows = collegeReviewDetails?.previewRows.filter((row) => {
+    const override = collegeReviewDetails.rowCollegeOverrides[String(row.rowNumber)];
+    const effectiveCollege = override || row.college || uploadForm.college;
+    const isDifferent =
+      normalizeCollegeKey(effectiveCollege) !== normalizeCollegeKey(uploadForm.college);
+    const isUnrecognised = collegeReviewInvalidNumbers.has(row.rowNumber);
+    if (collegeReviewFilter === "different" && !isDifferent && !isUnrecognised) return false;
+    if (collegeReviewFilter === "unrecognised" && !isUnrecognised) return false;
+    if (collegeReviewFilter === "assigned" && !override) return false;
+    const search = collegeReviewDetails.rowSearch.trim().toLowerCase();
+    return !search || `${row.rowNumber} ${row.name} ${row.studentId} ${row.college ?? ""} ${effectiveCollege}`.toLowerCase().includes(search);
+  }) ?? [];
+  const shownCollegeReviewRows = collegeReviewRows.slice(0, 200);
+  const collegeReviewSelectedNumbers = new Set(
+    collegeReviewDetails?.selectedRowNumbers ?? [],
+  );
   const mergeDialogFileIndex = files.findIndex(
     (file) => getAttendanceUploadFileKey(file) === mergeDialogFileKey,
   );
@@ -1346,6 +1376,50 @@ export default function AttendancePage() {
     }
   }
 
+  function openAttendanceCollegeReviewDialog(
+    fileKey: string,
+    filter: "different" | "unrecognised" | "all" | "assigned" = "different",
+  ) {
+    setCollegeReviewFilter(filter);
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      return details
+        ? {
+            ...current,
+            [fileKey]: {
+              ...details,
+              rowSearch: "",
+              selectedRowNumbers: [],
+              assignmentCollege: "",
+            },
+          }
+        : current;
+    });
+    setCollegeReviewFileKey(fileKey);
+  }
+
+  function updateAttendanceRowCollege(
+    fileKey: string,
+    rowNumber: number,
+    college: string | null,
+  ) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      if (!details) return current;
+      const overrides = { ...details.rowCollegeOverrides };
+      if (college === null) delete overrides[String(rowNumber)];
+      else overrides[String(rowNumber)] = college;
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          rowCollegeOverrides: overrides,
+          ...getAttendanceCollegeSummary(details.previewRows, overrides, uploadForm.college),
+        },
+      };
+    });
+  }
+
   function updateAttendanceRowSelection(fileKey: string, rows: number[]) {
     setFileDetails((current) => {
       const details = current[fileKey];
@@ -1682,6 +1756,7 @@ export default function AttendancePage() {
     );
     if (invalidCollegeFile) {
       toast.error(`Correct the unrecognised college names in ${invalidCollegeFile.name} before saving.`);
+      openAttendanceCollegeReviewDialog(getAttendanceUploadFileKey(invalidCollegeFile), "unrecognised");
       return;
     }
 
@@ -2720,6 +2795,7 @@ export default function AttendancePage() {
             if (!open && isSaving) return;
             setUploadDialogOpen(open);
             if (!open) {
+              setCollegeReviewFileKey("");
               setProgress(null);
               setUploadForm((current) => ({ ...current, college: "" }));
               setFiles([]);
@@ -2879,16 +2955,6 @@ export default function AttendancePage() {
                       : [];
                     const exemptionOverrideEnabled =
                       exemptionOverrideFileKeys.has(fileKey);
-                    const collegeSearch = details?.rowSearch.trim().toLowerCase() ?? "";
-                    const matchingCollegeRows = details
-                      ? details.previewRows.filter((row) => {
-                          const college = details.rowCollegeOverrides[String(row.rowNumber)] || row.college || uploadForm.college;
-                          return `${row.rowNumber} ${row.name} ${row.studentId} ${college}`.toLowerCase().includes(collegeSearch);
-                        })
-                      : [];
-                    const shownCollegeRows = matchingCollegeRows.slice(0, 300);
-                    const invalidRowNumbers = new Set(details?.invalidCollegeRows.map((row) => row.rowNumber) ?? []);
-                    const selectedRowNumbers = new Set(details?.selectedRowNumbers ?? []);
 
                     return (
                       <div
@@ -2921,7 +2987,7 @@ export default function AttendancePage() {
                                 </p>
                                 {details.collegeMismatchRows.length ? (
                                   <div className="mt-2 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs" role="status">
-                                    <p className="font-bold">{details.collegeMismatchRows.length} record(s) belong to a different college than the upload default ({uploadForm.college}). Valid colleges are allowed; use the editor below if any record needs correcting.</p>
+                                    <p className="font-bold">{details.collegeMismatchRows.length} record(s) belong to a different college than the upload default ({uploadForm.college}). Valid colleges are allowed; open the college review dialog if any record needs correcting.</p>
                                   </div>
                                 ) : null}
                                 {details.invalidCollegeRows.length ? (
@@ -2932,7 +2998,7 @@ export default function AttendancePage() {
                                         Row {row.rowNumber} — {row.name || row.studentId || "Unknown student"} ({row.studentId || "no ID"}): {row.college}
                                       </p>
                                     ))}
-                                    {details.invalidCollegeRows.length > 10 ? <p className="mt-1">And {details.invalidCollegeRows.length - 10} more — select these rows in the editor below.</p> : null}
+                                    {details.invalidCollegeRows.length > 10 ? <p className="mt-1">And {details.invalidCollegeRows.length - 10} more — open college review to correct them.</p> : null}
                                   </div>
                                 ) : null}
                               </>
@@ -2946,83 +3012,31 @@ export default function AttendancePage() {
                         </div>
 
                         {details?.previewRows.length ? (
-                          <details className="mt-4 rounded-xl border bg-muted/15 p-3">
-                            <summary className="cursor-pointer text-sm font-semibold">
-                              Review / change colleges for records ({details.previewRows.length})
-                            </summary>
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Select one, several, or all records and assign the correct college. The assignment is saved with each student's attendance record, even if it differs from the upload default.
+                          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/15 p-3">
+                            <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                              Review college names or correct specific student records before uploading.
+                              {details.invalidCollegeRows.length > 0
+                                ? ` ${details.invalidCollegeRows.length} unrecognised row(s) need correction.`
+                                : ""}
                             </p>
-                            <Input className="mt-3 w-full" value={details.rowSearch}
-                              onChange={(event) => updateAttendanceRowSearch(fileKey, event.target.value)}
-                              placeholder="Filter by row number, student name, ID, or college"
-                              aria-label="Filter attendance records for college assignment" disabled={isSaving} />
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
-                                onClick={() => updateAttendanceRowSelection(fileKey, details.previewRows.map((row) => row.rowNumber))}>
-                                Select all
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
-                                onClick={() => updateAttendanceRowSelection(fileKey, matchingCollegeRows.map((row) => row.rowNumber))}>
-                                Select filtered ({matchingCollegeRows.length})
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
-                                onClick={() => updateAttendanceRowSelection(fileKey, [
-                                  ...new Set([...details.collegeMismatchRows, ...details.invalidCollegeRows].map((row) => row.rowNumber)),
-                                ])}>
-                                Select different / unrecognised
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" disabled={isSaving}
-                                onClick={() => updateAttendanceRowSelection(fileKey, [])}>
-                                Clear selection
-                              </Button>
-                              <span className="text-xs font-semibold">{details.selectedRowNumbers.length} selected</span>
-                            </div>
-                            <div className="mt-3 max-h-64 overflow-auto rounded-lg border bg-background">
-                              {shownCollegeRows.map((row) => {
-                                const effectiveCollege = details.rowCollegeOverrides[String(row.rowNumber)] || row.college || uploadForm.college;
-                                const isInvalid = invalidRowNumbers.has(row.rowNumber);
-                                return (
-                                  <label key={row.rowNumber} className={`flex cursor-pointer items-center gap-3 border-b p-2 text-xs last:border-b-0 ${isInvalid ? "bg-destructive/5" : ""}`}>
-                                    <Checkbox
-                                      checked={selectedRowNumbers.has(row.rowNumber)}
-                                      disabled={isSaving}
-                                      onCheckedChange={(checked) => updateAttendanceRowSelection(fileKey,
-                                        checked === true
-                                          ? [...details.selectedRowNumbers, row.rowNumber]
-                                          : details.selectedRowNumbers.filter((value) => value !== row.rowNumber),
-                                      )}
-                                      aria-label={`Select row ${row.rowNumber}`}
-                                    />
-                                    <span className="w-14 shrink-0 font-bold">Row {row.rowNumber}</span>
-                                    <span className="min-w-0 flex-1 break-words">{row.name || "Unnamed"} ({row.studentId || "no ID"})</span>
-                                    <span className={`min-w-0 flex-1 break-words text-right ${isInvalid ? "font-bold text-destructive" : "text-muted-foreground"}`}>
-                                      {effectiveCollege}{details.rowCollegeOverrides[String(row.rowNumber)] ? " (assigned)" : ""}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                            {matchingCollegeRows.length > shownCollegeRows.length ? (
-                              <p className="mt-2 text-xs text-muted-foreground">Showing the first 300 of {matchingCollegeRows.length} matching records. Use the filter to find others; Select all and Select filtered still work for every matching record.</p>
-                            ) : null}
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <Select value={details.assignmentCollege} onValueChange={(value) => updateAttendanceAssignmentCollege(fileKey, value)} disabled={isSaving}>
-                                <SelectTrigger className="min-w-56 flex-1"><SelectValue placeholder="Choose college for selected records" /></SelectTrigger>
-                                <SelectContent>
-                                  {QR_CODE_COLLEGE_OPTIONS.map((college) => <SelectItem key={college} value={college}>{college}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                              <Button type="button" size="sm" disabled={isSaving || !details.selectedRowNumbers.length || !details.assignmentCollege}
-                                onClick={() => applyAttendanceCollegeAssignments(fileKey)}>
-                                Apply to selected
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" disabled={isSaving || !details.selectedRowNumbers.length}
-                                onClick={() => applyAttendanceCollegeAssignments(fileKey, true)}>
-                                Reset selected
-                              </Button>
-                            </div>
-                          </details>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={details.invalidCollegeRows.length ? "destructive" : "outline"}
+                              disabled={isSaving}
+                              onClick={() => openAttendanceCollegeReviewDialog(fileKey, "different")}
+                            >
+                              Select different / unrecognised ({new Set([
+                                ...details.collegeMismatchRows.map((row) => row.rowNumber),
+                                ...details.invalidCollegeRows.map((row) => row.rowNumber),
+                              ]).size})
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                              onClick={() => openAttendanceCollegeReviewDialog(fileKey, "all")}
+                            >
+                              Review all records ({details.previewRows.length})
+                            </Button>
+                          </div>
                         ) : null}
 
                         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -3250,6 +3264,173 @@ export default function AttendancePage() {
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(collegeReviewFileKey && collegeReviewDetails)}
+          onOpenChange={(open) => {
+            if (!open) setCollegeReviewFileKey("");
+          }}
+        >
+          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-hidden sm:max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Review attendance colleges</DialogTitle>
+              <DialogDescription>
+                Correct unrecognised or misspelled colleges one student at a time, or select
+                multiple records to assign the same college. Changes are kept in the upload preview.
+              </DialogDescription>
+            </DialogHeader>
+            <p className="break-all text-xs font-semibold">{collegeReviewFile?.name}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" role="status">
+              <span>Upload default: <strong className="text-foreground">{uploadForm.college}</strong></span>
+              <span>{collegeReviewDetails?.invalidCollegeRows.length ?? 0} unrecognised</span>
+              <span>{collegeReviewDetails?.collegeMismatchRows.length ?? 0} different from default</span>
+              <span>{collegeReviewDetails?.selectedRowNumbers.length ?? 0} selected</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <div>
+                <label htmlFor="college-review-filter" className="mb-1 block text-xs font-bold">Show records</label>
+                <Select value={collegeReviewFilter}
+                  onValueChange={(value) => setCollegeReviewFilter(value as typeof collegeReviewFilter)}>
+                  <SelectTrigger id="college-review-filter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="different">Different / unrecognised</SelectItem>
+                    <SelectItem value="unrecognised">Unrecognised only</SelectItem>
+                    <SelectItem value="all">All records</SelectItem>
+                    <SelectItem value="assigned">Manually assigned</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label htmlFor="college-review-search" className="mb-1 block text-xs font-bold">Find a student or college</label>
+                <Input id="college-review-search" value={collegeReviewDetails?.rowSearch ?? ""}
+                  onChange={(event) => updateAttendanceRowSearch(collegeReviewFileKey, event.target.value)}
+                  placeholder="Search student name, ID, row number, original or assigned college"
+                  disabled={isSaving} />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewRows.length}
+                onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, collegeReviewRows.map((row) => row.rowNumber))}>
+                Select filtered ({collegeReviewRows.length})
+              </Button>
+              <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.previewRows.length}
+                onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, collegeReviewDetails?.previewRows.map((row) => row.rowNumber) ?? [])}>
+                Select all
+              </Button>
+              <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length}
+                onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, [])}>
+                Clear selection
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Showing {shownCollegeReviewRows.length} of {collegeReviewRows.length} matching rows
+              </span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border bg-background" aria-label="Attendance college review records">
+              {shownCollegeReviewRows.length ? shownCollegeReviewRows.map((row) => {
+                const originalCollege = String(row.college ?? "").trim();
+                const override = collegeReviewDetails?.rowCollegeOverrides[String(row.rowNumber)];
+                const effectiveCollege = override || originalCollege || uploadForm.college;
+                const validCollege = QR_CODE_COLLEGE_OPTIONS.find(
+                  (college) => normalizeCollegeKey(college) === normalizeCollegeKey(effectiveCollege),
+                );
+                const isInvalid = collegeReviewInvalidNumbers.has(row.rowNumber);
+                const isDifferent = normalizeCollegeKey(effectiveCollege) !== normalizeCollegeKey(uploadForm.college);
+                return (
+                  <div key={row.rowNumber} className={`grid gap-2 border-b p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <Checkbox
+                        checked={collegeReviewSelectedNumbers.has(row.rowNumber)}
+                        disabled={isSaving}
+                        onCheckedChange={(checked) => updateAttendanceRowSelection(
+                          collegeReviewFileKey,
+                          checked === true
+                            ? [...(collegeReviewDetails?.selectedRowNumbers ?? []), row.rowNumber]
+                            : (collegeReviewDetails?.selectedRowNumbers ?? []).filter((value) => value !== row.rowNumber),
+                        )}
+                        aria-label={`Select row ${row.rowNumber}, ${row.name || row.studentId || "unnamed student"}`}
+                      />
+                      <div className="min-w-0 space-y-1">
+                        <p className="break-words text-xs font-semibold">Row {row.rowNumber} — {row.name || "Unnamed student"}</p>
+                        <p className="break-words text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
+                        <p className={`break-words text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                          In file: {originalCollege || "Blank (uses upload default)"}
+                        </p>
+                        <p className="text-xs">
+                          {isInvalid ? "Unrecognised — choose a college" : override ? "Manually corrected" : isDifferent ? "Different valid college" : "Matches upload default"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Select
+                        value={validCollege ?? ""}
+                        disabled={isSaving}
+                        onValueChange={(college) => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, college)}>
+                        <SelectTrigger className={`min-w-0 flex-1 ${isInvalid ? "border-destructive" : ""}`}
+                          aria-label={`College for row ${row.rowNumber}`}>
+                          <SelectValue placeholder="Choose the correct college" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                            <SelectItem key={college} value={college}>{college}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {override ? (
+                        <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                          onClick={() => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, null)}
+                          aria-label={`Reset college for row ${row.rowNumber}`}>
+                          Reset
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              }) : (
+                <p className="p-5 text-center text-xs text-muted-foreground">
+                  No records match this filter. Choose “All records” to review the complete file.
+                </p>
+              )}
+            </div>
+            {collegeReviewRows.length > shownCollegeReviewRows.length ? (
+              <p className="text-xs text-muted-foreground">
+                Showing the first 200 matches. Refine your search to view more; “Select filtered” covers every match.
+              </p>
+            ) : null}
+            <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+              <div>
+                <label className="mb-1 block text-xs font-bold">Assign college to selected records</label>
+                <Select value={collegeReviewDetails?.assignmentCollege ?? ""}
+                  disabled={isSaving}
+                  onValueChange={(college) => updateAttendanceAssignmentCollege(collegeReviewFileKey, college)}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Choose college for bulk assignment" /></SelectTrigger>
+                  <SelectContent>
+                    {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                      <SelectItem key={college} value={college}>{college}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button type="button" size="sm" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length || !collegeReviewDetails?.assignmentCollege}
+                onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey)}>
+                Apply to selected ({collegeReviewDetails?.selectedRowNumbers.length ?? 0})
+              </Button>
+              <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length}
+                onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey, true)}>
+                Reset selected
+              </Button>
+            </div>
+            <DialogFooter>
+              <p className="min-w-0 flex-1 self-center text-xs text-muted-foreground">
+                {collegeReviewDetails?.invalidCollegeRows.length
+                  ? `${collegeReviewDetails.invalidCollegeRows.length} unrecognised row(s) still require a recognised college before saving.`
+                  : "All colleges are recognised. You can continue with the upload."}
+              </p>
+              <Button type="button" onClick={() => setCollegeReviewFileKey("")}>Done reviewing</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
