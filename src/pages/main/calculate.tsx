@@ -2261,61 +2261,47 @@ export default function CalculatePage() {
   }, []);
 
   async function handleFixCalculationConsistency() {
-    const group = selectedConsistencyGroup;
-    if (!group || isRepairingConsistency) return;
+    if (!selectedConsistencyGroup || isRepairingConsistency) return;
     if (!canRepairSelectedConsistencyGroup) {
-      toast.error("Load this school year and calculation source selection before repairing this group.");
+      toast.error("Select the same school year and calculation sources to fix the affected records.");
       return;
     }
 
     setIsRepairingConsistency(true);
     try {
+      // Fixes ALL inconsistent groups in the selected school year/scope in one
+      // transaction. This also persists the correction for subsequent previews.
+      const result = await attendanceApi.repairCalculationResultsConsistency({
+        schoolYearId: selectedConsistencyGroup.schoolYearId!,
+        importIds: selectedCalculationSources.includes("imported") ? selectedImportIds : [],
+        sourceTypes: selectedCalculationSources,
+      });
+      setSelectedConsistencyGroupKey(null);
       if (calculationMode === "preview") {
-        // A preview is not a saved result. Re-run the preview without writing
-        // audit entries or changing the persisted calculation/fines records.
         const rows = await loadPreviewRows(
-          selectedSchoolYearId,
-          selectedImportIds,
-          selectedCalculationSources,
+          selectedSchoolYearId, selectedImportIds, selectedCalculationSources,
         );
-        if (!rows) return;
-        const status = await loadCalculationStatus(
-          selectedSchoolYearId,
-          selectedImportIds,
-          selectedCalculationSources,
-        );
-        setPreviewedCalculationRevision(status?.revision ?? null);
-        if (rows.some((row) => row.consistencyWarning)) {
-          setSelectedConsistencyGroupKey(null);
-          toast.warning("The source data still produces different expected totals. Review the affected students and event exemptions.");
-        } else {
-          setSelectedConsistencyGroupKey(null);
-          toast.success("Preview now has consistent expected-event totals.");
+        if (rows) {
+          const status = await loadCalculationStatus(
+            selectedSchoolYearId, selectedImportIds, selectedCalculationSources,
+          );
+          setPreviewedCalculationRevision(status?.revision ?? null);
         }
       } else {
-        const result = await attendanceApi.repairCalculationResultsConsistency({
-          schoolYearId: group.schoolYearId!,
-          importIds: selectedCalculationSources.includes("imported") ? selectedImportIds : [],
-          sourceTypes: selectedCalculationSources,
-        });
-        setSelectedConsistencyGroupKey(null);
         await loadSavedResults(
-          selectedSchoolYearId,
-          selectedImportIds,
-          selectedCalculationSources,
+          selectedSchoolYearId, selectedImportIds, selectedCalculationSources,
         );
-        await loadCalculationStatus(
-          selectedSchoolYearId,
-          selectedImportIds,
-          selectedCalculationSources,
-        );
-        await loadCalculationPendingSummary(selectedSchoolYearId);
-        toast.success(result.repaired
-          ? "Saved expected-event totals rebuilt from the current roster."
-          : "Saved expected-event totals are already consistent.");
       }
+      await loadCalculationStatus(
+        selectedSchoolYearId, selectedImportIds, selectedCalculationSources,
+      );
+      await loadCalculationPendingSummary(selectedSchoolYearId);
+      const groupCount = result.repairedGroups.length;
+      toast.success(groupCount
+        ? `Automatically corrected ${groupCount} inconsistent group${groupCount === 1 ? "" : "s"} and updated affected students.`
+        : "All expected-event totals are now consistent.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to repair the expected-event totals.");
+      toast.error(error instanceof Error ? error.message : "Unable to fix attendance consistency.");
     } finally {
       setIsRepairingConsistency(false);
     }
@@ -3145,7 +3131,7 @@ export default function CalculatePage() {
             <DialogTitle>Fix attendance consistency warning</DialogTitle>
             <DialogDescription>
               Expected events must be identical for students in the same school year,
-              college and year level. Review the differences before saving.
+              college and year level. Fix will automatically update all affected students in this calculation scope.
             </DialogDescription>
           </DialogHeader>
           {selectedConsistencyGroup ? (
@@ -3158,16 +3144,18 @@ export default function CalculatePage() {
                   {calculationMode === "preview" ? " · Preview (not saved)" : " · Saved calculations"}
                 </p>
               </div>
-              <div className="rounded-xl border p-4">
-                <p className="font-black">How to fix this</p>
-                <ol className="mt-2 list-decimal space-y-2 pl-5 text-muted-foreground">
-                  <li>Check the students below for incorrect college or year level; use <strong>Edit source records</strong> to correct the original attendance data.</li>
-                  <li>Review event exemptions for this college and year level on the Events page, and correct any erroneous exemption.</li>
-                  <li>{calculationMode === "preview"
-                    ? "Recheck the preview after corrections. Nothing will be saved by this action."
-                    : "Rebuild saved results from the live roster. If the mismatch remains, no repairs or fines will be changed."}</li>
-                </ol>
-                <p className="mt-2 text-xs text-muted-foreground">Choosing 7 or 8 without correcting the event roster is not a safe fix: it would change fines without fixing attendance data.</p>
+              <div className="rounded-xl border p-4 space-y-2">
+                <p className="font-black">Automatic fix for all affected records</p>
+                <p className="text-muted-foreground">
+                  Click <strong>Fix all records</strong> to override conflicting expected-event totals
+                  for every affected college and year-level group in this school year and
+                  calculation selection. The most common total is used; ties use the lower total.
+                  Absences, calculated penalties and saved results are updated together.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Original uploaded attendance and check-ins are preserved. If the event roster
+                  changes, the correction is rechecked against the new event totals.
+                </p>
               </div>
               <div className="rounded-xl border">
                 <div className="border-b px-4 py-3 font-black">Affected students by expected total</div>
@@ -3214,7 +3202,7 @@ export default function CalculatePage() {
               </div>
               {!canRepairSelectedConsistencyGroup ? (
                 <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  Select this group's school year and source/import scope before recalculating.
+                  Select this group's school year and source/import scope before fixing the records.
                 </p>
               ) : null}
               <div className="flex flex-wrap justify-end gap-2">
@@ -3234,11 +3222,7 @@ export default function CalculatePage() {
                   disabled={!canRepairSelectedConsistencyGroup || isRepairingConsistency || isLoading || isPreviewing || isSavingResults}
                   onClick={() => void handleFixCalculationConsistency()}
                 >
-                  {isRepairingConsistency
-                    ? "Checking roster..."
-                    : calculationMode === "preview"
-                      ? "Recheck calculation preview"
-                      : "Repair saved totals from roster"}
+                  {isRepairingConsistency ? "Fixing all affected records..." : "Fix all records"}
                 </Button>
               </div>
             </div>

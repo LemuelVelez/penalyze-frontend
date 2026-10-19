@@ -1237,6 +1237,15 @@ export async function repairCalculationResultsConsistency(options: {
 }) {
   const response = await apiRequest<{
     repaired: boolean;
+    repairedGroups: Array<{
+      schoolYearId: string;
+      collegeKey: string;
+      college: string | null;
+      yearLevelKey: string;
+      expectedEvents: number;
+      observedValues: number[];
+      studentCount: number;
+    }>;
     remainingViolations: Array<{
       college: string | null;
       college_key: string;
