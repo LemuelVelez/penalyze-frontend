@@ -19,7 +19,7 @@ import {
   refreshAttendanceFinalResults,
   saveAttendanceFile,
   updateAttendanceFinalResultProfile,
-  updateStudentEventAttendanceWithProgress,
+  updateStudentEventAttendancesWithProgress,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
@@ -29,6 +29,7 @@ import type {
   AttendanceImportDeleteImpact,
   AttendanceImportProgress,
   StudentEventAttendanceProgress,
+  StudentEventAttendanceChange,
   AttendanceImportReconciliation,
   AttendanceImportRecord,
   AttendanceRecord,
@@ -146,7 +147,7 @@ type StudentEventUpdateStatus = {
   percent: number;
   message: string;
   eventName: string;
-  action: "Adding" | "Removing";
+  action: "Adding" | "Removing" | "Updating";
 };
 
 const STUDENT_EVENT_UPDATE_STEPS: Array<{
@@ -828,6 +829,8 @@ export default function AttendancePage() {
     useState(false);
   const [eventsDialogLoadMessage, setEventsDialogLoadMessage] = useState("");
   const [savingEventId, setSavingEventId] = useState<string | null>(null);
+  const savingEventInFlightRef = useRef(false);
+  const [selectedEventChanges, setSelectedEventChanges] = useState<Record<string, boolean>>({});
   const [savingEventProgress, setSavingEventProgress] =
     useState<StudentEventUpdateStatus | null>(null);
   const [savingEventElapsedSeconds, setSavingEventElapsedSeconds] = useState(0);
@@ -1068,6 +1071,31 @@ export default function AttendancePage() {
       (event) => !event.attended,
     );
   }, [eventsDialogResult]);
+
+  const selectedAddCount = Object.values(selectedEventChanges).filter(Boolean).length;
+  const selectedSubtractCount = Object.values(selectedEventChanges).filter((attended) => !attended).length;
+  const selectedEventChangeCount = selectedAddCount + selectedSubtractCount;
+  const isEventAdjustmentBusy = Boolean(savingEventId) || isLoadingEventsDialogDetails;
+
+  function toggleEventChange(eventId: string, attended: boolean, checked: boolean) {
+    setSelectedEventChanges((current) => {
+      const next = { ...current };
+      if (checked) next[eventId] = attended;
+      else delete next[eventId];
+      return next;
+    });
+  }
+
+  function selectEventChanges(events: StudentEventAttendanceChange[], checked: boolean) {
+    setSelectedEventChanges((current) => {
+      const next = { ...current };
+      for (const event of events) {
+        if (checked) next[event.eventId] = event.attended;
+        else delete next[event.eventId];
+      }
+      return next;
+    });
+  }
 
   const expectedMissedEventCount = Math.max(
     0,
@@ -2119,6 +2147,7 @@ export default function AttendancePage() {
   }
 
   async function handleOpenEventsDialog(result: AttendanceFinalResultRecord) {
+    setSelectedEventChanges({});
     const cacheKey = `${result.id}:${result.updated_at}`;
     const cachedResult = eventsDialogCacheRef.current.get(cacheKey);
 
@@ -2178,38 +2207,68 @@ export default function AttendancePage() {
   }
 
   async function handleChangeStudentEventAttendance(eventId: string, attended: boolean) {
-    const result = eventsDialogResult;
-    if (!result || !canAdjustEventAttendance || savingEventId || isLoadingEventsDialogDetails) return;
+    await handleChangeStudentEventAttendances([{ eventId, attended }]);
+  }
 
-    const eventName = result.event_details?.find((event) => event.id === eventId)?.name
-      ?? attendanceEvents.find((event) => event.id === eventId)?.name
-      ?? "selected event";
-    const action = attended ? "Adding" : "Removing";
-    setSavingEventId(eventId);
+  async function handleChangeStudentEventAttendances(changes: StudentEventAttendanceChange[]) {
+    const result = eventsDialogResult;
+    if (!result || !canAdjustEventAttendance || savingEventInFlightRef.current || isLoadingEventsDialogDetails) return;
+
+    // Keep one target status per event and exclude stale selections.
+    const eligibleDetails = new Map((result.event_details ?? []).map((event) => [event.id, event]));
+    const uniqueChanges = Array.from(
+      new Map(changes.map((change) => [change.eventId, change])).values(),
+    ).filter((change) => {
+      const current = eligibleDetails.get(change.eventId);
+      return current && current.attended !== change.attended;
+    });
+    if (!uniqueChanges.length) {
+      toast.info("No attendance changes to save.");
+      return;
+    }
+    if (uniqueChanges.length > 10000) {
+      toast.error("Select no more than 10,000 events per update.");
+      return;
+    }
+
+    const onlyChange = uniqueChanges.length === 1 ? uniqueChanges[0] : null;
+    const eventName = onlyChange
+      ? eligibleDetails.get(onlyChange.eventId)?.name ?? "selected event"
+      : `${uniqueChanges.length} selected events`;
+    const action = onlyChange
+      ? onlyChange.attended ? "Adding" : "Removing"
+      : "Updating";
+
+    savingEventInFlightRef.current = true;
+    setSavingEventId(onlyChange?.eventId ?? "__batch__");
     setSavingEventElapsedSeconds(0);
     setSavingEventProgress({
       stage: "validating",
       percent: 2,
-      message: "Sending the attendance adjustment to the server.",
+      message: `Sending ${uniqueChanges.length} attendance adjustment${uniqueChanges.length === 1 ? "" : "s"} to the server in one batch.`,
       eventName,
       action,
     });
 
+    let savedOnServer = false;
     try {
-      await updateStudentEventAttendanceWithProgress(result.id, eventId, attended, (progress) => {
-        setSavingEventProgress((current) => current ? {
-          ...current,
-          ...progress,
-        } : current);
-      });
+      const response = await updateStudentEventAttendancesWithProgress(
+        result.id,
+        uniqueChanges,
+        (progress) => {
+          setSavingEventProgress((current) => current ? {
+            ...current,
+            ...progress,
+          } : current);
+        },
+      );
+      savedOnServer = true;
 
-      // The server has committed the correction and recalculated the final,
-      // Calculate and penalty results. Reload the affected student's event list.
       setSavingEventProgress((current) => current ? {
         ...current,
         stage: "refreshing_student",
         percent: 91,
-        message: "Database update complete. Fetching this student's new attended and missed events.",
+        message: `${response.updatedCount} event correction(s) committed. Fetching the student's new attended and missed events.`,
       } : current);
       eventsDialogCacheRef.current.clear();
       const rows = await listAttendanceFinalResults({
@@ -2224,28 +2283,37 @@ export default function AttendancePage() {
         ?? rows.find((row) => row.id === result.id)
         ?? rows[0];
       if (!refreshed) {
-        throw new Error("Attendance was saved, but the updated student's event details could not be loaded.");
+        throw new Error("Changes were saved, but the updated student's event details could not be loaded. Reopen the attendance dialog to refresh.");
       }
       setEventsDialogResult((current) => current?.id === result.id ? refreshed : current);
       eventsDialogCacheRef.current.set(`${refreshed.id}:${refreshed.updated_at}`, refreshed);
+      setSelectedEventChanges((current) => {
+        const next = { ...current };
+        for (const change of uniqueChanges) delete next[change.eventId];
+        return next;
+      });
 
       setSavingEventProgress((current) => current ? {
         ...current,
         stage: "refreshing_page",
         percent: 94,
-        message: "Student events updated. Reloading school-year attendance rows, events, and recent uploads.",
+        message: "Student events updated. Reloading the attendance table, events and uploads.",
       } : current);
       await loadPageData(selectedSchoolYearId);
       setSavingEventProgress((current) => current ? {
         ...current,
         stage: "finished",
         percent: 100,
-        message: "Attendance adjustment and page refresh completed.",
+        message: "Batch attendance adjustment and page refresh completed.",
       } : current);
-      toast.success(attended ? "Event added to student attendance." : "Event removed from student attendance.");
+      toast.success(`${response.updatedCount} of ${response.totalCount} event attendance status${response.totalCount === 1 ? "" : "es"} updated.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update event attendance.");
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update event attendance.",
+        savedOnServer ? { description: "The changes were saved. Reload this page if the displayed totals are out of date." } : undefined,
+      );
     } finally {
+      savingEventInFlightRef.current = false;
       setSavingEventId(null);
       setSavingEventProgress(null);
     }
@@ -3729,6 +3797,7 @@ export default function AttendancePage() {
               eventsDialogAbortRef.current?.abort();
               eventsDialogAbortRef.current = null;
               setEventsDialogResult(null);
+              setSelectedEventChanges({});
               setEventsDialogLoadMessage("");
               setIsLoadingEventsDialogDetails(false);
             }
@@ -3741,7 +3810,7 @@ export default function AttendancePage() {
                 {eventsDialogResult?.name || eventsDialogResult?.student_id}
               </DialogTitle>
               <DialogDescription>
-                Review this student's attended and missed events for the selected school year.{canAdjustEventAttendance ? " Use + to mark an event attended or − to mark it missed. The original upload stays intact." : ""}
+                Review this student's attended and missed events for the selected school year.{canAdjustEventAttendance ? " Use + / − for a single event, select multiple events for one batch update, or choose Add all / Subtract all. Original uploads stay intact." : ""}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
@@ -3777,13 +3846,109 @@ export default function AttendancePage() {
                   progress={65}
                 />
               ) : null}
-              <section className="space-y-3">
-                <div>
-                  <p className="font-bold">Missed events</p>
-                  <p className="text-sm text-muted-foreground">
-                    {eventsDialogResult?.attended_events ?? 0} attended of{" "}
-                    {eventsDialogResult?.expected_events ?? 0} expected events
+              {canAdjustEventAttendance ? (
+                <div className="space-y-3 rounded-2xl border bg-muted/20 p-3">
+                  <p className="text-sm font-bold">Bulk attendance adjustments</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isEventAdjustmentBusy || selectedAddCount === 0}
+                      onClick={() => void handleChangeStudentEventAttendances(
+                        Object.entries(selectedEventChanges)
+                          .filter(([, attended]) => attended)
+                          .map(([eventId]) => ({ eventId, attended: true })),
+                      )}
+                    >
+                      <Plus aria-hidden="true" /> Add selected ({selectedAddCount})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isEventAdjustmentBusy || selectedSubtractCount === 0}
+                      onClick={() => void handleChangeStudentEventAttendances(
+                        Object.entries(selectedEventChanges)
+                          .filter(([, attended]) => !attended)
+                          .map(([eventId]) => ({ eventId, attended: false })),
+                      )}
+                    >
+                      <Minus aria-hidden="true" /> Subtract selected ({selectedSubtractCount})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isEventAdjustmentBusy || selectedEventChangeCount === 0}
+                      onClick={() => void handleChangeStudentEventAttendances(
+                        Object.entries(selectedEventChanges)
+                          .map(([eventId, attended]) => ({ eventId, attended })),
+                      )}
+                    >
+                      Apply selected ({selectedEventChangeCount})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isEventAdjustmentBusy || missedEventsDialogSummaries.length === 0}
+                      onClick={() => void handleChangeStudentEventAttendances(
+                        missedEventsDialogSummaries.map((event) => ({ eventId: event.id, attended: true })),
+                      )}
+                    >
+                      <Plus aria-hidden="true" /> Add all ({missedEventsDialogSummaries.length})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isEventAdjustmentBusy || eventsDialogSummaries.length === 0}
+                      onClick={() => void handleChangeStudentEventAttendances(
+                        eventsDialogSummaries.map((event) => ({ eventId: event.eventId, attended: false })),
+                      )}
+                    >
+                      <Minus aria-hidden="true" /> Subtract all ({eventsDialogSummaries.length})
+                    </Button>
+                    {selectedEventChangeCount > 0 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={isEventAdjustmentBusy}
+                        onClick={() => setSelectedEventChanges({})}
+                      >
+                        Clear selection
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Add selected and Subtract selected work separately. Apply selected saves both types of changes together, with one database recalculation.
                   </p>
+                </div>
+              ) : null}
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold">Missed events</p>
+                    <p className="text-sm text-muted-foreground">
+                      {eventsDialogResult?.attended_events ?? 0} attended of{" "}
+                      {eventsDialogResult?.expected_events ?? 0} expected events
+                    </p>
+                  </div>
+                  {canAdjustEventAttendance && missedEventsDialogSummaries.length > 0 ? (
+                    <label className="flex items-center gap-2 text-xs font-semibold">
+                      <Checkbox
+                        checked={missedEventsDialogSummaries.every((event) => selectedEventChanges[event.id] === true)}
+                        disabled={isEventAdjustmentBusy}
+                        onCheckedChange={(checked) => selectEventChanges(
+                          missedEventsDialogSummaries.map((event) => ({ eventId: event.id, attended: true })),
+                          checked === true,
+                        )}
+                        aria-label="Select all missed events to add"
+                      />
+                      Select all missed
+                    </label>
+                  ) : null}
                 </div>
                 {missedEventsDialogSummaries.length ? (
                   missedEventsDialogSummaries.map((event, index) => (
@@ -3792,6 +3957,15 @@ export default function AttendancePage() {
                       className="rounded-2xl border bg-background p-4"
                     >
                       <div className="flex gap-3">
+                        {canAdjustEventAttendance ? (
+                          <Checkbox
+                            checked={selectedEventChanges[event.id] === true}
+                            disabled={isEventAdjustmentBusy}
+                            onCheckedChange={(checked) => toggleEventChange(event.id, true, checked === true)}
+                            aria-label={`Select ${event.name} to add attendance`}
+                            className="mt-2.5"
+                          />
+                        ) : null}
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
                           {index + 1}
                         </span>
@@ -3830,7 +4004,23 @@ export default function AttendancePage() {
               </section>
 
               <section className="space-y-3">
-                <p className="font-bold">Attended events</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-bold">Attended events</p>
+                  {canAdjustEventAttendance && eventsDialogSummaries.length > 0 ? (
+                    <label className="flex items-center gap-2 text-xs font-semibold">
+                      <Checkbox
+                        checked={eventsDialogSummaries.every((event) => selectedEventChanges[event.eventId] === false)}
+                        disabled={isEventAdjustmentBusy}
+                        onCheckedChange={(checked) => selectEventChanges(
+                          eventsDialogSummaries.map((event) => ({ eventId: event.eventId, attended: false })),
+                          checked === true,
+                        )}
+                        aria-label="Select all attended events to subtract"
+                      />
+                      Select all attended
+                    </label>
+                  ) : null}
+                </div>
                 {eventsDialogSummaries.length ? (
                   eventsDialogSummaries.map((eventSummary, index) => (
                     <article
@@ -3838,6 +4028,15 @@ export default function AttendancePage() {
                       className="rounded-2xl border bg-background p-4"
                     >
                       <div className="flex gap-3">
+                        {canAdjustEventAttendance ? (
+                          <Checkbox
+                            checked={selectedEventChanges[eventSummary.eventId] === false}
+                            disabled={isEventAdjustmentBusy}
+                            onCheckedChange={(checked) => toggleEventChange(eventSummary.eventId, false, checked === true)}
+                            aria-label={`Select ${eventSummary.eventName} to subtract attendance`}
+                            className="mt-2.5"
+                          />
+                        ) : null}
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
                           {index + 1}
                         </span>
