@@ -550,6 +550,7 @@ type ListOptions = {
   includeDeleted?: boolean;
   includeMissedEvents?: boolean;
   includeEventDetails?: boolean;
+  consolidatedOnly?: boolean;
   zeroAttendanceOnly?: boolean;
   signal?: AbortSignal;
 };
@@ -1017,6 +1018,7 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     college: options.college,
     includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
     includeEventDetails: options.includeEventDetails ? "true" : undefined,
+    consolidatedOnly: options.consolidatedOnly ? "true" : undefined,
   });
 
   const response = await apiRequest<AttendanceFinalResultRecord[]>(
@@ -1079,6 +1081,29 @@ export async function refreshAttendanceFinalResults(
   );
 
   return response.data ?? [];
+}
+
+export async function updateStudentEventAttendance(
+  finalResultId: string,
+  eventId: string,
+  attended: boolean,
+) {
+  const response = await apiRequest<{
+    studentId: string;
+    eventId: string;
+    eventName: string;
+    attended: boolean;
+    updated: boolean;
+  }>(
+    `/api/attendance/final-results/${encodeURIComponent(finalResultId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ attended }),
+    },
+  );
+  if (!response.data) throw new Error("Updated event attendance details are missing.");
+  notifyCalculationStatusUpdated();
+  return response.data;
 }
 
 export async function updateAttendanceFinalResultProfile(

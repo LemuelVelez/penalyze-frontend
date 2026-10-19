@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
+import { Minus, Plus } from "lucide-react";
+import { getStoredUser } from "../../api/auth";
 
 import {
   getAcceptedAttendanceFileTypes,
@@ -17,6 +19,7 @@ import {
   refreshAttendanceFinalResults,
   saveAttendanceFile,
   updateAttendanceFinalResultProfile,
+  updateStudentEventAttendance,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
@@ -779,10 +782,15 @@ export default function AttendancePage() {
   const [isLoadingEventsDialogDetails, setIsLoadingEventsDialogDetails] =
     useState(false);
   const [eventsDialogLoadMessage, setEventsDialogLoadMessage] = useState("");
+  const [savingEventId, setSavingEventId] = useState<string | null>(null);
   const [isLoadingEditSourceRecords, setIsLoadingEditSourceRecords] =
     useState(false);
   const [eventsDialogResult, setEventsDialogResult] =
     useState<AttendanceFinalResultRecord | null>(null);
+  const canAdjustEventAttendance =
+    getStoredUser()?.role === "admin" &&
+    eventsDialogResult?.import_id === null &&
+    Boolean(eventsDialogResult?.school_year_id);
   const eventsDialogCacheRef = useRef(
     new Map<string, AttendanceFinalResultRecord>(),
   );
@@ -989,6 +997,7 @@ export default function AttendancePage() {
       .filter((event) => event.attended)
       .map((event) => ({
         key: `${event.source ?? "attendance"}-${event.record_id ?? event.id}`,
+        eventId: event.id,
         eventName: event.name,
         scannedAt: event.scanned_at,
         source: event.source ?? "Uploaded",
@@ -2079,10 +2088,13 @@ export default function AttendancePage() {
         studentId: result.student_id,
         limit: 1,
         offset: 0,
+        consolidatedOnly: true,
         includeEventDetails: true,
         signal: controller.signal,
       });
-      const detailedResult = rows[0] ?? result;
+      const detailedResult = rows.find((row) => row.import_id === null)
+        ?? rows.find((row) => row.id === result.id)
+        ?? rows[0] ?? result;
 
       if (controller.signal.aborted) return;
 
@@ -2105,6 +2117,39 @@ export default function AttendancePage() {
         eventsDialogAbortRef.current = null;
         setIsLoadingEventsDialogDetails(false);
       }
+    }
+  }
+
+  async function handleChangeStudentEventAttendance(eventId: string, attended: boolean) {
+    const result = eventsDialogResult;
+    if (!result || !canAdjustEventAttendance || savingEventId || isLoadingEventsDialogDetails) return;
+
+    setSavingEventId(eventId);
+    try {
+      await updateStudentEventAttendance(result.id, eventId, attended);
+      // A correction recalculates both final and Calculate totals on the server.
+      eventsDialogCacheRef.current.clear();
+      const rows = await listAttendanceFinalResults({
+        schoolYearId: result.school_year_id ?? undefined,
+        studentId: result.student_id,
+        limit: 1,
+        offset: 0,
+        consolidatedOnly: true,
+        includeEventDetails: true,
+      });
+      const refreshed = rows.find((row) => row.import_id === null)
+        ?? rows.find((row) => row.id === result.id)
+        ?? rows[0];
+      if (refreshed) {
+        setEventsDialogResult((current) => current?.id === result.id ? refreshed : current);
+        eventsDialogCacheRef.current.set(`${refreshed.id}:${refreshed.updated_at}`, refreshed);
+      }
+      toast.success(attended ? "Event added to student attendance." : "Event removed from student attendance.");
+      await loadPageData(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update event attendance.");
+    } finally {
+      setSavingEventId(null);
     }
   }
 
@@ -3582,7 +3627,7 @@ export default function AttendancePage() {
         <Dialog
           open={Boolean(eventsDialogResult)}
           onOpenChange={(open) => {
-            if (!open) {
+            if (!open && !savingEventId) {
               eventsDialogAbortRef.current?.abort();
               eventsDialogAbortRef.current = null;
               setEventsDialogResult(null);
@@ -3598,7 +3643,7 @@ export default function AttendancePage() {
                 {eventsDialogResult?.name || eventsDialogResult?.student_id}
               </DialogTitle>
               <DialogDescription>
-                Review this student's attended and missed events for the selected school year.
+                Review this student's attended and missed events for the selected school year.{canAdjustEventAttendance ? " Use + to mark an event attended or − to mark it missed. The original upload stays intact." : ""}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
@@ -3630,12 +3675,24 @@ export default function AttendancePage() {
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
                           {index + 1}
                         </span>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="break-words font-semibold">{event.name}</p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Missed • {formatDateTime(event.event_start_at ?? event.event_end_at)}
                           </p>
                         </div>
+                        {canAdjustEventAttendance ? <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="shrink-0 border-green-600 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950"
+                          aria-label={`Mark ${event.name} attended`}
+                          title="Add event attendance"
+                          disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
+                          onClick={() => void handleChangeStudentEventAttendance(event.id, true)}
+                        >
+                          <Plus aria-hidden="true" />
+                        </Button> : null}
                       </div>
                     </article>
                   ))
@@ -3664,7 +3721,7 @@ export default function AttendancePage() {
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">
                           {index + 1}
                         </span>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="break-words font-semibold">
                             {eventSummary.eventName}
                           </p>
@@ -3678,6 +3735,18 @@ export default function AttendancePage() {
                             </p>
                           ) : null}
                         </div>
+                        {canAdjustEventAttendance ? <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="shrink-0 border-destructive text-destructive hover:bg-destructive/10"
+                          aria-label={`Mark ${eventSummary.eventName} missed`}
+                          title="Remove event attendance"
+                          disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
+                          onClick={() => void handleChangeStudentEventAttendance(eventSummary.eventId, false)}
+                        >
+                          <Minus aria-hidden="true" />
+                        </Button> : null}
                       </div>
                     </article>
                   ))
