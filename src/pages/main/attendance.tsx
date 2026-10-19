@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
-import { Minus, Plus } from "lucide-react";
+import { Loader2, Minus, Plus } from "lucide-react";
 import { getStoredUser } from "../../api/auth";
 
 import {
@@ -19,7 +19,7 @@ import {
   refreshAttendanceFinalResults,
   saveAttendanceFile,
   updateAttendanceFinalResultProfile,
-  updateStudentEventAttendance,
+  updateStudentEventAttendanceWithProgress,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
@@ -28,6 +28,7 @@ import type {
   AttendanceFinalResultRecord,
   AttendanceImportDeleteImpact,
   AttendanceImportProgress,
+  StudentEventAttendanceProgress,
   AttendanceImportReconciliation,
   AttendanceImportRecord,
   AttendanceRecord,
@@ -133,6 +134,50 @@ type AttendancePageLoadProgress = {
 type FinalResultSaveProgress = AttendancePageLoadProgress & {
   title: string;
 };
+
+type StudentEventUpdateStage =
+  | StudentEventAttendanceProgress["stage"]
+  | "refreshing_student"
+  | "refreshing_page"
+  | "finished";
+
+type StudentEventUpdateStatus = {
+  stage: StudentEventUpdateStage;
+  percent: number;
+  message: string;
+  eventName: string;
+  action: "Adding" | "Removing";
+};
+
+const STUDENT_EVENT_UPDATE_STEPS: Array<{
+  stage: StudentEventUpdateStage;
+  label: string;
+}> = [
+  { stage: "validating", label: "Validate request" },
+  { stage: "waiting_for_lock", label: "Acquire database lock" },
+  { stage: "checking_student", label: "Verify student and year" },
+  { stage: "checking_event", label: "Check event eligibility" },
+  { stage: "saving_override", label: "Save attendance correction" },
+  { stage: "refreshing_final_results", label: "Update attendance totals" },
+  { stage: "refreshing_calculations", label: "Recalculate results" },
+  { stage: "refreshing_penalties", label: "Update penalties" },
+  { stage: "committing", label: "Commit database transaction" },
+  { stage: "refreshing_student", label: "Reload student events" },
+  { stage: "refreshing_page", label: "Reload attendance table" },
+];
+
+function getStudentEventUpdateSteps(stage: StudentEventUpdateStage): LoadingStatusStep[] {
+  const currentIndex = stage === "completed"
+    ? STUDENT_EVENT_UPDATE_STEPS.findIndex((step) => step.stage === "refreshing_student")
+    : stage === "finished"
+      ? STUDENT_EVENT_UPDATE_STEPS.length
+      : STUDENT_EVENT_UPDATE_STEPS.findIndex((step) => step.stage === stage);
+
+  return STUDENT_EVENT_UPDATE_STEPS.map((step, index): LoadingStatusStep => ({
+    label: step.label,
+    status: index < currentIndex ? "done" : index === currentIndex ? "loading" : "pending",
+  }));
+}
 
 type StudentSourceRecordBundle = {
   studentId: string;
@@ -783,6 +828,9 @@ export default function AttendancePage() {
     useState(false);
   const [eventsDialogLoadMessage, setEventsDialogLoadMessage] = useState("");
   const [savingEventId, setSavingEventId] = useState<string | null>(null);
+  const [savingEventProgress, setSavingEventProgress] =
+    useState<StudentEventUpdateStatus | null>(null);
+  const [savingEventElapsedSeconds, setSavingEventElapsedSeconds] = useState(0);
   const [isLoadingEditSourceRecords, setIsLoadingEditSourceRecords] =
     useState(false);
   const [eventsDialogResult, setEventsDialogResult] =
@@ -795,6 +843,15 @@ export default function AttendancePage() {
     new Map<string, AttendanceFinalResultRecord>(),
   );
   const eventsDialogAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!savingEventId) return;
+
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setSavingEventElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [savingEventId]);
   const [finalResultDialogOpen, setFinalResultDialogOpen] = useState(false);
   const [finalResultForm, setFinalResultForm] =
     useState<FinalResultFormState>(emptyFinalResultForm);
@@ -2124,10 +2181,36 @@ export default function AttendancePage() {
     const result = eventsDialogResult;
     if (!result || !canAdjustEventAttendance || savingEventId || isLoadingEventsDialogDetails) return;
 
+    const eventName = result.event_details?.find((event) => event.id === eventId)?.name
+      ?? attendanceEvents.find((event) => event.id === eventId)?.name
+      ?? "selected event";
+    const action = attended ? "Adding" : "Removing";
     setSavingEventId(eventId);
+    setSavingEventElapsedSeconds(0);
+    setSavingEventProgress({
+      stage: "validating",
+      percent: 2,
+      message: "Sending the attendance adjustment to the server.",
+      eventName,
+      action,
+    });
+
     try {
-      await updateStudentEventAttendance(result.id, eventId, attended);
-      // A correction recalculates both final and Calculate totals on the server.
+      await updateStudentEventAttendanceWithProgress(result.id, eventId, attended, (progress) => {
+        setSavingEventProgress((current) => current ? {
+          ...current,
+          ...progress,
+        } : current);
+      });
+
+      // The server has committed the correction and recalculated the final,
+      // Calculate and penalty results. Reload the affected student's event list.
+      setSavingEventProgress((current) => current ? {
+        ...current,
+        stage: "refreshing_student",
+        percent: 91,
+        message: "Database update complete. Fetching this student's new attended and missed events.",
+      } : current);
       eventsDialogCacheRef.current.clear();
       const rows = await listAttendanceFinalResults({
         schoolYearId: result.school_year_id ?? undefined,
@@ -2140,16 +2223,31 @@ export default function AttendancePage() {
       const refreshed = rows.find((row) => row.import_id === null)
         ?? rows.find((row) => row.id === result.id)
         ?? rows[0];
-      if (refreshed) {
-        setEventsDialogResult((current) => current?.id === result.id ? refreshed : current);
-        eventsDialogCacheRef.current.set(`${refreshed.id}:${refreshed.updated_at}`, refreshed);
+      if (!refreshed) {
+        throw new Error("Attendance was saved, but the updated student's event details could not be loaded.");
       }
-      toast.success(attended ? "Event added to student attendance." : "Event removed from student attendance.");
+      setEventsDialogResult((current) => current?.id === result.id ? refreshed : current);
+      eventsDialogCacheRef.current.set(`${refreshed.id}:${refreshed.updated_at}`, refreshed);
+
+      setSavingEventProgress((current) => current ? {
+        ...current,
+        stage: "refreshing_page",
+        percent: 94,
+        message: "Student events updated. Reloading school-year attendance rows, events, and recent uploads.",
+      } : current);
       await loadPageData(selectedSchoolYearId);
+      setSavingEventProgress((current) => current ? {
+        ...current,
+        stage: "finished",
+        percent: 100,
+        message: "Attendance adjustment and page refresh completed.",
+      } : current);
+      toast.success(attended ? "Event added to student attendance." : "Event removed from student attendance.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to update event attendance.");
     } finally {
       setSavingEventId(null);
+      setSavingEventProgress(null);
     }
   }
 
@@ -3647,6 +3745,28 @@ export default function AttendancePage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
+              {savingEventProgress ? (
+                <div className="space-y-2" aria-busy="true">
+                  <LoadingStatus
+                    title={`${savingEventProgress.action} attendance: ${savingEventProgress.eventName}`}
+                    detail={
+                      savingEventProgress.message +
+                      (savingEventProgress.stage === "refreshing_page" && pageLoadProgress
+                        ? ` ${pageLoadProgress.detail}`
+                        : "")
+                    }
+                    progress={
+                      savingEventProgress.stage === "refreshing_page" && pageLoadProgress
+                        ? Math.max(savingEventProgress.percent, Math.min(99, 94 + pageLoadProgress.progress * 0.05))
+                        : savingEventProgress.percent
+                    }
+                    steps={getStudentEventUpdateSteps(savingEventProgress.stage)}
+                  />
+                  <p className="text-xs font-semibold text-muted-foreground" role="timer">
+                    Elapsed: {savingEventElapsedSeconds}s. The current step stays visible while the server finishes its work.
+                  </p>
+                </div>
+              ) : null}
               {isLoadingEventsDialogDetails ? (
                 <LoadingStatus
                   title="Loading event details"
@@ -3691,7 +3811,7 @@ export default function AttendancePage() {
                           disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
                           onClick={() => void handleChangeStudentEventAttendance(event.id, true)}
                         >
-                          <Plus aria-hidden="true" />
+                          {savingEventId === event.id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                         </Button> : null}
                       </div>
                     </article>
@@ -3745,7 +3865,7 @@ export default function AttendancePage() {
                           disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
                           onClick={() => void handleChangeStudentEventAttendance(eventSummary.eventId, false)}
                         >
-                          <Minus aria-hidden="true" />
+                          {savingEventId === eventSummary.eventId ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Minus aria-hidden="true" />}
                         </Button> : null}
                       </div>
                     </article>

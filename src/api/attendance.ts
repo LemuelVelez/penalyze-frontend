@@ -1083,6 +1083,60 @@ export async function refreshAttendanceFinalResults(
   return response.data ?? [];
 }
 
+export type StudentEventAttendanceProgress = {
+  stage:
+    | "validating"
+    | "waiting_for_lock"
+    | "checking_student"
+    | "checking_event"
+    | "saving_override"
+    | "refreshing_final_results"
+    | "refreshing_calculations"
+    | "refreshing_penalties"
+    | "committing"
+    | "completed";
+  percent: number;
+  message: string;
+};
+
+export async function updateStudentEventAttendanceWithProgress(
+  finalResultId: string,
+  eventId: string,
+  attended: boolean,
+  onProgress: (progress: StudentEventAttendanceProgress) => void,
+) {
+  const body = JSON.stringify({ attended });
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/final-results/${encodeURIComponent(finalResultId)}/events/${encodeURIComponent(eventId)}/progress`,
+    {
+      method: "PATCH",
+      headers: getApiRequestHeaders({ body }),
+      credentials: "include",
+      body,
+    },
+  );
+  checkUnauthorized(response);
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+  }
+
+  const payload = await readProgressStream<
+    StudentEventAttendanceProgress,
+    { studentId: string; eventId: string; eventName: string; attended: boolean; updated: boolean }
+  >(response, onProgress, {
+    errorFallback: "Unable to update event attendance.",
+    missingSuccessMessage: "Attendance update finished without confirmation.",
+  });
+  if (!payload.data) throw new Error("Updated event attendance details are missing.");
+  notifyCalculationStatusUpdated();
+  return payload.data;
+}
+
 export async function updateStudentEventAttendance(
   finalResultId: string,
   eventId: string,
