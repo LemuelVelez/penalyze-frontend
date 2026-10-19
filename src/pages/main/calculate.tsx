@@ -2741,8 +2741,14 @@ export default function CalculatePage() {
           </div>
 
           {calculationRows.some((row) => Boolean(row.consistencyWarning)) ? (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-200">
-              Attendance consistency warning: students in the same college and year level have conflicting expected-event totals. Review the attendance audit log before saving results.
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-200" role="alert">
+              <p>Attendance consistency warning — conflicting expected-event totals:</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {Array.from(new Set(calculationRows.map((row) => row.consistencyWarning).filter((warning): warning is string => Boolean(warning)))).map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+              <p className="mt-2">Review the affected groups before saving. Preview warnings are shown here without creating an audit entry.</p>
             </div>
           ) : null}
 
