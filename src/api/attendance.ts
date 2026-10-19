@@ -1230,6 +1230,30 @@ export async function refreshCalculationResults(
   return response.data ?? [];
 }
 
+export async function repairCalculationResultsConsistency(options: {
+  schoolYearId: string;
+  importIds: string[];
+  sourceTypes: CalculationSourceType[];
+}) {
+  const response = await apiRequest<{
+    repaired: boolean;
+    remainingViolations: Array<{
+      college: string | null;
+      college_key: string;
+      year_level_key: string | null;
+      expected_event_values: number[];
+    }>;
+  }>("/api/attendance/calculation-results/repair-consistency", {
+    method: "POST",
+    body: JSON.stringify(options),
+  });
+  if (!response.data) {
+    throw new Error("Attendance consistency repair response is missing data.");
+  }
+  notifyCalculationStatusUpdated();
+  return response.data;
+}
+
 export async function deleteCalculationResultsByIds(
   calculationResultIds: string[],
 ) {

@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import { CheckIcon } from "@phosphor-icons/react";
 
 import * as attendanceApi from "../../api/attendance";
@@ -108,6 +109,47 @@ type CalculationRow = {
   consistencyWarning?: string | null;
   isSavedResult: boolean;
 };
+
+type CalculationConsistencyGroup = {
+  key: string;
+  warning: string;
+  schoolYearId: string | null;
+  calculationScopeKey: string | null;
+  rows: CalculationRow[];
+  expectedTotals: number[];
+};
+
+/** Keep the dialog tied to the exact school year and saved calculation scope. */
+function groupCalculationConsistencyWarnings(rows: CalculationRow[]): CalculationConsistencyGroup[] {
+  const grouped = new Map<string, CalculationConsistencyGroup>();
+  for (const row of rows) {
+    if (!row.consistencyWarning) continue;
+    const key = JSON.stringify([
+      row.schoolYearId,
+      row.calculationScopeKey ?? null,
+      row.consistencyWarning,
+    ]);
+    const group = grouped.get(key) ?? {
+      key,
+      warning: row.consistencyWarning,
+      schoolYearId: row.schoolYearId,
+      calculationScopeKey: row.calculationScopeKey ?? null,
+      rows: [],
+      expectedTotals: [],
+    };
+    group.rows.push(row);
+    grouped.set(key, group);
+  }
+  return Array.from(grouped.values()).map((group) => ({
+    ...group,
+    rows: [...group.rows].sort(
+      (a, b) => a.expectedEvents - b.expectedEvents || a.name.localeCompare(b.name),
+    ),
+    expectedTotals: Array.from(new Set(group.rows.map((row) => row.expectedEvents))).sort(
+      (a, b) => a - b,
+    ),
+  }));
+}
 
 type SourceRecordEditFormState = {
   recordId: string;
@@ -893,6 +935,8 @@ export default function CalculatePage() {
     CalculationSourceType[]
   >([...DEFAULT_SELECTED_CALCULATION_SOURCES]);
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
+  const [selectedConsistencyGroupKey, setSelectedConsistencyGroupKey] = useState<string | null>(null);
+  const [isRepairingConsistency, setIsRepairingConsistency] = useState(false);
   const [calculationRows, setCalculationRows] = useState<CalculationRow[]>([]);
   const [selectedCalculationRowKeys, setSelectedCalculationRowKeys] = useState<
     string[]
@@ -1215,6 +1259,22 @@ export default function CalculatePage() {
 
     return filteredRowKeys.every((key) => selectedCalculationRowKeySet.has(key));
   }, [filteredRowKeys, selectedCalculationRowKeySet]);
+
+  const consistencyGroups = useMemo(
+    () => groupCalculationConsistencyWarnings(calculationRows),
+    [calculationRows],
+  );
+  const selectedConsistencyGroup = consistencyGroups.find(
+    (group) => group.key === selectedConsistencyGroupKey,
+  ) ?? null;
+  const canRepairSelectedConsistencyGroup = Boolean(
+    selectedConsistencyGroup?.schoolYearId &&
+    selectedConsistencyGroup.calculationScopeKey &&
+    isCalculationStatusCurrent &&
+    calculationStatus?.calculationScopeKey === selectedConsistencyGroup.calculationScopeKey &&
+    (selectedSchoolYearId === ALL_SCHOOL_YEARS_VALUE ||
+      selectedSchoolYearId === selectedConsistencyGroup.schoolYearId),
+  );
 
   const summary = useMemo(() => {
     return {
@@ -2200,7 +2260,73 @@ export default function CalculatePage() {
     }
   }, []);
 
+  async function handleFixCalculationConsistency() {
+    const group = selectedConsistencyGroup;
+    if (!group || isRepairingConsistency) return;
+    if (!canRepairSelectedConsistencyGroup) {
+      toast.error("Load this school year and calculation source selection before repairing this group.");
+      return;
+    }
+
+    setIsRepairingConsistency(true);
+    try {
+      if (calculationMode === "preview") {
+        // A preview is not a saved result. Re-run the preview without writing
+        // audit entries or changing the persisted calculation/fines records.
+        const rows = await loadPreviewRows(
+          selectedSchoolYearId,
+          selectedImportIds,
+          selectedCalculationSources,
+        );
+        if (!rows) return;
+        const status = await loadCalculationStatus(
+          selectedSchoolYearId,
+          selectedImportIds,
+          selectedCalculationSources,
+        );
+        setPreviewedCalculationRevision(status?.revision ?? null);
+        if (rows.some((row) => row.consistencyWarning)) {
+          setSelectedConsistencyGroupKey(null);
+          toast.warning("The source data still produces different expected totals. Review the affected students and event exemptions.");
+        } else {
+          setSelectedConsistencyGroupKey(null);
+          toast.success("Preview now has consistent expected-event totals.");
+        }
+      } else {
+        const result = await attendanceApi.repairCalculationResultsConsistency({
+          schoolYearId: group.schoolYearId!,
+          importIds: selectedCalculationSources.includes("imported") ? selectedImportIds : [],
+          sourceTypes: selectedCalculationSources,
+        });
+        setSelectedConsistencyGroupKey(null);
+        await loadSavedResults(
+          selectedSchoolYearId,
+          selectedImportIds,
+          selectedCalculationSources,
+        );
+        await loadCalculationStatus(
+          selectedSchoolYearId,
+          selectedImportIds,
+          selectedCalculationSources,
+        );
+        await loadCalculationPendingSummary(selectedSchoolYearId);
+        toast.success(result.repaired
+          ? "Saved expected-event totals rebuilt from the current roster."
+          : "Saved expected-event totals are already consistent.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to repair the expected-event totals.");
+    } finally {
+      setIsRepairingConsistency(false);
+    }
+  }
+
   async function handleSaveResults() {
+    if (consistencyGroups.length > 0) {
+      setSelectedConsistencyGroupKey(consistencyGroups[0].key);
+      toast.error("Resolve the conflicting expected-event totals before saving fines.");
+      return;
+    }
     if (calculationMode !== "preview" || !isCurrentCalculationPreviewed) {
       toast.info("Calculate the pending data changes before saving results.");
       return;
@@ -2740,15 +2866,24 @@ export default function CalculatePage() {
             </div>
           </div>
 
-          {calculationRows.some((row) => Boolean(row.consistencyWarning)) ? (
+          {consistencyGroups.length > 0 ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-200" role="alert">
               <p>Attendance consistency warning — conflicting expected-event totals:</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {Array.from(new Set(calculationRows.map((row) => row.consistencyWarning).filter((warning): warning is string => Boolean(warning)))).map((warning) => (
-                  <li key={warning}>{warning}</li>
+              <ul className="mt-2 space-y-2">
+                {consistencyGroups.map((group) => (
+                  <li key={group.key}>
+                    <button
+                      type="button"
+                      className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-white/70 px-3 py-3 text-left transition-colors hover:bg-red-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:border-red-900 dark:bg-red-950/40 dark:hover:bg-red-900/40"
+                      onClick={() => setSelectedConsistencyGroupKey(group.key)}
+                    >
+                      <span>{group.warning} <span className="font-normal">({group.rows.length.toLocaleString()} students)</span></span>
+                      <span className="shrink-0 underline underline-offset-2">Review &amp; fix →</span>
+                    </button>
+                  </li>
                 ))}
               </ul>
-              <p className="mt-2">Review the affected groups before saving. Preview warnings are shown here without creating an audit entry.</p>
+              <p className="mt-2">Select a warning to review affected students and available fixes. Preview warnings do not create an audit entry.</p>
             </div>
           ) : null}
 
@@ -2996,6 +3131,120 @@ export default function CalculatePage() {
               Done
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedConsistencyGroupKey)}
+        onOpenChange={(open) => {
+          if (!open && !isRepairingConsistency) setSelectedConsistencyGroupKey(null);
+        }}
+      >
+        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Fix attendance consistency warning</DialogTitle>
+            <DialogDescription>
+              Expected events must be identical for students in the same school year,
+              college and year level. Review the differences before saving.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedConsistencyGroup ? (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                <p>{selectedConsistencyGroup.warning}</p>
+                <p className="mt-2 text-xs font-normal">
+                  {selectedConsistencyGroup.rows.length.toLocaleString()} affected students ·
+                  {" "}Expected totals: {selectedConsistencyGroup.expectedTotals.join(" vs ")}
+                  {calculationMode === "preview" ? " · Preview (not saved)" : " · Saved calculations"}
+                </p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="font-black">How to fix this</p>
+                <ol className="mt-2 list-decimal space-y-2 pl-5 text-muted-foreground">
+                  <li>Check the students below for incorrect college or year level; use <strong>Edit source records</strong> to correct the original attendance data.</li>
+                  <li>Review event exemptions for this college and year level on the Events page, and correct any erroneous exemption.</li>
+                  <li>{calculationMode === "preview"
+                    ? "Recheck the preview after corrections. Nothing will be saved by this action."
+                    : "Rebuild saved results from the live roster. If the mismatch remains, no repairs or fines will be changed."}</li>
+                </ol>
+                <p className="mt-2 text-xs text-muted-foreground">Choosing 7 or 8 without correcting the event roster is not a safe fix: it would change fines without fixing attendance data.</p>
+              </div>
+              <div className="rounded-xl border">
+                <div className="border-b px-4 py-3 font-black">Affected students by expected total</div>
+                <div className="max-h-72 overflow-auto">
+                  <table className="w-full min-w-[480px] text-left text-sm">
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="px-3 py-2">Student</th>
+                        <th className="px-3 py-2">Year level</th>
+                        <th className="px-3 py-2">Expected</th>
+                        <th className="px-3 py-2">Attended</th>
+                        <th className="px-3 py-2">Fix data</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {selectedConsistencyGroup.rows.map((row) => (
+                        <tr key={row.key}>
+                          <td className="px-3 py-2">
+                            <div className="font-semibold">{row.name}</div>
+                            <div className="text-xs text-muted-foreground">{row.studentId}</div>
+                          </td>
+                          <td className="px-3 py-2">{row.yearLevel || "Unresolved"}</td>
+                          <td className="px-3 py-2 font-bold text-red-700 dark:text-red-300">{row.expectedEvents}</td>
+                          <td className="px-3 py-2">{row.attendedEvents}</td>
+                          <td className="px-3 py-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isRepairingConsistency || !row.sourceRecordCount}
+                              onClick={() => {
+                                setSelectedConsistencyGroupKey(null);
+                                void handleOpenEditRow(row);
+                              }}
+                            >
+                              Edit source records
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {!canRepairSelectedConsistencyGroup ? (
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  Select this group's school year and source/import scope before recalculating.
+                </p>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button asChild variant="outline">
+                  <Link to="/events">Manage event exemptions</Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isRepairingConsistency}
+                  onClick={() => setSelectedConsistencyGroupKey(null)}
+                >
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!canRepairSelectedConsistencyGroup || isRepairingConsistency || isLoading || isPreviewing || isSavingResults}
+                  onClick={() => void handleFixCalculationConsistency()}
+                >
+                  {isRepairingConsistency
+                    ? "Checking roster..."
+                    : calculationMode === "preview"
+                      ? "Recheck calculation preview"
+                      : "Repair saved totals from roster"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">This warning has been resolved or the displayed calculation has changed.</p>
+          )}
         </DialogContent>
       </Dialog>
 
