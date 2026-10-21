@@ -252,6 +252,7 @@ function formatDate(value?: string | null) {
   if (Number.isNaN(date.getTime())) return "—";
 
   return new Intl.DateTimeFormat(undefined, {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -265,6 +266,7 @@ function formatDateTime(value?: string | null) {
   if (Number.isNaN(date.getTime())) return "—";
 
   return new Intl.DateTimeFormat(undefined, {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -273,15 +275,27 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+function getPhilippineDateTimeParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
 function formatDateTimeInputValue(value?: string | null) {
   if (!value) return "";
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60 * 1000);
-  return localDate.toISOString().slice(0, 16);
+  const parts = getPhilippineDateTimeParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function matchesDateRange(
@@ -295,11 +309,8 @@ function matchesDateRange(
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return false;
 
-  const localDate = [
-    parsed.getFullYear(),
-    String(parsed.getMonth() + 1).padStart(2, "0"),
-    String(parsed.getDate()).padStart(2, "0"),
-  ].join("-");
+  const parts = getPhilippineDateTimeParts(parsed);
+  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
 
   return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
 }
