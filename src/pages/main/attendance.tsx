@@ -246,20 +246,6 @@ const FINAL_RESULT_SAVE_FIELD_LABELS: Record<FinalResultSaveField, string> = {
   remarks: "Remarks",
 };
 
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(date);
-}
-
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
 
