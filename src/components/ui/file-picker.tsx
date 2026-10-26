@@ -1,7 +1,6 @@
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type FilePickerProps = {
@@ -24,8 +23,8 @@ export function FilePicker({
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   return (
-    <div className={cn("w-full", className)}>
-      <Input
+    <div className={cn("relative w-full min-w-0 max-w-full", className)}>
+      <input
         ref={inputRef}
         type="file"
         accept={accept}
