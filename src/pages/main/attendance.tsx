@@ -85,6 +85,7 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
+import type { SortOrder } from "../../lib/sort";
 import { isCollegeExemptFromEvent, normalizeCollegeKey, QR_CODE_COLLEGE_OPTIONS } from "../../lib/colleges";
 import {
   getYearLevelLabel,
@@ -357,22 +358,26 @@ function getAttendanceUploadFilenameKey(fileName: string) {
   return fileName.normalize("NFC").trim().toLocaleLowerCase();
 }
 
-async function getExistingAttendanceUploadNames() {
-  const existingNames = new Set<string>();
-  const pageSize = 100;
+// The imports API paginates in event order, not upload order. Reading just its
+// first page can omit the newest upload (including uploads from another year).
+async function listAllActiveAttendanceImports() {
+  const result: AttendanceImportRecord[] = [];
+  const pageSize = 250;
 
-  // The 'recent uploads' UI loads only one page for the selected school year.
-  // Fetch all active imports across school years so older files are protected too.
   for (let offset = 0; offset < 50_000; offset += pageSize) {
     const page = await listAttendanceImports({ limit: pageSize, offset });
-    for (const item of page) {
-      if (!item.deleted_at) existingNames.add(getAttendanceUploadFilenameKey(item.file_name));
-    }
-    if (page.length < pageSize) return existingNames;
+    result.push(...page.filter((item) => !item.deleted_at && item.status === "saved"));
+    if (page.length < pageSize) return result;
   }
 
-  // Fail closed rather than silently allowing duplicates if the list is incomplete.
-  throw new Error("Unable to verify the complete list of previously uploaded files.");
+  // An incomplete result must not be presented as a complete recent-upload list
+  // or used to approve uploading an apparent duplicate.
+  throw new Error("Unable to retrieve the complete attendance upload history.");
+}
+
+async function getExistingAttendanceUploadNames() {
+  const imports = await listAllActiveAttendanceImports();
+  return new Set(imports.map((item) => getAttendanceUploadFilenameKey(item.file_name)));
 }
 
 function getAttendancePreviewCollegeLabels(
@@ -822,6 +827,7 @@ export default function AttendancePage() {
   const [toDate, setToDate] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const [sortOrder, setSortOrder] = useSortOrderSearchParam();
+  const [importsSortOrder, setImportsSortOrder] = useState<SortOrder>("newest");
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -852,6 +858,8 @@ export default function AttendancePage() {
   >("existing");
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
+  const [isLoadingImports, setIsLoadingImports] = useState(false);
+  const [importsLoadError, setImportsLoadError] = useState("");
   const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>(
     [],
   );
@@ -1019,8 +1027,8 @@ export default function AttendancePage() {
 
 
   const sortedImports = useMemo(
-    () => sortByDate(imports, (item) => item.created_at, sortOrder),
-    [imports, sortOrder],
+    () => sortByDate(imports, (item) => item.created_at, importsSortOrder),
+    [imports, importsSortOrder],
   );
 
   const finalResultsTotalPages = useMemo(() => {
@@ -1172,6 +1180,9 @@ export default function AttendancePage() {
     const isCurrentRequest = () => loadRequestIdRef.current === requestId;
 
     setIsLoading(true);
+    setIsLoadingImports(true);
+    setImportsLoadError("");
+    setImports([]);
     setSelectedFinalResultIds([]);
     setPageLoadProgress({
       progress: 5,
@@ -1221,6 +1232,7 @@ export default function AttendancePage() {
       if (!fallbackSchoolYearId) {
         setAttendanceEvents([]);
         setImports([]);
+        setIsLoadingImports(false);
         setFinalResults([]);
         setPageLoadProgress((current) =>
           current
@@ -1278,13 +1290,11 @@ export default function AttendancePage() {
         return eventRows;
       });
 
-      const importsPromise = listAttendanceImports({
-        schoolYearId: fallbackSchoolYearId,
-        limit: 100,
-        offset: 0,
-      }).then((importRows) => {
+      const importsPromise = listAllActiveAttendanceImports().then((importRows) => {
         if (!isCurrentRequest()) return importRows;
-        setImports(sortByBackendEventOrder(importRows));
+        // Recent uploads are ordered by actual upload time, not event order.
+        setImports(importRows);
+        setIsLoadingImports(false);
         updatePageLoadStep(
           "Recent files",
           "done",
@@ -1293,6 +1303,13 @@ export default function AttendancePage() {
           "Recent uploads are ready. Final result pages are still being streamed in.",
         );
         return importRows;
+      }).catch((error) => {
+        if (isCurrentRequest()) {
+          setImports([]);
+          setIsLoadingImports(false);
+          setImportsLoadError(error instanceof Error ? error.message : "Unable to load uploaded files.");
+        }
+        throw error;
       });
 
       const resultsPromise = listAllAttendanceFinalResults({
@@ -1341,6 +1358,8 @@ export default function AttendancePage() {
       );
     } catch (error) {
       if (!isCurrentRequest()) return;
+      setIsLoadingImports(false);
+      setImportsLoadError((current) => current || (error instanceof Error ? error.message : "Unable to load uploaded files."));
       setPageLoadProgress((current) =>
         current
           ? {
@@ -4840,17 +4859,28 @@ export default function AttendancePage() {
 
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold">Recent uploaded files</h2>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold">Recent uploaded files</h2>
+              <p className="text-xs text-muted-foreground">Across all school years · {imports.length.toLocaleString()} saved file/s{imports.length > 100 ? " · Showing first 100 for the selected sort" : ""}</p>
+            </div>
             <SortSelect
-              value={sortOrder}
-              onValueChange={setSortOrder}
+              value={importsSortOrder}
+              onValueChange={setImportsSortOrder}
               ariaLabel="Sort attendance imports"
               className="sm:w-44"
             />
           </div>
           <div className="mt-4 grid gap-3">
-            {imports.length ? (
-              sortedImports.map((item) => (
+            {isLoadingImports ? (
+              <p className="rounded-2xl border bg-background p-5 text-sm text-muted-foreground" role="status">
+                Loading uploaded files...
+              </p>
+            ) : importsLoadError ? (
+              <p className="rounded-2xl border border-destructive bg-background p-5 break-words text-sm text-destructive" role="alert">
+                Unable to load uploaded files: {importsLoadError}
+              </p>
+            ) : imports.length ? (
+              sortedImports.slice(0, 100).map((item) => (
                 <article
                   key={item.id}
                   className="min-w-0 rounded-2xl border bg-background p-4"
@@ -4861,7 +4891,7 @@ export default function AttendancePage() {
                       <p className="mt-1 break-words text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
                         {item.college_label || "College not recorded"} •{" "}
-                        {formatDate(item.created_at)}
+                        {formatDateTime(item.created_at)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">

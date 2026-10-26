@@ -436,14 +436,17 @@ html.theme-switching *::after {
   }
 }
 
-/* Attendance uploader: a portaled grid must never size itself from its
-   longest workbook filename, status message or event label. Keep x overflow
-   visible to developers instead of masking a layout defect with hidden. */
+/* The upload modal is a simple vertical stack. Every form section spans all
+   five grid columns, so a flex column preserves desktop layout without letting
+   an implicit/auto grid track grow wider than the dialog's scrollport.
+   Keep overflow visible by construction; never mask it with overflow-x:hidden. */
 [data-slot="dialog-content"].attendance-upload-dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   width: min(calc(100vw - 1rem), 56rem);
   max-width: calc(100vw - 1rem);
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
   overflow-wrap: anywhere;
 }
 @media (min-width: 640px) {
@@ -453,23 +456,28 @@ html.theme-switching *::after {
   }
 }
 .attendance-upload-dialog > form {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  grid-template-columns: minmax(0, 1fr);
 }
-@media (min-width: 1024px) {
-  .attendance-upload-dialog > form {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
+.attendance-upload-dialog > form > * {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
-.attendance-upload-dialog > form > *,
-.attendance-upload-dialog > form > * > *,
+.attendance-upload-dialog :is(.grid, .flex) {
+  min-width: 0;
+  max-width: 100%;
+}
+.attendance-upload-dialog :is(.grid, .flex) > *,
 .attendance-upload-dialog [role="status"],
 .attendance-upload-dialog [role="status"] > * {
   min-width: 0;
   max-width: 100%;
-}
-.attendance-upload-dialog :is(.grid, .flex) > * {
-  min-width: 0;
 }
