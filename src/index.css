@@ -210,18 +210,9 @@
 
   [role="dialog"]:not([data-slot="sheet-content"]) {
     max-height: calc(100svh - 2rem);
-    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     border-radius: var(--radius-2xl);
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  [role="dialog"]:not([data-slot="sheet-content"])::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
   }
 
   [data-slot="dialog-content"],
@@ -237,20 +228,10 @@
 @layer utilities {
   .dialog-scrollable {
     max-height: calc(100svh - 2rem);
-    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .dialog-scrollable::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
   }
 }
-
 
 
 /* Preserve the campus photos in both themes while keeping the text surfaces
@@ -413,6 +394,34 @@ html.theme-switching *::after {
 
 /* Keep tablet-width grids from inheriting their widest table or form child. */
 @media (max-width: 1023px) {
+  :where(main, section, article, form, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  :where(main, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) :where(.grid, .flex) {
+    min-width: 0;
+  }
+
+  :where(main, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) :where(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  :where(main, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) {
+    overflow-wrap: anywhere;
+  }
+
+  /* The same constraints apply to portaled dialogs, including 640–1023px. */
+  :where([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) :where(button:not([data-slot="checkbox"]), [role="button"]) {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  :where(main, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) :where([class*="overflow-x-auto"]) {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
   main :where(.grid, .flex) {
     min-width: 0;
   }

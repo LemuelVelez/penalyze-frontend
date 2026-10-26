@@ -30,7 +30,7 @@ function SelectValue({
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
-      className={cn("min-w-0 truncate", className)}
+      className={cn("min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]", className)}
       {...props}
     />
   )
@@ -49,7 +49,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-full sm:w-fit min-w-0 max-w-full items-center justify-between gap-2 overflow-hidden rounded-xl max-sm:min-h-11 border border-input bg-background px-3 py-2 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-10 data-[size=sm]:h-8 data-[size=sm]:rounded-lg *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:max-w-full *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 *:data-[slot=select-value]:truncate dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-full lg:w-fit min-w-0 max-w-full items-center justify-between gap-2 rounded-xl lg:overflow-hidden max-sm:min-h-11 border border-input bg-background px-3 py-2 text-sm whitespace-normal break-words [overflow-wrap:anywhere] transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:min-h-10 data-[size=sm]:min-h-8 max-lg:data-[size=default]:h-auto max-lg:data-[size=sm]:h-auto lg:data-[size=default]:h-10 lg:data-[size=sm]:h-8 data-[size=sm]:rounded-lg lg:*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:max-w-full *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 max-lg:*:data-[slot=select-value]:whitespace-normal max-lg:*:data-[slot=select-value]:break-words max-lg:*:data-[slot=select-value]:[overflow-wrap:anywhere] lg:*:data-[slot=select-value]:truncate dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -74,7 +74,7 @@ function SelectContent({
       <SelectPrimitive.Content
         data-slot="select-content"
         data-align-trigger={position === "item-aligned"}
-        className={cn("relative z-50 max-h-(--radix-select-content-available-height) min-w-0 max-w-[calc(100vw-2rem)] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-xl border bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 sm:min-w-36 sm:max-w-none data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", position ==="popper"&&"data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1", className )}
+        className={cn("relative z-50 max-h-(--radix-select-content-available-height) min-w-0 max-w-[calc(100vw-2rem)] break-words [overflow-wrap:anywhere] origin-(--radix-select-content-transform-origin) overflow-y-auto rounded-xl border bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 sm:min-w-36 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", position ==="popper"&&"data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1", className )}
         position={position}
         align={align}
         {...props}
@@ -83,7 +83,7 @@ function SelectContent({
         <SelectPrimitive.Viewport
           data-position={position}
           className={cn(
-            "data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)",
+            "min-w-0 max-w-full break-words [overflow-wrap:anywhere] data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-0 data-[position=popper]:max-w-[calc(100vw-2rem)]",
             position === "popper" && ""
           )}
         >

@@ -231,7 +231,7 @@ export default function AuditLogPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-words font-black" title={actor.name}>{actor.name}</p>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={actor.detail}>{actor.detail}</p>
+                      <p className="mt-0.5 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs text-muted-foreground" title={actor.detail}>{actor.detail}</p>
                     </div>
                     <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${successful ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
                       {outcomeLabel(log.status_code)} · {log.status_code}
@@ -255,7 +255,7 @@ export default function AuditLogPage() {
                       <p className="mt-1 text-xs font-semibold">{formatDateTime(log.created_at)}</p>
                     </div>
                   </div>
-                  <p className="mt-3 truncate font-mono text-xs text-muted-foreground" title={log.route}>{log.route}</p>
+                  <p className="mt-3 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground" title={log.route}>{log.route}</p>
                 </button>
               );
             })
@@ -297,12 +297,12 @@ export default function AuditLogPage() {
                       <td className="sticky left-0 z-10 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
                       <td className="sm:sticky sm:left-40 z-10 bg-background px-4 py-3.5">
                         <div className="font-medium">{actor.name}</div>
-                        <div className="mt-0.5 max-w-64 truncate text-xs text-muted-foreground">{actor.detail}</div>
+                        <div className="mt-0.5 max-w-64 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs text-muted-foreground">{actor.detail}</div>
                       </td>
                       <td className="px-4 py-3.5 font-medium">{log.action}</td>
                       <td className="px-4 py-3.5">
                         <div>{log.resource_type}</div>
-                        <div className="mt-0.5 max-w-44 truncate font-mono text-xs text-muted-foreground">{log.resource_id || "—"}</div>
+                        <div className="mt-0.5 max-w-44 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{log.resource_id || "—"}</div>
                       </td>
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${successful ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
@@ -311,7 +311,7 @@ export default function AuditLogPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="break-all font-mono text-xs font-medium">{log.method}</div>
-                        <div className="mt-0.5 max-w-56 truncate font-mono text-xs text-muted-foreground">{log.route}</div>
+                        <div className="mt-0.5 max-w-56 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{log.route}</div>
                       </td>
                     </tr>
                   );
@@ -358,7 +358,7 @@ export default function AuditLogPage() {
               </div>
               <div>
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Captured details</div>
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border bg-muted/30 p-4 font-mono text-xs leading-5">
+                <pre className="max-h-80 min-w-0 max-w-full overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-xl border bg-muted/30 p-4 font-mono text-xs leading-5">
                   {JSON.stringify(selectedLog.details ?? {}, null, 2)}
                 </pre>
               </div>

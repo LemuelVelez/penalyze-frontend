@@ -420,7 +420,7 @@ export default function ExportReport(props: ExportReportProps) {
             </p>
             <Select value={selectedCollege} onValueChange={setSelectedCollege}>
               <SelectTrigger className="mt-2 min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold sm:max-w-64">
-                <SelectValue placeholder="All colleges" className="truncate" />
+                <SelectValue placeholder="All colleges" className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" />
               </SelectTrigger>
               <SelectContent className="max-w-[calc(100vw-2rem)] sm:max-w-xs">
                 <SelectItem value={ALL_COLLEGES_VALUE}>All colleges</SelectItem>
@@ -475,7 +475,7 @@ export default function ExportReport(props: ExportReportProps) {
                     <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                        <p className="mt-1 truncate font-semibold" title={college}>{college}</p>
+                        <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={college}>{college}</p>
                       </div>
                       <div>
                         <p className="text-xs font-bold uppercase text-muted-foreground">Absences</p>

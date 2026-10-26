@@ -61,7 +61,7 @@ function DashboardTooltip({
                 className="size-2 shrink-0 rounded-full"
                 style={{ background: entry.color ?? "var(--chart-1)" }}
               />
-              <span className="truncate">{String(entry.name ?? entry.dataKey ?? "Value")}</span>
+              <span className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">{String(entry.name ?? entry.dataKey ?? "Value")}</span>
             </span>
             <span className="shrink-0 font-black tabular-nums">
               {typeof entry.value === "number"

@@ -2908,8 +2908,8 @@ export default function AttendancePage() {
         </section>
 
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold">Upload attendance file</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Drag and drop or choose one or more .xlsx or .csv files.
@@ -2922,7 +2922,7 @@ export default function AttendancePage() {
                   setProgress(null);
                   setUploadCollegeDialogOpen(true);
                 }}
-                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-6"
+                className="min-h-10 h-auto w-full min-w-0 whitespace-normal rounded-xl px-4 font-semibold sm:w-auto sm:px-6"
               >
                 Upload Attendance File
               </Button>
@@ -2931,7 +2931,7 @@ export default function AttendancePage() {
                 variant="outline"
                 onClick={handleRefreshFinalResults}
                 disabled={isSaving || isLoading}
-                className="min-h-10 min-w-0 rounded-xl px-4 font-semibold sm:px-5"
+                className="min-h-10 h-auto w-full min-w-0 whitespace-normal rounded-xl px-4 font-semibold sm:w-auto sm:px-5"
               >
                 Refresh Final Results
               </Button>
@@ -2940,8 +2940,8 @@ export default function AttendancePage() {
           {progress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 text-sm font-bold">
-                <span>{progress.message}</span>
-                <span>{progress.percent}%</span>
+                <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{progress.message}</span>
+                <span className="shrink-0">{progress.percent}%</span>
               </div>
               <Progress value={progress.percent} className="mt-3 h-3" />
               <p className="mt-2 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
@@ -2964,12 +2964,12 @@ export default function AttendancePage() {
 
             return (
               <details key={fileName} className="mt-4 rounded-2xl border bg-background p-4">
-                <summary className="cursor-pointer text-sm font-semibold">
+                <summary className="cursor-pointer break-words text-sm font-semibold [overflow-wrap:anywhere]">
                   {fileName}: {reconciliation.rowsInSource.toLocaleString()} rows in file, {reconciliation.rowsSaved.toLocaleString()} saved
                   {mergedCount ? ` — ${mergedCount} row/s merged` : ""}
                   {reconciliation.rowsInvalid.length ? ` — ${reconciliation.rowsInvalid.length} invalid row/s` : ""}
                 </summary>
-                <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                <div className="mt-3 min-w-0 space-y-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   <p>
                     parsed {reconciliation.stageCounts.parsed} → normalized {reconciliation.stageCounts.normalized} → valid {reconciliation.stageCounts.valid} → merged {reconciliation.stageCounts.merged} → saved {reconciliation.stageCounts.saved} → distinct final results {reconciliation.stageCounts.distinctFinalResults}
                   </p>
@@ -3027,7 +3027,7 @@ export default function AttendancePage() {
           }}
         >
           <DialogContent
-            className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl"
+            className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl"
             onCloseAutoFocus={() => {
               setUploadForm((current) => ({ ...current, college: "" }));
             }}
@@ -3038,7 +3038,7 @@ export default function AttendancePage() {
                 Select attendance files and review detected event details before importing.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-5">
+            <form onSubmit={handleSubmit} className="grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0 lg:grid-cols-5">
               {progress ? (
                 <LoadingStatus
                   title={
@@ -3056,7 +3056,7 @@ export default function AttendancePage() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex min-h-40 min-w-0 flex-col items-center justify-center rounded-2xl border border-dashed bg-background p-6 text-center transition lg:col-span-5 ${
+                className={`flex min-h-40 min-w-0 flex-col items-center justify-center rounded-2xl border border-dashed bg-background p-4 text-center sm:p-6 transition lg:col-span-5 ${
                   isDraggingFile ? "border-primary bg-primary/10" : ""
                 }`}
               >
@@ -3108,7 +3108,7 @@ export default function AttendancePage() {
                 />
               </div>
 
-              <div className="flex flex-wrap items-end gap-3 lg:col-span-5">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:col-span-5">
                 <div className="min-w-0 flex-1 space-y-2">
                   <span className="text-sm font-bold">Default school year / semester</span>
                   <SchoolYearBadge label={uploadSchoolYearLabel} className="w-full justify-center" />
@@ -3118,13 +3118,13 @@ export default function AttendancePage() {
                   <SchoolYearBadge label={uploadForm.college} className="w-full justify-center" />
                 </div>
                 <Button type="button" variant="outline" disabled={isSaving}
-                  onClick={() => setUploadCollegeDialogOpen(true)}>
+                  onClick={() => setUploadCollegeDialogOpen(true)} className="h-auto w-full whitespace-normal sm:w-auto">
                   Change college
                 </Button>
               </div>
 
               {files.length ? (
-                <div className="space-y-3 lg:col-span-5">
+                <div className="min-w-0 space-y-3 lg:col-span-5">
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                     <span className="text-sm font-semibold">Selected files</span>
                     <span className="rounded-full border px-3 py-1 text-xs font-semibold">
@@ -3181,7 +3181,7 @@ export default function AttendancePage() {
                     return (
                       <div
                         key={fileKey}
-                        className="rounded-2xl border bg-background p-4"
+                        className="min-w-0 rounded-2xl border bg-background p-4"
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
@@ -3201,22 +3201,22 @@ export default function AttendancePage() {
                                 <p className="mt-1 text-xs font-semibold text-muted-foreground">
                                   {details.rowsTotal.toLocaleString()} incoming row/s
                                 </p>
-                                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                <p className="mt-1 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                                   Colleges in file: {getAttendancePreviewCollegeLabels(details.previewRows).join(", ") || "None"}
                                 </p>
-                                <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                                <p className="mt-1 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                                   Colleges after assignments: {details.collegeLabels.join(", ") || uploadForm.college}
                                 </p>
                                 {details.collegeMismatchRows.length ? (
-                                  <div className="mt-2 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs" role="status">
+                                  <div className="mt-2 min-w-0 break-words rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs [overflow-wrap:anywhere]" role="status">
                                     <p className="font-bold">{details.collegeMismatchRows.length} record(s) belong to a different college than the upload default ({uploadForm.college}). Valid colleges are allowed; open the college review dialog if any record needs correcting.</p>
                                   </div>
                                 ) : null}
                                 {details.invalidCollegeRows.length ? (
-                                  <div className="mt-2 rounded-xl border border-destructive p-3 text-xs text-destructive" role="alert">
+                                  <div className="mt-2 min-w-0 break-words rounded-xl border border-destructive p-3 text-xs text-destructive [overflow-wrap:anywhere]" role="alert">
                                     <p className="font-bold">{details.invalidCollegeRows.length} unrecognised college row(s) must be corrected before saving:</p>
                                     {details.invalidCollegeRows.slice(0, 10).map((row) => (
-                                      <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1">
+                                      <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1 break-words [overflow-wrap:anywhere]">
                                         Row {row.rowNumber} — {row.name || row.studentId || "Unknown student"} ({row.studentId || "no ID"}): {row.college}
                                       </p>
                                     ))}
@@ -3234,7 +3234,7 @@ export default function AttendancePage() {
                         </div>
 
                         {details?.previewRows.length ? (
-                          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/15 p-3">
+                          <div className="mt-4 flex min-w-0 flex-col gap-2 rounded-xl border bg-muted/15 p-3 sm:flex-row sm:flex-wrap sm:items-center">
                             <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                               Review college names or correct specific student records before uploading.
                               {details.invalidCollegeRows.length > 0
@@ -3246,6 +3246,7 @@ export default function AttendancePage() {
                               size="sm"
                               variant={details.invalidCollegeRows.length ? "destructive" : "outline"}
                               disabled={isSaving}
+                              className="h-auto w-full min-w-0 whitespace-normal break-words py-2 [overflow-wrap:anywhere] sm:w-auto"
                               onClick={() => openAttendanceCollegeReviewDialog(fileKey, "different")}
                             >
                               Select different / unrecognised ({new Set([
@@ -3254,6 +3255,7 @@ export default function AttendancePage() {
                               ]).size})
                             </Button>
                             <Button type="button" size="sm" variant="outline" disabled={isSaving}
+                              className="h-auto w-full min-w-0 whitespace-normal break-words py-2 [overflow-wrap:anywhere] sm:w-auto"
                               onClick={() => openAttendanceCollegeReviewDialog(fileKey, "all")}
                             >
                               Review all records ({details.previewRows.length})
@@ -3261,12 +3263,12 @@ export default function AttendancePage() {
                           </div>
                         ) : null}
 
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <p className="text-xs font-bold text-muted-foreground">
                               Detected event
                             </p>
-                            <p className="mt-1 break-words text-sm font-semibold">
+                            <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                               {details?.metadata.eventName || "—"}
                             </p>
                           </div>
@@ -3289,7 +3291,7 @@ export default function AttendancePage() {
                         </div>
 
                         {details?.previewError ? (
-                          <p className="mt-3 text-xs font-semibold text-destructive">
+                          <p className="mt-3 break-words text-xs font-semibold text-destructive [overflow-wrap:anywhere]">
                             {details.previewError}
                           </p>
                         ) : null}
@@ -3298,7 +3300,7 @@ export default function AttendancePage() {
                           <div className="mt-4 space-y-3">
                             {suggestedExistingEvent ? (
                               <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0">
+                                <div className="min-w-0 break-words [overflow-wrap:anywhere]">
                                   <p className="text-xs font-semibold">
                                     This looks like {suggestedExistingEvent.name} — attach to it?
                                   </p>
@@ -3315,15 +3317,15 @@ export default function AttendancePage() {
                                   variant={matchedExistingEvent ? "default" : "outline"}
                                   disabled={isSaving || matchedExistingEvent}
                                   onClick={() => openMergeDecisionDialog(fileKey)}
-                                  className="shrink-0 rounded-xl text-xs font-semibold"
+                                  className="h-auto w-full whitespace-normal break-words rounded-xl text-xs font-semibold sm:w-auto"
                                 >
                                   {matchedExistingEvent ? "Merge confirmed" : "Review merge"}
                                 </Button>
                               </div>
                             ) : null}
 
-                            <div className="space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                                 <span className="text-xs font-bold">Event selection</span>
                                 {exemptedEventOptions.length ? (
                                   <Button
@@ -3334,7 +3336,7 @@ export default function AttendancePage() {
                                     size="sm"
                                     disabled={isSaving || exemptionOverrideEnabled}
                                     onClick={() => enableExemptedEventSelection(fileKey)}
-                                    className="h-8 rounded-lg px-3 text-xs font-semibold"
+                                    className="h-auto min-h-11 w-full whitespace-normal break-words rounded-lg px-3 py-2 text-xs font-semibold sm:w-auto"
                                   >
                                     {exemptionOverrideEnabled
                                       ? "Exempted events enabled"
@@ -3357,7 +3359,7 @@ export default function AttendancePage() {
                                 }
                                 disabled={isSaving}
                               >
-                                <SelectTrigger className="min-h-11 w-full min-w-0 rounded-xl">
+                                <SelectTrigger className="min-h-11 h-auto w-full min-w-0 rounded-xl">
                                   <SelectValue placeholder="Select event" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -3417,7 +3419,7 @@ export default function AttendancePage() {
                             </div>
 
                             {!hasDetectedMetadata ? (
-                              <div className="grid gap-3 md:grid-cols-3">
+                              <div className="grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 md:grid-cols-3">
                                 <label className="space-y-2 md:col-span-3">
                                   <span className="text-xs font-bold">Event name override</span>
                                   <Input
@@ -3431,7 +3433,7 @@ export default function AttendancePage() {
                                     }
                                     placeholder="Optional event name"
                                     disabled={isSaving}
-                                    className="min-h-11 rounded-xl"
+                                    className="min-h-11 w-full min-w-0 rounded-xl"
                                   />
                                 </label>
                                 <label className="space-y-2">
@@ -3495,7 +3497,7 @@ export default function AttendancePage() {
             if (!open) setCollegeReviewFileKey("");
           }}
         >
-          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-hidden sm:max-w-5xl">
+          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto sm:max-w-5xl">
             <DialogHeader>
               <DialogTitle>Review attendance colleges</DialogTitle>
               <DialogDescription>
@@ -3510,7 +3512,7 @@ export default function AttendancePage() {
               <span>{collegeReviewDetails?.collegeMismatchRows.length ?? 0} different from default</span>
               <span>{collegeReviewDetails?.selectedRowNumbers.length ?? 0} selected</span>
             </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="grid min-w-0 grid-cols-1 gap-2 [&>*]:min-w-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <div>
                 <label htmlFor="college-review-filter" className="mb-1 block text-xs font-bold">Show records</label>
                 <Select value={collegeReviewFilter}
@@ -3534,16 +3536,19 @@ export default function AttendancePage() {
                   disabled={isSaving} />
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewRows.length}
+                className="h-auto w-full whitespace-normal py-2 sm:w-auto"
                 onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, collegeReviewRows.map((row) => row.rowNumber))}>
                 Select filtered ({collegeReviewRows.length})
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.previewRows.length}
+                className="h-auto w-full whitespace-normal py-2 sm:w-auto"
                 onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, collegeReviewDetails?.previewRows.map((row) => row.rowNumber) ?? [])}>
                 Select all
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length}
+                className="h-auto w-full whitespace-normal py-2 sm:w-auto"
                 onClick={() => updateAttendanceRowSelection(collegeReviewFileKey, [])}>
                 Clear selection
               </Button>
@@ -3586,12 +3591,12 @@ export default function AttendancePage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <Select
                         value={validCollege ?? ""}
                         disabled={isSaving}
                         onValueChange={(college) => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, college)}>
-                        <SelectTrigger className={`min-w-0 flex-1 ${isInvalid ? "border-destructive" : ""}`}
+                        <SelectTrigger className={`min-w-0 flex-1 basis-36 ${isInvalid ? "border-destructive" : ""}`}
                           aria-label={`College for row ${row.rowNumber}`}>
                           <SelectValue placeholder="Choose the correct college" />
                         </SelectTrigger>
@@ -3604,6 +3609,7 @@ export default function AttendancePage() {
                       {override ? (
                         <Button type="button" size="sm" variant="outline" disabled={isSaving}
                           onClick={() => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, null)}
+                          className="h-auto shrink-0 whitespace-normal"
                           aria-label={`Reset college for row ${row.rowNumber}`}>
                           Reset
                         </Button>
@@ -3622,7 +3628,7 @@ export default function AttendancePage() {
                 Showing the first 200 matches. Refine your search to view more; “Select filtered” covers every match.
               </p>
             ) : null}
-            <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+            <div className="grid min-w-0 grid-cols-1 gap-2 border-t pt-3 [&>*]:min-w-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
               <div>
                 <label className="mb-1 block text-xs font-bold">Assign college to selected records</label>
                 <Select value={collegeReviewDetails?.assignmentCollege ?? ""}
@@ -3637,10 +3643,12 @@ export default function AttendancePage() {
                 </Select>
               </div>
               <Button type="button" size="sm" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length || !collegeReviewDetails?.assignmentCollege}
+                className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
                 onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey)}>
                 Apply to selected ({collegeReviewDetails?.selectedRowNumbers.length ?? 0})
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length}
+                className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
                 onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey, true)}>
                 Reset selected
               </Button>
@@ -3651,7 +3659,7 @@ export default function AttendancePage() {
                   ? `${collegeReviewDetails.invalidCollegeRows.length} unrecognised row(s) still require a recognised college before saving.`
                   : "All colleges are recognised. You can continue with the upload."}
               </p>
-              <Button type="button" onClick={() => setCollegeReviewFileKey("")}>Done reviewing</Button>
+              <Button type="button" className="h-auto w-full whitespace-normal sm:w-auto" onClick={() => setCollegeReviewFileKey("")}>Done reviewing</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -3662,7 +3670,7 @@ export default function AttendancePage() {
             if (!open) setMergeDialogFileKey("");
           }}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Confirm attendance event merge</DialogTitle>
               <DialogDescription>
@@ -3670,7 +3678,7 @@ export default function AttendancePage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
+            <div className="min-w-0 space-y-4 break-words [overflow-wrap:anywhere]">
               <div className="rounded-2xl border bg-muted/30 p-4">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Incoming file</p>
                 <p className="mt-1 break-all font-semibold">{mergeDialogFile?.name}</p>
@@ -3692,14 +3700,14 @@ export default function AttendancePage() {
                     key={`${candidate.source}-${candidate.eventId ?? candidate.batchFileIndex}-${index}`}
                     type="button"
                     onClick={() => setMergeDialogCandidateIndex(index)}
-                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                    className={`min-w-0 w-full break-words [overflow-wrap:anywhere] rounded-2xl border p-4 text-left transition ${
                       index === mergeDialogCandidateIndex
                         ? "border-primary ring-2 ring-primary/20"
                         : "hover:bg-muted/40"
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold">{candidate.eventName}</p>
+                      <p className="min-w-0 flex-1 break-words font-semibold [overflow-wrap:anywhere]">{candidate.eventName}</p>
                       <span className="rounded-full border px-2.5 py-1 text-xs font-bold">
                         {Math.round(candidate.score * 100)}% {candidate.confidence}
                       </span>
@@ -3738,7 +3746,7 @@ export default function AttendancePage() {
                         setMergeKeepEventName(value as "existing" | "incoming")
                       }
                     >
-                      <SelectTrigger className="min-h-11 rounded-xl">
+                      <SelectTrigger className="min-h-11 h-auto w-full min-w-0 rounded-xl">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -3762,7 +3770,7 @@ export default function AttendancePage() {
                         )
                       }
                     >
-                      <SelectTrigger className="min-h-11 rounded-xl">
+                      <SelectTrigger className="min-h-11 h-auto w-full min-w-0 rounded-xl">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -3774,7 +3782,7 @@ export default function AttendancePage() {
                 </div>
               ) : null}
 
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <div className="flex min-w-0 flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                 <Button
                   type="button"
                   variant="outline"
@@ -3814,7 +3822,7 @@ export default function AttendancePage() {
             }
           }}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 Event attendance for{" "}
@@ -3965,7 +3973,7 @@ export default function AttendancePage() {
                   missedEventsDialogSummaries.map((event, index) => (
                     <article
                       key={`missed-${event.id}`}
-                      className="rounded-2xl border bg-background p-4"
+                      className="min-w-0 rounded-2xl border bg-background p-4"
                     >
                       <div className="flex gap-3">
                         {canAdjustEventAttendance ? (
@@ -4036,7 +4044,7 @@ export default function AttendancePage() {
                   eventsDialogSummaries.map((eventSummary, index) => (
                     <article
                       key={eventSummary.key}
-                      className="rounded-2xl border bg-background p-4"
+                      className="min-w-0 rounded-2xl border bg-background p-4"
                     >
                       <div className="flex gap-3">
                         {canAdjustEventAttendance ? (
@@ -4096,7 +4104,7 @@ export default function AttendancePage() {
           open={finalResultDialogOpen}
           onOpenChange={handleFinalResultDialogOpenChange}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Edit final attendance result</DialogTitle>
               <DialogDescription>
@@ -4105,7 +4113,7 @@ export default function AttendancePage() {
             </DialogHeader>
             <form
               onSubmit={handleSaveFinalResult}
-              className="grid gap-4 lg:grid-cols-4"
+              className="grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0 lg:grid-cols-4"
             >
               {isLoadingEditSourceRecords && selectedFinalResultSourceFields.length > 0 ? (
                 <LoadingStatus
@@ -4531,7 +4539,7 @@ export default function AttendancePage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
-                      <p className="mt-1 break-words text-sm font-semibold" title={result.name}>{result.name}</p>
+                      <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]" title={result.name}>{result.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -4561,11 +4569,11 @@ export default function AttendancePage() {
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate font-semibold" title={result.college || "—"}>{result.college || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={result.college || "—"}>{result.college || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-                      <p className="mt-1 truncate font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>
@@ -4743,7 +4751,7 @@ export default function AttendancePage() {
               sortedImports.map((item) => (
                 <article
                   key={item.id}
-                  className="rounded-2xl border bg-background p-4"
+                  className="min-w-0 rounded-2xl border bg-background p-4"
                 >
                   <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">

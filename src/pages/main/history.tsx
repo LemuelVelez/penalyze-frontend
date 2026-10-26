@@ -2232,7 +2232,7 @@ export default function HistoryPage() {
             open ? setSchoolYearDialogOpen(true) : handleCancelEditSchoolYear()
           }
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {editingSchoolYearId
@@ -2578,7 +2578,7 @@ export default function HistoryPage() {
               if (!open) handleCloseRecordsDialog();
             }}
           >
-            <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+            <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl">
               {renderActiveRecordsDialogContent()}
             </DialogContent>
           </Dialog>

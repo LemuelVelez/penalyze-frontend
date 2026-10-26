@@ -338,13 +338,13 @@ const textInputClassName =
   "min-h-12 w-full rounded-2xl border bg-background px-4 text-base outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const selectTriggerClassName =
-  "min-h-12 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border bg-background px-4 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 [&>span]:min-w-0 [&>span]:truncate";
+  "min-h-12 w-full min-w-0 max-w-full rounded-2xl border bg-background px-4 py-2 text-left text-base font-semibold outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20 [&>span]:min-w-0 [&>span]:break-words [&>span]:[overflow-wrap:anywhere] lg:[&>span]:truncate";
 
 const customSelectInputClassName =
   "mt-2 min-h-10 w-full rounded-xl border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/20";
 
 const landingDialogContentClassName =
-  "left-2 right-2 top-2 bottom-2 h-auto max-h-none w-auto max-w-none min-w-0 grid-cols-[minmax(0,1fr)] translate-x-0 translate-y-0 overflow-x-hidden overflow-y-auto overscroll-contain break-words sm:left-1/2 sm:right-auto sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 [&>*]:min-w-0";
+  "left-2 right-2 top-2 bottom-2 h-auto max-h-none w-auto max-w-none min-w-0 grid-cols-[minmax(0,1fr)] translate-x-0 translate-y-0 overflow-y-auto overscroll-contain break-words sm:left-1/2 sm:right-auto sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 [&>*]:min-w-0";
 
 const landingDialogHeaderClassName =
   "min-w-0 max-sm:-mx-4 max-sm:-mt-4 max-sm:border-b max-sm:px-4 max-sm:pt-4 max-sm:pb-3";
@@ -371,7 +371,7 @@ function renderCurrentStudentSelectOption(
   if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
 
   return (
-    <SelectItem value={cleanValue} className="max-w-full truncate">
+    <SelectItem value={cleanValue} className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
       {cleanValue}
     </SelectItem>
   );
@@ -2755,7 +2755,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue
                     placeholder="Select year level"
-                    className="truncate"
+                    className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
@@ -2767,7 +2767,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     <SelectItem
                       key={yearLevel}
                       value={yearLevel}
-                      className="max-w-full truncate"
+                      className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                     >
                       {yearLevel}
                     </SelectItem>
@@ -2792,7 +2792,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue
                     placeholder="Select college"
-                    className="truncate"
+                    className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
@@ -2804,7 +2804,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     <SelectItem
                       key={college}
                       value={college}
-                      className="max-w-full truncate"
+                      className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                     >
                       {college}
                     </SelectItem>
@@ -2834,7 +2834,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                         ? "Select program"
                         : "Select college first"
                     }
-                    className="truncate"
+                    className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
@@ -2846,7 +2846,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     <SelectItem
                       key={program}
                       value={program}
-                      className="max-w-full truncate"
+                      className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                     >
                       {program}
                     </SelectItem>
@@ -2878,7 +2878,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                 <SelectTrigger className={selectTriggerClassName}>
                   <SelectValue
                     placeholder="Select institution"
-                    className="truncate"
+                    className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]"
                   />
                 </SelectTrigger>
                 <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
@@ -2890,7 +2890,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                     <SelectItem
                       key={institution}
                       value={institution}
-                      className="max-w-full truncate"
+                      className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                     >
                       {institution}
                     </SelectItem>
@@ -3116,7 +3116,7 @@ function DetailsCorrectionDialog(props: {
                   onValueChange={(value) => props.onFieldChange("yearLevel", value)}
                 >
                   <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
-                    <SelectValue placeholder="Select year level" className="truncate" />
+                    <SelectValue placeholder="Select year level" className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                     {renderCurrentStudentSelectOption(
@@ -3154,7 +3154,7 @@ function DetailsCorrectionDialog(props: {
                   onValueChange={(value) => props.onFieldChange("college", value)}
                 >
                   <SelectTrigger className={`${selectTriggerClassName} mt-2`}>
-                    <SelectValue placeholder="Select college" className="truncate" />
+                    <SelectValue placeholder="Select college" className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
                     {renderCurrentStudentSelectOption(
@@ -3195,7 +3195,7 @@ function DetailsCorrectionDialog(props: {
                       placeholder={
                         props.form.college ? "Select program" : "Select college first"
                       }
-                      className="truncate"
+                      className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]"
                     />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 max-w-[calc(100vw-2rem)] sm:max-w-80">
@@ -4971,7 +4971,7 @@ export default function LandingPage() {
             {isSearching ? (
               <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
-                  <span className="min-w-0 truncate">
+                  <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">
                     {searchProgress.message || "Searching student records..."}
                   </span>
                   <span className="shrink-0 tabular-nums">

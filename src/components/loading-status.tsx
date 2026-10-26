@@ -31,9 +31,9 @@ export function LoadingStatus(props: LoadingStatusProps) {
       aria-live="polite"
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-black">{props.title}</p>
-          <p className="mt-1 break-words text-xs font-semibold leading-5 text-muted-foreground">
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-black [overflow-wrap:anywhere]">{props.title}</p>
+          <p className="mt-1 break-words [overflow-wrap:anywhere] text-xs font-semibold leading-5 text-muted-foreground">
             {props.detail}
           </p>
         </div>
@@ -59,10 +59,10 @@ export function LoadingStatus(props: LoadingStatusProps) {
               ) : (
                 <Circle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               )}
-              <div className="min-w-0">
-                <p className="truncate text-xs font-bold">{step.label}</p>
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-xs font-bold [overflow-wrap:anywhere]">{step.label}</p>
                 {step.detail ? (
-                  <p className="mt-0.5 line-clamp-2 text-[11px] font-semibold text-muted-foreground">
+                  <p className="mt-0.5 break-words text-[11px] font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                     {step.detail}
                   </p>
                 ) : null}

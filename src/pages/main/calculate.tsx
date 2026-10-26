@@ -894,11 +894,11 @@ const CalculationCard = memo(function CalculationCard({
       <div className="mt-4 grid min-w-0 grid-cols-2 gap-3 text-sm">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-          <p className="mt-1 truncate font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
+          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
         </div>
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-          <p className="mt-1 truncate font-semibold" title={row.program || "—"}>{row.program || "—"}</p>
+          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={row.program || "—"}>{row.program || "—"}</p>
         </div>
         <div>
           <p className="text-xs font-bold uppercase text-muted-foreground">Events</p>
@@ -2684,10 +2684,10 @@ export default function CalculatePage() {
             <div className="mt-5 min-w-0 rounded-2xl border bg-background p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-black">
+                  <p className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-sm font-black">
                     {calculationProgress.label}
                   </p>
-                  <p className="mt-1 truncate text-xs font-semibold text-muted-foreground">
+                  <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs font-semibold text-muted-foreground">
                     {calculationProgress.detail}
                   </p>
                 </div>
@@ -2999,7 +2999,7 @@ export default function CalculatePage() {
       </div>
 
       <Dialog open={sourceDialogOpen} onOpenChange={setSourceDialogOpen}>
-        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Sources and imported files to calculate</DialogTitle>
             <DialogDescription>
@@ -3024,7 +3024,7 @@ export default function CalculatePage() {
                   className="mt-1"
                 />
                 <span className="min-w-0">
-                  <span className="block min-w-0 truncate font-black">
+                  <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-black">
                     {sourceOption.title}
                   </span>
                   <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
@@ -3085,7 +3085,7 @@ export default function CalculatePage() {
                       className="mt-1"
                     />
                     <span className="min-w-0">
-                      <span className="block min-w-0 truncate font-black">
+                      <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-black">
                         {importRecord.file_name}
                       </span>
                       <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
@@ -3126,7 +3126,7 @@ export default function CalculatePage() {
           if (!open && !isRepairingConsistency) setSelectedConsistencyGroupKey(null);
         }}
       >
-        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Fix attendance consistency warning</DialogTitle>
             <DialogDescription>
@@ -3159,7 +3159,7 @@ export default function CalculatePage() {
               </div>
               <div className="rounded-xl border">
                 <div className="border-b px-4 py-3 font-black">Affected students by expected total</div>
-                <div className="max-h-72 overflow-auto">
+                <div className="max-h-72 min-w-0 max-w-full overflow-x-auto overflow-y-auto">
                   <table className="w-full min-w-[480px] text-left text-sm">
                     <thead className="sticky top-0 bg-muted">
                       <tr>
@@ -3243,7 +3243,7 @@ export default function CalculatePage() {
           }
         }}
       >
-        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-5xl">
+        <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Edit source records for calculation row</DialogTitle>
             <DialogDescription>

@@ -2407,7 +2407,7 @@ export default function EventsPage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">School year</p>
-                      <p className="mt-1 truncate font-semibold" title={getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}>
                         {getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}
                       </p>
                     </div>
@@ -2890,7 +2890,7 @@ export default function EventsPage() {
           }
         }}
       >
-        <DialogContent className="flex min-w-0 max-w-full max-h-[85svh] flex-col overflow-hidden sm:max-w-xl">
+        <DialogContent className="flex min-w-0 max-w-full max-h-[85svh] flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -3145,7 +3145,7 @@ export default function EventsPage() {
           setExemptionDialogOpen(open);
         }}
       >
-        <DialogContent className="flex min-w-0 max-w-full max-h-[95svh] flex-col overflow-hidden sm:max-w-3xl">
+        <DialogContent className="flex min-w-0 max-w-full max-h-[95svh] flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -3197,7 +3197,7 @@ export default function EventsPage() {
                     onClick={() => setExemptionCollegePickerOpen((open) => !open)}
                     className="min-h-12 w-full justify-between rounded-2xl px-4 text-left font-semibold"
                   >
-                    <span className="min-w-0 truncate">
+                    <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">
                       {!exemptionColleges.length
                         ? "Select colleges"
                         : exemptionColleges.length === 1
@@ -3476,7 +3476,7 @@ export default function EventsPage() {
           }
         }}
       >
-        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Confirm duplicate event merge</DialogTitle>
             <DialogDescription>
@@ -3572,7 +3572,7 @@ export default function EventsPage() {
       </Dialog>
 
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
-        <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editingEvent ? "Edit event" : "Create event"}

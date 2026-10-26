@@ -419,7 +419,7 @@ function renderCurrentStudentSelectOption(
   if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
 
   return (
-    <SelectItem value={cleanValue} className="max-w-full truncate">
+    <SelectItem value={cleanValue} className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
       {cleanValue}
     </SelectItem>
   );
@@ -1911,7 +1911,7 @@ export default function ManualAttendancePage() {
           open={manualAttendanceDialogOpen}
           onOpenChange={handleDialogOpenChange}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-4xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>
                 {editingGroupKey
@@ -1926,7 +1926,7 @@ export default function ManualAttendancePage() {
             </DialogHeader>
             <form
               onSubmit={handleSubmit}
-              className="mt-5 grid gap-4 lg:grid-cols-4"
+              className="mt-5 grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0 lg:grid-cols-4"
             >
               {saveProgress ? (
                 <LoadingStatus
@@ -2005,7 +2005,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={yearLevel}
                         value={yearLevel}
-                        className="max-w-full truncate"
+                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                       >
                         {yearLevel}
                       </SelectItem>
@@ -2056,7 +2056,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={program}
                         value={program}
-                        className="max-w-full truncate"
+                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                       >
                         {program}
                       </SelectItem>
@@ -2098,7 +2098,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={institution}
                         value={institution}
-                        className="max-w-full truncate"
+                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
                       >
                         {institution}
                       </SelectItem>
@@ -2250,7 +2250,7 @@ export default function ManualAttendancePage() {
         />
 
         <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
-          <DialogContent className="flex max-w-full max-h-[80svh] min-w-0 flex-col overflow-hidden sm:max-w-2xl">
+          <DialogContent className="flex max-w-full max-h-[80svh] min-w-0 flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-2xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Existing records for this student</DialogTitle>
               <DialogDescription>
@@ -2293,7 +2293,7 @@ export default function ManualAttendancePage() {
             if (!open) setEventsDialogGroup(null);
           }}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 Events attended by{" "}
@@ -2494,11 +2494,11 @@ export default function ManualAttendancePage() {
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate font-semibold" title={group.college || "—"}>{group.college || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={group.college || "—"}>{group.college || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-                      <p className="mt-1 truncate font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
                     </div>
                     <div className="col-span-2 min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>

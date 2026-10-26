@@ -67,12 +67,13 @@ export function CollegeSelectDialog({
             ))}
           </SelectContent>
         </Select>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+        <div className="flex min-w-0 flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" className="w-full whitespace-normal sm:w-auto" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
             type="button"
+            className="w-full whitespace-normal sm:w-auto"
             disabled={!college}
             onClick={() => {
               if (!college) return;

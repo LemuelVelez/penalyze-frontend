@@ -490,7 +490,7 @@ export default function UsersPage() {
         </div>
 
         <Dialog open={userDialogOpen} onOpenChange={handleUserDialogOpenChange}>
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>
                 {isEditing ? "Edit user" : "Create user"}

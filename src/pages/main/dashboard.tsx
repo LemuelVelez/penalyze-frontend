@@ -519,7 +519,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
                       <p
-                        className="w-full min-w-0 flex-none truncate text-xs font-black sm:w-auto sm:flex-1"
+                        className="w-full min-w-0 flex-none truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs font-black sm:w-auto sm:flex-1"
                         title={item.file_name}
                       >
                         {item.file_name}

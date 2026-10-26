@@ -503,7 +503,7 @@ export default function AppLayout(props: LayoutProps) {
                                   />
                                 ) : null}
                               </span>
-                              <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                              <span className="mt-0.5 block truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs font-normal text-muted-foreground">
                                 {item.description}
                               </span>
                             </span>
@@ -553,7 +553,7 @@ export default function AppLayout(props: LayoutProps) {
 
               <SheetContent
                 side="right"
-                className="h-svh min-h-svh w-[min(20rem,100vw)] min-w-0 max-w-full overflow-x-hidden overflow-y-auto border-l bg-background px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-5 lg:hidden"
+                className="h-svh min-h-svh w-[min(20rem,100vw)] min-w-0 max-w-full overflow-y-auto break-words [overflow-wrap:anywhere] border-l bg-background px-4 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-5 lg:hidden"
               >
                 <SheetHeader className="mb-5 border-b pb-4 text-left">
                   <SheetTitle>
@@ -628,7 +628,7 @@ export default function AppLayout(props: LayoutProps) {
                                 }`}
                               >
                                 <Icon className="size-4" aria-hidden="true" />
-                                <span className="min-w-0 truncate">{item.label}</span>
+                                <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">{item.label}</span>
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} className="ml-auto" />
                                 ) : null}

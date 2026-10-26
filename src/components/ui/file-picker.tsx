@@ -41,7 +41,7 @@ export function FilePicker({
         variant="outline"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className="min-h-12 w-full rounded-2xl font-black"
+        className="min-h-12 h-auto w-full min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] rounded-2xl py-2 font-black"
       >
         {buttonLabel}
       </Button>

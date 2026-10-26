@@ -1297,7 +1297,7 @@ export default function FinesPage() {
                   <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Status</p>
@@ -1568,7 +1568,7 @@ export default function FinesPage() {
           </div>
         </section>
         <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
-          <DialogContent className="flex max-w-full max-h-[90svh] min-w-0 flex-col overflow-hidden sm:max-w-5xl">
+          <DialogContent className="flex max-w-full max-h-[90svh] min-w-0 flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-5xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Fines report preview</DialogTitle>
               <DialogDescription>
@@ -1588,7 +1588,7 @@ export default function FinesPage() {
                       <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>{result.status}</span>
                     </div>
                     <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
                       <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 break-all font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
                       <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 break-words">{result.prescribed_penalty || "—"}</p></div>
                       <div><p className="text-xs font-bold uppercase text-muted-foreground">Fine amount</p><p className="mt-1 break-all font-black">{formatFineReportCurrency(getFineReportAmount(result))}</p></div>
@@ -1641,7 +1641,7 @@ export default function FinesPage() {
           open={penaltyResultDialogOpen}
           onOpenChange={handlePenaltyResultDialogOpenChange}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit penalty result</DialogTitle>
               <DialogDescription>
@@ -1766,7 +1766,7 @@ export default function FinesPage() {
             }
           }}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-3xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Absent events for {absentEventsStudentName}</DialogTitle>
               <DialogDescription>
@@ -1811,7 +1811,7 @@ export default function FinesPage() {
           open={penaltyDialogOpen}
           onOpenChange={handlePenaltyDialogOpenChange}
         >
-          <DialogContent className="min-w-0 max-w-full max-h-svh overflow-y-auto sm:max-w-2xl">
+          <DialogContent className="min-w-0 max-w-full overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {penaltyForm.id ? "Edit penalty rule" : "Create penalty rule"}
