@@ -435,3 +435,41 @@ html.theme-switching *::after {
     overscroll-behavior-x: contain;
   }
 }
+
+/* Attendance uploader: a portaled grid must never size itself from its
+   longest workbook filename, status message or event label. Keep x overflow
+   visible to developers instead of masking a layout defect with hidden. */
+[data-slot="dialog-content"].attendance-upload-dialog {
+  width: min(calc(100vw - 1rem), 56rem);
+  max-width: calc(100vw - 1rem);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+@media (min-width: 640px) {
+  [data-slot="dialog-content"].attendance-upload-dialog {
+    width: min(calc(100vw - 2rem), 56rem);
+    max-width: calc(100vw - 2rem);
+  }
+}
+.attendance-upload-dialog > form {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .attendance-upload-dialog > form {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.attendance-upload-dialog > form > *,
+.attendance-upload-dialog > form > * > *,
+.attendance-upload-dialog [role="status"],
+.attendance-upload-dialog [role="status"] > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.attendance-upload-dialog :is(.grid, .flex) > * {
+  min-width: 0;
+}

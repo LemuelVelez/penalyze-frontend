@@ -351,6 +351,30 @@ function getAttendanceUploadFileKey(file: File) {
   return `${file.name}::${file.size}::${file.lastModified}`;
 }
 
+// Imports store a filename, not a file hash. Match names conservatively to
+// avoid importing the same named workbook again (also across school years).
+function getAttendanceUploadFilenameKey(fileName: string) {
+  return fileName.normalize("NFC").trim().toLocaleLowerCase();
+}
+
+async function getExistingAttendanceUploadNames() {
+  const existingNames = new Set<string>();
+  const pageSize = 100;
+
+  // The 'recent uploads' UI loads only one page for the selected school year.
+  // Fetch all active imports across school years so older files are protected too.
+  for (let offset = 0; offset < 50_000; offset += pageSize) {
+    const page = await listAttendanceImports({ limit: pageSize, offset });
+    for (const item of page) {
+      if (!item.deleted_at) existingNames.add(getAttendanceUploadFilenameKey(item.file_name));
+    }
+    if (page.length < pageSize) return existingNames;
+  }
+
+  // Fail closed rather than silently allowing duplicates if the list is incomplete.
+  throw new Error("Unable to verify the complete list of previously uploaded files.");
+}
+
 function getAttendancePreviewCollegeLabels(
   rows: Array<{ college?: string }>,
 ) {
@@ -809,6 +833,9 @@ export default function AttendancePage() {
   const [uploadForm, setUploadForm] =
     useState<UploadFormState>(emptyUploadForm);
   const [files, setFiles] = useState<File[]>([]);
+  const [isCheckingUploadFiles, setIsCheckingUploadFiles] = useState(false);
+  const fileSelectionRequestRef = useRef(0);
+  const saveDuplicateCheckRef = useRef(false);
   const [fileDetails, setFileDetails] = useState<
     Record<string, AttendanceUploadFileDetails>
   >({});
@@ -1347,6 +1374,8 @@ export default function AttendancePage() {
   }, []);
 
   async function selectAttendanceFiles(nextFiles: File[]) {
+    if (isSaving || isCheckingUploadFiles) return;
+    const requestId = ++fileSelectionRequestRef.current;
     if (!uploadForm.college) {
       toast.error("Select a college before uploading.");
       return;
@@ -1369,17 +1398,43 @@ export default function AttendancePage() {
 
     if (!acceptedFiles.length) return;
 
-    setFiles(acceptedFiles);
-    setFileDetails({});
-    setExemptionOverrideFileKeys(new Set());
+    setIsCheckingUploadFiles(true);
+    let filesToPreview: File[] = [];
+    try {
+      const existingNames = await getExistingAttendanceUploadNames();
+      if (fileSelectionRequestRef.current !== requestId) return;
+
+      const seenNames = new Set<string>();
+      const duplicates: string[] = [];
+      filesToPreview = acceptedFiles.filter((file) => {
+        const nameKey = getAttendanceUploadFilenameKey(file.name);
+        if (existingNames.has(nameKey) || seenNames.has(nameKey)) {
+          duplicates.push(file.name);
+          return false;
+        }
+        seenNames.add(nameKey);
+        return true;
+      });
+
+      if (duplicates.length) {
+        toast.error(
+          duplicates.length === 1
+            ? `File already uploaded or selected: ${duplicates[0]}. Upload blocked.`
+            : `${duplicates.length} duplicate files skipped. Files already uploaded cannot be uploaded again.`,
+        );
+      }
+      setFiles(filesToPreview);
+      setFileDetails({});
+      setExemptionOverrideFileKeys(new Set());
+      if (!filesToPreview.length) return;
 
     const fallbackSchoolYearId = uploadForm.schoolYearId || selectedSchoolYearId;
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
 
     try {
-      const previews = await previewAttendanceFile(acceptedFiles, uploadForm.college);
+      const previews = await previewAttendanceFile(filesToPreview, uploadForm.college);
       const detailsEntries = await Promise.all(
-        acceptedFiles.map(async (nextFile, index) => {
+        filesToPreview.map(async (nextFile, index) => {
           const fileKey = getAttendanceUploadFileKey(nextFile);
           const preview = previews[index];
           if (!preview) throw new Error(`No preview returned for ${nextFile.name}.`);
@@ -1445,7 +1500,7 @@ export default function AttendancePage() {
         error instanceof Error ? error.message : "Unable to preview attendance files.";
       toast.error(message);
       const fallbackDetails = Object.fromEntries(
-        acceptedFiles.map((nextFile) => [
+        filesToPreview.map((nextFile) => [
           getAttendanceUploadFileKey(nextFile),
           {
             metadata: {},
@@ -1478,6 +1533,19 @@ export default function AttendancePage() {
         ]),
       );
       setFileDetails(fallbackDetails);
+    }
+    } catch (error) {
+      if (fileSelectionRequestRef.current === requestId) {
+        setFiles([]);
+        setFileDetails({});
+        toast.error(
+          error instanceof Error
+            ? `Cannot verify previously uploaded files: ${error.message}`
+            : "Cannot verify previously uploaded files. Please try again.",
+        );
+      }
+    } finally {
+      if (fileSelectionRequestRef.current === requestId) setIsCheckingUploadFiles(false);
     }
   }
 
@@ -1854,6 +1922,34 @@ export default function AttendancePage() {
     if (!files.length) {
       toast.error("Please choose at least one attendance file first.");
       return;
+    }
+
+    if (isSaving || isCheckingUploadFiles || saveDuplicateCheckRef.current) return;
+    saveDuplicateCheckRef.current = true;
+    setIsCheckingUploadFiles(true);
+    try {
+      const existingNames = await getExistingAttendanceUploadNames();
+      const duplicates = files.filter((file) =>
+        existingNames.has(getAttendanceUploadFilenameKey(file.name)),
+      );
+      if (duplicates.length) {
+        toast.error(
+          duplicates.length === 1
+            ? `Already uploaded: ${duplicates[0].name}. Remove it before saving.`
+            : `${duplicates.length} file/s are already uploaded. Remove them before saving.`,
+        );
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? `Cannot verify previously uploaded files: ${error.message}`
+          : "Cannot verify previously uploaded files. Please try again.",
+      );
+      return;
+    } finally {
+      saveDuplicateCheckRef.current = false;
+      setIsCheckingUploadFiles(false);
     }
 
     const invalidCollegeFile = files.find(
@@ -3017,6 +3113,8 @@ export default function AttendancePage() {
             if (!open && isSaving) return;
             setUploadDialogOpen(open);
             if (!open) {
+              fileSelectionRequestRef.current += 1;
+              setIsCheckingUploadFiles(false);
               setCollegeReviewFileKey("");
               setProgress(null);
               setUploadForm((current) => ({ ...current, college: "" }));
@@ -3027,7 +3125,7 @@ export default function AttendancePage() {
           }}
         >
           <DialogContent
-            className="min-w-0 max-w-full overflow-y-auto sm:max-w-4xl"
+            className="attendance-upload-dialog min-w-0 max-w-full overflow-y-auto sm:max-w-4xl"
             onCloseAutoFocus={() => {
               setUploadForm((current) => ({ ...current, college: "" }));
             }}
@@ -3100,15 +3198,17 @@ export default function AttendancePage() {
                   accept={acceptedFileTypes}
                   multiple
                   onChange={handleFileChange}
-                  disabled={isSaving}
+                  disabled={isSaving || isCheckingUploadFiles}
                   buttonLabel={
-                    files.length ? "Choose different files" : "Choose attendance files"
+                    isCheckingUploadFiles
+                      ? "Checking existing uploads..."
+                      : files.length ? "Choose different files" : "Choose attendance files"
                   }
                   className="mt-4"
                 />
               </div>
 
-              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:col-span-5">
+              <div className="flex min-w-0 max-w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:col-span-5">
                 <div className="min-w-0 flex-1 space-y-2">
                   <span className="text-sm font-bold">Default school year / semester</span>
                   <SchoolYearBadge label={uploadSchoolYearLabel} className="w-full justify-center" />
@@ -3479,12 +3579,14 @@ export default function AttendancePage() {
               <div className="flex items-end lg:col-span-5">
                 <Button
                   type="submit"
-                  disabled={isSaving || !files.length}
+                  disabled={isSaving || isCheckingUploadFiles || !files.length}
                   className="min-h-12 w-full rounded-2xl font-semibold"
                 >
                   {isSaving
                     ? `Saving ${Math.round(progress?.percent ?? 0)}%...`
-                    : "Save Files"}
+                    : isCheckingUploadFiles
+                      ? "Checking existing uploads..."
+                      : "Save Files"}
                 </Button>
               </div>
             </form>
