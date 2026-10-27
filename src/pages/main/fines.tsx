@@ -1568,7 +1568,7 @@ export default function FinesPage() {
           </div>
         </section>
         <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
-          <DialogContent className="flex max-w-full max-h-[90svh] min-w-0 flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-5xl">
+          <DialogContent className="flex h-[min(90dvh,52rem)] min-w-0 max-w-full flex-col overflow-hidden sm:max-w-5xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Fines report preview</DialogTitle>
               <DialogDescription>
@@ -1576,7 +1576,7 @@ export default function FinesPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto">
+            <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain">
               <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
                 {filteredPenaltyResults.map((result) => (
                   <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-3 text-sm sm:p-4">

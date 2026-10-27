@@ -174,6 +174,20 @@
   body,
   #root {
     min-height: 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Clip stray inline overflow without turning the page into a horizontal
+     scroll container or interfering with normal vertical page scrolling. */
+  html,
+  body,
+  #root {
+    overflow-x: clip;
+  }
+
+  :where(img, video, canvas) {
+    max-width: 100%;
   }
 
   button,
@@ -208,11 +222,14 @@
     cursor: not-allowed;
   }
 
-  [role="dialog"]:not([data-slot="sheet-content"]) {
-    max-height: calc(100svh - 2rem);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border-radius: var(--radius-2xl);
+  :where([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) {
+    max-height: calc(100dvh - 1rem);
+    overscroll-behavior-y: contain;
+  }
+
+  /* Scrolling form content must not extend beneath modal action buttons. */
+  :where([data-slot="dialog-content"], [data-slot="alert-dialog-content"]) > * {
+    min-width: 0;
   }
 
   [data-slot="dialog-content"],
@@ -330,8 +347,12 @@ html.theme-switching *::after {
 
 /* Responsive content constraints. Tables keep their own scroll containers and sticky cells. */
 @media (max-width: 639px) {
-  :where(main, section, article, form, [data-slot="dialog-content"], [data-slot="sheet-content"]) {
+  :where(main, section, article, form, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) {
     min-width: 0;
+    max-width: 100%;
+  }
+
+  :where(main, [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"]) :where(button, input, textarea, select) {
     max-width: 100%;
   }
 

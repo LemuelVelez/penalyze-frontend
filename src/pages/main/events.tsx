@@ -2890,7 +2890,7 @@ export default function EventsPage() {
           }
         }}
       >
-        <DialogContent className="flex min-w-0 max-w-full max-h-[85svh] flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-xl">
+        <DialogContent className="flex h-[min(85dvh,48rem)] min-w-0 max-w-full flex-col overflow-hidden sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -2910,7 +2910,7 @@ export default function EventsPage() {
 
           {exemptionDetailsEvent ? (
             <>
-              <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto pr-1 [overflow-wrap:anywhere]">
+              <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-clip overflow-y-auto overscroll-y-contain pr-1 [overflow-wrap:anywhere]">
                   <div className="rounded-xl border bg-muted/20 p-3">
                   <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
                   <p className="mt-1 text-xs font-semibold text-muted-foreground">
@@ -3145,7 +3145,7 @@ export default function EventsPage() {
           setExemptionDialogOpen(open);
         }}
       >
-        <DialogContent className="flex min-w-0 max-w-full max-h-[95svh] flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-3xl">
+        <DialogContent className="flex h-[min(92dvh,52rem)] min-w-0 max-w-full flex-col overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Event Exemptions</DialogTitle>
             <DialogDescription>
@@ -3165,7 +3165,7 @@ export default function EventsPage() {
 
           <fieldset
             disabled={isSavingExemptions}
-            className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto border-0 p-0 pr-1 disabled:cursor-wait [overflow-wrap:anywhere]"
+            className="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-clip overflow-y-auto overscroll-y-contain border-0 p-0 pr-1 disabled:cursor-wait [overflow-wrap:anywhere]"
           >
             <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-1.5">
               <Button
@@ -3367,7 +3367,7 @@ export default function EventsPage() {
               />
             </label>
           </fieldset>
-          <DialogFooter className="min-w-0 border-t pt-3 sm:justify-end">
+          <DialogFooter className="grid min-w-0 grid-cols-2 gap-2 border-t pt-3 sm:flex sm:justify-end">
             <Button
               type="button"
               variant="outline"
@@ -3393,6 +3393,7 @@ export default function EventsPage() {
             {hasPreviewedExemptions ? (
               <Button
                 type="button"
+                className="col-span-2 sm:col-auto"
                 disabled={exemptionActionsBusy}
                 onClick={() => void handleSaveExemptions()}
               >

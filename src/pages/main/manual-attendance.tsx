@@ -2250,14 +2250,14 @@ export default function ManualAttendancePage() {
         />
 
         <Dialog open={selectedRecordsDialogOpen} onOpenChange={setSelectedRecordsDialogOpen}>
-          <DialogContent className="flex max-w-full max-h-[80svh] min-w-0 flex-col max-lg:overflow-y-auto lg:overflow-hidden sm:max-w-2xl">
+          <DialogContent className="flex h-[min(80dvh,46rem)] min-w-0 max-w-full flex-col overflow-hidden sm:max-w-2xl">
             <DialogHeader className="shrink-0">
               <DialogTitle>Existing records for this student</DialogTitle>
               <DialogDescription>
                 Review the attendance records already saved for this student.
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-background p-3">
+            <div className="min-h-0 min-w-0 flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain rounded-2xl border bg-background p-3">
               <div className="grid gap-2">
                 {selectedEventRecords.map((record, index) => (
                   <div

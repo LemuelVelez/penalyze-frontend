@@ -59,7 +59,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto break-words rounded-3xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:w-[calc(100%-2rem)] sm:max-w-sm lg:w-full data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 [&>*]:min-w-0",
+          "fixed top-1/2 left-1/2 z-50 grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-clip overflow-y-auto break-words rounded-3xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:w-[calc(100%-2rem)] sm:max-w-sm lg:w-full data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 [&>*]:min-w-0",
           className
         )}
         {...props}
@@ -69,7 +69,7 @@ function DialogContent({
             <Button
               type="button"
               variant="ghost"
-              className="sticky top-2 z-20 -mb-[60px] size-11 shrink-0 place-self-end rounded-full sm:-mb-[52px] sm:size-9"
+              className="absolute right-2 top-2 z-20 size-11 rounded-full sm:right-3 sm:top-3 sm:size-9"
               size="icon-sm"
             >
               <XIcon aria-hidden="true" />
@@ -87,7 +87,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex shrink-0 flex-col gap-1 pr-12 sm:pr-10 text-left max-sm:sticky max-sm:top-0 max-sm:z-10 max-sm:-mx-1 max-sm:bg-popover max-sm:pl-1 max-sm:pr-12 max-sm:py-2", className)}
+      className={cn("flex min-w-0 shrink-0 flex-col gap-1 pr-12 text-left sm:pr-10", className)}
       {...props}
     />
   )
@@ -105,7 +105,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex shrink-0 flex-col-reverse gap-2 pt-1 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-1 max-sm:bg-popover max-sm:pl-1 max-sm:pr-12 max-sm:py-2 sm:flex-row sm:justify-end",
+        "flex min-w-0 shrink-0 flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end [&>button]:min-w-0 [&>button]:max-w-full [&>button]:whitespace-normal [&>button]:[overflow-wrap:anywhere]",
         className
       )}
       {...props}

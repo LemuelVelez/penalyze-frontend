@@ -3159,7 +3159,35 @@ export default function CalculatePage() {
               </div>
               <div className="rounded-xl border">
                 <div className="border-b px-4 py-3 font-black">Affected students by expected total</div>
-                <div className="max-h-72 min-w-0 max-w-full overflow-x-auto overflow-y-auto">
+                <div className="grid max-h-72 min-w-0 gap-2 overflow-y-auto overscroll-y-contain p-2 sm:hidden">
+                  {selectedConsistencyGroup.rows.map((row) => (
+                    <article key={row.key} className="min-w-0 space-y-2 rounded-xl border bg-background p-3">
+                      <div className="min-w-0">
+                        <p className="break-words font-semibold">{row.name}</p>
+                        <p className="break-all text-xs text-muted-foreground">{row.studentId}</p>
+                      </div>
+                      <p className="break-words text-xs">Year level: {row.yearLevel || "Unresolved"}</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <p>Expected: <strong className="text-red-700 dark:text-red-300">{row.expectedEvents}</strong></p>
+                        <p>Attended: <strong>{row.attendedEvents}</strong></p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full whitespace-normal"
+                        disabled={isRepairingConsistency || !row.sourceRecordCount}
+                        onClick={() => {
+                          setSelectedConsistencyGroupKey(null);
+                          void handleOpenEditRow(row);
+                        }}
+                      >
+                        Edit source records
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden max-h-72 min-w-0 max-w-full overflow-x-auto overflow-y-auto sm:block">
                   <table className="w-full min-w-[480px] text-left text-sm">
                     <thead className="sticky top-0 bg-muted">
                       <tr>
