@@ -132,6 +132,8 @@ export type ReviewAttendanceRequestResult = {
   request: AttendanceRequest | null;
   createdAttendanceCount?: number;
   updatedRowCount?: number;
+  removedExemptedEventCount?: number;
+  autoClosedByExemption?: boolean;
 };
 
 type ApiEnvelope<T> = {

@@ -455,17 +455,22 @@ export default function AttendanceRequestsPage() {
           })),
         });
 
-        if (request.request_type === "details_correction") {
+        if (result?.autoClosedByExemption) {
+          toast.info("Request closed automatically: all events are exempted.");
+        } else if (request.request_type === "details_correction") {
           toast.success(
             result?.updatedRowCount
               ? `Details correction approved. ${result.updatedRowCount} row/s updated.`
               : "Details correction approved.",
           );
         } else {
+          const removedMessage = result?.removedExemptedEventCount
+            ? ` ${result.removedExemptedEventCount} exempted event(s) were removed automatically.`
+            : "";
           toast.success(
-            result?.createdAttendanceCount
+            (result?.createdAttendanceCount
               ? `Request approved. ${result.createdAttendanceCount} attendance record/s added.`
-              : "Request approved. Existing attendance records were kept without duplicates.",
+              : "Request approved. Existing attendance records were kept without duplicates.") + removedMessage,
           );
         }
 
@@ -932,7 +937,7 @@ export default function AttendanceRequestsPage() {
               ) : (
                 <div className="rounded-2xl border bg-background p-4 text-sm">
                   <p className="font-bold">
-                    Reviewed by {request.reviewed_by_name || "authenticated user"}
+                    Reviewed by {request.reviewed_by_name || "System (exemption)"}
                     {request.reviewed_at
                       ? ` on ${formatDate(request.reviewed_at)}`
                       : ""}
