@@ -1,5 +1,7 @@
 import { checkUnauthorized, getApiBaseUrl, getAuthToken } from "./auth";
 
+export const REPOSITORY_SYNC_UPDATED_EVENT = "penalyze:repository-sync-updated";
+
 export type RepositorySyncStatus = "untracked" | "pending" | "uploaded" | "outdated";
 export type RepositoryWorkbook = {
   id: string;
@@ -50,7 +52,9 @@ export async function markRepositorySync(action: "pending" | "uploaded" | "reset
     method: "POST",
     body: JSON.stringify({ uploadIds, ...(action === "uploaded" ? { note, penalyzeImportId: penalyzeImportId || undefined } : {}) }),
   });
-  return (await response.json() as Envelope<{ uploadIds: string[] }>).data;
+  const result = (await response.json() as Envelope<{ uploadIds: string[] }>).data;
+  window.dispatchEvent(new Event(REPOSITORY_SYNC_UPDATED_EVENT));
+  return result;
 }
 
 export async function downloadRepositoryWorkbook(id: string) {

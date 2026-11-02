@@ -21,6 +21,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { getStoredUser } from "../api/auth";
+import { listRepositoryWorkbooks, REPOSITORY_SYNC_UPDATED_EVENT } from "../api/repositorySync";
 import { BACKGROUNDS } from "../lib/backgrounds";
 import {
   CALCULATION_STATUS_UPDATED_EVENT,
@@ -124,6 +125,7 @@ function PendingBadge(props: {
   className?: string;
   ariaLabel?: string;
   dot?: boolean;
+  warning?: boolean;
 }) {
   if (props.count <= 0) return null;
 
@@ -138,7 +140,7 @@ function PendingBadge(props: {
 
   return (
     <span
-      className={`inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-black leading-none text-destructive-foreground ${props.className ?? ""}`}
+      className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none ${props.warning ? "bg-amber-500 text-amber-950" : "bg-destructive text-destructive-foreground"} ${props.className ?? ""}`}
       aria-label={
         props.ariaLabel ??
         `${props.count} pending request${props.count === 1 ? "" : "s"}`
@@ -154,6 +156,7 @@ export default function AppLayout(props: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopGroupOpen, setDesktopGroupOpen] = useState<string | null>(null);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [untrackedRepositoryCount, setUntrackedRepositoryCount] = useState(0);
   const [calculationNeeded, setCalculationNeeded] = useState(false);
 
   const currentUser = useMemo(() => getStoredUser(), []);
@@ -290,6 +293,29 @@ export default function AppLayout(props: LayoutProps) {
     return () => {
       active = false;
       window.removeEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function refreshUntrackedCount() {
+      try {
+        const workbooks = await listRepositoryWorkbooks("untracked");
+        if (active) setUntrackedRepositoryCount(workbooks.length);
+      } catch {
+        // Leave the last known count in place during temporary integration outages.
+      }
+    }
+    const handleUpdated = () => void refreshUntrackedCount();
+    void refreshUntrackedCount();
+    window.addEventListener(REPOSITORY_SYNC_UPDATED_EVENT, handleUpdated);
+    window.addEventListener("focus", handleUpdated);
+    const intervalId = window.setInterval(refreshUntrackedCount, 30_000);
+    return () => {
+      active = false;
+      window.removeEventListener(REPOSITORY_SYNC_UPDATED_EVENT, handleUpdated);
+      window.removeEventListener("focus", handleUpdated);
       window.clearInterval(intervalId);
     };
   }, []);
@@ -502,6 +528,9 @@ export default function AppLayout(props: LayoutProps) {
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} />
                                 ) : null}
+                                {item.path === "/repository-sync" ? (
+                                  <PendingBadge count={untrackedRepositoryCount} warning ariaLabel={`${untrackedRepositoryCount} untracked repository workbooks`} />
+                                ) : null}
                                 {item.path === "/calculate" ? (
                                   <PendingBadge
                                     count={calculationNeeded ? 1 : 0}
@@ -638,6 +667,9 @@ export default function AppLayout(props: LayoutProps) {
                                 <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">{item.label}</span>
                                 {item.path === "/attendance-requests" ? (
                                   <PendingBadge count={pendingRequestCount} className="ml-auto" />
+                                ) : null}
+                                {item.path === "/repository-sync" ? (
+                                  <PendingBadge count={untrackedRepositoryCount} warning className="ml-auto" ariaLabel={`${untrackedRepositoryCount} untracked repository workbooks`} />
                                 ) : null}
                                 {item.path === "/calculate" ? (
                                   <PendingBadge
