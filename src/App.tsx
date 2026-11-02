@@ -19,6 +19,7 @@ import LoginPage from "./pages/auth/login";
 import AttendancePage from "./pages/main/attendance";
 import AttendanceRequestsPage from "./pages/main/attendance-requests";
 import HistoryPage from "./pages/main/history";
+import RepositorySyncPage from "./pages/main/repository-sync";
 import ManualAttendancePage from "./pages/main/manual-attendance";
 import CalculatePage from "./pages/main/calculate";
 import EventsPage from "./pages/main/events";
@@ -145,6 +146,7 @@ function AppRoutes() {
       { path: "/manual-attendance", element: <ManualAttendancePage /> },
       { path: "/events", element: <EventsPage /> },
       { path: "/history", element: <HistoryPage /> },
+      { path: "/repository-sync", element: <RepositorySyncPage /> },
       { path: "/calculate", element: <CalculatePage /> },
       { path: "/fines", element: <FinesPage /> },
       { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },

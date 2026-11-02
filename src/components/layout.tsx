@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   FileClock,
   History,
+  GitPullRequest,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -182,6 +183,12 @@ export default function AppLayout(props: LayoutProps) {
           label: "Requests",
           description: "Review pending submissions",
           icon: FileClock,
+        },
+        {
+          path: "/repository-sync",
+          label: "Repository sync",
+          description: "Track workbook migration status",
+          icon: GitPullRequest,
         },
         {
           path: "/manual-attendance",
