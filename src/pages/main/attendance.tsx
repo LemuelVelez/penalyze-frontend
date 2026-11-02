@@ -3,6 +3,8 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 import { Loader2, Minus, Plus } from "lucide-react";
 import { getStoredUser } from "../../api/auth";
+import { markRepositorySync, takeRepositoryAttendanceReview } from "../../api/repositorySync";
+import type { RepositoryAttendanceReview } from "../../api/repositorySync";
 
 import {
   getAcceptedAttendanceFileTypes,
@@ -817,6 +819,9 @@ export default function AttendancePage() {
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const repositoryReviewRef = useRef<RepositoryAttendanceReview | null>(null);
+  const [repositoryReviewCount, setRepositoryReviewCount] = useState(0);
+  const [repositorySyncFailures, setRepositorySyncFailures] = useState<string[]>([]);
   const [uploadCollegeDialogOpen, setUploadCollegeDialogOpen] = useState(false);
   const [collegeReviewFileKey, setCollegeReviewFileKey] = useState("");
   const [collegeReviewFilter, setCollegeReviewFilter] = useState<
@@ -1378,10 +1383,10 @@ export default function AttendancePage() {
     void loadPageData();
   }, []);
 
-  async function selectAttendanceFiles(nextFiles: File[]) {
+  async function selectAttendanceFiles(nextFiles: File[], defaultCollege = uploadForm.college) {
     if (isSaving || isCheckingUploadFiles) return;
     const requestId = ++fileSelectionRequestRef.current;
-    if (!uploadForm.college) {
+    if (!defaultCollege) {
       toast.error("Select a college before uploading.");
       return;
     }
@@ -1437,7 +1442,7 @@ export default function AttendancePage() {
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
 
     try {
-      const previews = await previewAttendanceFile(filesToPreview, uploadForm.college);
+      const previews = await previewAttendanceFile(filesToPreview, defaultCollege);
       const detailsEntries = await Promise.all(
         filesToPreview.map(async (nextFile, index) => {
           const fileKey = getAttendanceUploadFileKey(nextFile);
@@ -1483,7 +1488,7 @@ export default function AttendancePage() {
             selectedRowNumbers: [],
             assignmentCollege: "",
             rowSearch: "",
-            ...getAttendanceCollegeSummary(preview.rows, {}, uploadForm.college),
+            ...getAttendanceCollegeSummary(preview.rows, {}, defaultCollege),
             mergeCandidates,
             mergeDecisionConfirmed: !mergeCandidates.some(
               (candidate) => candidate.confidence !== "low",
@@ -1553,6 +1558,19 @@ export default function AttendancePage() {
       if (fileSelectionRequestRef.current === requestId) setIsCheckingUploadFiles(false);
     }
   }
+
+  // Repository Sync passes the existing File objects directly to this wizard.
+  // Do not save until the user has reviewed the detected events and colleges.
+  useEffect(() => {
+    if (isLoading) return;
+    const review = takeRepositoryAttendanceReview();
+    if (!review) return;
+    repositoryReviewRef.current = review;
+    setRepositoryReviewCount(review.workbooks.length);
+    setUploadForm((current) => ({ ...current, college: review.college }));
+    setUploadDialogOpen(true);
+    void selectAttendanceFiles(review.workbooks.map((entry) => entry.file), review.college);
+  }, [isLoading]);
 
   function openAttendanceCollegeReviewDialog(
     fileKey: string,
@@ -1957,6 +1975,15 @@ export default function AttendancePage() {
       setIsCheckingUploadFiles(false);
     }
 
+    const unreviewedFile = files.find((file) => {
+      const details = fileDetails[getAttendanceUploadFileKey(file)];
+      return !details || Boolean(details.previewError);
+    });
+    if (unreviewedFile) {
+      toast.error(`Complete the upload preview for ${unreviewedFile.name} before saving.`);
+      return;
+    }
+
     const invalidCollegeFile = files.find(
       (file) => (fileDetails[getAttendanceUploadFileKey(file)]?.invalidCollegeRows.length ?? 0) > 0,
     );
@@ -2032,6 +2059,9 @@ export default function AttendancePage() {
       });
       const filesSaved = batchResult?.filesSaved ?? 0;
       const recordsSaved = batchResult?.recordsSaved ?? 0;
+      if (filesSaved !== files.length || batchResult?.filesFailed) {
+        throw new Error("The complete attendance batch was not confirmed saved. Repository statuses were not updated.");
+      }
       setReconciliationReports(
         (batchResult?.files ?? [])
           .filter((item) => item.result?.reconciliation)
@@ -2055,6 +2085,40 @@ export default function AttendancePage() {
       toast.success(
         `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
       );
+
+      // Only mark workbooks that actually went through this review and have a
+      // confirmed import ID. Never mark an unsaved, removed, or replaced file.
+      const repositoryReview = repositoryReviewRef.current;
+      if (repositoryReview) {
+        const repositoryIdsByFile = new Map(
+          repositoryReview.workbooks.map((item) => [item.file, item.uploadId]),
+        );
+        const syncErrors: string[] = [];
+        for (const file of files) {
+          const uploadId = repositoryIdsByFile.get(file);
+          if (!uploadId) continue;
+          const saved = batchResult.files.find(
+            (item) => item.fileName === file.name && item.status === "saved" && item.result?.importId,
+          );
+          if (!saved?.result?.importId) {
+            syncErrors.push(`${file.name}: no confirmed Penalyze import ID`);
+            continue;
+          }
+          try {
+            await markRepositorySync(
+              "uploaded", [uploadId], "Reviewed and imported from Repository sync", saved.result.importId,
+            );
+          } catch (error) {
+            syncErrors.push(`${file.name}: ${error instanceof Error ? error.message : "Status update failed"}`);
+          }
+        }
+        repositoryReviewRef.current = null;
+        setRepositoryReviewCount(0);
+        setRepositorySyncFailures(syncErrors);
+        if (syncErrors.length) {
+          toast.error(`Attendance was saved, but ${syncErrors.length} repository status update(s) failed. Do not import again; mark these files uploaded manually in Repository Sync.`, { duration: 12000 });
+        }
+      }
 
       setFiles([]);
       setFileDetails({});
@@ -3052,6 +3116,13 @@ export default function AttendancePage() {
               </p>
             </div>
           ) : null}
+          {repositorySyncFailures.length > 0 && (
+            <div role="alert" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+              <p className="font-semibold">Attendance saved, but {repositorySyncFailures.length} repository status update(s) need attention.</p>
+              <p className="mt-1">Do not reimport these workbooks. Mark their existing imports uploaded manually in Repository Sync.</p>
+              <ul className="mt-2 list-disc pl-5">{repositorySyncFailures.map((error, index) => <li key={index} className="break-words">{error}</li>)}</ul>
+            </div>
+          )}
           {reconciliationReports.map(({ fileName, reconciliation }) => {
             const mergedCount = reconciliation.rowsMerged.reduce(
               (total, item) => total + Math.max(0, item.sourceRowNumbers.length - 1),
@@ -3118,6 +3189,8 @@ export default function AttendancePage() {
             if (!open && isSaving) return;
             setUploadDialogOpen(open);
             if (!open) {
+              repositoryReviewRef.current = null;
+              setRepositoryReviewCount(0);
               fileSelectionRequestRef.current += 1;
               setIsCheckingUploadFiles(false);
               setCollegeReviewFileKey("");
@@ -3136,9 +3209,11 @@ export default function AttendancePage() {
             }}
           >
             <DialogHeader>
-              <DialogTitle>Upload attendance file</DialogTitle>
+              <DialogTitle>{repositoryReviewCount ? "Review repository attendance files" : "Upload attendance file"}</DialogTitle>
               <DialogDescription>
-                Select attendance files and review detected event details before importing.
+                {repositoryReviewCount
+                  ? `${repositoryReviewCount} workbook(s) came from Repository Sync. Review individual college assignments and event merges, then save only when everything is correct. No files have been imported yet.`
+                  : "Select attendance files and review detected event details before importing."}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0 lg:grid-cols-5">

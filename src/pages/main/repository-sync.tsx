@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Download, GitCommitHorizontal, GitPullRequest, RefreshCw, RotateCcw, Upload } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync,
+  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync, stageRepositoryAttendanceReview,
 } from "../../api/repositorySync";
 import type { RepositorySyncStatus, RepositoryWorkbook } from "../../api/repositorySync";
-import { listAttendanceImports, saveAttendanceFile } from "../../api/attendance";
+import { listAttendanceImports } from "../../api/attendance";
 import { CollegeSelectDialog } from "../../components/college-select-dialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -42,6 +42,7 @@ async function existingImportNames() {
 }
 
 export default function RepositorySyncPage() {
+  const navigate = useNavigate();
   const [records, setRecords] = useState<RepositoryWorkbook[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState<RepositorySyncStatus | "all">("all");
@@ -109,50 +110,42 @@ export default function RepositorySyncPage() {
     setUploadErrors([]);
     setBusy(true);
     setUploadProgress("Checking existing Penalyze imports…");
-    const errors: string[] = [];
-    const uploadedIds: string[] = [];
-    let imported = 0;
     try {
-      // Do not accidentally import a workbook that was already saved from the Attendance page.
-      const names = await existingImportNames();
-      for (const [index, item] of workbooks.entries()) {
-        setUploadProgress(`Uploading ${index + 1} of ${workbooks.length}: ${item.originalName}`);
+      const alreadyImported = await existingImportNames();
+      const selectedNames = new Set<string>();
+      const duplicates = workbooks.filter((item) => {
         const name = filenameKey(item.originalName);
-        if (names.has(name)) {
-          errors.push(`${item.originalName}: Already exists in Penalyze. Review it in Attendance before marking it uploaded.`);
-          continue;
-        }
-        try {
-          const blob = await downloadRepositoryWorkbook(item.id);
-          const file = new File([blob], item.originalName, { type: WORKBOOK_MIME });
-          // Use Penalyze's existing transactional attendance import flow, not just a status change.
-          const result = await saveAttendanceFile([file], { college });
-          const savedFile = result?.files?.[0]?.result;
-          if (result?.filesSaved !== 1 || !savedFile?.importId) {
-            throw new Error("The attendance import did not confirm a saved file.");
-          }
-          imported += 1;
-          names.add(name);
-          try {
-            await markRepositorySync("uploaded", [item.id], "Imported from Repository sync", savedFile.importId);
-            uploadedIds.push(item.id);
-          } catch (error) {
-            errors.push(`${item.originalName}: Imported into Penalyze, but the repository status could not be updated: ${error instanceof Error ? error.message : "Unknown error"}. Do not import it again; mark it uploaded manually.`);
-          }
-        } catch (error) {
-          errors.push(`${item.originalName}: ${error instanceof Error ? error.message : "Import failed"}. Review event merges or college assignments in Attendance if needed.`);
-        }
+        if (alreadyImported.has(name) || selectedNames.has(name)) return true;
+        selectedNames.add(name);
+        return false;
+      });
+      if (duplicates.length) {
+        const messages = duplicates.map((item) => `${item.originalName}: Already imported into Penalyze or selected twice. Remove it from the selection before reviewing the batch.`);
+        setUploadErrors(messages);
+        toast.error("Remove duplicate or previously imported files before continuing to review.");
+        return;
       }
-      if (imported) toast.success(`${imported} workbook${imported === 1 ? "" : "s"} imported into Penalyze.`);
-      if (errors.length) toast.error(`${errors.length} workbook${errors.length === 1 ? " needs" : "s need"} attention. See details below.`);
-      setSelected((previous) => previous.filter((id) => !uploadedIds.includes(id)));
+
+      // Download into memory only. Attendance's existing preview, row corrections,
+      // event merging, and confirmation screens run before the save API is called.
+      const downloaded: Array<{ uploadId: string; file: File }> = [];
+      for (const [index, item] of workbooks.entries()) {
+        setUploadProgress(`Preparing ${index + 1} of ${workbooks.length} for review: ${item.originalName}`);
+        const blob = await downloadRepositoryWorkbook(item.id);
+        downloaded.push({
+          uploadId: item.id,
+          file: new File([blob], item.originalName, { type: WORKBOOK_MIME }),
+        });
+      }
+      stageRepositoryAttendanceReview({ college, workbooks: downloaded });
+      // Reuse the actual Attendance review wizard rather than importing directly.
+      navigate("/attendance");
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : "Could not check existing attendance imports.");
-      toast.error(errors[errors.length - 1]);
+      const message = error instanceof Error ? error.message : "Could not prepare workbooks for review.";
+      setUploadErrors([message]);
+      toast.error(message);
     } finally {
-      setUploadErrors(errors);
       setUploadProgress("");
-      await refresh(true);
       setBusy(false);
     }
   };
@@ -215,9 +208,8 @@ export default function RepositorySyncPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy || !selected.some((id) => records.some((item) => item.id === id && item.penalyzeStatus !== "uploaded")) || selected.length > MAX_SELECTION}
-            onClick={() => setUploadDialogOpen(true)}><Upload className="size-4" /> Upload selected to Penalyze</Button>
+            onClick={() => setUploadDialogOpen(true)}><Upload className="size-4" /> Review & upload selected</Button>
           <Button disabled={busy || !selected.length} variant="outline" onClick={() => void runAction("pending", selected)}><GitPullRequest className="size-4" /> Mark pending</Button>
-          <Button disabled={busy || !selected.length} variant="outline" onClick={() => void runAction("uploaded", selected)}><GitCommitHorizontal className="size-4" /> Mark uploaded</Button>
           <Button disabled={busy || !selected.length} variant="outline" onClick={() => void runAction("reset", selected)}><RotateCcw className="size-4" /> Reset to untracked</Button>
           <Link to="/attendance" className="ml-auto inline-flex items-center text-sm text-primary underline-offset-4 hover:underline">Go to attendance imports</Link>
         </div>
@@ -228,13 +220,15 @@ export default function RepositorySyncPage() {
             <ul className="list-disc space-y-1 pl-5">{uploadErrors.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
           </div>
         )}
-        <p className="text-xs text-muted-foreground">Selected workbooks are transferred and saved as attendance imports automatically after you choose a college. Files already imported or needing event review are not imported again. Limit: 200 selected files.</p>
+        <p className="text-xs text-muted-foreground">Selected workbooks open in the Attendance upload review dialog. Correct unrecognised colleges, choose event merge options, and confirm before anything is saved. No manual download is needed. Limit: 200 selected files.</p>
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground">Manual sync status options</summary>
+          <p className="mt-2 text-xs text-muted-foreground">Manual status overrides do not upload any files. Use only to record an import already completed elsewhere.</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <Input placeholder="Optional Penalyze import UUID" aria-label="Penalyze import ID" value={importId} onChange={(e) => setImportId(e.target.value)} />
             <Input placeholder="Optional upload note" aria-label="Upload note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={4000} />
           </div>
+          <Button className="mt-2" size="sm" variant="outline" disabled={busy || !selected.length} onClick={() => void runAction("uploaded", selected)}><GitCommitHorizontal className="size-4" /> Mark selected uploaded (manual only)</Button>
         </details>
       </section>
       <section className="space-y-2" aria-label="Repository workbooks">
@@ -252,18 +246,17 @@ export default function RepositorySyncPage() {
               </Badge>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void download(item)}><Download className="size-4" /> .xlsx</Button>
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void runAction("pending", [item.id])}>Pending</Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void runAction("uploaded", [item.id])}>Uploaded</Button>
             </div>
           ))}
       </section>
-      <p className="text-xs text-muted-foreground">Repository metadata is checked every 30 seconds while this tab is visible. Successful imports are marked uploaded automatically.</p>
+      <p className="text-xs text-muted-foreground">Repository metadata is checked every 30 seconds while this tab is visible. Files are marked uploaded only after the reviewed Attendance import is saved successfully.</p>
       {selectedVisibleCount > 0 && <span className="sr-only">{selectedVisibleCount} visible workbooks selected</span>}
       <CollegeSelectDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
-        title="Upload selected workbooks to Penalyze"
-        description={`Choose the default college for ${selectedWorkbooks.filter((item) => item.penalyzeStatus !== "uploaded").length} selected workbook(s). Imports use Penalyze's attendance processing. Files needing manual event or row review will be skipped with an explanation.`}
-        confirmLabel="Upload to Penalyze"
+        title="Review repository workbooks before uploading"
+        description={`Choose the default college for ${selectedWorkbooks.filter((item) => item.penalyzeStatus !== "uploaded").length} workbook(s). Next, the Attendance review dialog will let you correct individual colleges and resolve event merges before saving.`}
+        confirmLabel="Continue to review"
         initialCollege={defaultUploadCollege}
         onConfirm={(college) => { void uploadSelected(college); }}
       />

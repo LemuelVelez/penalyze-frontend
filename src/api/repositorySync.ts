@@ -61,3 +61,22 @@ export async function downloadRepositoryWorkbook(id: string) {
   const response = await request(`/uploads/${encodeURIComponent(id)}/download`);
   return response.blob();
 }
+
+// A one-time in-memory handoff to the existing Attendance upload-and-review wizard.
+// Never send workbook bytes through URL parameters or browser storage.
+export type RepositoryAttendanceReview = {
+  college: string;
+  workbooks: Array<{ uploadId: string; file: File }>;
+};
+
+let pendingAttendanceReview: RepositoryAttendanceReview | null = null;
+
+export function stageRepositoryAttendanceReview(review: RepositoryAttendanceReview) {
+  pendingAttendanceReview = review;
+}
+
+export function takeRepositoryAttendanceReview(): RepositoryAttendanceReview | null {
+  const review = pendingAttendanceReview;
+  pendingAttendanceReview = null;
+  return review;
+}
