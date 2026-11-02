@@ -36,6 +36,7 @@ import type {
   AttendanceImportRecord,
   AttendanceRecord,
   ParsedAttendanceRow,
+  AttendanceRowEventAssignment,
   AttendanceFinalResultProfileField,
   ManualAttendanceInput,
   ManualAttendanceRecord,
@@ -321,6 +322,8 @@ type AttendanceUploadFileDetails = {
   collegeLabels: string[];
   previewRows: ParsedAttendanceRow[];
   rowCollegeOverrides: Record<string, string>;
+  rowEventOverrides: Record<string, AttendanceRowEventAssignment>;
+  rowEventsReviewed: boolean;
   selectedRowNumbers: number[];
   assignmentCollege: string;
   rowSearch: string;
@@ -335,6 +338,35 @@ type AttendanceUploadFileDetails = {
   keepEventName: "existing" | "incoming";
   keepEventSchedule: "existing" | "incoming";
 };
+
+// Group the event actually recorded on each row. Do not use the workbook's
+// first detected event as the event for an entire all-events workbook.
+type AttendanceRowEventGroup = {
+  key: string;
+  eventName: string;
+  eventStartAt: string;
+  eventEndAt: string;
+  rows: ParsedAttendanceRow[];
+};
+
+function getAttendanceRowEventGroups(rows: ParsedAttendanceRow[]): AttendanceRowEventGroup[] {
+  const groups = new Map<string, AttendanceRowEventGroup>();
+  rows.forEach((row) => {
+    const eventName = (row.eventName ?? "").trim();
+    const eventStartAt = (row.eventStartAt ?? "").trim();
+    const eventEndAt = (row.eventEndAt ?? "").trim();
+    const key = JSON.stringify([eventName.toLocaleLowerCase(), eventStartAt, eventEndAt]);
+    const group = groups.get(key) ?? { key, eventName, eventStartAt, eventEndAt, rows: [] };
+    group.rows.push(row);
+    groups.set(key, group);
+  });
+  return [...groups.values()];
+}
+
+function getRowEventAssignmentValue(assignment?: AttendanceRowEventAssignment): string {
+  if (!assignment) return "";
+  return assignment.eventId ? assignment.eventId : assignment.eventName ? "__create_event__" : "";
+}
 
 function getAttendanceUploadFileKey(file: File) {
   return `${file.name}::${file.size}::${file.lastModified}`;
@@ -837,6 +869,10 @@ export default function AttendancePage({
   const [repositorySyncFailures, setRepositorySyncFailures] = useState<string[]>([]);
   const [uploadCollegeDialogOpen, setUploadCollegeDialogOpen] = useState(false);
   const [collegeReviewFileKey, setCollegeReviewFileKey] = useState("");
+  const [eventReviewFileKey, setEventReviewFileKey] = useState("");
+  const [eventReviewSearch, setEventReviewSearch] = useState("");
+  const [eventReviewGroupNames, setEventReviewGroupNames] = useState<Record<string, string>>({});
+  const [eventReviewGroupDates, setEventReviewGroupDates] = useState<Record<string, { start: string; end: string }>>({});
   const [collegeReviewFilter, setCollegeReviewFilter] = useState<
     "different" | "unrecognised" | "all" | "assigned"
   >("different");
@@ -944,6 +980,17 @@ export default function AttendancePage({
   const collegeReviewDetails = collegeReviewFileKey
     ? fileDetails[collegeReviewFileKey]
     : undefined;
+  const eventReviewDetails = eventReviewFileKey ? fileDetails[eventReviewFileKey] : undefined;
+  const eventReviewGroups = getAttendanceRowEventGroups(eventReviewDetails?.previewRows ?? []);
+  const eventReviewRows = (eventReviewDetails?.previewRows ?? []).filter((row) => {
+    const search = eventReviewSearch.trim().toLowerCase();
+    const assignment = eventReviewDetails?.rowEventOverrides[String(row.rowNumber)];
+    return !search || `${row.rowNumber} ${row.studentId} ${row.name} ${row.eventName ?? ""} ${assignment?.eventName ?? ""}`.toLowerCase().includes(search);
+  });
+  const eventReviewAssignedCount = eventReviewDetails?.previewRows.filter((row) => {
+    const assigned = eventReviewDetails?.rowEventOverrides[String(row.rowNumber)];
+    return Boolean(assigned?.eventId || assigned?.eventName?.trim());
+  }).length ?? 0;
   const collegeReviewInvalidNumbers = new Set(
     collegeReviewDetails?.invalidCollegeRows.map((row) => row.rowNumber) ?? [],
   );
@@ -1529,6 +1576,8 @@ export default function AttendancePage({
             rowsTotal: preview.rowsTotal,
             previewRows: preview.rows,
             rowCollegeOverrides: {},
+            rowEventOverrides: {},
+            rowEventsReviewed: false,
             selectedRowNumbers: [],
             assignmentCollege: "",
             rowSearch: "",
@@ -1570,6 +1619,8 @@ export default function AttendancePage({
             collegeLabels: [],
             previewRows: [],
             rowCollegeOverrides: {},
+            rowEventOverrides: {},
+            rowEventsReviewed: false,
             selectedRowNumbers: [],
             assignmentCollege: "",
             rowSearch: "",
@@ -1637,6 +1688,82 @@ export default function AttendancePage({
         : current;
     });
     setCollegeReviewFileKey(fileKey);
+  }
+
+  function assignAttendanceRowEvents(
+    fileKey: string,
+    rowNumbers: number[],
+    assignment: AttendanceRowEventAssignment,
+  ) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      if (!details) return current;
+      const overrides = { ...details.rowEventOverrides };
+      rowNumbers.forEach((rowNumber) => { overrides[String(rowNumber)] = { ...assignment }; });
+      return { ...current, [fileKey]: {
+        ...details, rowEventOverrides: overrides, rowEventsReviewed: false,
+      } };
+    });
+  }
+
+  function assignAttendanceEventGroup(
+    fileKey: string,
+    group: AttendanceRowEventGroup,
+    selectedValue: string,
+  ) {
+    if (!selectedValue) return;
+    if (selectedValue === "__create_event__") {
+      const eventName = (eventReviewGroupNames[group.key] ?? group.eventName).trim();
+      if (!eventName) {
+        toast.error("Enter an event name before assigning these rows to a new event.");
+        return;
+      }
+      const dates = eventReviewGroupDates[group.key];
+      assignAttendanceRowEvents(fileKey, group.rows.map((row) => row.rowNumber), {
+        eventName,
+        eventStartAt: dates?.start || undefined,
+        eventEndAt: dates?.end || undefined,
+        forceCreateEvent: true,
+      });
+    } else {
+      assignAttendanceRowEvents(fileKey, group.rows.map((row) => row.rowNumber), {
+        eventId: selectedValue,
+      });
+    }
+  }
+
+  function openAttendanceEventRowReview(fileKey: string) {
+    const details = fileDetails[fileKey];
+    if (!details) return;
+    setEventReviewSearch("");
+    const groups = getAttendanceRowEventGroups(details.previewRows);
+    setEventReviewGroupNames(Object.fromEntries(
+      groups.map((group) => [group.key, group.eventName]),
+    ));
+    setEventReviewGroupDates(Object.fromEntries(groups.map((group) => [group.key, {
+      start: formatDateTimeInputValue(group.eventStartAt),
+      end: formatDateTimeInputValue(group.eventEndAt),
+    }])));
+    setEventReviewFileKey(fileKey);
+  }
+
+  function confirmAttendanceEventRowReview(fileKey: string) {
+    const details = fileDetails[fileKey];
+    if (!details) return;
+    const unassigned = details.previewRows.filter((row) => {
+      const assignment = details.rowEventOverrides[String(row.rowNumber)];
+      return !assignment || !(assignment.eventId || assignment.eventName?.trim());
+    });
+    if (unassigned.length) {
+      toast.error(`${unassigned.length} row(s) still need an explicit event assignment.`);
+      return;
+    }
+    setFileDetails((current) => current[fileKey] ? {
+      ...current,
+      [fileKey]: { ...current[fileKey], rowEventsReviewed: true },
+    } : current);
+    setEventReviewFileKey("");
+    toast.success("Row event assignments confirmed. You can now save the reviewed workbook.");
   }
 
   function updateAttendanceRowCollege(
@@ -2038,9 +2165,25 @@ export default function AttendancePage({
       return;
     }
 
+    const unresolvedRowEvents = files.find((attendanceFile) => {
+      const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
+      if (!details) return false;
+      const groups = getAttendanceRowEventGroups(details.previewRows);
+      return (groups.length > 1 || Object.keys(details.rowEventOverrides).length > 0) &&
+        (!details.rowEventsReviewed || details.previewRows.some((row) => {
+          const assignment = details.rowEventOverrides[String(row.rowNumber)];
+          return !assignment || !(assignment.eventId || assignment.eventName?.trim());
+        }));
+    });
+    if (unresolvedRowEvents) {
+      toast.error(`Review and confirm every row event in ${unresolvedRowEvents.name} before saving.`);
+      openAttendanceEventRowReview(getAttendanceUploadFileKey(unresolvedRowEvents));
+      return;
+    }
+
     const unresolvedFile = files.find((attendanceFile, index) => {
       const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
-      if (!details || details.mergeDecisionConfirmed) return false;
+      if (!details || details.rowEventsReviewed || details.mergeDecisionConfirmed) return false;
 
       return details.mergeCandidates.some(
         (candidate) =>
@@ -2077,6 +2220,8 @@ export default function AttendancePage({
           index,
           college: uploadForm.college,
           rowCollegeOverrides: details?.rowCollegeOverrides ?? {},
+          rowEventOverrides: details?.rowEventsReviewed ? details.rowEventOverrides : undefined,
+          rowEventsReviewed: details?.rowEventsReviewed || undefined,
           fileName: attendanceFile.name,
           schoolYearId:
             details?.schoolYearId || uploadForm.schoolYearId || undefined,
@@ -3246,6 +3391,7 @@ export default function AttendancePage({
               fileSelectionRequestRef.current += 1;
               setIsCheckingUploadFiles(false);
               setCollegeReviewFileKey("");
+              setEventReviewFileKey("");
               setProgress(null);
               setUploadForm((current) => ({ ...current, college: "" }));
               setFiles([]);
@@ -3408,6 +3554,10 @@ export default function AttendancePage({
                           ),
                         )
                       : [];
+                    const eventGroups = getAttendanceRowEventGroups(details?.previewRows ?? []);
+                    const hasMultipleRowEvents = eventGroups.length > 1;
+                    const needEventRowReview = hasMultipleRowEvents || Boolean(details?.rowEventsReviewed) ||
+                      Boolean(Object.keys(details?.rowEventOverrides ?? {}).length);
                     const exemptionOverrideEnabled =
                       exemptionOverrideFileKeys.has(fileKey);
 
@@ -3496,13 +3646,37 @@ export default function AttendancePage({
                           </div>
                         ) : null}
 
+                        {details?.previewRows.length ? (
+                          <div className={`mt-3 flex min-w-0 flex-wrap items-center gap-3 rounded-xl border p-3 ${hasMultipleRowEvents && !details.rowEventsReviewed ? "border-amber-500/70 bg-amber-500/10" : "bg-muted/15"}`}>
+                            <div className="min-w-0 flex-1 text-xs">
+                              <p className="font-bold">{eventGroups.length} event group(s) found in this workbook</p>
+                              <p className="mt-1 text-muted-foreground">
+                                {hasMultipleRowEvents
+                                  ? "This file contains multiple events. Assign each event group or individual row to an existing or new event, then confirm before saving."
+                                  : "Review individual row events or correct event assignments before saving."}
+                              </p>
+                              {needEventRowReview && (
+                                <p className="mt-1 font-semibold">
+                                  {details.rowEventsReviewed ? "Row event assignments confirmed ✓" : "Event review required before saving"}
+                                </p>
+                              )}
+                            </div>
+                            <Button type="button" size="sm" variant={hasMultipleRowEvents && !details.rowEventsReviewed ? "default" : "outline"}
+                              disabled={isSaving} onClick={() => openAttendanceEventRowReview(fileKey)}>
+                              Review row events ({details.previewRows.length})
+                            </Button>
+                          </div>
+                        ) : null}
+
                         <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <p className="text-xs font-bold text-muted-foreground">
                               Detected event
                             </p>
                             <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
-                              {details?.metadata.eventName || "—"}
+                              {hasMultipleRowEvents
+                                ? `${eventGroups.length} separate events detected in the rows`
+                                : details?.metadata.eventName || "—"}
                             </p>
                           </div>
                           <div>
@@ -3510,7 +3684,7 @@ export default function AttendancePage({
                               Start
                             </p>
                             <p className="mt-1 text-sm font-semibold">
-                              {formatDateTime(details?.metadata.eventStartAt) || "—"}
+                              {hasMultipleRowEvents ? "See row event review" : formatDateTime(details?.metadata.eventStartAt) || "—"}
                             </p>
                           </div>
                           <div>
@@ -3518,7 +3692,7 @@ export default function AttendancePage({
                               End
                             </p>
                             <p className="mt-1 text-sm font-semibold">
-                              {formatDateTime(details?.metadata.eventEndAt) || "—"}
+                              {hasMultipleRowEvents ? "See row event review" : formatDateTime(details?.metadata.eventEndAt) || "—"}
                             </p>
                           </div>
                         </div>
@@ -3529,7 +3703,7 @@ export default function AttendancePage({
                           </p>
                         ) : null}
 
-                        {details ? (
+                        {details && !hasMultipleRowEvents && !details.rowEventsReviewed ? (
                           <div className="mt-4 space-y-3">
                             {suggestedExistingEvent ? (
                               <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -3723,6 +3897,154 @@ export default function AttendancePage({
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(eventReviewFileKey && eventReviewDetails)}
+          onOpenChange={(open) => { if (!open) setEventReviewFileKey(""); }}
+        >
+          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto sm:max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>Review event assignments by row</DialogTitle>
+              <DialogDescription>
+                Each row may belong to a different event. Select an existing event or explicitly create a separate new event for each detected group. No attendance is saved until you confirm and click Save Files.
+              </DialogDescription>
+            </DialogHeader>
+            <p className="break-all text-xs font-semibold">{files.find((file) => getAttendanceUploadFileKey(file) === eventReviewFileKey)?.name}</p>
+            <p className="text-xs font-semibold">
+              {eventReviewGroups.length} detected groups · {eventReviewAssignedCount} / {eventReviewDetails?.previewRows.length ?? 0} rows assigned
+              {eventReviewDetails?.rowEventsReviewed ? " · Confirmed" : " · Not yet confirmed"}
+            </p>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
+              <div className="space-y-3 rounded-xl border bg-muted/10 p-3">
+                <p className="text-sm font-bold">Assign detected event groups</p>
+                {eventReviewGroups.map((group) => {
+                  const assignments = group.rows.map((row) => eventReviewDetails?.rowEventOverrides[String(row.rowNumber)]);
+                  const selectedValues = new Set(assignments.map((item) => getRowEventAssignmentValue(item)));
+                  const selectedValue = selectedValues.size === 1 ? [...selectedValues][0] : "";
+                  return (
+                    <div key={group.key} className="space-y-2 rounded-xl border bg-background p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 break-words text-sm font-semibold">
+                          {group.eventName || "Unnamed event — enter a name"}
+                          <span className="ml-2 text-xs text-muted-foreground">({group.rows.length} rows)</span>
+                        </p>
+                        <span className="text-xs text-muted-foreground">
+                          {group.eventStartAt ? `Start: ${formatDateTime(group.eventStartAt)}` : ""}
+                          {group.eventEndAt ? ` · End: ${formatDateTime(group.eventEndAt)}` : ""}
+                        </span>
+                      </div>
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Input aria-label="New event name" placeholder="Name for new event"
+                          value={eventReviewGroupNames[group.key] ?? group.eventName}
+                          onChange={(e) => setEventReviewGroupNames((current) => ({ ...current, [group.key]: e.target.value }))}
+                          disabled={isSaving} />
+                        <Select value={selectedValue} disabled={isSaving}
+                          onValueChange={(value) => assignAttendanceEventGroup(eventReviewFileKey, group, value)}>
+                          <SelectTrigger className="min-w-0"><SelectValue placeholder="Choose event for these rows" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__create_event__">Create separate new event with this name</SelectItem>
+                            {(eventReviewDetails?.eventOptions ?? []).map((event) => (
+                              <SelectItem key={event.id} value={event.id}>
+                                {`Existing: ${getAttendanceEventSelectLabel(event.name, event.event_start_at, event.event_end_at)}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="space-y-1 text-xs font-semibold">New event start
+                          <DateTimePicker disabled={isSaving} value={eventReviewGroupDates[group.key]?.start ?? ""}
+                            onValueChange={(value) => setEventReviewGroupDates((current) => ({
+                              ...current, [group.key]: { start: value, end: current[group.key]?.end ?? "" },
+                            }))} />
+                        </label>
+                        <label className="space-y-1 text-xs font-semibold">New event end
+                          <DateTimePicker disabled={isSaving} value={eventReviewGroupDates[group.key]?.end ?? ""}
+                            onValueChange={(value) => setEventReviewGroupDates((current) => ({
+                              ...current, [group.key]: { start: current[group.key]?.start ?? "", end: value },
+                            }))} />
+                        </label>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" disabled={isSaving || !(eventReviewGroupNames[group.key] ?? group.eventName).trim()}
+                        onClick={() => assignAttendanceEventGroup(eventReviewFileKey, group, "__create_event__")}>
+                        Apply new event name to this group
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="space-y-3 rounded-xl border p-3">
+                <p className="text-sm font-bold">Review individual rows</p>
+                <Input placeholder="Search by row, student ID, name or event" value={eventReviewSearch}
+                  onChange={(e) => setEventReviewSearch(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Showing {Math.min(150, eventReviewRows.length)} of {eventReviewRows.length} matching rows. Search for any row to edit its event individually.</p>
+                <div className="max-h-72 space-y-2 overflow-y-auto">
+                  {eventReviewRows.slice(0, 150).map((row) => {
+                    const assignment = eventReviewDetails?.rowEventOverrides[String(row.rowNumber)];
+                    return (
+                      <div key={row.rowNumber} className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
+                        <div className="min-w-0 text-xs">
+                          <p className="font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
+                          <p className="break-words text-muted-foreground">In file: {row.eventName || "No event name"}</p>
+                        </div>
+                        <Select disabled={isSaving} value={getRowEventAssignmentValue(assignment)}
+                          onValueChange={(value) => {
+                            if (value === "__create_event__") {
+                              const name = assignment?.eventName || row.eventName || eventReviewGroupNames[
+                                getAttendanceRowEventGroups([row])[0].key
+                              ];
+                              if (!name?.trim()) {
+                                toast.error(`Enter a new event name for row ${row.rowNumber} using the group editor above.`);
+                                return;
+                              }
+                              assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
+                                eventName: name.trim(), eventStartAt: row.eventStartAt,
+                                eventEndAt: row.eventEndAt, forceCreateEvent: true,
+                              });
+                            } else {
+                              assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], { eventId: value });
+                            }
+                          }}>
+                          <SelectTrigger className="min-w-0"><SelectValue placeholder="Unassigned — choose event" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__create_event__">New event from row</SelectItem>
+                            {(eventReviewDetails?.eventOptions ?? []).map((event) => (
+                              <SelectItem key={event.id} value={event.id}>Existing: {event.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {assignment?.eventName !== undefined && !assignment.eventId && (
+                          <div className="grid min-w-0 grid-cols-1 gap-2 sm:col-span-2 sm:grid-cols-3">
+                            <Input aria-label={`New event name for row ${row.rowNumber}`}
+                              value={assignment?.eventName ?? ""}
+                              onChange={(e) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
+                                ...(assignment ?? {}), eventName: e.target.value, forceCreateEvent: true,
+                              })} />
+                            <DateTimePicker disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventStartAt)}
+                              onValueChange={(value) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
+                                ...(assignment ?? {}), eventStartAt: value, forceCreateEvent: true,
+                              })} />
+                            <DateTimePicker disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventEndAt)}
+                              onValueChange={(value) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
+                                ...(assignment ?? {}), eventEndAt: value, forceCreateEvent: true,
+                              })} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEventReviewFileKey("")}>Back to upload review</Button>
+              <Button type="button" disabled={isSaving || !eventReviewDetails?.previewRows.length || eventReviewAssignedCount !== (eventReviewDetails?.previewRows.length ?? 0)}
+                onClick={() => confirmAttendanceEventRowReview(eventReviewFileKey)}>
+                Confirm all row events ({eventReviewAssignedCount})
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 

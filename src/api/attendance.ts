@@ -555,7 +555,17 @@ type ListOptions = {
   signal?: AbortSignal;
 };
 
+export type AttendanceRowEventAssignment = {
+  eventId?: string;
+  eventName?: string;
+  eventStartAt?: string;
+  eventEndAt?: string;
+  forceCreateEvent?: boolean;
+};
+
 export type AttendanceFileSaveOption = {
+  rowEventOverrides?: Record<string, AttendanceRowEventAssignment>;
+  rowEventsReviewed?: boolean;
   college?: string;
   rowCollegeOverrides?: Record<string, string>;
   index?: number;
