@@ -2143,7 +2143,7 @@ export default function AttendancePage({
         for (const file of files) {
           const uploadId = repositoryIdsByFile.get(file);
           if (!uploadId) continue;
-          const saved = batchResult.files.find(
+          const saved = (batchResult?.files ?? []).find(
             (item) => item.fileName === file.name && item.status === "saved" && item.result?.importId,
           );
           if (!saved?.result?.importId) {
