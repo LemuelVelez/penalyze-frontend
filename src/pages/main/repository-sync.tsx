@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Download, GitCommitHorizontal, GitPullRequest, RefreshCw, RotateCcw, Upload } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
-  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync, stageRepositoryAttendanceReview,
+  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync,
 } from "../../api/repositorySync";
-import type { RepositorySyncStatus, RepositoryWorkbook } from "../../api/repositorySync";
+import type { RepositoryAttendanceReview, RepositorySyncStatus, RepositoryWorkbook } from "../../api/repositorySync";
+import AttendancePage from "./attendance";
 import { listAttendanceImports } from "../../api/attendance";
 import { CollegeSelectDialog } from "../../components/college-select-dialog";
 import { Badge } from "../../components/ui/badge";
@@ -42,7 +43,7 @@ async function existingImportNames() {
 }
 
 export default function RepositorySyncPage() {
-  const navigate = useNavigate();
+  const [reviewBatch, setReviewBatch] = useState<RepositoryAttendanceReview | null>(null);
   const [records, setRecords] = useState<RepositoryWorkbook[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState<RepositorySyncStatus | "all">("all");
@@ -137,9 +138,9 @@ export default function RepositorySyncPage() {
           file: new File([blob], item.originalName, { type: WORKBOOK_MIME }),
         });
       }
-      stageRepositoryAttendanceReview({ college, workbooks: downloaded });
-      // Reuse the actual Attendance review wizard rather than importing directly.
-      navigate("/attendance");
+      // Mount Attendance's actual preview, college-correction, and event-merge
+      // dialogs here. Nothing gets saved until the user confirms in that wizard.
+      setReviewBatch({ college, workbooks: downloaded });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not prepare workbooks for review.";
       setUploadErrors([message]);
@@ -220,7 +221,7 @@ export default function RepositorySyncPage() {
             <ul className="list-disc space-y-1 pl-5">{uploadErrors.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
           </div>
         )}
-        <p className="text-xs text-muted-foreground">Selected workbooks open in the Attendance upload review dialog. Correct unrecognised colleges, choose event merge options, and confirm before anything is saved. No manual download is needed. Limit: 200 selected files.</p>
+        <p className="text-xs text-muted-foreground">Review selected workbooks here before saving: correct unrecognised colleges, review individual student rows, choose event merges or new events, and confirm. No manual download or page change is needed. Limit: 200 files.</p>
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground">Manual sync status options</summary>
           <p className="mt-2 text-xs text-muted-foreground">Manual status overrides do not upload any files. Use only to record an import already completed elsewhere.</p>
@@ -251,6 +252,19 @@ export default function RepositorySyncPage() {
       </section>
       <p className="text-xs text-muted-foreground">Repository metadata is checked every 30 seconds while this tab is visible. Files are marked uploaded only after the reviewed Attendance import is saved successfully.</p>
       {selectedVisibleCount > 0 && <span className="sr-only">{selectedVisibleCount} visible workbooks selected</span>}
+      {reviewBatch && (
+        <AttendancePage
+          reviewOnly
+          initialRepositoryReview={reviewBatch}
+          onRepositoryReviewClose={() => setReviewBatch(null)}
+          onRepositoryReviewSaved={(syncErrors) => {
+            setReviewBatch(null);
+            setSelected([]);
+            setUploadErrors(syncErrors.length ? syncErrors.map((error) => `${error}. Attendance was saved; do not import this file again.`) : []);
+            void refresh(true);
+          }}
+        />
+      )}
       <CollegeSelectDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}

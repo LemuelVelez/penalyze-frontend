@@ -3,7 +3,7 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 import { Loader2, Minus, Plus } from "lucide-react";
 import { getStoredUser } from "../../api/auth";
-import { markRepositorySync, takeRepositoryAttendanceReview } from "../../api/repositorySync";
+import { markRepositorySync } from "../../api/repositorySync";
 import type { RepositoryAttendanceReview } from "../../api/repositorySync";
 
 import {
@@ -806,7 +806,20 @@ function hasFinalResultFieldChanged(
   return String(current[field] ?? "").trim() !== String(initial[field] ?? "").trim();
 }
 
-export default function AttendancePage() {
+type AttendancePageProps = {
+  /** Render the same Attendance upload/review wizard without leaving Repository Sync. */
+  reviewOnly?: boolean;
+  initialRepositoryReview?: RepositoryAttendanceReview;
+  onRepositoryReviewClose?: () => void;
+  onRepositoryReviewSaved?: (syncErrors: string[]) => void;
+};
+
+export default function AttendancePage({
+  reviewOnly = false,
+  initialRepositoryReview,
+  onRepositoryReviewClose,
+  onRepositoryReviewSaved,
+}: AttendancePageProps = {}) {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
@@ -1380,8 +1393,39 @@ export default function AttendancePage() {
   }
 
   useEffect(() => {
-    void loadPageData();
-  }, []);
+    if (!reviewOnly) {
+      void loadPageData();
+      return;
+    }
+
+    // A repository upload needs the same school-year and event choices as
+    // Attendance, not the large final-results/report data used by that page.
+    let active = true;
+    void (async () => {
+      try {
+        const years = await listSchoolYears({ activeOnly: true });
+        if (!active) return;
+        const schoolYearId = getActiveSchoolYearId(years);
+        setSchoolYears(years);
+        setSelectedSchoolYearId(schoolYearId || ALL_YEARS_VALUE);
+        setUploadForm((current) => ({ ...current, schoolYearId }));
+        if (schoolYearId) {
+          const events = await listAttendanceEvents({
+            schoolYearId,
+            limit: 500,
+            offset: 0,
+          });
+          if (!active) return;
+          setAttendanceEvents(sortByBackendEventOrder(events));
+        }
+      } catch (error) {
+        if (active) toast.error(error instanceof Error ? error.message : "Unable to load attendance review options.");
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [reviewOnly]);
 
   async function selectAttendanceFiles(nextFiles: File[], defaultCollege = uploadForm.college) {
     if (isSaving || isCheckingUploadFiles) return;
@@ -1559,18 +1603,19 @@ export default function AttendancePage() {
     }
   }
 
-  // Repository Sync passes the existing File objects directly to this wizard.
-  // Do not save until the user has reviewed the detected events and colleges.
+  // Both entry points mount this exact review wizard. Repository Sync supplies
+  // its in-memory files without navigating away or invoking the save endpoint.
   useEffect(() => {
-    if (isLoading) return;
-    const review = takeRepositoryAttendanceReview();
-    if (!review) return;
-    repositoryReviewRef.current = review;
-    setRepositoryReviewCount(review.workbooks.length);
-    setUploadForm((current) => ({ ...current, college: review.college }));
+    if (isLoading || !initialRepositoryReview) return;
+    repositoryReviewRef.current = initialRepositoryReview;
+    setRepositoryReviewCount(initialRepositoryReview.workbooks.length);
+    setUploadForm((current) => ({ ...current, college: initialRepositoryReview.college }));
     setUploadDialogOpen(true);
-    void selectAttendanceFiles(review.workbooks.map((entry) => entry.file), review.college);
-  }, [isLoading]);
+    void selectAttendanceFiles(
+      initialRepositoryReview.workbooks.map((entry) => entry.file),
+      initialRepositoryReview.college,
+    );
+  }, [isLoading, initialRepositoryReview]);
 
   function openAttendanceCollegeReviewDialog(
     fileKey: string,
@@ -2012,6 +2057,7 @@ export default function AttendancePage() {
     }
 
     setIsSaving(true);
+    let completedRepositorySyncErrors: string[] = [];
     setReconciliationReports([]);
     setProgress({
       stage: "preparing",
@@ -2114,6 +2160,7 @@ export default function AttendancePage() {
         }
         repositoryReviewRef.current = null;
         setRepositoryReviewCount(0);
+        completedRepositorySyncErrors = syncErrors;
         setRepositorySyncFailures(syncErrors);
         if (syncErrors.length) {
           toast.error(`Attendance was saved, but ${syncErrors.length} repository status update(s) failed. Do not import again; mark these files uploaded manually in Repository Sync.`, { duration: 12000 });
@@ -2130,7 +2177,9 @@ export default function AttendancePage() {
         eventStartAt: "",
         eventEndAt: "",
       }));
-      await loadPageData(selectedSchoolYearId);
+      // The repository page stays in place; its own list is refreshed by the
+      // completion callback. Only the full Attendance page reloads results.
+      if (!reviewOnly) await loadPageData(selectedSchoolYearId);
       setProgress((current) => ({
         stage: "completed",
         percent: 100,
@@ -2143,6 +2192,7 @@ export default function AttendancePage() {
       }));
       setUploadDialogOpen(false);
       setProgress(null);
+      if (reviewOnly) onRepositoryReviewSaved?.(completedRepositorySyncErrors);
     } catch (error) {
       const message =
         error instanceof Error
@@ -3011,8 +3061,10 @@ export default function AttendancePage() {
     .map((record) => record.id);
 
   return (
-    <main className="min-h-svh w-full min-w-0 max-w-full px-4 py-5 text-foreground sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-400 flex-col gap-5">
+    <main className={reviewOnly ? "contents" : "min-h-svh w-full min-w-0 max-w-full px-4 py-5 text-foreground sm:px-6 lg:px-8"}>
+      {/* Review dialogs portal to document.body, so the repository page stays
+          visible while the Attendance page's unrelated tables stay hidden. */}
+      <div className={reviewOnly ? "hidden" : "mx-auto flex max-w-400 flex-col gap-5"}>
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -3199,6 +3251,7 @@ export default function AttendancePage() {
               setFiles([]);
               setFileDetails({});
               setExemptionOverrideFileKeys(new Set());
+              if (reviewOnly) onRepositoryReviewClose?.();
             }
           }}
         >

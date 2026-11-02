@@ -62,21 +62,9 @@ export async function downloadRepositoryWorkbook(id: string) {
   return response.blob();
 }
 
-// A one-time in-memory handoff to the existing Attendance upload-and-review wizard.
-// Never send workbook bytes through URL parameters or browser storage.
+// Repository Sync passes these File objects directly into Attendance's review
+// dialog in memory. No workbook bytes or credentials go into browser storage.
 export type RepositoryAttendanceReview = {
   college: string;
   workbooks: Array<{ uploadId: string; file: File }>;
 };
-
-let pendingAttendanceReview: RepositoryAttendanceReview | null = null;
-
-export function stageRepositoryAttendanceReview(review: RepositoryAttendanceReview) {
-  pendingAttendanceReview = review;
-}
-
-export function takeRepositoryAttendanceReview(): RepositoryAttendanceReview | null {
-  const review = pendingAttendanceReview;
-  pendingAttendanceReview = null;
-  return review;
-}
