@@ -57,6 +57,18 @@ export async function markRepositorySync(action: "pending" | "uploaded" | "reset
   return result;
 }
 
+// Only restores the repository status after the backend finds a matching saved
+// Penalyze import. It never creates or duplicates attendance records.
+export async function restoreRepositoryUploadedStatus(uploadId: string) {
+  const response = await request("/restore", {
+    method: "POST",
+    body: JSON.stringify({ uploadId }),
+  });
+  const result = (await response.json() as Envelope<{ uploadId: string; penalyzeImportId: string }>).data;
+  window.dispatchEvent(new Event(REPOSITORY_SYNC_UPDATED_EVENT));
+  return result;
+}
+
 export async function downloadRepositoryWorkbook(id: string) {
   const response = await request(`/uploads/${encodeURIComponent(id)}/download`);
   return response.blob();

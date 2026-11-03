@@ -3,12 +3,16 @@ import { toast } from "sonner";
 import { Download, GitCommitHorizontal, GitPullRequest, RefreshCw, RotateCcw, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
-  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync,
+  downloadRepositoryWorkbook, listRepositoryWorkbooks, markRepositorySync, restoreRepositoryUploadedStatus,
 } from "../../api/repositorySync";
 import type { RepositoryAttendanceReview, RepositorySyncStatus, RepositoryWorkbook } from "../../api/repositorySync";
 import AttendancePage from "./attendance";
 import { listAttendanceImports } from "../../api/attendance";
 import { CollegeSelectDialog } from "../../components/college-select-dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -55,6 +59,7 @@ export default function RepositorySyncPage() {
   const [uploadProgress, setUploadProgress] = useState("");
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingConfirmationIds, setPendingConfirmationIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async (silent = false) => {
@@ -84,6 +89,10 @@ export default function RepositorySyncPage() {
   [records, status, collegeFilter, search]);
   const everyVisible = visible.length > 0 && visible.every((item) => selected.includes(item.id));
   const selectedWorkbooks = records.filter((item) => selected.includes(item.id));
+  const canMarkSelectedPending = selectedWorkbooks.length === selected.length &&
+    selectedWorkbooks.length > 0 && selectedWorkbooks.length <= MAX_SELECTION &&
+    selectedWorkbooks.every((item) => item.penalyzeStatus === "untracked" || item.penalyzeStatus === "outdated");
+  const pendingConfirmationWorkbooks = records.filter((item) => pendingConfirmationIds?.includes(item.id));
   const selectedVisibleCount = visible.filter((item) => selected.includes(item.id)).length;
   const defaultUploadCollege = useMemo(() => {
     const unique = new Set(selectedWorkbooks.map((item) => item.college.trim()));
@@ -91,9 +100,25 @@ export default function RepositorySyncPage() {
     return QR_CODE_COLLEGE_OPTIONS.includes(candidate) ? candidate : "";
   }, [selectedWorkbooks]);
 
+  const confirmMarkPending = (ids: string[]) => {
+    const chosen = records.filter((item) => ids.includes(item.id));
+    if (!ids.length || chosen.length !== ids.length || chosen.some((item) =>
+      item.penalyzeStatus !== "untracked" && item.penalyzeStatus !== "outdated")) {
+      toast.error("Already uploaded or pending workbooks cannot be marked pending again.");
+      return;
+    }
+    if (ids.length > MAX_SELECTION) { toast.error(`Select at most ${MAX_SELECTION} workbooks per action.`); return; }
+    setPendingConfirmationIds(ids);
+  };
+
   const runAction = async (action: "pending" | "uploaded" | "reset", ids: string[]) => {
     if (!ids.length) { toast.error("Select one or more workbooks."); return; }
     if (ids.length > MAX_SELECTION) { toast.error(`Select at most ${MAX_SELECTION} workbooks per action.`); return; }
+    if (action === "pending" && records.some((item) => ids.includes(item.id) &&
+      item.penalyzeStatus !== "untracked" && item.penalyzeStatus !== "outdated")) {
+      toast.error("Already uploaded or pending workbooks cannot be marked pending again.");
+      return;
+    }
     setBusy(true);
     try {
       await markRepositorySync(action, ids, note.trim(), importId.trim());
@@ -102,6 +127,18 @@ export default function RepositorySyncPage() {
       await refresh(true);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Sync status update failed."); }
     finally { setBusy(false); }
+  };
+
+  const restoreUploaded = async (item: RepositoryWorkbook) => {
+    setBusy(true);
+    try {
+      await restoreRepositoryUploadedStatus(item.id);
+      toast.success(`Restored uploaded status for ${item.originalName}. No attendance was imported again.`);
+      setSelected((current) => current.filter((id) => id !== item.id));
+      await refresh(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not restore uploaded status.");
+    } finally { setBusy(false); }
   };
 
   const uploadSelected = async (college: string) => {
@@ -210,7 +247,8 @@ export default function RepositorySyncPage() {
         <div className="flex flex-wrap gap-2">
           <Button disabled={busy || !selected.some((id) => records.some((item) => item.id === id && item.penalyzeStatus !== "uploaded")) || selected.length > MAX_SELECTION}
             onClick={() => setUploadDialogOpen(true)}><Upload className="size-4" /> Review & upload selected</Button>
-          <Button disabled={busy || !selected.length} variant="outline" onClick={() => void runAction("pending", selected)}><GitPullRequest className="size-4" /> Mark pending</Button>
+          <Button disabled={busy || !canMarkSelectedPending} variant="outline" onClick={() => confirmMarkPending(selected)}
+            title="Only untracked or outdated workbooks can be marked pending"><GitPullRequest className="size-4" /> Mark pending</Button>
           <Button disabled={busy || !selected.length} variant="outline" onClick={() => void runAction("reset", selected)}><RotateCcw className="size-4" /> Reset to untracked</Button>
           <Link to="/attendance" className="ml-auto inline-flex items-center text-sm text-primary underline-offset-4 hover:underline">Go to attendance imports</Link>
         </div>
@@ -224,7 +262,7 @@ export default function RepositorySyncPage() {
         <p className="text-xs text-muted-foreground">Review selected workbooks here before saving: correct unrecognised colleges, review individual student rows, choose event merges or new events, and confirm. No manual download or page change is needed. Limit: 200 files.</p>
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground">Manual sync status options</summary>
-          <p className="mt-2 text-xs text-muted-foreground">Manual status overrides do not upload any files. Use only to record an import already completed elsewhere.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Manual status overrides do not upload any files. Use only to record an import already completed elsewhere. If a file was accidentally marked pending, use its Restore uploaded status button instead.</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <Input placeholder="Optional Penalyze import UUID" aria-label="Penalyze import ID" value={importId} onChange={(e) => setImportId(e.target.value)} />
             <Input placeholder="Optional upload note" aria-label="Upload note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={4000} />
@@ -246,7 +284,12 @@ export default function RepositorySyncPage() {
                 {STATUSES[item.penalyzeStatus]}
               </Badge>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void download(item)}><Download className="size-4" /> .xlsx</Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void runAction("pending", [item.id])}>Pending</Button>
+              {(item.penalyzeStatus === "untracked" || item.penalyzeStatus === "outdated") && (
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => confirmMarkPending([item.id])}>Mark pending</Button>
+              )}
+              {item.penalyzeStatus === "pending" && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void restoreUploaded(item)}>Restore uploaded status</Button>
+              )}
             </div>
           ))}
       </section>
@@ -265,6 +308,28 @@ export default function RepositorySyncPage() {
           }}
         />
       )}
+      <AlertDialog open={pendingConfirmationIds !== null} onOpenChange={(open) => { if (!open && !busy) setPendingConfirmationIds(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark selected workbook(s) pending?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will change the repository sync status for {pendingConfirmationWorkbooks.length} workbook(s).
+              It does not undo saved attendance records. Already uploaded workbooks must keep their uploaded status.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy || !pendingConfirmationIds?.length}
+              onClick={() => {
+                const ids = pendingConfirmationIds;
+                setPendingConfirmationIds(null);
+                if (ids) void runAction("pending", ids);
+              }}>
+              Confirm pending
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <CollegeSelectDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
