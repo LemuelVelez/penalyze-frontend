@@ -136,6 +136,23 @@ export type ReviewAttendanceRequestResult = {
   autoClosedByExemption?: boolean;
 };
 
+export type ReviewAttendanceRequestGroupInput = {
+  studentId: string;
+  requestIds: string[];
+  status: "approved" | "rejected";
+  reviewNote?: string;
+};
+
+export type ReviewAttendanceRequestGroupResult = {
+  requests: AttendanceRequest[];
+  approvedCount: number;
+  rejectedCount: number;
+  autoClosedCount: number;
+  createdAttendanceCount: number;
+  updatedRowCount: number;
+  removedExemptedEventCount: number;
+};
+
 type ApiEnvelope<T> = {
   message?: string;
   data?: T;
@@ -260,6 +277,56 @@ export async function reviewAttendanceRequestWithProgress(
     missingSuccessMessage: "Attendance request review finished without a result.",
   });
 
+  notifyAttendanceRequestsUpdated();
+  notifyCalculationStatusUpdated();
+  return payload.data ?? null;
+}
+
+export async function reviewAttendanceRequestGroup(
+  input: ReviewAttendanceRequestGroupInput,
+) {
+  const response = await apiRequest<ReviewAttendanceRequestGroupResult>(
+    "/api/attendance/requests/group-review",
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  notifyAttendanceRequestsUpdated();
+  notifyCalculationStatusUpdated();
+  return response.data ?? null;
+}
+
+export async function reviewAttendanceRequestGroupWithProgress(
+  input: ReviewAttendanceRequestGroupInput,
+  onProgress?: (progress: AttendanceRequestReviewProgress) => void,
+) {
+  const headers = new Headers();
+  const token = getAuthToken();
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(
+    `${getApiBaseUrl()}/api/attendance/requests/group-review/progress`,
+    {
+      method: "PATCH",
+      headers,
+      credentials: "include",
+      body: JSON.stringify(input),
+    },
+  );
+  checkUnauthorized(response);
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? await response.json()
+      : null;
+    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+  }
+  const payload = await readProgressStream<
+    AttendanceRequestReviewProgress,
+    ReviewAttendanceRequestGroupResult
+  >(response, onProgress, {
+    errorFallback: "Unable to review attendance request group.",
+    missingSuccessMessage: "Attendance request group review finished without a result.",
+  });
   notifyAttendanceRequestsUpdated();
   notifyCalculationStatusUpdated();
   return payload.data ?? null;

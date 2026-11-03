@@ -6,6 +6,8 @@ import {
   removeAttendanceRequestEvent,
   reviewAttendanceRequest,
   reviewAttendanceRequestWithProgress,
+  reviewAttendanceRequestGroup,
+  reviewAttendanceRequestGroupWithProgress,
 } from "../../api/attendanceRequests";
 import type {
   AttendanceRequest,
@@ -24,6 +26,16 @@ import { LoadingStatus } from "../../components/loading-status";
 import { SortSelect } from "../../components/sort-select";
 import type { LoadingStatusStep } from "../../components/loading-status";
 import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
+import { Checkbox } from "../../components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import {
@@ -184,6 +196,183 @@ function correctionChangesCollege(request: AttendanceRequest) {
   );
 }
 
+type RequestGroup = {
+  key: string;
+  studentKey: string;
+  studentId: string;
+  name: string;
+  requests: AttendanceRequest[];
+  pendingRequests: AttendanceRequest[];
+  latestCreatedAt: string;
+};
+
+function RequestDetails({
+  request,
+  reviewingId,
+  removingEventId,
+  onRemoveRequestEvent,
+}: {
+  request: AttendanceRequest;
+  reviewingId: string;
+  removingEventId: string;
+  onRemoveRequestEvent: (request: AttendanceRequest, eventId: string) => void;
+}) {
+  return (
+    <div className="space-y-5">
+              {request.request_type === "details_correction" ? (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Current → requested
+                  </h3>
+                  <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+                    {getCorrectionChanges(request).map(
+                      ([label, currentValue, requestedValue]) => (
+                        <div key={label} className="rounded-2xl border bg-background p-4">
+                          <p className="text-xs font-bold uppercase text-muted-foreground">
+                            {label}
+                          </p>
+                          <p className="mt-2 font-semibold">
+                            {currentValue || "—"} → {requestedValue || "—"}
+                          </p>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Year Level
+                    </p>
+                    <p className="mt-1 font-semibold">{request.year_level || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      College
+                    </p>
+                    <p className="mt-1 font-semibold">{request.college || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Program
+                    </p>
+                    <p className="mt-1 font-semibold">{request.program || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border bg-background p-3">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">
+                      Institution
+                    </p>
+                    <p className="mt-1 font-semibold">{request.institution || "—"}</p>
+                  </div>
+                </div>
+              )}
+
+              {request.request_note ? (
+                <div className="rounded-2xl border bg-background p-4 text-sm leading-6">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">
+                    Student note
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap">{request.request_note}</p>
+                </div>
+              ) : null}
+
+              {request.request_type === "details_correction" ? null : (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-black uppercase tracking-wide">
+                    Claimed events and evidence
+                  </h3>
+                  {request.events.map((event) => {
+                    const isRemovingThisEvent = removingEventId === event.id;
+                    const isLastEvent = request.events.length === 1;
+                    const removeDisabled =
+                      isLastEvent ||
+                      Boolean(removingEventId) ||
+                      reviewingId === request.id;
+
+                    return (
+                      <div
+                        key={event.id}
+                        className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-black">{event.event_name}</p>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                            {event.evidence_url}
+                          </p>
+                        </div>
+                        <div className="shrink-0 space-y-1 text-right">
+                          <ActionMenu
+                            ariaLabel={`Actions for ${event.event_name}`}
+                            actions={[
+                              {
+                                label: (
+                                  <span className="font-black text-sky-700 dark:text-sky-300">
+                                    Open Evidence
+                                  </span>
+                                ),
+                                disabled: isRemovingThisEvent || !event.evidence_url,
+                                onSelect: () => {
+                                  if (!event.evidence_url) return;
+                                  window.open(
+                                    event.evidence_url,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                },
+                              },
+                            ]}
+                            deleteAction={
+                              request.status === "pending"
+                                ? {
+                                    label: isRemovingThisEvent ? "Removing..." : "Remove",
+                                    disabled: removeDisabled,
+                                    title: `Remove "${event.event_name}" from ${request.name}'s request?`,
+                                    description:
+                                      "This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone.",
+                                    confirmationPhrase: "REMOVE",
+                                    confirmLabel: "Remove Event",
+                                    pendingLabel: "Removing...",
+                                    isPending: isRemovingThisEvent,
+                                    confirmDisabled:
+                                      removeDisabled && !isRemovingThisEvent,
+                                    onConfirm: () =>
+                                      onRemoveRequestEvent(request, event.id),
+                                  }
+                                : undefined
+                            }
+                          />
+                          {request.status === "pending" && isLastEvent ? (
+                            <p className="max-w-56 text-xs font-semibold text-muted-foreground">
+                              A request needs at least one event. Reject the request instead.
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {request.status !== "pending" ? (
+                <div className="rounded-2xl border bg-background p-4 text-sm">
+                  <p className="font-bold">
+                    Reviewed by {request.reviewed_by_name || "System (exemption)"}
+                    {request.reviewed_at
+                      ? ` on ${formatDate(request.reviewed_at)}`
+                      : ""}
+                  </p>
+                  {request.review_note ? (
+                    <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                      {request.review_note}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+    </div>
+  );
+}
+
 export default function AttendanceRequestsPage() {
   const [requests, setRequests] = useState<AttendanceRequest[]>([]);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
@@ -200,6 +389,15 @@ export default function AttendanceRequestsPage() {
   const [rowsPerPage, setRowsPerPage] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [groupReviewNotes, setGroupReviewNotes] = useState<Record<string, string>>({});
+  const [groupReview, setGroupReview] = useState<{
+    studentKey: string;
+    action: "approved" | "rejected" | null;
+  } | null>(null);
+  const [selectedGroupRequestIds, setSelectedGroupRequestIds] = useState<string[]>([]);
+  const [groupConfirmation, setGroupConfirmation] = useState(false);
+  const [groupProgress, setGroupProgress] = useState<ReviewProgressState | null>(null);
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pageLoadProgress, setPageLoadProgress] =
     useState<RequestsLoadProgress | null>(null);
@@ -229,10 +427,68 @@ export default function AttendanceRequestsPage() {
     return sortByDate(filtered, (request) => request.created_at, sortOrder);
   }, [requests, fromDate, toDate, studentSearch, sortOrder]);
 
+  const requestGroups = useMemo<RequestGroup[]>(() => {
+    const groups = new Map<string, RequestGroup>();
+    for (const request of filteredRequests) {
+      const studentKey = request.student_id.trim().toLowerCase();
+      const existing = groups.get(studentKey);
+      if (existing) {
+        existing.requests.push(request);
+        if (new Date(request.created_at).getTime() > new Date(existing.latestCreatedAt).getTime()) {
+          existing.studentId = request.student_id;
+          existing.name = request.name;
+          existing.latestCreatedAt = request.created_at;
+        }
+        if (request.status === "pending") existing.pendingRequests.push(request);
+      } else {
+        groups.set(studentKey, {
+          key: studentKey,
+          studentKey,
+          studentId: request.student_id,
+          name: request.name,
+          requests: [request],
+          pendingRequests: request.status === "pending" ? [request] : [],
+          latestCreatedAt: request.created_at,
+        });
+      }
+    }
+    return sortByDate([...groups.values()], (group) => group.latestCreatedAt, sortOrder);
+  }, [filteredRequests, sortOrder]);
+
+  // Resolve the open dialog from live request state so event removals are immediately visible.
+  const activeGroup = useMemo(() => {
+    if (!groupReview) return null;
+    const matches = filteredRequests.filter(
+      (request) => request.student_id.trim().toLowerCase() === groupReview.studentKey,
+    );
+    if (!matches.length) return null;
+    const newest = sortByDate(matches, (request) => request.created_at, "newest")[0];
+    return {
+      key: groupReview.studentKey,
+      studentKey: groupReview.studentKey,
+      studentId: newest.student_id,
+      name: newest.name,
+      requests: matches,
+      pendingRequests: matches.filter((request) => request.status === "pending"),
+      latestCreatedAt: newest.created_at,
+    } satisfies RequestGroup;
+  }, [groupReview, filteredRequests]);
+
+  const selectedGroupRequests = useMemo(
+    () => activeGroup?.pendingRequests.filter((request) => selectedGroupRequestIds.includes(request.id)) ?? [],
+    [activeGroup, selectedGroupRequestIds],
+  );
+  const groupIsBusy = groupSubmitting || Boolean(
+    activeGroup && (
+      activeGroup.requests.some((request) => request.id === reviewingId) ||
+      activeGroup.requests.some((request) => request.events.some((event) => event.id === removingEventId))
+    ),
+  );
+
   const requestsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
-    return Math.max(1, Math.ceil(filteredRequests.length / Number(rowsPerPage)));
-  }, [filteredRequests.length, rowsPerPage]);
+    return Math.max(1, Math.ceil(requestGroups.length / Number(rowsPerPage)));
+  }, [requestGroups.length, rowsPerPage]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -242,21 +498,21 @@ export default function AttendanceRequestsPage() {
     setCurrentPage((page) => Math.min(page, requestsTotalPages));
   }, [requestsTotalPages]);
 
-  const paginatedRequests = useMemo(() => {
-    if (rowsPerPage === "all") return filteredRequests;
+  const paginatedGroups = useMemo(() => {
+    if (rowsPerPage === "all") return requestGroups;
     const pageSize = Number(rowsPerPage);
     const startIndex = (currentPage - 1) * pageSize;
-    return filteredRequests.slice(startIndex, startIndex + pageSize);
-  }, [filteredRequests, currentPage, rowsPerPage]);
+    return requestGroups.slice(startIndex, startIndex + pageSize);
+  }, [requestGroups, currentPage, rowsPerPage]);
 
-  const requestRangeStart = filteredRequests.length
+  const requestRangeStart = requestGroups.length
     ? rowsPerPage === "all"
       ? 1
       : (currentPage - 1) * Number(rowsPerPage) + 1
     : 0;
   const requestRangeEnd = rowsPerPage === "all"
-    ? filteredRequests.length
-    : Math.min(currentPage * Number(rowsPerPage), filteredRequests.length);
+    ? requestGroups.length
+    : Math.min(currentPage * Number(rowsPerPage), requestGroups.length);
 
   const pendingCount = useMemo(
     () => filteredRequests.filter((request) => request.status === "pending").length,
@@ -532,6 +788,100 @@ export default function AttendanceRequestsPage() {
     }
   }
 
+  function openGroupReview(group: RequestGroup, action: "approved" | "rejected" | null) {
+    setGroupReview({ studentKey: group.studentKey, action });
+    setSelectedGroupRequestIds(group.pendingRequests.map((request) => request.id));
+    setGroupConfirmation(false);
+    setGroupProgress(null);
+  }
+
+  function closeGroupReview() {
+    if (groupIsBusy) return;
+    setGroupReview(null);
+    setGroupConfirmation(false);
+    setGroupProgress(null);
+    setSelectedGroupRequestIds([]);
+  }
+
+  async function handleGroupReview(action: "approved" | "rejected") {
+    if (!activeGroup || !selectedGroupRequests.length || groupSubmitting) return;
+    const selected = [...selectedGroupRequests];
+    const studentKey = activeGroup.studentKey;
+    const input = {
+      studentId: activeGroup.studentId,
+      requestIds: selected.map((request) => request.id),
+      status: action,
+      reviewNote: groupReviewNotes[studentKey]?.trim() || undefined,
+    };
+    setGroupSubmitting(true);
+    setReviewingId(selected[0].id);
+    if (action === "approved") {
+      setGroupProgress({
+        progress: 2,
+        detail: "Starting group approval.",
+        steps: createReviewSteps().map((step, index) => ({
+          ...step,
+          status: index === 0 ? "loading" : "pending",
+        })),
+      });
+    }
+    try {
+      const result = action === "approved"
+        ? await reviewAttendanceRequestGroupWithProgress(input, (progress) => {
+            const requestType = selected.some((request) => request.request_type === "event_review")
+              ? "event_review" : "details_correction";
+            setGroupProgress({
+              progress: Math.min(92, Math.max(2, progress.percent * 0.92)),
+              detail: progress.message,
+              steps: buildReviewSteps(progress, requestType),
+            });
+          })
+        : await reviewAttendanceRequestGroup(input);
+      if (action === "approved") {
+        setGroupProgress({
+          progress: 94,
+          detail: "Group approval saved. Refreshing the request list.",
+          steps: createReviewSteps().map((step, index) => ({
+            ...step,
+            status: index < 6 ? "done" : "loading",
+          })),
+        });
+      }
+      await loadRequests();
+      toast.success(
+        `${result?.approvedCount ?? 0} approved, ${result?.rejectedCount ?? 0} rejected, ` +
+        `${result?.createdAttendanceCount ?? 0} attendance record(s) added, ` +
+        `${result?.updatedRowCount ?? 0} row(s) updated, ` +
+        `${result?.autoClosedCount ?? 0} request(s) auto-closed by exemption` +
+        (result?.removedExemptedEventCount
+          ? `, ${result.removedExemptedEventCount} exempted event(s) removed.`
+          : "."),
+      );
+      setGroupReviewNotes((current) => {
+        const next = { ...current };
+        delete next[studentKey];
+        return next;
+      });
+      setGroupReview(null);
+      setGroupConfirmation(false);
+      setGroupProgress(null);
+      setSelectedGroupRequestIds([]);
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message : "Unable to review attendance request group.";
+      setGroupProgress((current) => ({
+        progress: current?.progress ?? 0,
+        detail: message,
+        steps: current?.steps ?? createReviewSteps(),
+        error: message,
+      }));
+      toast.error(message);
+    } finally {
+      setGroupSubmitting(false);
+      setReviewingId("");
+    }
+  }
+
   return (
     <main className="mx-auto w-full min-w-0 max-w-400 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <header className="page-heading space-y-2">
@@ -688,7 +1038,10 @@ export default function AttendanceRequestsPage() {
         </div>
       ) : filteredRequests.length ? (
         <section className="space-y-4">
-          {paginatedRequests.map((request) => (
+          {paginatedGroups.map((group) => group.requests.length === 1 ? (
+            (() => {
+              const request = group.requests[0];
+              return (
             <article
               key={request.id}
               className="min-w-0 space-y-5 rounded-3xl border bg-card p-5 shadow-sm [overflow-wrap:anywhere]"
@@ -722,140 +1075,12 @@ export default function AttendanceRequestsPage() {
                 </div>
               </div>
 
-              {request.request_type === "details_correction" ? (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-black uppercase tracking-wide">
-                    Current → requested
-                  </h3>
-                  <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
-                    {getCorrectionChanges(request).map(
-                      ([label, currentValue, requestedValue]) => (
-                        <div key={label} className="rounded-2xl border bg-background p-4">
-                          <p className="text-xs font-bold uppercase text-muted-foreground">
-                            {label}
-                          </p>
-                          <p className="mt-2 font-semibold">
-                            {currentValue || "—"} → {requestedValue || "—"}
-                          </p>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-2xl border bg-background p-3">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">
-                      Year Level
-                    </p>
-                    <p className="mt-1 font-semibold">{request.year_level || "—"}</p>
-                  </div>
-                  <div className="rounded-2xl border bg-background p-3">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">
-                      College
-                    </p>
-                    <p className="mt-1 font-semibold">{request.college || "—"}</p>
-                  </div>
-                  <div className="rounded-2xl border bg-background p-3">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">
-                      Program
-                    </p>
-                    <p className="mt-1 font-semibold">{request.program || "—"}</p>
-                  </div>
-                  <div className="rounded-2xl border bg-background p-3">
-                    <p className="text-xs font-bold uppercase text-muted-foreground">
-                      Institution
-                    </p>
-                    <p className="mt-1 font-semibold">{request.institution || "—"}</p>
-                  </div>
-                </div>
-              )}
-
-              {request.request_note ? (
-                <div className="rounded-2xl border bg-background p-4 text-sm leading-6">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Student note
-                  </p>
-                  <p className="mt-2 whitespace-pre-wrap">{request.request_note}</p>
-                </div>
-              ) : null}
-
-              {request.request_type === "details_correction" ? null : (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-black uppercase tracking-wide">
-                    Claimed events and evidence
-                  </h3>
-                  {request.events.map((event) => {
-                    const isRemovingThisEvent = removingEventId === event.id;
-                    const isLastEvent = request.events.length === 1;
-                    const removeDisabled =
-                      isLastEvent ||
-                      Boolean(removingEventId) ||
-                      reviewingId === request.id;
-
-                    return (
-                      <div
-                        key={event.id}
-                        className="flex flex-col gap-3 rounded-2xl border bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-black">{event.event_name}</p>
-                          <p className="mt-1 break-all text-xs text-muted-foreground">
-                            {event.evidence_url}
-                          </p>
-                        </div>
-                        <div className="shrink-0 space-y-1 text-right">
-                          <ActionMenu
-                            ariaLabel={`Actions for ${event.event_name}`}
-                            actions={[
-                              {
-                                label: (
-                                  <span className="font-black text-sky-700 dark:text-sky-300">
-                                    Open Evidence
-                                  </span>
-                                ),
-                                disabled: isRemovingThisEvent || !event.evidence_url,
-                                onSelect: () => {
-                                  if (!event.evidence_url) return;
-                                  window.open(
-                                    event.evidence_url,
-                                    "_blank",
-                                    "noopener,noreferrer",
-                                  );
-                                },
-                              },
-                            ]}
-                            deleteAction={
-                              request.status === "pending"
-                                ? {
-                                    label: isRemovingThisEvent ? "Removing..." : "Remove",
-                                    disabled: removeDisabled,
-                                    title: `Remove "${event.event_name}" from ${request.name}'s request?`,
-                                    description:
-                                      "This event will not be credited if the request is approved. The student will no longer see it on their request. This cannot be undone.",
-                                    confirmationPhrase: "REMOVE",
-                                    confirmLabel: "Remove Event",
-                                    pendingLabel: "Removing...",
-                                    isPending: isRemovingThisEvent,
-                                    confirmDisabled:
-                                      removeDisabled && !isRemovingThisEvent,
-                                    onConfirm: () =>
-                                      handleRemoveRequestEvent(request, event.id),
-                                  }
-                                : undefined
-                            }
-                          />
-                          {request.status === "pending" && isLastEvent ? (
-                            <p className="max-w-56 text-xs font-semibold text-muted-foreground">
-                              A request needs at least one event. Reject the request instead.
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <RequestDetails
+                request={request}
+                reviewingId={reviewingId}
+                removingEventId={removingEventId}
+                onRemoveRequestEvent={(item, eventId) => void handleRemoveRequestEvent(item, eventId)}
+              />
 
               {request.status === "pending" ? (
                 <div className="space-y-3 rounded-2xl border bg-background p-4">
@@ -934,27 +1159,61 @@ export default function AttendanceRequestsPage() {
                     />
                   </div>
                 </div>
-              ) : (
-                <div className="rounded-2xl border bg-background p-4 text-sm">
-                  <p className="font-bold">
-                    Reviewed by {request.reviewed_by_name || "System (exemption)"}
-                    {request.reviewed_at
-                      ? ` on ${formatDate(request.reviewed_at)}`
-                      : ""}
+              ) : null}
+            </article>
+              );
+            })()
+          ) : (
+            <article
+              key={group.studentKey}
+              className="min-w-0 space-y-4 rounded-3xl border bg-card p-5 shadow-sm [overflow-wrap:anywhere]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="break-words text-xl font-black">{group.studentId} · {group.name}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Latest submitted {formatDate(group.latestCreatedAt)}
                   </p>
-                  {request.review_note ? (
-                    <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                      {request.review_note}
-                    </p>
-                  ) : null}
                 </div>
-              )}
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="rounded-full font-black">{group.requests.length} requests</Badge>
+                  <Badge className="rounded-full bg-amber-100 font-black text-amber-900 dark:bg-amber-950 dark:text-amber-200">{group.pendingRequests.length} pending</Badge>
+                  {[...new Set(group.requests.map((request) => request.request_type))].map((type) => (
+                    <Badge key={type} variant="secondary" className="rounded-full font-black">
+                      {type === "details_correction" ? "Details Correction" : "Event Review"}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[...new Set(group.requests.map((request) =>
+                  `${request.school_year_name} / ${request.semester === "second_semester" ? "Second Semester" : "First Semester"}`
+                ))].map((label) => (
+                  <span key={label} className="rounded-xl border bg-background px-3 py-2 text-xs font-bold text-muted-foreground">
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="min-h-10 rounded-xl font-black"
+                  disabled={Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
+                  onClick={() => openGroupReview(group, null)}
+                >Review All ({group.requests.length})</Button>
+                <Button type="button" className="min-h-10 rounded-xl !bg-emerald-600 !text-white hover:!bg-emerald-700"
+                  disabled={!group.pendingRequests.length || Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
+                  onClick={() => openGroupReview(group, "approved")}
+                >Approve All Pending</Button>
+                <Button type="button" className="min-h-10 rounded-xl !bg-red-600 !text-white hover:!bg-red-700"
+                  disabled={!group.pendingRequests.length || Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
+                  onClick={() => openGroupReview(group, "rejected")}
+                >Reject All Pending</Button>
+              </div>
             </article>
           ))}
 
           <div className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-semibold text-muted-foreground">
-              Showing {requestRangeStart.toLocaleString()}–{requestRangeEnd.toLocaleString()} of {filteredRequests.length.toLocaleString()} request/s
+              Showing {requestRangeStart.toLocaleString()}–{requestRangeEnd.toLocaleString()} of {requestGroups.length.toLocaleString()} student/s ({filteredRequests.length.toLocaleString()} request/s)
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Show</span>
@@ -978,6 +1237,165 @@ export default function AttendanceRequestsPage() {
           No attendance requests match the selected filters.
         </div>
       )}
+
+      <Dialog
+        open={Boolean(groupReview)}
+        onOpenChange={(open) => { if (!open) closeGroupReview(); }}
+      >
+        <DialogContent
+          className="flex max-h-[min(92dvh,960px)] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden p-4 text-sm sm:max-w-5xl sm:p-6 lg:max-w-5xl"
+          showCloseButton={!groupIsBusy}
+          onEscapeKeyDown={(event) => { if (groupIsBusy) event.preventDefault(); }}
+          onPointerDownOutside={(event) => { if (groupIsBusy) event.preventDefault(); }}
+          onInteractOutside={(event) => { if (groupIsBusy) event.preventDefault(); }}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">
+              {activeGroup?.studentId} · {activeGroup?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Review {activeGroup?.requests.length ?? 0} request(s), including {activeGroup?.pendingRequests.length ?? 0} pending.
+              {groupReview?.action ? ` Selected action: ${groupReview.action === "approved" ? "Approve" : "Reject"}.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {groupProgress && (groupSubmitting || groupProgress.error) ? (
+            <div className="min-h-0 space-y-4 overflow-y-auto py-2">
+              {groupSubmitting && groupReview?.action === "approved" ? (
+                <LoadingStatus
+                  title="Processing group approval"
+                  detail={groupProgress.detail}
+                  progress={groupProgress.progress}
+                  steps={groupProgress.steps}
+                />
+              ) : null}
+              {groupProgress.error ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                  {groupProgress.error}
+                </div>
+              ) : null}
+            </div>
+          ) : groupConfirmation ? (
+            <div className="min-h-0 space-y-4 overflow-y-auto rounded-2xl border bg-background p-5">
+              <h3 className="text-lg font-black">
+                {groupReview?.action === "approved" ? "Approve selected requests?" : "Reject selected requests?"}
+              </h3>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {groupReview?.action === "approved"
+                  ? `This will approve ${selectedGroupRequests.length} selected request(s), apply student detail changes, and add verified attendance records where applicable.`
+                  : `This will reject ${selectedGroupRequests.length} selected request(s). The student will see the review note, if provided.`}
+              </p>
+              {groupReview?.action === "approved" && selectedGroupRequests.some(correctionChangesCollege) ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                  Changing the college will also recalculate this student's absences and fines.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+              {activeGroup && [...activeGroup.requests].sort((a, b) => {
+                if (a.request_type !== b.request_type) return a.request_type === "details_correction" ? -1 : 1;
+                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+              }).map((request) => (
+                <section key={request.id} className="space-y-4 rounded-3xl border bg-muted/10 p-4 [overflow-wrap:anywhere] sm:p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="rounded-full font-black">
+                      {request.request_type === "details_correction" ? "Details Correction" : "Event Review"}
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full font-black">
+                      {request.school_year_name} / {request.semester === "second_semester" ? "Second Semester" : "First Semester"}
+                    </Badge>
+                    <Badge variant="outline" className={`rounded-full font-black ${getStatusClassName(request.status)}`}>
+                      {request.status}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">Submitted {formatDate(request.created_at)}</span>
+                  </div>
+                  <RequestDetails
+                    request={request}
+                    reviewingId={reviewingId}
+                    removingEventId={removingEventId}
+                    onRemoveRequestEvent={(item, eventId) => void handleRemoveRequestEvent(item, eventId)}
+                  />
+                  {request.status === "pending" ? (
+                    <label className="flex items-center gap-3 rounded-xl border bg-background p-3 text-sm font-black">
+                      <Checkbox
+                        checked={selectedGroupRequestIds.includes(request.id)}
+                        disabled={groupIsBusy}
+                        onCheckedChange={(checked) => {
+                          setSelectedGroupRequestIds((current) => checked
+                            ? [...new Set([...current, request.id])]
+                            : current.filter((id) => id !== request.id));
+                        }}
+                      />
+                      Include this request in the group action
+                    </label>
+                  ) : (
+                    <p className="text-xs font-semibold text-muted-foreground">Already reviewed · Read-only</p>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
+
+          <div className="shrink-0 space-y-3 border-t pt-3">
+            {!groupConfirmation && !groupSubmitting && !groupProgress?.error ? (
+              <label className="block space-y-2 text-sm font-bold">
+                <span>Note to student (optional, visible to the student)</span>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  The student sees this note when they search their Student ID.
+                </p>
+                <Textarea
+                  value={groupReviewNotes[groupReview?.studentKey ?? ""] ?? ""}
+                  onChange={(event) => {
+                    if (!groupReview) return;
+                    setGroupReviewNotes((current) => ({ ...current, [groupReview.studentKey]: event.target.value }));
+                  }}
+                  rows={3}
+                  placeholder="Add a reason, verification note, or instruction for these requests."
+                  className="max-h-36 w-full rounded-2xl text-sm"
+                  disabled={groupIsBusy}
+                />
+              </label>
+            ) : null}
+            <DialogFooter>
+              {groupProgress?.error ? (
+                <Button type="button" onClick={closeGroupReview}>Close</Button>
+              ) : groupSubmitting ? (
+                <Button type="button" disabled>{groupReview?.action === "approved" ? "Approving..." : "Rejecting..."}</Button>
+              ) : groupConfirmation ? (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setGroupConfirmation(false)}>Back</Button>
+                  <Button type="button"
+                    className={groupReview?.action === "rejected" ? "!bg-red-600 !text-white hover:!bg-red-700" : "!bg-emerald-600 !text-white hover:!bg-emerald-700"}
+                    onClick={() => { if (groupReview?.action) void handleGroupReview(groupReview.action); }}
+                    disabled={!selectedGroupRequests.length || groupIsBusy}
+                  >Confirm {groupReview?.action === "approved" ? "Approval" : "Rejection"} ({selectedGroupRequests.length})</Button>
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="outline" onClick={closeGroupReview} disabled={groupIsBusy}>Cancel</Button>
+                  <Button type="button"
+                    className="!bg-red-600 !text-white hover:!bg-red-700"
+                    disabled={!selectedGroupRequests.length || groupIsBusy}
+                    onClick={() => {
+                      setGroupReview((current) => current ? { ...current, action: "rejected" } : current);
+                      setGroupConfirmation(true);
+                    }}
+                  >Reject Selected ({selectedGroupRequests.length})</Button>
+                  <Button type="button"
+                    className="!bg-emerald-600 !text-white hover:!bg-emerald-700"
+                    disabled={!selectedGroupRequests.length || groupIsBusy}
+                    onClick={() => {
+                      setGroupReview((current) => current ? { ...current, action: "approved" } : current);
+                      setGroupConfirmation(true);
+                    }}
+                  >Approve Selected ({selectedGroupRequests.length})</Button>
+                </>
+              )}
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={Boolean(reviewConfirmation)}
