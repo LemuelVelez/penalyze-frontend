@@ -2258,7 +2258,7 @@ export default function AttendancePage({
         completedRepositorySyncErrors = syncErrors;
         setRepositorySyncFailures(syncErrors);
         if (syncErrors.length) {
-          toast.error(`Attendance was saved, but ${syncErrors.length} repository status update(s) failed. Do not import again; mark these files uploaded manually in Repository Sync.`, { duration: 12000 });
+          toast.error(`Attendance was saved, but ${syncErrors.length} repository status update(s) failed. Do not import again; mark these files uploaded manually in Repository Sync.`, { duration: 6000 });
         }
       }
 

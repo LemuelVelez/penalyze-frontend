@@ -74,6 +74,7 @@ type NavGroup = {
   label: string;
   items: NavItem[];
   showPendingBadge?: boolean;
+  showRepositoryBadge?: boolean;
   showCalculationBadge?: boolean;
 };
 
@@ -174,6 +175,7 @@ export default function AppLayout(props: LayoutProps) {
       id: "attendance",
       label: "Attendance",
       showPendingBadge: true,
+      showRepositoryBadge: true,
       items: [
         {
           path: "/attendance",
@@ -474,6 +476,9 @@ export default function AppLayout(props: LayoutProps) {
                     {group.showPendingBadge ? (
                       <PendingBadge count={pendingRequestCount} className="ml-0.5" />
                     ) : null}
+                    {group.showRepositoryBadge ? (
+                      <PendingBadge count={untrackedRepositoryCount} warning className="ml-0.5" ariaLabel={`${untrackedRepositoryCount} untracked repository workbooks`} />
+                    ) : null}
                     {group.showCalculationBadge ? (
                       <PendingBadge
                         count={calculationNeeded ? 1 : 0}
@@ -580,10 +585,19 @@ export default function AppLayout(props: LayoutProps) {
                   aria-label="Open navigation menu"
                 >
                   <Menu className="size-5" aria-hidden="true" />
-                  <PendingBadge
-                    count={pendingRequestCount}
-                    className="absolute -right-1 -top-1 ring-2 ring-background"
-                  />
+                  {pendingRequestCount > 0 ? (
+                    <PendingBadge
+                      count={pendingRequestCount}
+                      className="absolute -right-1 -top-1 ring-2 ring-background"
+                    />
+                  ) : untrackedRepositoryCount > 0 ? (
+                    <PendingBadge
+                      count={untrackedRepositoryCount}
+                      warning
+                      className="absolute -right-1 -top-1 ring-2 ring-background"
+                      ariaLabel={`${untrackedRepositoryCount} untracked repository workbooks`}
+                    />
+                  ) : null}
                 </Button>
               </SheetTrigger>
 
@@ -635,6 +649,9 @@ export default function AppLayout(props: LayoutProps) {
                           <span className="flex items-center gap-2">
                             {group.showPendingBadge ? (
                               <PendingBadge count={pendingRequestCount} />
+                            ) : null}
+                            {group.showRepositoryBadge ? (
+                              <PendingBadge count={untrackedRepositoryCount} warning ariaLabel={`${untrackedRepositoryCount} untracked repository workbooks`} />
                             ) : null}
                             {group.showCalculationBadge ? (
                               <PendingBadge
