@@ -10,6 +10,7 @@ export type AuditLogRecord = {
   actor_email: string | null;
   actor_role: string | null;
   action: string;
+  category: string;
   resource_type: string;
   resource_id: string | null;
   method: string;
@@ -32,6 +33,7 @@ export type AuditLogListOptions = {
   page?: number;
   limit?: number;
   search?: string;
+  category?: string;
   outcome?: AuditLogOutcome;
   sort?: SortOrder;
   from?: string;
@@ -51,6 +53,7 @@ export async function listAuditLogs(options: AuditLogListOptions = {}) {
   if (options.page) params.set("page", String(options.page));
   if (options.limit) params.set("limit", String(options.limit));
   if (options.search?.trim()) params.set("search", options.search.trim());
+  if (options.category?.trim()) params.set("category", options.category.trim());
   if (options.outcome && options.outcome !== "all") params.set("outcome", options.outcome);
   if (options.sort) params.set("sort", options.sort);
   if (options.from) params.set("from", options.from);
@@ -72,4 +75,35 @@ export async function listAuditLogs(options: AuditLogListOptions = {}) {
     rows: payload?.data ?? [],
     meta: payload?.meta ?? { page: 1, limit: options.limit ?? 50, total: 0, totalPages: 1 },
   };
+}
+
+export type AuditLogCategoryCount = {
+  category: string;
+  total: number;
+};
+
+export async function listAuditLogCategories(options: AuditLogListOptions = {}): Promise<AuditLogCategoryCount[]> {
+  const params = new URLSearchParams();
+  const token = getAuthToken();
+
+  if (options.search?.trim()) params.set("search", options.search.trim());
+  if (options.outcome && options.outcome !== "all") params.set("outcome", options.outcome);
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+
+  const response = await fetch(`${getApiBaseUrl()}/api/audit-logs/categories?${params.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
+  });
+  checkUnauthorized(response);
+
+  const payload = (await response.json().catch(() => null)) as {
+    data?: AuditLogCategoryCount[];
+    message?: string;
+  } | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+  }
+  return (payload?.data ?? []).filter((item) => item.total > 0);
 }
