@@ -109,7 +109,7 @@ function CategoryRecords({
   const isLoading = !group || group.loading || !group.loaded;
   return (
       <section className="overflow-hidden rounded-2xl border bg-background shadow-sm">
-        <div className="grid gap-3 p-3 md:grid-cols-2 lg:hidden">
+        <div className="grid max-h-[65vh] gap-3 overflow-y-auto overscroll-contain p-3 md:grid-cols-2 lg:hidden">
           {isLoading ? (
             <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground md:col-span-2">
               Loading audit logs...
@@ -165,16 +165,16 @@ function CategoryRecords({
           )}
         </div>
 
-        <div className="table-scroll-hint hidden min-w-0 max-w-full overflow-x-auto lg:block">
+        <div className="table-scroll-hint hidden max-h-[65vh] min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-contain lg:block">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="sticky left-0 z-20 bg-muted/95 px-4 py-3 font-medium">Date &amp; time</th>
-                <th className="sm:sticky sm:left-40 z-20 bg-muted/95 px-4 py-3 font-medium">Accountable user</th>
-                <th className="px-4 py-3 font-medium">Action</th>
-                <th className="px-4 py-3 font-medium">Resource</th>
-                <th className="px-4 py-3 font-medium">Outcome</th>
-                <th className="px-4 py-3 font-medium">Source</th>
+                <th className="sticky top-0 left-0 z-30 w-64 min-w-64 bg-muted/95 px-4 py-3 font-medium">Date &amp; time</th>
+                <th className="sticky top-0 left-64 z-30 bg-muted/95 px-4 py-3 font-medium">Accountable user</th>
+                <th className="sticky top-0 z-20 bg-muted/95 px-4 py-3 font-medium">Action</th>
+                <th className="sticky top-0 z-20 bg-muted/95 px-4 py-3 font-medium">Resource</th>
+                <th className="sticky top-0 z-20 bg-muted/95 px-4 py-3 font-medium">Outcome</th>
+                <th className="sticky top-0 z-20 bg-muted/95 px-4 py-3 font-medium">Source</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -197,8 +197,8 @@ function CategoryRecords({
                       className="cursor-pointer transition-colors hover:bg-muted/35"
                       onClick={() => onSelectLog(log)}
                     >
-                      <td className="sticky left-0 z-10 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
-                      <td className="sm:sticky sm:left-40 z-10 bg-background px-4 py-3.5">
+                      <td className="sticky left-0 z-10 w-64 min-w-64 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
+                      <td className="sticky left-64 z-10 bg-background px-4 py-3.5">
                         <div className="font-medium">{actor.name}</div>
                         <div className="mt-0.5 max-w-64 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs text-muted-foreground">{actor.detail}</div>
                       </td>
@@ -451,7 +451,7 @@ export default function AuditLogPage() {
                     </span>
                   </span>
                 </AccordionTrigger>
-                <AccordionContent className="pb-0">
+                <AccordionContent className="h-auto! pb-0">
                   <CategoryRecords group={groups[category]} onSelectLog={setSelectedLog}
                     onPageChange={(nextPage) => changePage(category, nextPage)} />
                 </AccordionContent>
