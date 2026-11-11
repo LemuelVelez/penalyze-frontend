@@ -30,18 +30,7 @@ export type EventCollegeCheckerRow = {
   has_upload: boolean;
   is_exempt: boolean;
   exemption_id: string | null;
-  is_verified: boolean;
-  verified_at: string | null;
-  verified_by_name: string | null;
-  note: string | null;
-  status: "exempt" | "missing" | "uploaded" | "verified";
-};
-
-export type EventCollegeVerificationItem = {
-  eventId: string;
-  college: string;
-  verified: boolean;
-  note?: string | null;
+  status: "exempt" | "missing" | "uploaded";
 };
 
 export type EventCollegeExemption = {
@@ -1773,17 +1762,6 @@ export async function listEventCollegeChecker(schoolYearId: string, eventId?: st
   const query = buildSearchParams({ schoolYearId, eventId });
   const response = await apiRequest<EventCollegeCheckerRow[]>(
     `/api/attendance/event-college-checker${query}`,
-  );
-  return response.data ?? [];
-}
-
-export async function setEventCollegeVerifications(payload: {
-  schoolYearId: string;
-  items: EventCollegeVerificationItem[];
-}) {
-  const response = await apiRequest<EventCollegeCheckerRow[]>(
-    "/api/attendance/event-college-checker/verify",
-    { method: "POST", body: JSON.stringify(payload) },
   );
   return response.data ?? [];
 }
