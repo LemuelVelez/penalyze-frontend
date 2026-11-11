@@ -19,6 +19,31 @@ export type AttendanceImportProgressStage =
   | "completed"
   | "cancelled";
 
+export type EventCollegeCheckerRow = {
+  event_id: string;
+  event_name: string;
+  college_key: string;
+  college_label: string;
+  record_count: number;
+  uploaded_student_count: number;
+  last_record_at: string | null;
+  has_upload: boolean;
+  is_exempt: boolean;
+  exemption_id: string | null;
+  is_verified: boolean;
+  verified_at: string | null;
+  verified_by_name: string | null;
+  note: string | null;
+  status: "exempt" | "missing" | "uploaded" | "verified";
+};
+
+export type EventCollegeVerificationItem = {
+  eventId: string;
+  college: string;
+  verified: boolean;
+  note?: string | null;
+};
+
 export type EventCollegeExemption = {
   id: string;
   school_year_id: string | null;
@@ -1741,6 +1766,25 @@ export async function deleteAttendanceRecord(id: string) {
 
 export async function listAttendanceColleges() {
   const response = await apiRequest<AttendanceCollege[]>("/api/attendance/colleges");
+  return response.data ?? [];
+}
+
+export async function listEventCollegeChecker(schoolYearId: string, eventId?: string) {
+  const query = buildSearchParams({ schoolYearId, eventId });
+  const response = await apiRequest<EventCollegeCheckerRow[]>(
+    `/api/attendance/event-college-checker${query}`,
+  );
+  return response.data ?? [];
+}
+
+export async function setEventCollegeVerifications(payload: {
+  schoolYearId: string;
+  items: EventCollegeVerificationItem[];
+}) {
+  const response = await apiRequest<EventCollegeCheckerRow[]>(
+    "/api/attendance/event-college-checker/verify",
+    { method: "POST", body: JSON.stringify(payload) },
+  );
   return response.data ?? [];
 }
 

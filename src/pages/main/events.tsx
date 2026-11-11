@@ -14,6 +14,8 @@ import {
   listAttendanceEventDuplicateGroups,
   listAttendanceColleges,
   listEventCollegeExemptions,
+  listEventCollegeChecker,
+  setEventCollegeVerifications,
   listEventYearLevelExemptions,
   listAttendanceEvents,
   mergeAttendanceEvents,
@@ -32,6 +34,8 @@ import type {
   AttendanceEventMergeImpact,
   AttendanceCollege,
   EventCollegeExemption,
+  EventCollegeCheckerRow,
+  EventCollegeVerificationItem,
   EventExemptionImpact,
   EventYearLevelExemption,
   RemoveSelectedEventExemptionsProgress,
@@ -44,6 +48,7 @@ import {
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
+import { getStoredUser } from "../../api/auth";
 import { ActionMenu } from "../../components/action-menu";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
@@ -60,6 +65,7 @@ import {
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
 import { Checkbox } from "../../components/ui/checkbox";
 import { DateTimePicker } from "../../components/ui/date-time-picker";
 import {
@@ -80,6 +86,7 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
+import { normalizeCollegeKey, QR_CODE_COLLEGE_OPTIONS } from "../../lib/colleges";
 import {
   getYearLevelLabel,
   normalizeYearLevelKey,
@@ -247,6 +254,127 @@ type YearLevelExemptionHistoryEntry = {
 type ExemptionHistoryEntry =
   | CollegeExemptionHistoryEntry
   | YearLevelExemptionHistoryEntry;
+
+type VerificationSnapshot = {
+  eventId: string;
+  collegeKey: string;
+  collegeLabel: string;
+  verified: boolean;
+  note: string | null;
+};
+
+type VerificationHistoryEntry = {
+  schoolYearId: string;
+  before: VerificationSnapshot[];
+  after: VerificationSnapshot[];
+  label: string;
+};
+
+type CollegeCheckerFilter = "all" | "missing" | "unverified" | "verified";
+
+function verificationSnapshotKey(value: { eventId: string; collegeKey: string }) {
+  return `${value.eventId}:${value.collegeKey}`;
+}
+
+function getVerificationSnapshots(
+  rows: EventCollegeCheckerRow[],
+  selected: Array<{ eventId: string; collegeKey: string }>,
+): VerificationSnapshot[] {
+  const byKey = new Map<string, EventCollegeCheckerRow>(rows.map((row) => [
+    verificationSnapshotKey({ eventId: row.event_id, collegeKey: row.college_key }), row,
+  ]));
+  return selected.map((item) => {
+    const row = byKey.get(verificationSnapshotKey(item));
+    if (!row) throw new Error("College checker rows changed on the server.");
+    return {
+      eventId: item.eventId,
+      collegeKey: item.collegeKey,
+      collegeLabel: row.college_label,
+      verified: row.is_verified,
+      note: row.is_verified ? row.note : null,
+    };
+  });
+}
+
+function verificationSnapshotsMatch(left: VerificationSnapshot[], right: VerificationSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) =>
+    item.eventId === right[index]?.eventId &&
+    item.collegeKey === right[index]?.collegeKey &&
+    item.verified === right[index]?.verified &&
+    item.note === right[index]?.note,
+  );
+}
+
+function collegeCheckerCellMatchesFilter(row: EventCollegeCheckerRow, filter: CollegeCheckerFilter) {
+  if (filter === "all") return true;
+  if (filter === "missing") return !row.is_exempt && !row.has_upload;
+  if (filter === "unverified") return !row.is_exempt && !row.is_verified;
+  return !row.is_exempt && row.is_verified;
+}
+
+// This function is deterministic: the generation time is supplied by the caller.
+function buildCollegeVerificationSummary(
+  rows: EventCollegeCheckerRow[],
+  events: AttendanceEvent[],
+  schoolYearLabel: string,
+  generatedAt: string,
+) {
+  if (!rows.length) return "No events found for this school year.";
+  const joinNaturally = (names: string[]) => names.length <= 1
+    ? (names[0] ?? "none")
+    : names.length === 2
+      ? `${names[0]} and ${names[1]}`
+      : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  const eventNames = new Map<string, string>(events.map((event) => [event.id, event.name]));
+  const eventRows = new Map<string, EventCollegeCheckerRow[]>();
+  rows.forEach((row) => {
+    const current = eventRows.get(row.event_id) ?? [];
+    current.push(row);
+    eventRows.set(row.event_id, current);
+    if (!eventNames.has(row.event_id)) eventNames.set(row.event_id, row.event_name);
+  });
+  const allEvents = [...eventRows.keys()];
+  const fullyVerified = allEvents.filter((id) =>
+    (eventRows.get(id) ?? []).every((row) => row.is_exempt || row.is_verified),
+  );
+  const verified = rows.filter((row) => !row.is_exempt && row.is_verified).length;
+  const uploadedUnverified = rows.filter((row) => !row.is_exempt && row.has_upload && !row.is_verified).length;
+  const missing = rows.filter((row) => row.status === "missing").length;
+  const verifiedWithoutUpload = rows.filter((row) => !row.is_exempt && row.is_verified && !row.has_upload).length;
+  const exempt = rows.filter((row) => row.is_exempt).length;
+  const collegesMissing = QR_CODE_COLLEGE_OPTIONS.map((label) => ({
+    label,
+    eventNames: rows
+      .filter((row) => row.college_key === normalizeCollegeKey(label) && !row.is_exempt && !row.has_upload)
+      .map((row) => eventNames.get(row.event_id) ?? row.event_name),
+  })).filter((college) => college.eventNames.length);
+  const incompleteEvents = allEvents.filter((id) => !fullyVerified.includes(id))
+    .map((id) => eventNames.get(id) ?? id);
+  const needsAttention = rows.filter((row) =>
+    !row.is_exempt && (!row.has_upload || !row.is_verified),
+  ).length;
+
+  return `For school year ${schoolYearLabel}, this college attendance verification summary was generated on ${formatDateTime(generatedAt)}. ` +
+    `Of ${allEvents.length} event${allEvents.length === 1 ? "" : "s"}, ${fullyVerified.length} ` +
+    `${fullyVerified.length === 1 ? "is" : "are"} fully verified (every non-exempt college verified). ` +
+    `There are ${verified} verified, ${uploadedUnverified} uploaded-but-unverified, ${missing} missing-upload, ` +
+    `and ${exempt} exempt college-event pairs. ` +
+    (verifiedWithoutUpload
+      ? `${verifiedWithoutUpload} verified college-event pair${verifiedWithoutUpload === 1 ? "" : "s"} still ${verifiedWithoutUpload === 1 ? "lacks" : "lack"} an attendance upload. `
+      : "") +
+    (collegesMissing.length
+      ? `Colleges with missing uploads: ${joinNaturally(collegesMissing.map((college) =>
+          `${college.label} (for ${joinNaturally(college.eventNames)})`,
+        ))}. `
+      : "No colleges have missing uploads. ") +
+    (incompleteEvents.length
+      ? `Events not yet fully verified: ${joinNaturally(incompleteEvents)}. `
+      : "Every event is fully verified. ") +
+    (needsAttention === 0
+      ? "All colleges have uploaded and been verified for every event."
+      : `${needsAttention} college-event pair${needsAttention === 1 ? "" : "s"} still need uploads or verification.`);
+}
 
 const DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY =
   "penalyze:attendance-event-duplicate-dismissals:v1";
@@ -521,6 +649,19 @@ export default function EventsPage() {
   const [isRemovingSelectedExemptions, setIsRemovingSelectedExemptions] = useState(false);
   const [selectedRemovalProgress, setSelectedRemovalProgress] =
     useState<ExemptionRemovalProgressState | null>(null);
+  const [collegeCheckerOpen, setCollegeCheckerOpen] = useState(false);
+  const [collegeCheckerRows, setCollegeCheckerRows] = useState<EventCollegeCheckerRow[]>([]);
+  const [collegeCheckerLoading, setCollegeCheckerLoading] = useState(false);
+  const [collegeCheckerBusy, setCollegeCheckerBusy] = useState(false);
+  const collegeCheckerBusyRef = useRef(false);
+  const collegeCheckerLoadRef = useRef(0);
+  const [collegeCheckerFilter, setCollegeCheckerFilter] = useState<CollegeCheckerFilter>("all");
+  const [collegeCheckerWarning, setCollegeCheckerWarning] = useState<{
+    row: EventCollegeCheckerRow;
+  } | null>(null);
+  const [collegeCheckerGeneratedAt, setCollegeCheckerGeneratedAt] = useState(() => new Date().toISOString());
+  const [verificationUndoStack, setVerificationUndoStack] = useState<VerificationHistoryEntry[]>([]);
+  const [verificationRedoStack, setVerificationRedoStack] = useState<VerificationHistoryEntry[]>([]);
   const [undoStack, setUndoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [isApplyingHistory, setIsApplyingHistory] = useState(false);
@@ -642,6 +783,11 @@ export default function EventsPage() {
   useEffect(() => {
     setUndoStack([]);
     setRedoStack([]);
+    setVerificationUndoStack([]);
+    setVerificationRedoStack([]);
+    setCollegeCheckerRows([]);
+    setCollegeCheckerWarning(null);
+    collegeCheckerLoadRef.current += 1;
     setUndoConfirmationOpen(false);
     clearExemptionSelection();
   }, [selectedSchoolYearId]);
@@ -2018,6 +2164,192 @@ export default function EventsPage() {
     }
   }
 
+  const isCollegeCheckerAdmin = getStoredUser()?.role === "admin";
+  const checkerEventGroups = useMemo(() => {
+    const grouped = new Map<string, { id: string; name: string; rows: EventCollegeCheckerRow[] }>();
+    for (const row of collegeCheckerRows) {
+      let group = grouped.get(row.event_id);
+      if (!group) {
+        group = { id: row.event_id, name: row.event_name, rows: [] };
+        grouped.set(row.event_id, group);
+      }
+      group.rows.push(row);
+    }
+    return [...grouped.values()];
+  }, [collegeCheckerRows]);
+  const visibleCheckerEventGroups = useMemo(() => checkerEventGroups.filter((group) =>
+    group.rows.some((row) => collegeCheckerCellMatchesFilter(row, collegeCheckerFilter)),
+  ), [checkerEventGroups, collegeCheckerFilter]);
+  const collegeCheckerSummary = useMemo(() => buildCollegeVerificationSummary(
+    collegeCheckerRows, events, selectedSchoolYearLabel, collegeCheckerGeneratedAt,
+  ), [collegeCheckerRows, events, selectedSchoolYearLabel, collegeCheckerGeneratedAt]);
+  const checkerMissingCount = collegeCheckerRows.filter((row) => !row.is_exempt && !row.has_upload).length;
+  const checkerVerifiedCount = collegeCheckerRows.filter((row) => !row.is_exempt && row.is_verified).length;
+  const verificationUndoEntry = verificationUndoStack[verificationUndoStack.length - 1];
+  const verificationRedoEntry = verificationRedoStack[verificationRedoStack.length - 1];
+
+  async function reloadCollegeChecker(schoolYearId = selectedSchoolYearId) {
+    const requestId = ++collegeCheckerLoadRef.current;
+    if (!schoolYearId || schoolYearId === ALL_SCHOOL_YEARS_VALUE) {
+      setCollegeCheckerRows([]);
+      return [] as EventCollegeCheckerRow[];
+    }
+    setCollegeCheckerLoading(true);
+    setCollegeCheckerWarning(null);
+    try {
+      const rows = await listEventCollegeChecker(schoolYearId);
+      if (requestId === collegeCheckerLoadRef.current) {
+        setCollegeCheckerRows(rows);
+        setCollegeCheckerGeneratedAt(new Date().toISOString());
+      }
+      return rows;
+    } finally {
+      if (requestId === collegeCheckerLoadRef.current) setCollegeCheckerLoading(false);
+    }
+  }
+
+  async function handleOpenCollegeChecker() {
+    if (!selectedSchoolYearId) {
+      toast.error("Select a school year first.");
+      return;
+    }
+    setCollegeCheckerOpen(true);
+    setCollegeCheckerWarning(null);
+    try {
+      await reloadCollegeChecker(selectedSchoolYearId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load college checker.");
+    }
+  }
+
+  async function performCollegeVerification(
+    items: EventCollegeVerificationItem[],
+    label: string,
+  ) {
+    if (!isCollegeCheckerAdmin || collegeCheckerBusyRef.current || !items.length) return;
+    const selected = items.map((item) => ({
+      eventId: item.eventId, collegeKey: normalizeCollegeKey(item.college) ?? "",
+    }));
+    const before = getVerificationSnapshots(collegeCheckerRows, selected);
+    const after = before.map((snapshot, index) => ({
+      ...snapshot,
+      verified: items[index].verified,
+      note: items[index].verified ? (items[index].note ?? snapshot.note) : null,
+    }));
+    if (verificationSnapshotsMatch(before, after)) return;
+    collegeCheckerBusyRef.current = true;
+    setCollegeCheckerBusy(true);
+    setCollegeCheckerWarning(null);
+    try {
+      const current = await listEventCollegeChecker(selectedSchoolYearId);
+      if (!verificationSnapshotsMatch(getVerificationSnapshots(current, selected), before)) {
+        throw new Error("College verification history no longer matches the server.");
+      }
+      await setEventCollegeVerifications({ schoolYearId: selectedSchoolYearId, items });
+      const refreshed = await reloadCollegeChecker(selectedSchoolYearId);
+      if (!verificationSnapshotsMatch(getVerificationSnapshots(refreshed, selected), after)) {
+        throw new Error("Saved verification does not match the server.");
+      }
+      setVerificationUndoStack((stack) => [...stack, {
+        schoolYearId: selectedSchoolYearId, before, after, label,
+      }].slice(-20));
+      setVerificationRedoStack([]);
+      toast.success(`${label}.`);
+    } catch (error) {
+      setVerificationUndoStack([]);
+      setVerificationRedoStack([]);
+      try { await reloadCollegeChecker(selectedSchoolYearId); } catch { /* Retain the original error. */ }
+      toast.error(error instanceof Error ? error.message : "Unable to save verification; history cleared.");
+    } finally {
+      collegeCheckerBusyRef.current = false;
+      setCollegeCheckerBusy(false);
+    }
+  }
+
+  function handleCollegeCheckerToggle(row: EventCollegeCheckerRow, checked: boolean) {
+    if (!isCollegeCheckerAdmin || collegeCheckerBusyRef.current || row.is_exempt) return;
+    if (checked && row.record_count === 0) {
+      setCollegeCheckerWarning({ row });
+      return;
+    }
+    void performCollegeVerification([{
+      eventId: row.event_id, college: row.college_label, verified: checked,
+      note: checked ? row.note : undefined,
+    }], `${checked ? "Verified" : "Unverified"} ${row.college_label} for ${row.event_name}`);
+  }
+
+  function handleVerifyUploaded(rows: EventCollegeCheckerRow[], label: string) {
+    const items = rows.filter((row) => !row.is_exempt && !row.is_verified && row.has_upload)
+      .map((row) => ({ eventId: row.event_id, college: row.college_label, verified: true }));
+    void performCollegeVerification(items, label);
+  }
+
+  async function applyVerificationHistory(direction: "undo" | "redo") {
+    if (!isCollegeCheckerAdmin || collegeCheckerBusyRef.current) return;
+    const stack = direction === "undo" ? verificationUndoStack : verificationRedoStack;
+    const entry = stack[stack.length - 1];
+    if (!entry || entry.schoolYearId !== selectedSchoolYearId) return;
+    const from = direction === "undo" ? entry.after : entry.before;
+    const to = direction === "undo" ? entry.before : entry.after;
+    const selected = from.map((item) => ({ eventId: item.eventId, collegeKey: item.collegeKey }));
+    collegeCheckerBusyRef.current = true;
+    setCollegeCheckerBusy(true);
+    try {
+      const current = await listEventCollegeChecker(entry.schoolYearId);
+      if (!verificationSnapshotsMatch(getVerificationSnapshots(current, selected), from)) {
+        throw new Error("Verification history no longer matches the server.");
+      }
+      await setEventCollegeVerifications({
+        schoolYearId: entry.schoolYearId,
+        items: to.map((item) => ({
+          eventId: item.eventId, college: item.collegeLabel,
+          verified: item.verified, note: item.note,
+        })),
+      });
+      const refreshed = await reloadCollegeChecker(entry.schoolYearId);
+      if (!verificationSnapshotsMatch(getVerificationSnapshots(refreshed, selected), to)) {
+        throw new Error("Verification history did not match the server after saving.");
+      }
+      if (direction === "undo") {
+        setVerificationUndoStack((currentStack) => currentStack.slice(0, -1));
+        setVerificationRedoStack((currentStack) => [...currentStack, entry].slice(-20));
+        toast.success(`Undid: ${entry.label}.`);
+      } else {
+        setVerificationRedoStack((currentStack) => currentStack.slice(0, -1));
+        setVerificationUndoStack((currentStack) => [...currentStack, entry].slice(-20));
+        toast.success(`Redid: ${entry.label}.`);
+      }
+    } catch {
+      setVerificationUndoStack([]);
+      setVerificationRedoStack([]);
+      try { await reloadCollegeChecker(entry.schoolYearId); } catch { /* Keep history mismatch message. */ }
+      toast.error("College verification changed on the server; history cleared and checker reloaded.");
+    } finally {
+      collegeCheckerBusyRef.current = false;
+      setCollegeCheckerBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!collegeCheckerOpen) return;
+    function handleCheckerShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || collegeCheckerBusyRef.current) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.isContentEditable || ["input", "textarea", "select"].includes(target?.tagName.toLowerCase() ?? "")) return;
+      const key = event.key.toLowerCase();
+      if ((key === "z" && event.shiftKey) || key === "y") {
+        if (!verificationRedoStack.length) return;
+        event.preventDefault();
+        void applyVerificationHistory("redo");
+      } else if (key === "z" && !event.shiftKey && verificationUndoStack.length) {
+        event.preventDefault();
+        void applyVerificationHistory("undo");
+      }
+    }
+    window.addEventListener("keydown", handleCheckerShortcut);
+    return () => window.removeEventListener("keydown", handleCheckerShortcut);
+  }, [collegeCheckerOpen, verificationUndoStack, verificationRedoStack, selectedSchoolYearId]);
+
   useEffect(() => {
     function handleHistoryShortcut(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -2116,6 +2448,15 @@ export default function EventsPage() {
                 className="min-h-12 min-w-0 rounded-2xl px-4 font-black sm:px-6"
               >
                 Current exemptions
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleOpenCollegeChecker()}
+                className="min-h-12 min-w-0 rounded-2xl px-4 font-black sm:px-6"
+              >
+                College Checker
               </Button>
 
               <Button
@@ -2601,6 +2942,179 @@ export default function EventsPage() {
           </div>
         </section>
       </div>
+
+      <Dialog
+        open={collegeCheckerOpen}
+        onOpenChange={(open) => {
+          if (!open && collegeCheckerBusy) return;
+          setCollegeCheckerOpen(open);
+          if (!open) setCollegeCheckerWarning(null);
+        }}
+      >
+        <DialogContent className="flex min-w-0 max-w-full max-h-[90svh] flex-col overflow-hidden sm:max-w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>College Checker</DialogTitle>
+            <DialogDescription>
+              Final attendance verification for {selectedSchoolYearLabel}. Exempt colleges do not require verification.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 p-3">
+              <div className="text-sm">
+                <strong>{checkerEventGroups.length} events</strong> · {checkerVerifiedCount} verified pairs · {checkerMissingCount} missing uploads
+                {!isCollegeCheckerAdmin ? <span className="ml-2 text-muted-foreground">(read-only)</span> : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Select value={collegeCheckerFilter} onValueChange={(value) => setCollegeCheckerFilter(value as CollegeCheckerFilter)}>
+                  <SelectTrigger className="h-9 w-37 rounded-lg bg-background" aria-label="Filter college checker">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="missing">Missing</SelectItem>
+                    <SelectItem value="unverified">Unverified</SelectItem>
+                    <SelectItem value="verified">Verified</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" size="sm" disabled={collegeCheckerBusy || collegeCheckerLoading}
+                  onClick={() => void reloadCollegeChecker().catch((error) => toast.error(error instanceof Error ? error.message : "Unable to refresh checker."))}>
+                  Refresh
+                </Button>
+                {isCollegeCheckerAdmin ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm"
+                      disabled={!verificationUndoEntry || collegeCheckerBusy || collegeCheckerLoading}
+                      title={verificationUndoEntry ? `Undo: ${verificationUndoEntry.label}` : "Nothing to undo"}
+                      onClick={() => void applyVerificationHistory("undo")}>Undo</Button>
+                    <Button type="button" variant="outline" size="sm"
+                      disabled={!verificationRedoEntry || collegeCheckerBusy || collegeCheckerLoading}
+                      title={verificationRedoEntry ? `Redo: ${verificationRedoEntry.label}` : "Nothing to redo"}
+                      onClick={() => void applyVerificationHistory("redo")}>Redo</Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            {collegeCheckerWarning ? (
+              <div role="alert" className="rounded-xl border border-destructive/50 bg-destructive/5 p-3 text-sm">
+                <p className="font-semibold">No attendance records have been uploaded for {collegeCheckerWarning.row.college_label} at {collegeCheckerWarning.row.event_name}.</p>
+                <p className="mt-1 text-muted-foreground">{collegeCheckerWarning.row.has_upload
+                  ? "An upload is registered, but there are no matching attendance records. Verify without records only if you have independently confirmed attendance."
+                  : "You can verify this college anyway, but it will remain listed as missing an upload until records are provided."}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="destructive" disabled={collegeCheckerBusy}
+                    onClick={() => {
+                      const row = collegeCheckerWarning.row;
+                      void performCollegeVerification([{
+                        eventId: row.event_id, college: row.college_label, verified: true, note: row.note,
+                      }], `Verified ${row.college_label} for ${row.event_name} without an upload`);
+                    }}>Verify anyway</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setCollegeCheckerWarning(null)}>Cancel</Button>
+                </div>
+              </div>
+            ) : null}
+
+            {collegeCheckerLoading ? <p className="text-sm text-muted-foreground">Loading college attendance verification…</p> : null}
+            {!collegeCheckerLoading && !checkerEventGroups.length ? <p className="text-sm text-muted-foreground">No events found for this school year.</p> : null}
+            {!collegeCheckerLoading && checkerEventGroups.length && !visibleCheckerEventGroups.length ?
+              <p className="text-sm text-muted-foreground">No colleges match this filter.</p> : null}
+
+            {!collegeCheckerLoading && visibleCheckerEventGroups.length ? (
+              <div className="min-w-0 overflow-x-auto rounded-xl border">
+                <table className="w-full min-w-[1450px] border-collapse text-left text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="sticky left-0 z-10 min-w-64 border-b bg-muted p-3 align-top">Event and upload summary</th>
+                      {QR_CODE_COLLEGE_OPTIONS.map((college) => {
+                        const key = normalizeCollegeKey(college);
+                        const applicableRows = collegeCheckerRows.filter((row) => row.college_key === key);
+                        const canVerify = applicableRows.some((row) => !row.is_exempt && !row.is_verified && row.has_upload);
+                        return (
+                          <th key={college} className="min-w-40 border-b p-3 align-top">
+                            <span className="block min-h-14 font-semibold">{college}</span>
+                            {isCollegeCheckerAdmin ? <Button type="button" size="sm" variant="outline" className="h-auto whitespace-normal text-xs"
+                              disabled={!canVerify || collegeCheckerBusy || collegeCheckerLoading}
+                              onClick={() => handleVerifyUploaded(applicableRows, `Verified all uploaded for ${college}`)}>
+                              Verify all uploaded
+                            </Button> : null}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleCheckerEventGroups.map((group) => {
+                      const byCollege = new Map<string, EventCollegeCheckerRow>(group.rows.map((row) => [row.college_key, row]));
+                      const verifiedCount = group.rows.filter((row) => !row.is_exempt && row.is_verified).length;
+                      const exemptCount = group.rows.filter((row) => row.is_exempt).length;
+                      const missingNames = group.rows.filter((row) => !row.is_exempt && !row.has_upload)
+                        .map((row) => row.college_label);
+                      return (
+                        <tr key={group.id} className="border-b last:border-b-0">
+                          <th className="sticky left-0 z-10 max-w-72 bg-card p-3 align-top">
+                            <span className="block text-sm font-semibold">{group.name}</span>
+                            <span className="mt-1 block text-muted-foreground">{verifiedCount} of 7 colleges verified{exemptCount ? ` · ${exemptCount} exempt` : ""}</span>
+                            <span className="mt-1 block text-muted-foreground">{missingNames.length ? `Missing uploads: ${missingNames.join(", ")}` : "No missing uploads"}</span>
+                            {isCollegeCheckerAdmin ? <Button type="button" size="sm" variant="outline" className="mt-2 h-auto whitespace-normal text-xs"
+                              disabled={!group.rows.some((row) => !row.is_exempt && !row.is_verified && row.has_upload) || collegeCheckerBusy}
+                              onClick={() => handleVerifyUploaded(group.rows, `Verified all uploaded for ${group.name}`)}>
+                              Verify all uploaded
+                            </Button> : null}
+                          </th>
+                          {QR_CODE_COLLEGE_OPTIONS.map((college) => {
+                            const row = byCollege.get(normalizeCollegeKey(college) ?? "");
+                            if (!row) return <td key={college} className="p-3 text-muted-foreground">—</td>;
+                            const filteredOut = !collegeCheckerCellMatchesFilter(row, collegeCheckerFilter);
+                            const verificationTitle = row.is_verified
+                              ? `Verified by ${row.verified_by_name ?? "unknown user"} at ${formatDateTime(row.verified_at)}${row.note ? `. Note: ${row.note}` : ""}`
+                              : row.has_upload ? `Uploaded ${row.record_count} records for ${row.uploaded_student_count} students. Last record: ${formatDateTime(row.last_record_at)}`
+                              : "No attendance upload found";
+                            return (
+                              <td key={college} className={`p-3 align-top ${filteredOut ? "opacity-40" : ""}`}>
+                                <div className="flex flex-col items-start gap-2" title={row.is_exempt ? "College exempt from this event" : verificationTitle}>
+                                  <Badge variant={row.is_exempt ? "secondary" : row.is_verified ? "default" : !row.has_upload ? "destructive" : "outline"}
+                                    className={row.is_exempt ? "text-muted-foreground" : row.is_verified ? "border-transparent bg-emerald-700 text-white" : ""}>
+                                    {row.is_exempt ? "Exempt" : row.is_verified ? "Verified" : !row.has_upload ? "Missing" : `Uploaded (${row.record_count})`}
+                                  </Badge>
+                                  <label className="flex cursor-pointer items-center gap-2 text-xs">
+                                    <Checkbox checked={row.is_verified} disabled={!isCollegeCheckerAdmin || row.is_exempt || collegeCheckerBusy || collegeCheckerLoading}
+                                      aria-label={`Verify ${college} for ${group.name}`}
+                                      onCheckedChange={(checked) => handleCollegeCheckerToggle(row, checked === true)} />
+                                    {row.is_exempt ? "Not required" : "Verified"}
+                                  </label>
+                                  {row.is_verified && row.record_count === 0 && !row.is_exempt ?
+                                    <span className="text-xs text-destructive">{row.has_upload ? "No records attached" : "Upload still missing"}</span> : null}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            <section className="rounded-xl border p-4" aria-label="Verification Summary">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-bold">Verification Summary</h3>
+                <Button type="button" size="sm" variant="outline" disabled={collegeCheckerLoading}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(collegeCheckerSummary);
+                      toast.success("Summary copied.");
+                    } catch {
+                      toast.error("Unable to copy summary.");
+                    }
+                  }}>Copy summary</Button>
+              </div>
+              <p className="text-sm leading-7 text-foreground">{collegeCheckerSummary}</p>
+            </section>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={currentExemptionsDialogOpen}
