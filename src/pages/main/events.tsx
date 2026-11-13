@@ -258,37 +258,42 @@ function isCollegeUploadPending(row: EventCollegeCheckerRow) {
   return !row.is_exempt && !row.has_upload;
 }
 
-function joinCollegeNames(names: string[]) {
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-}
+type PendingCollegeEventSummary = {
+  name: string;
+  colleges: string[];
+};
 
 function buildCollegeUploadSummary(
-  rows: EventCollegeCheckerRow[],
+  pendingEvents: PendingCollegeEventSummary[],
   schoolYearLabel: string,
+  hasEvents: boolean,
 ) {
-  if (!rows.length) return "No events found for this school year.";
+  const header = [
+    "PENDING ATTENDANCE UPLOAD SUMMARY",
+    `School Year: ${schoolYearLabel}`,
+    "",
+  ];
 
-  const eventsWithPendingUploads = new Map<string, { name: string; colleges: string[] }>();
-  for (const row of rows) {
-    if (!isCollegeUploadPending(row)) continue;
-    const event = eventsWithPendingUploads.get(row.event_id) ?? {
-      name: row.event_name,
-      colleges: [],
-    };
-    event.colleges.push(row.college_label);
-    eventsWithPendingUploads.set(row.event_id, event);
+  if (!hasEvents) {
+    return [...header, "No events found for this school year."].join("\n");
   }
 
-  if (eventsWithPendingUploads.size === 0) {
-    return `Good day, college representatives! All non-exempt colleges have submitted their attendance uploads for the events in School Year ${schoolYearLabel}. Thank you for keeping your attendance records up to date!`;
+  if (!pendingEvents.length) {
+    return [...header, "All required attendance uploads have been submitted."].join("\n");
   }
 
-  const pendingEvents = [...eventsWithPendingUploads.values()].map(
-    ({ name, colleges }) => `${name}: ${joinCollegeNames(colleges)}`,
-  );
-  return `Good day, college representatives! For School Year ${schoolYearLabel}, the following colleges still have pending attendance uploads for these events: ${pendingEvents.join("; ")}. If your college is listed, please arrange for the attendance records to be uploaded for the corresponding event(s) as soon as possible. Thank you!`;
+  return [
+    ...header,
+    `${pendingEvents.length} event${pendingEvents.length === 1 ? "" : "s"} with pending uploads`,
+    "",
+    ...pendingEvents.flatMap(({ name, colleges }) => [
+      `EVENT: ${name}`,
+      `PENDING COLLEGES (${colleges.length}):`,
+      ...colleges.map((college) => `  ${college}`),
+      "",
+    ]),
+    "Please upload the missing attendance records for the corresponding events.",
+  ].join("\n").trim();
 }
 
 const DISMISSED_DUPLICATE_GROUPS_STORAGE_KEY =
@@ -2085,9 +2090,16 @@ export default function EventsPage() {
   const visibleCheckerEventGroups = useMemo(() => checkerEventGroups.filter((group) =>
     collegeCheckerFilter === "all" || group.rows.some(isCollegeUploadPending),
   ), [checkerEventGroups, collegeCheckerFilter]);
+  const pendingCheckerEventGroups = useMemo(() => checkerEventGroups
+    .map((group) => ({
+      id: group.id,
+      name: group.name,
+      colleges: group.rows.filter(isCollegeUploadPending).map((row) => row.college_label),
+    }))
+    .filter((group) => group.colleges.length > 0), [checkerEventGroups]);
   const collegeCheckerSummary = useMemo(() => buildCollegeUploadSummary(
-    collegeCheckerRows, selectedSchoolYearLabel,
-  ), [collegeCheckerRows, selectedSchoolYearLabel]);
+    pendingCheckerEventGroups, selectedSchoolYearLabel, checkerEventGroups.length > 0,
+  ), [pendingCheckerEventGroups, selectedSchoolYearLabel, checkerEventGroups.length]);
   const checkerMissingCount = collegeCheckerRows.filter(isCollegeUploadPending).length;
   const checkerMissingCollegeCount = new Set(
     collegeCheckerRows.filter(isCollegeUploadPending).map((row) => row.college_key),
@@ -2825,7 +2837,54 @@ export default function EventsPage() {
                     }
                   }}>Copy summary</Button>
               </div>
-              <p className="text-sm leading-7 text-foreground">{collegeCheckerSummary}</p>
+              {collegeCheckerLoading ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  Checking attendance uploads…
+                </div>
+              ) : !checkerEventGroups.length ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  No events found for this school year.
+                </div>
+              ) : !pendingCheckerEventGroups.length ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm font-medium text-foreground">
+                  All required attendance uploads have been submitted for School Year {selectedSchoolYearLabel}.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="px-3 py-1 text-xs font-semibold">
+                      School Year {selectedSchoolYearLabel}
+                    </Badge>
+                    <Badge variant="destructive" className="px-3 py-1 text-xs font-semibold">
+                      {pendingCheckerEventGroups.length} event{pendingCheckerEventGroups.length === 1 ? "" : "s"} pending
+                    </Badge>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {pendingCheckerEventGroups.map((group) => (
+                      <article key={group.id} className="min-w-0 rounded-xl border border-l-4 border-l-destructive bg-card p-4">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                          <h4 className="min-w-0 flex-1 break-words text-base font-bold text-foreground">
+                            {group.name}
+                          </h4>
+                          <Badge variant="destructive" className="shrink-0">
+                            {group.colleges.length} pending
+                          </Badge>
+                        </div>
+                        <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                          Colleges awaiting upload
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {group.colleges.map((college) => (
+                            <span key={college} className="max-w-full break-words rounded-lg border border-destructive/25 bg-destructive/10 px-2.5 py-1.5 text-sm font-semibold text-destructive">
+                              {college}
+                            </span>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         </DialogContent>
