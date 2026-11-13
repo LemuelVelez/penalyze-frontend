@@ -83,7 +83,6 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
-import { normalizeCollegeKey, QR_CODE_COLLEGE_OPTIONS } from "../../lib/colleges";
 import {
   getYearLevelLabel,
   normalizeYearLevelKey,
@@ -251,8 +250,6 @@ type YearLevelExemptionHistoryEntry = {
 type ExemptionHistoryEntry =
   | CollegeExemptionHistoryEntry
   | YearLevelExemptionHistoryEntry;
-
-type CollegeCheckerFilter = "all" | "pending";
 
 function isCollegeUploadPending(row: EventCollegeCheckerRow) {
   return !row.is_exempt && !row.has_upload;
@@ -573,7 +570,6 @@ export default function EventsPage() {
   const [collegeCheckerRows, setCollegeCheckerRows] = useState<EventCollegeCheckerRow[]>([]);
   const [collegeCheckerLoading, setCollegeCheckerLoading] = useState(false);
   const collegeCheckerLoadRef = useRef(0);
-  const [collegeCheckerFilter, setCollegeCheckerFilter] = useState<CollegeCheckerFilter>("all");
   const [undoStack, setUndoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<ExemptionHistoryEntry[]>([]);
   const [isApplyingHistory, setIsApplyingHistory] = useState(false);
@@ -697,7 +693,6 @@ export default function EventsPage() {
     setRedoStack([]);
     setCollegeCheckerRows([]);
     setCollegeCheckerLoading(false);
-    setCollegeCheckerFilter("all");
     collegeCheckerLoadRef.current += 1;
     setUndoConfirmationOpen(false);
     clearExemptionSelection();
@@ -2087,9 +2082,6 @@ export default function EventsPage() {
     }
     return [...grouped.values()];
   }, [collegeCheckerRows]);
-  const visibleCheckerEventGroups = useMemo(() => checkerEventGroups.filter((group) =>
-    collegeCheckerFilter === "all" || group.rows.some(isCollegeUploadPending),
-  ), [checkerEventGroups, collegeCheckerFilter]);
   const pendingCheckerEventGroups = useMemo(() => checkerEventGroups
     .map((group) => ({
       id: group.id,
@@ -2743,86 +2735,11 @@ export default function EventsPage() {
               <div className="text-sm">
                 <strong>{checkerEventGroups.length} events</strong> · {checkerMissingCount} pending uploads across {checkerMissingCollegeCount} colleges
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Select value={collegeCheckerFilter} onValueChange={(value) => setCollegeCheckerFilter(value as CollegeCheckerFilter)}>
-                  <SelectTrigger className="h-9 w-44 rounded-lg bg-background" aria-label="Filter college checker">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All colleges</SelectItem>
-                    <SelectItem value="pending">Pending uploads</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button type="button" variant="outline" size="sm" disabled={collegeCheckerLoading}
-                  onClick={() => void reloadCollegeChecker().catch((error) => toast.error(error instanceof Error ? error.message : "Unable to refresh checker."))}>
-                  Refresh
-                </Button>
-              </div>
+              <Button type="button" variant="outline" size="sm" disabled={collegeCheckerLoading}
+                onClick={() => void reloadCollegeChecker().catch((error) => toast.error(error instanceof Error ? error.message : "Unable to refresh checker."))}>
+                Refresh
+              </Button>
             </div>
-
-            {collegeCheckerLoading ? <p className="text-sm text-muted-foreground">Checking attendance uploads…</p> : null}
-            {!collegeCheckerLoading && !checkerEventGroups.length ? <p className="text-sm text-muted-foreground">No events found for this school year.</p> : null}
-            {!collegeCheckerLoading && checkerEventGroups.length && !visibleCheckerEventGroups.length ?
-              <p className="text-sm text-muted-foreground">There are no pending attendance uploads for non-exempt colleges.</p> : null}
-
-            {!collegeCheckerLoading && visibleCheckerEventGroups.length ? (
-              <div className="min-w-0 overflow-x-auto rounded-xl border">
-                <table className="w-full min-w-[1250px] border-collapse text-left text-xs">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="sticky left-0 z-10 min-w-64 border-b bg-muted p-3 align-top">Event and pending uploads</th>
-                      {QR_CODE_COLLEGE_OPTIONS.map((college) => (
-                        <th key={college} className="min-w-36 border-b p-3 align-top">
-                          <span className="block font-semibold">{college}</span>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleCheckerEventGroups.map((group) => {
-                      const byCollege = new Map<string, EventCollegeCheckerRow>(group.rows.map((row) => [row.college_key, row]));
-                      const requiredCount = group.rows.filter((row) => !row.is_exempt).length;
-                      const missingNames = group.rows.filter(isCollegeUploadPending).map((row) => row.college_label);
-                      return (
-                        <tr key={group.id} className="border-b last:border-b-0">
-                          <th className="sticky left-0 z-10 max-w-72 bg-card p-3 align-top">
-                            <span className="block text-sm font-semibold">{group.name}</span>
-                            <span className="mt-1 block text-muted-foreground">
-                              {missingNames.length} of {requiredCount} required colleges have pending uploads
-                            </span>
-                            <span className={`mt-1 block ${missingNames.length ? "text-destructive" : "text-muted-foreground"}`}>
-                              {missingNames.length ? `Pending: ${missingNames.join(", ")}` : "All required uploads received"}
-                            </span>
-                          </th>
-                          {QR_CODE_COLLEGE_OPTIONS.map((college) => {
-                            const row = byCollege.get(normalizeCollegeKey(college) ?? "");
-                            if (!row) return <td key={college} className="p-3 text-muted-foreground">—</td>;
-                            if (collegeCheckerFilter === "pending" && !isCollegeUploadPending(row)) {
-                              return <td key={college} className="p-3 text-muted-foreground">—</td>;
-                            }
-                            const cellTitle = row.is_exempt
-                              ? "This college is exempt from uploading attendance for this event."
-                              : row.has_upload
-                                ? row.record_count > 0
-                                  ? `${row.record_count} attendance records for ${row.uploaded_student_count} students. Last record: ${formatDateTime(row.last_record_at)}`
-                                  : "An attendance upload is registered, but no matching attendance records were found."
-                                : "No attendance upload found for this event.";
-                            return (
-                              <td key={college} className="p-3 align-top" title={cellTitle}>
-                                <Badge variant={row.is_exempt ? "secondary" : row.has_upload ? "outline" : "destructive"}
-                                  className={row.is_exempt ? "text-muted-foreground" : ""}>
-                                  {row.is_exempt ? "Exempt" : row.has_upload ? `Uploaded (${row.record_count})` : "Pending upload"}
-                                </Badge>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
 
             <section className="rounded-xl border p-4" aria-label="Pending Attendance Upload Summary">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
