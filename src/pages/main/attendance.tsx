@@ -3847,7 +3847,7 @@ export default function AttendancePage({
           open={Boolean(eventReviewFileKey && eventReviewDetails)}
           onOpenChange={(open) => { if (!open) setEventReviewFileKey(""); }}
         >
-          <DialogContent className="flex min-w-0 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
+          <DialogContent className="flex min-w-0 w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-x-clip overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
             <DialogHeader>
               <DialogTitle>Review event assignments by row</DialogTitle>
               <DialogDescription>
@@ -3859,7 +3859,7 @@ export default function AttendancePage({
               {eventReviewGroups.length} detected groups · {eventReviewAssignedCount} / {eventReviewDetails?.previewRows.length ?? 0} rows assigned
               {eventReviewDetails?.rowEventsReviewed ? " · Confirmed" : " · Not yet confirmed"}
             </p>
-            <div className="min-w-0 space-y-4 sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain">
+            <div className="min-w-0 w-full max-w-full space-y-4 sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain">
               <div className="space-y-3 rounded-xl border bg-muted/10 p-3">
                 <p className="text-sm font-bold">Assign detected event groups</p>
                 {eventReviewGroups.map((group) => {
@@ -3911,6 +3911,7 @@ export default function AttendancePage({
                         </label>
                       </div>
                       <Button type="button" size="sm" variant="outline" disabled={isSaving || !(eventReviewGroupNames[group.key] ?? group.eventName).trim()}
+                        className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
                         onClick={() => assignAttendanceEventGroup(eventReviewFileKey, group, "__create_event__")}>
                         Apply new event name to this group
                       </Button>
@@ -3921,13 +3922,14 @@ export default function AttendancePage({
               <div className="space-y-3 rounded-xl border p-3">
                 <p className="text-sm font-bold">Review individual rows</p>
                 <Input placeholder="Search by row, student ID, name or event" value={eventReviewSearch}
+                  className="w-full min-w-0"
                   onChange={(e) => setEventReviewSearch(e.target.value)} />
                 <p className="text-xs text-muted-foreground">Showing {Math.min(150, eventReviewRows.length)} of {eventReviewRows.length} matching rows. Search for any row to edit its event individually.</p>
-                <div className="min-w-0 space-y-2 lg:max-h-72 lg:overflow-y-auto">
+                <div className="min-w-0 space-y-2">
                   {eventReviewRows.slice(0, 150).map((row) => {
                     const assignment = eventReviewDetails?.rowEventOverrides[String(row.rowNumber)];
                     return (
-                      <div key={row.rowNumber} className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
+                      <div key={row.rowNumber} className="grid min-w-0 w-full grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
                         <div className="min-w-0 text-xs">
                           <p className="break-words font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
                           <p className="break-words text-muted-foreground">In file: {row.eventName || "No event name"}</p>
@@ -3950,7 +3952,7 @@ export default function AttendancePage({
                               assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], { eventId: value });
                             }
                           }}>
-                          <SelectTrigger className="min-w-0"><SelectValue placeholder="Unassigned — choose event" /></SelectTrigger>
+                          <SelectTrigger className="w-full min-w-0"><SelectValue placeholder="Unassigned — choose event" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__create_event__">New event from row</SelectItem>
                             {(eventReviewDetails?.eventOptions ?? []).map((event) => (
@@ -3965,11 +3967,11 @@ export default function AttendancePage({
                               onChange={(e) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
                                 ...(assignment ?? {}), eventName: e.target.value, forceCreateEvent: true,
                               })} />
-                            <DateTimePicker disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventStartAt)}
+                            <DateTimePicker className="w-full min-w-0" disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventStartAt)}
                               onValueChange={(value) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
                                 ...(assignment ?? {}), eventStartAt: value, forceCreateEvent: true,
                               })} />
-                            <DateTimePicker disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventEndAt)}
+                            <DateTimePicker className="w-full min-w-0" disabled={isSaving} value={formatDateTimeInputValue(assignment?.eventEndAt)}
                               onValueChange={(value) => assignAttendanceRowEvents(eventReviewFileKey, [row.rowNumber], {
                                 ...(assignment ?? {}), eventEndAt: value, forceCreateEvent: true,
                               })} />
@@ -3997,7 +3999,7 @@ export default function AttendancePage({
             if (!open) setCollegeReviewFileKey("");
           }}
         >
-          <DialogContent className="flex min-w-0 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
+          <DialogContent className="flex min-w-0 w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-x-clip overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
             <DialogHeader>
               <DialogTitle>Review attendance colleges</DialogTitle>
               <DialogDescription>
@@ -4056,7 +4058,7 @@ export default function AttendancePage({
                 Showing {shownCollegeReviewRows.length} of {collegeReviewRows.length} matching rows
               </span>
             </div>
-            <div className="min-w-0 rounded-xl border bg-background sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain" aria-label="Attendance college review records">
+            <div className="min-w-0 w-full max-w-full rounded-xl border bg-background sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain" aria-label="Attendance college review records">
               {shownCollegeReviewRows.length ? shownCollegeReviewRows.map((row) => {
                 const originalCollege = String(row.college ?? "").trim();
                 const override = collegeReviewDetails?.rowCollegeOverrides[String(row.rowNumber)];
@@ -4067,7 +4069,7 @@ export default function AttendancePage({
                 const isInvalid = collegeReviewInvalidNumbers.has(row.rowNumber);
                 const isDifferent = normalizeCollegeKey(effectiveCollege) !== normalizeCollegeKey(uploadForm.college);
                 return (
-                  <div key={row.rowNumber} className={`grid gap-2 border-b p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
+                  <div key={row.rowNumber} className={`grid min-w-0 w-full grid-cols-1 gap-2 border-b p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
                     <div className="flex min-w-0 items-start gap-3">
                       <Checkbox
                         checked={collegeReviewSelectedNumbers.has(row.rowNumber)}
@@ -4078,9 +4080,10 @@ export default function AttendancePage({
                             ? [...(collegeReviewDetails?.selectedRowNumbers ?? []), row.rowNumber]
                             : (collegeReviewDetails?.selectedRowNumbers ?? []).filter((value) => value !== row.rowNumber),
                         )}
+                        className="shrink-0"
                         aria-label={`Select row ${row.rowNumber}, ${row.name || row.studentId || "unnamed student"}`}
                       />
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 flex-1 space-y-1 [overflow-wrap:anywhere]">
                         <p className="break-words text-xs font-semibold">Row {row.rowNumber} — {row.name || "Unnamed student"}</p>
                         <p className="break-words text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
                         <p className={`break-words text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
@@ -4821,7 +4824,7 @@ export default function AttendancePage({
                     {isLoadingEditSourceRecords ? (
                       <p className="text-sm text-muted-foreground">Loading this student's source records...</p>
                     ) : loadedEditSourceRecords.length ? (
-                      <div className="grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:max-h-64 lg:overflow-y-auto lg:pr-1">
                         {loadedEditSourceRecords.map((record) => {
                           const exemptionReason = getFinalResultSourceRecordExemptionReason(record);
                           const sourceLabel =

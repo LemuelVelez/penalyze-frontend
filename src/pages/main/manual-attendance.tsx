@@ -2143,7 +2143,7 @@ export default function ManualAttendancePage() {
                     </div>
                   </div>
                 ) : null}
-                <div className="grid max-h-80 gap-2 overflow-y-auto rounded-2xl border bg-background p-3 sm:grid-cols-2">
+                <div className="grid min-w-0 gap-2 rounded-2xl border bg-background p-3 sm:grid-cols-2 lg:max-h-80 lg:overflow-y-auto">
                   {availableEvents.length ? (
                     availableEvents.map((eventItem) => {
                       const isUploaded = uploadedEventIds.has(eventItem.id);

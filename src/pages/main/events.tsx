@@ -3539,7 +3539,7 @@ export default function EventsPage() {
 
             <div className="space-y-2">
               <p className="text-sm font-black">2. Select exempted events</p>
-              <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border p-3">
+              <div className="min-w-0 space-y-2 rounded-2xl border p-3 lg:max-h-72 lg:overflow-y-auto">
                 {events.map((event) => (
                   <label
                     key={event.id}
