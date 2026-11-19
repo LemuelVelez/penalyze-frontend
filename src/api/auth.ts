@@ -11,7 +11,6 @@ export type AuthUser = {
 
 export type AuthSession = {
   user: AuthUser;
-  token: string;
   expiresAt?: string;
 };
 
@@ -45,7 +44,6 @@ type ApiEnvelope<T> = {
   data?: T;
 };
 
-const AUTH_TOKEN_KEY = "penalyze.auth.token";
 const AUTH_USER_KEY = "penalyze.auth.user";
 const AUTH_EXPIRY_KEY = "penalyze.auth.expiresAt";
 const LAST_EMAIL_KEY = "penalyze.auth.lastEmail";
@@ -120,16 +118,13 @@ function getErrorMessage(error: unknown, fallback = "Request failed.") {
 
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
-  const token = getAuthToken();
 
   if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
+  headers.set("X-Penalyze-Request", "1");
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
@@ -152,76 +147,42 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   return payload as ApiEnvelope<T>;
 }
 
-function getTokenExpiry(token: string): number | null {
-  try {
-    const encoded = token.split(".")[1];
-    if (!encoded) return null;
-    const payload = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: unknown };
-    return typeof payload.exp === "number" && Number.isFinite(payload.exp)
-      ? payload.exp * 1000
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function readSession(): { token: string; storage: Storage } | null {
+function readSession(): { user: AuthUser; storage: Storage } | null {
   if (typeof window === "undefined") return null;
   for (const storage of [localStorage, sessionStorage]) {
-    const token = storage.getItem(AUTH_TOKEN_KEY);
-    if (!token) continue;
-    const storedExpiry = storage.getItem(AUTH_EXPIRY_KEY);
-    const expiry = storedExpiry ? Date.parse(storedExpiry) : NaN;
-    const jwtExpiry = getTokenExpiry(token);
-    // The JWT is authoritative even when a separately stored expiry has been altered.
-    const expiresAt = jwtExpiry === null ? null : Number.isFinite(expiry)
-      ? Math.min(expiry, jwtExpiry) : jwtExpiry;
-    if (expiresAt === null || expiresAt <= Date.now()) {
-      handleUnauthorized();
+    const userJson = storage.getItem(AUTH_USER_KEY);
+    if (!userJson) continue;
+    const expiresAt = Date.parse(storage.getItem(AUTH_EXPIRY_KEY) ?? "");
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      clearSession();
       return null;
     }
-    return { token, storage };
+    try { return { user: JSON.parse(userJson) as AuthUser, storage }; }
+    catch { clearSession(); return null; }
   }
   return null;
 }
 
-export function getAuthToken(): string {
-  return readSession()?.token ?? "";
-}
+/** Legacy helper: the authentication cookie is HttpOnly and never accessible to JS. */
+export function getAuthToken(): string { return ""; }
 
 export function getStoredUser(): AuthUser | null {
-  const session = readSession();
-  if (!session) return null;
-  const value = session.storage.getItem(AUTH_USER_KEY);
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as AuthUser;
-  } catch {
-    return null;
-  }
+  return readSession()?.user ?? null;
 }
 
-export function isAuthenticated(): boolean {
-  return Boolean(getAuthToken());
-}
+export function isAuthenticated(): boolean { return Boolean(readSession()); }
 
 export function getLastRememberedEmail(): string {
   return typeof window !== "undefined" ? localStorage.getItem(LAST_EMAIL_KEY) ?? "" : "";
 }
 
 export function persistSession(session: AuthSession, remember = true) {
+  if (typeof window === "undefined") return;
   const storage = remember ? localStorage : sessionStorage;
-  const otherStorage = remember ? sessionStorage : localStorage;
-
-  // Clear both storages before installing a new session, so no stale token survives.
   clearSession();
   sessionExpiredNotified = false;
-  storage.setItem(AUTH_TOKEN_KEY, session.token);
   storage.setItem(AUTH_USER_KEY, JSON.stringify(session.user));
-  const expiry = session.expiresAt ?? getTokenExpiry(session.token);
-  if (expiry) storage.setItem(AUTH_EXPIRY_KEY, typeof expiry === "number" ? new Date(expiry).toISOString() : expiry);
-  otherStorage.removeItem(AUTH_EXPIRY_KEY);
-
+  if (session.expiresAt) storage.setItem(AUTH_EXPIRY_KEY, session.expiresAt);
   if (remember) localStorage.setItem(LAST_EMAIL_KEY, session.user.email);
   else localStorage.removeItem(LAST_EMAIL_KEY);
 }
@@ -229,16 +190,16 @@ export function persistSession(session: AuthSession, remember = true) {
 export function clearSession() {
   if (typeof window === "undefined") return;
   for (const storage of [localStorage, sessionStorage]) {
-    storage.removeItem(AUTH_TOKEN_KEY);
     storage.removeItem(AUTH_USER_KEY);
     storage.removeItem(AUTH_EXPIRY_KEY);
+    // Clear legacy bearer credentials left by older versions.
+    storage.removeItem("penalyze.auth.token");
   }
 }
 
-/** Broadcast an invalid/expired authenticated session exactly once until the next login. */
 export function handleUnauthorized() {
   if (typeof window === "undefined") return;
-  const hadSession = Boolean(localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY));
+  const hadSession = Boolean(getStoredUser());
   clearSession();
   if (!hadSession || sessionExpiredNotified) return;
   sessionExpiredNotified = true;
@@ -257,7 +218,7 @@ export async function login(input: LoginInput, remember = true) {
       body: JSON.stringify({ ...input, remember })
     });
 
-    if (!response.data?.token || !response.data?.user) {
+    if (!response.data?.user || !response.data?.expiresAt) {
       throw new Error("Login response is missing session data.");
     }
 
@@ -275,13 +236,11 @@ export async function register(input: RegisterInput, remember = false) {
       body: JSON.stringify({ ...input, role: input.role ?? "admin" })
     });
 
-    if (!response.data?.token || !response.data?.user) {
-      throw new Error("Registration response is missing session data.");
+    if (!response.data?.user) {
+      throw new Error("Registration response is missing account data.");
     }
-
-    if (remember) {
-      persistSession(response.data, true);
-    }
+    // Creating a user never replaces the admin's current session.
+    void remember;
 
     return response.data;
   } catch (error) {
@@ -295,6 +254,7 @@ export async function changePassword(input: ChangePasswordInput) {
       method: "POST",
       body: JSON.stringify(input),
     });
+    clearSession();
   } catch (error) {
     throw new Error(getErrorMessage(error, "Unable to change password."));
   }
@@ -346,6 +306,10 @@ export async function deleteUser(id: string) {
   }
 }
 
-export function logout() {
-  clearSession();
+export async function logout() {
+  try {
+    await apiRequest<null>("/api/auth/logout", { method: "POST" });
+  } finally {
+    clearSession();
+  }
 }

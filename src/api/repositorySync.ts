@@ -1,4 +1,4 @@
-import { checkUnauthorized, getApiBaseUrl, getAuthToken } from "./auth";
+import { checkUnauthorized, getApiBaseUrl } from "./auth";
 
 export const REPOSITORY_SYNC_UPDATED_EVENT = "penalyze:repository-sync-updated";
 
@@ -22,12 +22,12 @@ type Envelope<T> = { data: T; message: string };
 
 async function request(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
-  const token = getAuthToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  headers.set("X-Penalyze-Request", "1");
   if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(`${getApiBaseUrl()}/api/repository-sync${path}`, {
     ...init,
     headers,
+    credentials: "include",
     cache: "no-store",
   });
   checkUnauthorized(response);

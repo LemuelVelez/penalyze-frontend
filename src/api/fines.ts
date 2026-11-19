@@ -1,4 +1,4 @@
-import { getAuthToken, checkUnauthorized } from "./auth";
+import { checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import type { AttendanceRecord } from "./attendance";
 
@@ -185,7 +185,7 @@ function buildSearchParams(
 
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
-  const token = getAuthToken();
+  headers.set("X-Penalyze-Request", "1");
 
   if (
     !headers.has("Content-Type") &&
@@ -193,10 +193,6 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     !(options.body instanceof FormData)
   ) {
     headers.set("Content-Type", "application/json");
-  }
-
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const response = await fetch(`${getApiBaseUrl()}${path}`, {

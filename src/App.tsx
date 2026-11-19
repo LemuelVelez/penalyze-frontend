@@ -146,7 +146,7 @@ function AppRoutes() {
       { path: "/manual-attendance", element: <ManualAttendancePage /> },
       { path: "/events", element: <EventsPage /> },
       { path: "/history", element: <HistoryPage /> },
-      { path: "/repository-sync", element: <RepositorySyncPage /> },
+      { path: "/repository-sync", element: <RepositorySyncPage />, allowedRoles: ["admin"] as UserRole[] },
       { path: "/calculate", element: <CalculatePage /> },
       { path: "/fines", element: <FinesPage /> },
       { path: "/users", element: <UsersPage />, allowedRoles: ["admin"] as UserRole[] },

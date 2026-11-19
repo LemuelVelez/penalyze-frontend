@@ -1,4 +1,4 @@
-import { getApiBaseUrl, getAuthToken, checkUnauthorized } from "./auth";
+import { getApiBaseUrl, checkUnauthorized } from "./auth";
 import type { SortOrder } from "../lib/sort";
 
 export type AuditLogOutcome = "all" | "success" | "failed";
@@ -48,7 +48,6 @@ type AuditLogEnvelope = {
 
 export async function listAuditLogs(options: AuditLogListOptions = {}) {
   const params = new URLSearchParams();
-  const token = getAuthToken();
 
   if (options.page) params.set("page", String(options.page));
   if (options.limit) params.set("limit", String(options.limit));
@@ -60,7 +59,7 @@ export async function listAuditLogs(options: AuditLogListOptions = {}) {
   if (options.to) params.set("to", options.to);
 
   const response = await fetch(`${getApiBaseUrl()}/api/audit-logs?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { "X-Penalyze-Request": "1" },
     credentials: "include",
   });
   checkUnauthorized(response);
@@ -84,7 +83,6 @@ export type AuditLogCategoryCount = {
 
 export async function listAuditLogCategories(options: AuditLogListOptions = {}): Promise<AuditLogCategoryCount[]> {
   const params = new URLSearchParams();
-  const token = getAuthToken();
 
   if (options.search?.trim()) params.set("search", options.search.trim());
   if (options.outcome && options.outcome !== "all") params.set("outcome", options.outcome);
@@ -92,7 +90,7 @@ export async function listAuditLogCategories(options: AuditLogListOptions = {}):
   if (options.to) params.set("to", options.to);
 
   const response = await fetch(`${getApiBaseUrl()}/api/audit-logs/categories?${params.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { "X-Penalyze-Request": "1" },
     credentials: "include",
   });
   checkUnauthorized(response);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { isAuthenticated } from "../api/auth";
 import { toast } from "sonner";
 
 import {
@@ -3507,6 +3508,19 @@ async function listLandingAttendanceRecords(
 export default function LandingPage() {
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
+  const [publicStatuses, setPublicStatuses] = useState<StudentAttendanceRequestStatus[]>([]);
+  const [publicRequestMode, setPublicRequestMode] = useState<"event" | "details" | null>(null);
+  const [publicEventName, setPublicEventName] = useState("");
+  const [publicEvidence, setPublicEvidence] = useState("");
+  const [publicName, setPublicName] = useState("");
+  const [publicYearLevel, setPublicYearLevel] = useState("");
+  const [publicCollege, setPublicCollege] = useState("");
+  const [publicProgram, setPublicProgram] = useState("");
+  const [publicNote, setPublicNote] = useState("");
+  const [publicRequestBusy, setPublicRequestBusy] = useState(false);
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [searchedId, setSearchedId] = useState("");
@@ -3593,7 +3607,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (isCheckingSession) return;
-    void loadLandingSchoolYears();
+    if (isAuthenticated()) void loadLandingSchoolYears();
   }, [isCheckingSession]);
 
   const lookupFines = useMemo(() => {
@@ -4321,6 +4335,9 @@ export default function LandingPage() {
     try {
       await createAttendanceRequest({
         requestType: "details_correction",
+        lastName,
+        honeypot,
+        formStartedAt,
         schoolYearId,
         studentId: studentIdValue,
         name,
@@ -4336,7 +4353,7 @@ export default function LandingPage() {
         normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)
       ) {
         try {
-          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId, lastName);
           setLookup((current) =>
             current ? { ...current, attendanceRequests: refreshedRequests } : current,
           );
@@ -4471,6 +4488,9 @@ export default function LandingPage() {
     try {
       await createAttendanceRequest({
         requestType: "event_review",
+        lastName,
+        honeypot,
+        formStartedAt,
         schoolYearId,
         studentId: studentIdValue,
         name,
@@ -4484,7 +4504,7 @@ export default function LandingPage() {
 
       if (lookup && searchedId && normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)) {
         try {
-          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId, lastName);
           setLookup((current) =>
             current ? { ...current, attendanceRequests: refreshedRequests } : current,
           );
@@ -4617,17 +4637,61 @@ export default function LandingPage() {
     }
   }
 
+  async function handlePublicRequest(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!studentId.trim() || !lastName.trim() || !publicRequestMode) {
+      setError("Enter your Student ID and last name first."); return;
+    }
+    setPublicRequestBusy(true);
+    setError("");
+    try {
+      await createAttendanceRequest(publicRequestMode === "event" ? {
+        requestType: "event_review", schoolYearId: "", studentId: studentId.trim(),
+        lastName: lastName.trim(), honeypot, formStartedAt,
+        name: "", note: publicNote,
+        events: [{ eventId: "", eventName: publicEventName.trim(), evidenceUrl: publicEvidence.trim() }],
+      } : {
+        requestType: "details_correction", schoolYearId: "", studentId: studentId.trim(),
+        lastName: lastName.trim(), honeypot, formStartedAt,
+        name: publicName.trim(), yearLevel: publicYearLevel.trim(),
+        college: publicCollege.trim(), program: publicProgram.trim(), note: publicNote.trim(),
+      });
+      setPublicRequestMode(null);
+      setPublicNote("");
+      setPublicEventName("");
+      setPublicEvidence("");
+      setPublicStatuses(await getStudentAttendanceRequestStatus(studentId.trim(), lastName.trim()));
+      toast.success("Request submitted for review.");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Request could not be submitted.");
+    } finally { setPublicRequestBusy(false); setFormStartedAt(Date.now()); }
+  }
+
   async function handleSearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const cleanStudentId = studentId.trim();
-    if (!cleanStudentId) {
-      setError("Please enter your Student ID.");
+    if (!lastName.trim() || !cleanStudentId) {
+      setError("Enter your Student ID and last name.");
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
       setRequiredEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
+      return;
+    }
+
+    if (!isAuthenticated()) {
+      setIsSearching(true);
+      setError("");
+      setPublicStatuses([]);
+      try {
+        const statuses = await getStudentAttendanceRequestStatus(cleanStudentId, lastName.trim());
+        setPublicStatuses(statuses);
+        setSearchedId(cleanStudentId);
+      } catch (searchError) {
+        setError(searchError instanceof Error ? searchError.message : "Unable to check request status.");
+      } finally { setIsSearching(false); }
       return;
     }
 
@@ -4770,7 +4834,7 @@ export default function LandingPage() {
 
           return [] as AttendanceEvent[];
         });
-      const attendanceRequestsPromise = getStudentAttendanceRequestStatus(cleanStudentId)
+      const attendanceRequestsPromise = getStudentAttendanceRequestStatus(cleanStudentId, lastName)
         .then((requests) => {
           markProgressStepComplete(5, "Request status loaded...", `${requests.length.toLocaleString()} attendance request/s checked.`);
           return requests;
@@ -4942,12 +5006,12 @@ export default function LandingPage() {
 
           <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
             <h1 className="mx-auto max-w-4xl text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight [text-shadow:0_1px_9px_rgba(245,247,255,0.95),0_0_20px_rgba(245,247,255,0.8)] sm:text-5xl dark:[text-shadow:0_2px_10px_rgba(0,0,0,0.95),0_0_24px_rgba(0,0,0,0.8)] lg:text-6xl">
-              Search your Student ID and view attendance records instantly.
+              Check the status of your attendance correction request.
             </h1>
 
             <form
               onSubmit={handleSearch}
-              className="mx-auto mt-8 flex w-full max-w-3xl flex-col gap-3 rounded-3xl border bg-card/90 p-3 text-left shadow-xl shadow-black/5 backdrop-blur sm:flex-row sm:items-center"
+              className="mx-auto mt-8 grid w-full max-w-3xl gap-3 rounded-3xl border bg-card/90 p-3 text-left shadow-xl shadow-black/5 backdrop-blur sm:grid-cols-2"
             >
               <label className="sr-only" htmlFor="student-id-search">
                 Student ID
@@ -4959,12 +5023,21 @@ export default function LandingPage() {
                 placeholder="Enter Student ID"
                 className={`${textInputClassName} sm:flex-1`}
               />
+              <label className="sr-only" htmlFor="student-last-name-search">Last name</label>
+              <Input id="student-last-name-search" value={lastName} maxLength={80}
+                onChange={(event) => setLastName(event.target.value)} placeholder="Student's last name"
+                autoComplete="family-name" className={textInputClassName} />
+              <label aria-hidden="true" className="absolute -left-[10000px] top-auto">
+                Leave this field blank
+                <input tabIndex={-1} autoComplete="off" name="contact_website" value={honeypot}
+                  onChange={(event) => setHoneypot(event.target.value)} />
+              </label>
               <Button
                 type="submit"
                 disabled={isSearching}
-                className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:w-auto"
+                className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:col-span-2"
               >
-                {isSearching ? "Searching..." : "Search Records"}
+                {isSearching ? "Checking..." : "Check Request Status"}
               </Button>
             </form>
 
@@ -4992,6 +5065,49 @@ export default function LandingPage() {
               </div>
             ) : null}
 
+            {searchedId && !isSearching ? (
+              <section className="mx-auto mt-4 w-full max-w-3xl space-y-3 rounded-2xl border bg-card/90 p-4">
+                <h2 className="text-lg font-bold">Correction request status</h2>
+                {publicStatuses.length ? publicStatuses.map((item) => (
+                  <article key={item.id} className="min-w-0 space-y-1 rounded-xl border p-3 text-sm">
+                    <p className="font-semibold">{item.request_type === "event_review" ? "Attendance review" : "Details correction"} · {item.status}</p>
+                    <p className="break-words">{item.school_year_name}</p>
+                    <p>Submitted: {new Date(item.created_at).toLocaleDateString()}</p>
+                    {item.reviewed_at ? <p>Reviewed: {new Date(item.reviewed_at).toLocaleDateString()}</p> : null}
+                    {item.review_note ? <p className="break-words">Decision note: {item.review_note}</p> : null}
+                  </article>
+                )) : <p className="text-sm text-muted-foreground">No matching correction requests were found.</p>}
+              </section>
+            ) : null}
+            <div className="mx-auto mt-4 flex max-w-3xl flex-col gap-2 sm:flex-row">
+              <Button type="button" variant="outline" onClick={() => { setPublicRequestMode("event"); setFormStartedAt(Date.now()); }}>
+                Submit attendance review
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setPublicRequestMode("details"); setFormStartedAt(Date.now()); }}>
+                Request details correction
+              </Button>
+            </div>
+            {publicRequestMode ? (
+              <form onSubmit={handlePublicRequest} className="mx-auto mt-3 grid w-full max-w-3xl gap-3 rounded-2xl border bg-card/95 p-4">
+                <h2 className="font-bold">{publicRequestMode === "event" ? "Attendance review request" : "Details correction request"}</h2>
+                <p className="text-xs text-muted-foreground">Your Student ID and last name above are required to verify the request.</p>
+                {publicRequestMode === "event" ? <>
+                  <Input value={publicEventName} onChange={(event) => setPublicEventName(event.target.value)} maxLength={160} required placeholder="Exact event name" />
+                  <Input value={publicEvidence} onChange={(event) => setPublicEvidence(event.target.value)} type="url" maxLength={2048} required placeholder="Evidence URL (https://...)" />
+                </> : <>
+                  <Input value={publicName} onChange={(event) => setPublicName(event.target.value)} maxLength={160} required placeholder="Correct full name" />
+                  <Input value={publicYearLevel} onChange={(event) => setPublicYearLevel(event.target.value)} maxLength={80} placeholder="Correct year level (optional)" />
+                  <Input value={publicCollege} onChange={(event) => setPublicCollege(event.target.value)} maxLength={160} placeholder="Correct college (optional)" />
+                  <Input value={publicProgram} onChange={(event) => setPublicProgram(event.target.value)} maxLength={160} placeholder="Correct program (optional)" />
+                </>}
+                <Textarea value={publicNote} onChange={(event) => setPublicNote(event.target.value)} maxLength={1000} placeholder="Reason for requesting a correction (optional)" />
+                <input name="public_website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[10000px]" value={honeypot} onChange={(event) => setHoneypot(event.target.value)} />
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={publicRequestBusy || !studentId.trim() || !lastName.trim()} type="submit">{publicRequestBusy ? "Submitting..." : "Submit request"}</Button>
+                  <Button type="button" variant="outline" onClick={() => setPublicRequestMode(null)}>Cancel</Button>
+                </div>
+              </form>
+            ) : null}
             <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/90 p-4 text-left shadow-xl shadow-black/5 backdrop-blur sm:p-6">
               <div className="flex flex-col gap-2 text-center sm:text-left">
                 <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">

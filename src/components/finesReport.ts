@@ -50,6 +50,11 @@ function excelDateSerial(value: string | null | undefined) {
   return date.getTime() / 86_400_000 + 25569;
 }
 
+function safeSpreadsheetText(value: unknown): string {
+  const text = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 function cellXml(ref: string, value: unknown, styleId: number) {
   if (value == null || value === "") {
     return `<c r="${ref}" s="${styleId}"/>`;
@@ -57,7 +62,7 @@ function cellXml(ref: string, value: unknown, styleId: number) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return `<c r="${ref}" s="${styleId}"><v>${value}</v></c>`;
   }
-  return `<c r="${ref}" s="${styleId}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+  return `<c r="${ref}" s="${styleId}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(safeSpreadsheetText(value))}</t></is></c>`;
 }
 
 function createSheetXml(rows: PenaltyResultRecord[]) {

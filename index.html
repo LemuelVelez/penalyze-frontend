@@ -1,20 +1,6 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script>
-      (function () {
-        try {
-          var storedTheme = localStorage.getItem("theme");
-          var legacyTheme = localStorage.getItem("darkMode");
-          var dark = storedTheme !== "light" && (Boolean(storedTheme) || legacyTheme !== "false");
-          document.documentElement.classList.toggle("dark", dark);
-          document.documentElement.style.colorScheme = dark ? "dark" : "light";
-        } catch (error) {
-          document.documentElement.classList.add("dark");
-          document.documentElement.style.colorScheme = "dark";
-        }
-      })();
-    </script>
     <meta charset="UTF-8" />
     <link rel="preconnect" href="https://images.unsplash.com" crossorigin />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />

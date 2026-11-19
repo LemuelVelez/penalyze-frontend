@@ -3841,7 +3841,7 @@ export default function AttendancePage({
           open={Boolean(eventReviewFileKey && eventReviewDetails)}
           onOpenChange={(open) => { if (!open) setEventReviewFileKey(""); }}
         >
-          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto sm:max-w-5xl">
+          <DialogContent className="flex min-w-0 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
             <DialogHeader>
               <DialogTitle>Review event assignments by row</DialogTitle>
               <DialogDescription>
@@ -3853,7 +3853,7 @@ export default function AttendancePage({
               {eventReviewGroups.length} detected groups · {eventReviewAssignedCount} / {eventReviewDetails?.previewRows.length ?? 0} rows assigned
               {eventReviewDetails?.rowEventsReviewed ? " · Confirmed" : " · Not yet confirmed"}
             </p>
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
+            <div className="min-w-0 space-y-4 sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain">
               <div className="space-y-3 rounded-xl border bg-muted/10 p-3">
                 <p className="text-sm font-bold">Assign detected event groups</p>
                 {eventReviewGroups.map((group) => {
@@ -3917,13 +3917,13 @@ export default function AttendancePage({
                 <Input placeholder="Search by row, student ID, name or event" value={eventReviewSearch}
                   onChange={(e) => setEventReviewSearch(e.target.value)} />
                 <p className="text-xs text-muted-foreground">Showing {Math.min(150, eventReviewRows.length)} of {eventReviewRows.length} matching rows. Search for any row to edit its event individually.</p>
-                <div className="max-h-72 space-y-2 overflow-y-auto">
+                <div className="min-w-0 space-y-2 lg:max-h-72 lg:overflow-y-auto">
                   {eventReviewRows.slice(0, 150).map((row) => {
                     const assignment = eventReviewDetails?.rowEventOverrides[String(row.rowNumber)];
                     return (
                       <div key={row.rowNumber} className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
                         <div className="min-w-0 text-xs">
-                          <p className="font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
+                          <p className="break-words font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
                           <p className="break-words text-muted-foreground">In file: {row.eventName || "No event name"}</p>
                         </div>
                         <Select disabled={isSaving} value={getRowEventAssignmentValue(assignment)}
@@ -3991,7 +3991,7 @@ export default function AttendancePage({
             if (!open) setCollegeReviewFileKey("");
           }}
         >
-          <DialogContent className="flex min-w-0 max-w-full max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto sm:max-w-5xl">
+          <DialogContent className="flex min-w-0 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto overscroll-y-contain sm:h-[min(90dvh,52rem)] sm:max-w-5xl sm:overflow-hidden">
             <DialogHeader>
               <DialogTitle>Review attendance colleges</DialogTitle>
               <DialogDescription>
@@ -4050,7 +4050,7 @@ export default function AttendancePage({
                 Showing {shownCollegeReviewRows.length} of {collegeReviewRows.length} matching rows
               </span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border bg-background" aria-label="Attendance college review records">
+            <div className="min-w-0 rounded-xl border bg-background sm:min-h-0 sm:flex-1 sm:overflow-y-auto sm:overscroll-contain" aria-label="Attendance college review records">
               {shownCollegeReviewRows.length ? shownCollegeReviewRows.map((row) => {
                 const originalCollege = String(row.college ?? "").trim();
                 const override = collegeReviewDetails?.rowCollegeOverrides[String(row.rowNumber)];
@@ -4085,12 +4085,12 @@ export default function AttendancePage({
                         </p>
                       </div>
                     </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                       <Select
                         value={validCollege ?? ""}
                         disabled={isSaving}
                         onValueChange={(college) => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, college)}>
-                        <SelectTrigger className={`min-w-0 flex-1 basis-36 ${isInvalid ? "border-destructive" : ""}`}
+                        <SelectTrigger className={`w-full min-w-0 sm:flex-1 sm:basis-36 ${isInvalid ? "border-destructive" : ""}`}
                           aria-label={`College for row ${row.rowNumber}`}>
                           <SelectValue placeholder="Choose the correct college" />
                         </SelectTrigger>
@@ -4103,7 +4103,7 @@ export default function AttendancePage({
                       {override ? (
                         <Button type="button" size="sm" variant="outline" disabled={isSaving}
                           onClick={() => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, null)}
-                          className="h-auto shrink-0 whitespace-normal"
+                          className="h-auto w-full shrink-0 whitespace-normal sm:w-auto"
                           aria-label={`Reset college for row ${row.rowNumber}`}>
                           Reset
                         </Button>

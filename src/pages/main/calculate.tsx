@@ -3159,7 +3159,7 @@ export default function CalculatePage() {
               </div>
               <div className="rounded-xl border">
                 <div className="border-b px-4 py-3 font-black">Affected students by expected total</div>
-                <div className="grid max-h-72 min-w-0 gap-2 overflow-y-auto overscroll-y-contain p-2 sm:hidden">
+                <div className="grid min-w-0 gap-2 p-2 sm:grid-cols-2 lg:hidden">
                   {selectedConsistencyGroup.rows.map((row) => (
                     <article key={row.key} className="min-w-0 space-y-2 rounded-xl border bg-background p-3">
                       <div className="min-w-0">
@@ -3187,7 +3187,7 @@ export default function CalculatePage() {
                     </article>
                   ))}
                 </div>
-                <div className="hidden max-h-72 min-w-0 max-w-full overflow-x-auto overflow-y-auto sm:block">
+                <div className="hidden min-w-0 max-w-full overflow-x-auto lg:block">
                   <table className="w-full min-w-[480px] text-left text-sm">
                     <thead className="sticky top-0 bg-muted">
                       <tr>

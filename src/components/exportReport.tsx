@@ -60,6 +60,11 @@ function getRecordTime(value?: string | null) {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function escapeSpreadsheetText(value: string | number) {
+  const text = String(value);
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 function escapeHtml(value: string | number) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -214,7 +219,7 @@ function getRowsByCollege(rows: ReportRow[]) {
     const college = row.college || "No college";
     groups[college] = [...(groups[college] ?? []), row];
     return groups;
-  }, {});
+  }, Object.create(null) as Record<string, ReportRow[]>);
 }
 
 function getAbsenceText(row: ReportRow) {

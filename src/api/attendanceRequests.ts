@@ -1,4 +1,4 @@
-import { getApiBaseUrl, getAuthToken, checkUnauthorized } from "./auth";
+import { getApiBaseUrl, checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import { readProgressStream } from "./progressStream";
 import type { SchoolSemester } from "./schoolYears";
@@ -80,6 +80,9 @@ export type AttendanceRequest = {
 type BaseCreateAttendanceRequestInput = {
   schoolYearId: string;
   studentId: string;
+  lastName: string;
+  honeypot: string;
+  formStartedAt: number;
   name: string;
   yearLevel?: string;
   college?: string;
@@ -90,6 +93,7 @@ type BaseCreateAttendanceRequestInput = {
 
 type AttendanceRequestEventInput = {
   eventId: string;
+  eventName?: string;
   evidenceUrl: string;
 };
 
@@ -160,14 +164,10 @@ type ApiEnvelope<T> = {
 
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
-  const token = getAuthToken();
+  headers.set("X-Penalyze-Request", "1");
 
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
-  }
-
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
@@ -244,9 +244,8 @@ export async function reviewAttendanceRequestWithProgress(
   onProgress?: (progress: AttendanceRequestReviewProgress) => void,
 ) {
   const headers = new Headers();
-  const token = getAuthToken();
+  headers.set("X-Penalyze-Request", "1");
   headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(
     `${getApiBaseUrl()}/api/attendance/requests/${encodeURIComponent(id)}/review/progress`,
@@ -299,9 +298,8 @@ export async function reviewAttendanceRequestGroupWithProgress(
   onProgress?: (progress: AttendanceRequestReviewProgress) => void,
 ) {
   const headers = new Headers();
-  const token = getAuthToken();
+  headers.set("X-Penalyze-Request", "1");
   headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(
     `${getApiBaseUrl()}/api/attendance/requests/group-review/progress`,
@@ -346,9 +344,10 @@ export async function removeAttendanceRequestEvent(
 
 export async function getStudentAttendanceRequestStatus(
   studentId: string,
+  lastName: string,
   schoolYearId?: string,
 ) {
-  const params = new URLSearchParams({ studentId });
+  const params = new URLSearchParams({ studentId, lastName });
   if (schoolYearId) params.set("schoolYearId", schoolYearId);
   const response = await fetch(
     `${getApiBaseUrl()}/api/attendance/requests/student-status?${params.toString()}`,

@@ -1,4 +1,4 @@
-import { getAuthToken, checkUnauthorized } from "./auth";
+import { checkUnauthorized } from "./auth";
 export const ALL_SCHOOL_YEARS_VALUE = "__all_school_years__";
 
 export type SchoolSemester = "first_semester" | "second_semester";
@@ -148,14 +148,10 @@ function getApiBaseUrl() {
 
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
-  const token = getAuthToken();
+  headers.set("X-Penalyze-Request", "1");
 
   if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
-  }
-
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
