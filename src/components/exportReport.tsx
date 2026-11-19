@@ -248,17 +248,17 @@ function buildExcelDocument(
     .map(([college, rows]) => {
       return `
         <tr class="college-row">
-          <td colspan="5">${escapeHtml(college)} — ${rows.length} attendee/s</td>
+          <td colspan="5">${escapeHtml(escapeSpreadsheetText(college))} — ${rows.length} attendee/s</td>
         </tr>
         ${rows
           .map(
             (row) => `
               <tr>
-                <td>${escapeHtml(row.studentId || "—")}</td>
-                <td>${escapeHtml(row.name || "—")}</td>
-                <td>${escapeHtml(row.college)}</td>
+                <td>${escapeHtml(escapeSpreadsheetText(row.studentId || "—"))}</td>
+                <td>${escapeHtml(escapeSpreadsheetText(row.name || "—"))}</td>
+                <td>${escapeHtml(escapeSpreadsheetText(row.college))}</td>
                 <td class="absences-cell">${escapeHtml(getAbsenceText(row))}</td>
-                <td>${escapeHtml(getFineText(row))}</td>
+                <td>${escapeHtml(escapeSpreadsheetText(getFineText(row)))}</td>
               </tr>
             `,
           )
