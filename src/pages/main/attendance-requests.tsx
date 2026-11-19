@@ -314,6 +314,13 @@ function RequestDetails({
                                 disabled: isRemovingThisEvent || !event.evidence_url,
                                 onSelect: () => {
                                   if (!event.evidence_url) return;
+                                  let host = "";
+                                  try {
+                                    const url = new URL(event.evidence_url);
+                                    if (url.protocol !== "https:") return;
+                                    host = url.hostname;
+                                  } catch { return; }
+                                  if (!window.confirm(`You are about to open an external evidence link on ${host}. Only enter your credentials on trusted websites. Continue?`)) return;
                                   window.open(
                                     event.evidence_url,
                                     "_blank",

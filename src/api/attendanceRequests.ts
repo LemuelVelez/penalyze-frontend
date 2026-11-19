@@ -4,6 +4,27 @@ import { readProgressStream } from "./progressStream";
 import type { SchoolSemester } from "./schoolYears";
 
 export const ATTENDANCE_REQUESTS_UPDATED_EVENT = "attendance-requests-updated";
+const STATUS_RECEIPTS_PREFIX = "penalyze:attendance:receipts:";
+
+function receiptStorageKey(studentId: string) {
+  return `${STATUS_RECEIPTS_PREFIX}${studentId.trim().toLowerCase()}`;
+}
+
+function readStatusReceipts(studentId: string): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(receiptStorageKey(studentId)) || "[]");
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string" && item.length <= 1024).slice(-20) : [];
+  } catch { return []; }
+}
+
+export function rememberStatusReceipt(studentId: string, code: string) {
+  if (!code || code.length > 1024) return;
+  try {
+    const receipts = [...new Set([...readStatusReceipts(studentId), code])].slice(-20);
+    localStorage.setItem(receiptStorageKey(studentId), JSON.stringify(receipts));
+  } catch { /* Private mode or disabled storage: users may supply the code manually. */ }
+}
+
 
 function notifyAttendanceRequestsUpdated() {
   if (typeof window !== "undefined") {
@@ -193,13 +214,14 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
 export async function createAttendanceRequest(
   input: CreateAttendanceRequestInput,
 ) {
-  const response = await apiRequest<AttendanceRequest>(
+  const response = await apiRequest<{ id: string; statusToken: string }>(
     "/api/attendance/requests",
     {
       method: "POST",
       body: JSON.stringify(input),
     },
   );
+  if (response.data?.statusToken) rememberStatusReceipt(input.studentId, response.data.statusToken);
   notifyAttendanceRequestsUpdated();
   return response.data ?? null;
 }
@@ -344,24 +366,17 @@ export async function removeAttendanceRequestEvent(
 
 export async function getStudentAttendanceRequestStatus(
   studentId: string,
-  lastName: string,
+  _lastName: string,
   schoolYearId?: string,
+  accessCode?: string,
 ) {
-  const params = new URLSearchParams({ studentId, lastName });
-  if (schoolYearId) params.set("schoolYearId", schoolYearId);
-  const response = await fetch(
-    `${getApiBaseUrl()}/api/attendance/requests/student-status?${params.toString()}`,
-    { credentials: "include" },
+  if (accessCode?.trim()) rememberStatusReceipt(studentId, accessCode.trim());
+  const receipts = readStatusReceipts(studentId);
+  if (!receipts.length) return [] as StudentAttendanceRequestStatus[];
+  const response = await apiRequest<StudentAttendanceRequestStatus[]>(
+    "/api/attendance/requests/student-status",
+    { method: "POST", body: JSON.stringify({ receipts }) },
   );
-  checkUnauthorized(response);
-  const contentType = response.headers.get("content-type") ?? "";
-  const payload = contentType.includes("application/json")
-    ? await response.json()
-    : null;
-  if (!response.ok) {
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}.`,
-    );
-  }
-  return (payload?.data ?? []) as StudentAttendanceRequestStatus[];
+  const rows = response.data ?? [];
+  return schoolYearId ? rows.filter((row) => row.school_year_id === schoolYearId) : rows;
 }
