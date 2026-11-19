@@ -246,6 +246,7 @@ export type AttendanceFinalResultProfileUpdateInput = {
 export type AttendanceFinalResultProfileUpdateResult = {
   finalResult: AttendanceFinalResultRecord;
   updatedFields: AttendanceFinalResultProfileField[];
+  mergedIntoExistingStudent: boolean;
 };
 
 export type CalculationPendingImport = {

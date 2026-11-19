@@ -2934,6 +2934,7 @@ export default function AttendancePage({
 
     try {
       let savedSourceRecords = 0;
+      let mergedIntoExistingStudent = false;
 
       for (const [recordIndex, record] of selectedSourceRecords.entries()) {
         const recordNumber = recordIndex + 1;
@@ -3027,7 +3028,7 @@ export default function AttendancePage({
             : current,
         );
 
-        await updateAttendanceFinalResultProfile(originalResult.id, {
+        const savedProfile = await updateAttendanceFinalResultProfile(originalResult.id, {
           fields: profileFields,
           studentId: finalResultForm.studentId.trim(),
           name: finalResultForm.name.trim(),
@@ -3036,6 +3037,7 @@ export default function AttendancePage({
           program: finalResultForm.program.trim(),
           institution: finalResultForm.institution.trim(),
         });
+        mergedIntoExistingStudent = savedProfile.mergedIntoExistingStudent;
         completedWorkUnits += 1;
 
         setFinalResultSaveProgress((current) =>
@@ -3094,7 +3096,11 @@ export default function AttendancePage({
       setEditSourceRecords(emptyStudentSourceRecordBundle);
       setIsLoadingEditSourceRecords(false);
       setFinalResultSaveProgress(null);
-      toast.success("Selected attendance changes saved.");
+      toast.success(
+        mergedIntoExistingStudent
+          ? "Student IDs merged. Existing attendance and corrections were combined."
+          : "Selected attendance changes saved.",
+      );
     } catch (error) {
       const message =
         error instanceof Error
