@@ -2223,9 +2223,13 @@ export default function AttendancePage({
         stageCounts: current?.stageCounts,
       }));
 
-      toast.success(
-        `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
-      );
+      if (batchResult?.syncWarnings?.length) {
+        toast.error(batchResult.syncWarnings.join(" "), { duration: 10000 });
+      } else {
+        toast.success(
+          `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
+        );
+      }
 
       // Only mark workbooks that actually went through this review and have a
       // confirmed import ID. Never mark an unsaved, removed, or replaced file.
@@ -2277,7 +2281,9 @@ export default function AttendancePage({
       setProgress((current) => ({
         stage: "completed",
         percent: 100,
-        message: "Attendance files and final results are fully saved and refreshed.",
+        message: batchResult?.syncWarnings?.length
+          ? "Attendance files saved. Final results and fines require a manual refresh."
+          : "Attendance files and final results are fully saved and refreshed.",
         processedRows: current?.processedRows ?? recordsSaved,
         totalRows: current?.totalRows ?? recordsSaved,
         savedRecords: recordsSaved,

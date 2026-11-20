@@ -7,8 +7,9 @@ import { toast } from "sonner";
 import {
   createAttendanceRequest,
   getStudentAttendanceRequestStatus,
+  lookupPublicStudentById,
 } from "../api/attendanceRequests";
-import type { StudentAttendanceRequestStatus } from "../api/attendanceRequests";
+import type { StudentAttendanceRequestStatus, PublicStudentLookup } from "../api/attendanceRequests";
 import {
   getStudentAttendanceRecords,
   listAllAttendanceRecords,
@@ -3515,8 +3516,7 @@ export default function LandingPage() {
   const [honeypot, setHoneypot] = useState("");
   const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
   const [publicStatuses, setPublicStatuses] = useState<StudentAttendanceRequestStatus[]>([]);
-  const [statusAccessCode, setStatusAccessCode] = useState("");
-  const [newStatusReceipt, setNewStatusReceipt] = useState("");
+  const [publicStudentProfile, setPublicStudentProfile] = useState<PublicStudentLookup | null>(null);
   const [publicRequestMode, setPublicRequestMode] = useState<"event" | "details" | null>(null);
   const [publicEventName, setPublicEventName] = useState("");
   const [publicEvidence, setPublicEvidence] = useState("");
@@ -4370,10 +4370,8 @@ export default function LandingPage() {
 
       setDetailsCorrectionDialogOpen(false);
       setDetailsCorrectionForm(emptyDetailsCorrectionForm);
-      setNewStatusReceipt(submitted?.statusToken ?? "");
-      setStatusAccessCode(submitted?.statusToken ?? "");
       toast.success(
-        "Details correction submitted. Save the status access code shown on the page.",
+        "Details correction submitted. Check its status with your Student ID.",
       );
     } catch (requestError) {
       setDetailsCorrectionError(
@@ -4522,13 +4520,11 @@ export default function LandingPage() {
       }
 
       setAttendanceRequestDialogOpen(false);
-      setNewStatusReceipt(submitted?.statusToken ?? "");
-      setStatusAccessCode(submitted?.statusToken ?? "");
       setAttendanceRequestForm(emptyAttendanceRequestForm);
       setAttendanceRequestEvents([]);
       setAttendanceRequestExcludedEventIds([]);
       toast.success(
-        "Attendance request submitted. Save the status access code shown on the page.",
+        "Attendance request submitted. Check its status with your Student ID.",
       );
     } catch (requestError) {
       setAttendanceRequestError(
@@ -4666,13 +4662,13 @@ export default function LandingPage() {
         college: publicCollege.trim(), program: publicProgram.trim(), note: publicNote.trim(),
       });
       setPublicRequestMode(null);
-      setNewStatusReceipt(submitted?.statusToken ?? "");
-      setStatusAccessCode(submitted?.statusToken ?? "");
       setPublicNote("");
       setPublicEventName("");
       setPublicEvidence("");
       setPublicStatuses(await getStudentAttendanceRequestStatus(studentId.trim(), lastName.trim()));
-      toast.success("Request submitted. Save the status access code shown below.");
+      setPublicStudentProfile(await lookupPublicStudentById(studentId.trim()));
+      setSearchedId(studentId.trim());
+      toast.success("Request submitted. Check its status with your Student ID.");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Request could not be submitted.");
     } finally { setPublicRequestBusy(false); setFormStartedAt(Date.now()); }
@@ -4682,8 +4678,8 @@ export default function LandingPage() {
     event.preventDefault();
 
     const cleanStudentId = studentId.trim();
-    if (!lastName.trim() || !cleanStudentId) {
-      setError("Enter your Student ID and last name.");
+    if (!cleanStudentId) {
+      setError("Enter your Student ID.");
       setLookup(null);
       setResultDialogOpen(false);
       setEventsDialogOpen(false);
@@ -4696,9 +4692,10 @@ export default function LandingPage() {
       setIsSearching(true);
       setError("");
       setPublicStatuses([]);
+      setPublicStudentProfile(null);
       try {
-        const statuses = await getStudentAttendanceRequestStatus(cleanStudentId, lastName.trim(), undefined, statusAccessCode);
-        setPublicStatuses(statuses);
+        const profile = await lookupPublicStudentById(cleanStudentId);
+        setPublicStudentProfile(profile);
         setSearchedId(cleanStudentId);
       } catch (searchError) {
         setError(searchError instanceof Error ? searchError.message : "Unable to check request status.");
@@ -5032,17 +5029,10 @@ export default function LandingPage() {
                 value={studentId}
                 onChange={(event) => setStudentId(event.target.value)}
                 placeholder="Enter Student ID"
-                className={`${textInputClassName} sm:flex-1`}
+                maxLength={36}
+                autoComplete="off"
+                className={`${textInputClassName} sm:col-span-2`}
               />
-              <label className="sr-only" htmlFor="student-last-name-search">Last name</label>
-              <Input id="student-last-name-search" value={lastName} maxLength={80}
-                onChange={(event) => setLastName(event.target.value)} placeholder="Student's last name"
-                autoComplete="family-name" className={textInputClassName} />
-              <label className="sr-only" htmlFor="status-access-code">Status access code</label>
-              <Input id="status-access-code" value={statusAccessCode} maxLength={1024}
-                onChange={(event) => setStatusAccessCode(event.target.value)}
-                placeholder="Status access code (only needed on a new device)"
-                autoComplete="off" className={`${textInputClassName} sm:col-span-2`} />
               <label aria-hidden="true" className="absolute -left-[10000px] top-auto">
                 Leave this field blank
                 <input tabIndex={-1} autoComplete="off" name="contact_website" value={honeypot}
@@ -5057,7 +5047,7 @@ export default function LandingPage() {
               </Button>
             </form>
 
-            {isSearching ? (
+            {isSearching && isAuthenticated() ? (
               <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
                   <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">
@@ -5081,13 +5071,21 @@ export default function LandingPage() {
               </div>
             ) : null}
 
-            {newStatusReceipt ? (
-              <div className="mx-auto mt-4 max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left">
-                <p className="text-sm font-semibold">Save your private status access code. It is shown only once; anyone with the code can view this request's status.</p>
-                <Input readOnly value={newStatusReceipt} onFocus={(event) => event.target.select()} aria-label="Private attendance request status access code" />
-              </div>
+            {searchedId && !isSearching && !isAuthenticated() ? (
+              <section className="mx-auto mt-4 w-full max-w-3xl space-y-3 rounded-2xl border bg-card/90 p-4 text-left">
+                <h2 className="text-lg font-bold">Student details and request status</h2>
+                {publicStudentProfile ? (
+                  <div className="grid gap-2 text-sm sm:grid-cols-2">
+                    <p><strong>Student ID:</strong> {publicStudentProfile.student_id}</p>
+                    <p><strong>Course:</strong> {publicStudentProfile.course || "Not available"}</p>
+                    <p><strong>Year level:</strong> {publicStudentProfile.year_level || "Not available"}</p>
+                    <p><strong>College:</strong> {publicStudentProfile.college || "Not available"}</p>
+                    <p className="sm:col-span-2"><strong>Request status:</strong> {publicStudentProfile.status || "No correction request found"}</p>
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No matching Student ID was found.</p>}
+              </section>
             ) : null}
-            {searchedId && !isSearching ? (
+            {searchedId && !isSearching && isAuthenticated() ? (
               <section className="mx-auto mt-4 w-full max-w-3xl space-y-3 rounded-2xl border bg-card/90 p-4">
                 <h2 className="text-lg font-bold">Correction request status</h2>
                 {publicStatuses.length ? publicStatuses.map((item) => (
@@ -5118,7 +5116,8 @@ export default function LandingPage() {
             {publicRequestsEnabled && publicRequestMode ? (
               <form onSubmit={handlePublicRequest} className="mx-auto mt-3 grid w-full max-w-3xl gap-3 rounded-2xl border bg-card/95 p-4">
                 <h2 className="font-bold">{publicRequestMode === "event" ? "Attendance review request" : "Details correction request"}</h2>
-                <p className="text-xs text-muted-foreground">Student ID and last name help match your records. An SSG officer will independently verify every correction before approval.</p>
+                <p className="text-xs text-muted-foreground">An SSG officer will independently verify your request before approval.</p>
+                <Input value={lastName} onChange={(event) => setLastName(event.target.value)} required maxLength={80} autoComplete="family-name" placeholder="Student's last name (for request verification)" />
                 {publicRequestMode === "event" ? <>
                   <Input value={publicEventName} onChange={(event) => setPublicEventName(event.target.value)} maxLength={160} required placeholder="Exact event name" />
                   <Input value={publicEvidence} onChange={(event) => setPublicEvidence(event.target.value)} type="url" maxLength={2048} required placeholder="Evidence URL (https://...)" />

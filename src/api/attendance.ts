@@ -538,6 +538,7 @@ export type AttendanceBatchSaveResult = {
   filesFailed: number;
   recordsSaved: number;
   finesCreated: number;
+  syncWarnings?: string[];
 };
 
 export type ManualAttendanceSaveResult = {

@@ -32,6 +32,22 @@ function notifyAttendanceRequestsUpdated() {
   }
 }
 
+export type PublicStudentLookup = {
+  student_id: string;
+  course: string | null;
+  year_level: string | null;
+  college: string | null;
+  status: "pending" | "approved" | "rejected" | null;
+};
+
+export async function lookupPublicStudentById(studentId: string): Promise<PublicStudentLookup | null> {
+  const response = await apiRequest<PublicStudentLookup | null>(
+    "/api/attendance/requests/student-lookup",
+    { method: "POST", body: JSON.stringify({ studentId: studentId.trim() }) },
+  );
+  return response.data ?? null;
+}
+
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
 export type AttendanceRequestType = "event_review" | "details_correction";
 
