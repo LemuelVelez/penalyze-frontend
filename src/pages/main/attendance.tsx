@@ -2200,7 +2200,7 @@ export default function AttendancePage({
       });
       const filesSaved = batchResult?.filesSaved ?? 0;
       const recordsSaved = batchResult?.recordsSaved ?? 0;
-      if (filesSaved !== files.length || batchResult?.filesFailed) {
+      if (!batchResult || filesSaved !== files.length || batchResult.filesFailed) {
         throw new Error("The complete attendance batch was not confirmed saved. Repository statuses were not updated.");
       }
       setReconciliationReports(
