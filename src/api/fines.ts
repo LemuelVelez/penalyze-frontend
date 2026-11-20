@@ -229,7 +229,7 @@ export async function listFines(options: ListFineOptions = {}) {
   return response.data ?? [];
 }
 
-function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
+export function penaltyResultToFineRecord(result: PenaltyResultRecord): FineRecord {
   return {
     id: result.id,
     school_year_id: result.school_year_id,

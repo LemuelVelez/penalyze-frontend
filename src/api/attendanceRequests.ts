@@ -1,7 +1,14 @@
 import { getApiBaseUrl, checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import { readProgressStream } from "./progressStream";
-import type { SchoolSemester } from "./schoolYears";
+import type { SchoolSemester, SchoolYearRecord } from "./schoolYears";
+import type {
+  AttendanceRecord,
+  ManualAttendanceRecord,
+  AttendanceFinalResultRecord,
+  AttendanceEvent,
+} from "./attendance";
+import type { FineRecord, PenaltyRecord, PenaltyResultRecord } from "./fines";
 
 export const ATTENDANCE_REQUESTS_UPDATED_EVENT = "attendance-requests-updated";
 const STATUS_RECEIPTS_PREFIX = "penalyze:attendance:receipts:";
@@ -43,6 +50,27 @@ export type PublicStudentLookup = {
 export async function lookupPublicStudentById(studentId: string): Promise<PublicStudentLookup | null> {
   const response = await apiRequest<PublicStudentLookup | null>(
     "/api/attendance/requests/student-lookup",
+    { method: "POST", body: JSON.stringify({ studentId: studentId.trim() }) },
+  );
+  return response.data ?? null;
+}
+
+export type PublicStudentRecords = {
+  profile: PublicStudentLookup | null;
+  attendance: AttendanceRecord[];
+  manualAttendance: ManualAttendanceRecord[];
+  finalResults: AttendanceFinalResultRecord[];
+  fines: FineRecord[];
+  penaltyResults: PenaltyResultRecord[];
+  penalties: PenaltyRecord[];
+  schoolYears: SchoolYearRecord[];
+  attendanceEvents: AttendanceEvent[];
+  collegeEventRecords: AttendanceRecord[];
+};
+
+export async function getPublicStudentRecords(studentId: string): Promise<PublicStudentRecords | null> {
+  const response = await apiRequest<PublicStudentRecords | null>(
+    "/api/public/student-records",
     { method: "POST", body: JSON.stringify({ studentId: studentId.trim() }) },
   );
   return response.data ?? null;

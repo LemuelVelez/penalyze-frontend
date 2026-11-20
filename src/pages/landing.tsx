@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   createAttendanceRequest,
   getStudentAttendanceRequestStatus,
-  lookupPublicStudentById,
+  getPublicStudentRecords,
 } from "../api/attendanceRequests";
 import type { StudentAttendanceRequestStatus, PublicStudentLookup } from "../api/attendanceRequests";
 import {
@@ -26,6 +26,7 @@ import type {
 import {
   getStudentFines,
   matchPenalty,
+  penaltyResultToFineRecord,
   registerZeroAttendanceFine,
 } from "../api/fines";
 import type {
@@ -87,6 +88,7 @@ import {
 } from "../components/ui/select";
 
 type LookupState = {
+  profile?: PublicStudentLookup | null;
   attendance: AttendanceRecord[];
   finalResults: AttendanceFinalResultRecord[];
   attendanceEvents: AttendanceEvent[];
@@ -2998,6 +3000,9 @@ function DetailsCorrectionDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: DetailsCorrectionFormState;
+  requireLastName: boolean;
+  lastName: string;
+  onLastNameChange: (value: string) => void;
   error: string;
   isSaving: boolean;
   onFieldChange: (
@@ -3045,6 +3050,13 @@ function DetailsCorrectionDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
+          {props.requireLastName ? (
+            <label className="block space-y-2 text-sm font-bold">
+              <span>Last name (for verification)</span>
+              <Input value={props.lastName} onChange={(event) => props.onLastNameChange(event.target.value)}
+                required maxLength={80} autoComplete="family-name" className={textInputClassName} />
+            </label>
+          ) : null}
           <div className="min-w-0 rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800 [overflow-wrap:anywhere]">
             Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers will
             review the requested corrections before applying them.
@@ -3067,7 +3079,7 @@ function DetailsCorrectionDialog(props: {
             </div>
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
               {[
-                ["Name", props.form.currentName],
+                ...(!props.requireLastName ? [["Name", props.form.currentName]] : []),
                 ["Year Level", props.form.currentYearLevel],
                 ["College", props.form.currentCollege],
                 ["Program", props.form.currentProgram],
@@ -3266,6 +3278,9 @@ function AttendanceRequestDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: AttendanceRequestFormState;
+  requireLastName: boolean;
+  lastName: string;
+  onLastNameChange: (value: string) => void;
   schoolYears: SchoolYearRecord[];
   events: AttendanceEvent[];
   excludedEventIds: string[];
@@ -3313,6 +3328,13 @@ function AttendanceRequestDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
+          {props.requireLastName ? (
+            <label className="block space-y-2 text-sm font-bold">
+              <span>Last name (for verification)</span>
+              <Input value={props.lastName} onChange={(event) => props.onLastNameChange(event.target.value)}
+                required maxLength={80} autoComplete="family-name" className={textInputClassName} />
+            </label>
+          ) : null}
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
             <p>
               Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
@@ -3507,25 +3529,11 @@ async function listLandingAttendanceRecords(
 }
 
 export default function LandingPage() {
-  // Public correction requests require verified identity in production.
-  // Show the form only when the API administrator has deliberately opted in.
-  const publicRequestsEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_UNVERIFIED_PUBLIC_REQUESTS === "true";
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
   const [lastName, setLastName] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
-  const [publicStatuses, setPublicStatuses] = useState<StudentAttendanceRequestStatus[]>([]);
-  const [publicStudentProfile, setPublicStudentProfile] = useState<PublicStudentLookup | null>(null);
-  const [publicRequestMode, setPublicRequestMode] = useState<"event" | "details" | null>(null);
-  const [publicEventName, setPublicEventName] = useState("");
-  const [publicEvidence, setPublicEvidence] = useState("");
-  const [publicName, setPublicName] = useState("");
-  const [publicYearLevel, setPublicYearLevel] = useState("");
-  const [publicCollege, setPublicCollege] = useState("");
-  const [publicProgram, setPublicProgram] = useState("");
-  const [publicNote, setPublicNote] = useState("");
-  const [publicRequestBusy, setPublicRequestBusy] = useState(false);
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [searchedId, setSearchedId] = useState("");
@@ -4135,6 +4143,13 @@ export default function LandingPage() {
       return;
     }
 
+    if (!isAuthenticated()) {
+      setAttendanceRequestEvents(
+        (lookup?.attendanceEvents ?? []).filter((item) => item.school_year_id === schoolYearId),
+      );
+      return;
+    }
+
     setIsLoadingAttendanceRequestEvents(true);
     try {
       const rows = await listAttendanceEvents({
@@ -4183,6 +4198,7 @@ export default function LandingPage() {
         : "") ||
       getLandingActiveSchoolYearId(schoolYears);
 
+    setFormStartedAt(Date.now());
     setAttendanceRequestError("");
     setAttendanceRequestExcludedEventIds(excludedEventIds);
     setAttendanceRequestForm({
@@ -4219,21 +4235,18 @@ export default function LandingPage() {
       {
         studentId: searchedId,
         schoolYearId,
-        name:
-          displayedFinalResult?.name ||
-          attendanceProfile?.name ||
-          studentDisplayName ||
-          "",
+        name: isAuthenticated()
+          ? (displayedFinalResult?.name || attendanceProfile?.name || studentDisplayName || "")
+          : "",
         yearLevel:
           displayedFinalResult?.year_level || attendanceProfile?.year_level || "",
         college:
           displayedFinalResult?.college || attendanceProfile?.college || "",
         program:
           displayedFinalResult?.program || attendanceProfile?.program || "",
-        institution:
-          displayedFinalResult?.institution ||
-          attendanceProfile?.institution ||
-          DEFAULT_STUDENT_INSTITUTION,
+        institution: isAuthenticated()
+          ? (displayedFinalResult?.institution || attendanceProfile?.institution || DEFAULT_STUDENT_INSTITUTION)
+          : "",
       },
       getExcludedAttendanceRequestEventIds(schoolYearId),
     );
@@ -4241,8 +4254,9 @@ export default function LandingPage() {
 
   function handleLookupDetailsCorrection() {
     const attendanceProfile = displayedAttendance[0] ?? lookup?.attendance[0];
-    const currentName =
-      displayedFinalResult?.name || attendanceProfile?.name || studentDisplayName || "";
+    const currentName = isAuthenticated()
+      ? (displayedFinalResult?.name || attendanceProfile?.name || studentDisplayName || "")
+      : "";
     const currentYearLevel =
       displayedFinalResult?.year_level || attendanceProfile?.year_level || "";
     const currentCollege =
@@ -4253,6 +4267,7 @@ export default function LandingPage() {
       lookup?.schoolYears ?? schoolYears,
     );
 
+    setFormStartedAt(Date.now());
     setDetailsCorrectionError("");
     setDetailsCorrectionForm({
       ...emptyDetailsCorrectionForm,
@@ -4327,8 +4342,12 @@ export default function LandingPage() {
       setDetailsCorrectionError("School year / semester is required.");
       return;
     }
-    if (!name) {
+    if (isAuthenticated() && !name) {
       setDetailsCorrectionError("Name is required.");
+      return;
+    }
+    if (!isAuthenticated() && !lastName.trim()) {
+      setDetailsCorrectionError("Last name is required for verification.");
       return;
     }
     if (!hasChanges) {
@@ -4449,6 +4468,10 @@ export default function LandingPage() {
     }
     if (!schoolYearId) {
       setAttendanceRequestError("School year / semester is required.");
+      return;
+    }
+    if (!isAuthenticated() && !lastName.trim()) {
+      setAttendanceRequestError("Last name is required for verification.");
       return;
     }
     if (!attendanceRequestForm.selectedEventIds.length) {
@@ -4642,38 +4665,6 @@ export default function LandingPage() {
     }
   }
 
-  async function handlePublicRequest(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!studentId.trim() || !lastName.trim() || !publicRequestMode) {
-      setError("Enter your Student ID and last name first."); return;
-    }
-    setPublicRequestBusy(true);
-    setError("");
-    try {
-      await createAttendanceRequest(publicRequestMode === "event" ? {
-        requestType: "event_review", schoolYearId: "", studentId: studentId.trim(),
-        lastName: lastName.trim(), honeypot, formStartedAt,
-        name: "", note: publicNote,
-        events: [{ eventId: "", eventName: publicEventName.trim(), evidenceUrl: publicEvidence.trim() }],
-      } : {
-        requestType: "details_correction", schoolYearId: "", studentId: studentId.trim(),
-        lastName: lastName.trim(), honeypot, formStartedAt,
-        name: publicName.trim(), yearLevel: publicYearLevel.trim(),
-        college: publicCollege.trim(), program: publicProgram.trim(), note: publicNote.trim(),
-      });
-      setPublicRequestMode(null);
-      setPublicNote("");
-      setPublicEventName("");
-      setPublicEvidence("");
-      setPublicStatuses(await getStudentAttendanceRequestStatus(studentId.trim(), lastName.trim()));
-      setPublicStudentProfile(await lookupPublicStudentById(studentId.trim()));
-      setSearchedId(studentId.trim());
-      toast.success("Request submitted. Check its status with your Student ID.");
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Request could not be submitted.");
-    } finally { setPublicRequestBusy(false); setFormStartedAt(Date.now()); }
-  }
-
   async function handleSearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -4685,21 +4676,6 @@ export default function LandingPage() {
       setEventsDialogOpen(false);
       setRequiredEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
-      return;
-    }
-
-    if (!isAuthenticated()) {
-      setIsSearching(true);
-      setError("");
-      setPublicStatuses([]);
-      setPublicStudentProfile(null);
-      try {
-        const profile = await lookupPublicStudentById(cleanStudentId);
-        setPublicStudentProfile(profile);
-        setSearchedId(cleanStudentId);
-      } catch (searchError) {
-        setError(searchError instanceof Error ? searchError.message : "Unable to check request status.");
-      } finally { setIsSearching(false); }
       return;
     }
 
@@ -4751,6 +4727,94 @@ export default function LandingPage() {
         `${progress.loadedRows.toLocaleString()} attendance record/s checked from ${progress.pageCount} page/s.`,
       );
     };
+
+    if (!isAuthenticated()) {
+      setIsSearching(true);
+      setError("");
+      setAttendanceRequestsLoadFailed(false);
+      setSearchedId(cleanStudentId);
+      updateProgress(2, "Searching student records...", "Loading your attendance, fines, and events.");
+
+      try {
+        const records = await getPublicStudentRecords(cleanStudentId);
+        if (!records) {
+          setLookup(null);
+          setResultDialogOpen(false);
+          setEventsDialogOpen(false);
+          setRequiredEventsDialogOpen(false);
+          setZeroAttendanceDialogOpen(false);
+          setError("No record found for this Student ID.");
+          return;
+        }
+
+        updateProgress(55, "Student records loaded...", "Preparing attendance, absences, fines, and event details.");
+        const attendance = getUniqueDisplayAttendance([
+          ...records.attendance,
+          ...records.manualAttendance.map(manualAttendanceToLandingAttendanceRecord),
+        ]);
+        const fines = [
+          ...records.fines,
+          ...records.penaltyResults.map(penaltyResultToFineRecord),
+        ];
+        const schoolYearRows = records.schoolYears;
+        const attendanceEvents = records.attendanceEvents;
+        const attendanceRecords = records.collegeEventRecords;
+        const finalResults = records.finalResults;
+
+        const attendanceRequests = await getStudentAttendanceRequestStatus(cleanStudentId, lastName)
+          .catch(() => {
+            setAttendanceRequestsLoadFailed(true);
+            return [] as StudentAttendanceRequestStatus[];
+          });
+
+        updateProgress(94, "Preparing search result...", "Classifying attendance status and checking related fines.");
+        const activeSchoolYearId = getLandingActiveSchoolYearId(schoolYearRows);
+        const authoritativeAbsenceCount = finalResults
+          .filter((result) => !activeSchoolYearId || result.school_year_id === activeSchoolYearId)
+          .reduce((highest, result) => Math.max(highest, Number(result.total_absences || 0)), 0);
+        const fallbackAbsenceCount = Math.max(
+          authoritativeAbsenceCount,
+          getFallbackAbsenceCount(attendance, attendanceRecords, attendanceEvents),
+        );
+        // The private match-penalty route selects the greatest threshold <= absences.
+        const matchingPenalty = records.penalties.reduce<PenaltyRecord | null>(
+          (best, row) => row.no_of_absences <= fallbackAbsenceCount &&
+            (!best || row.no_of_absences > best.no_of_absences) ? row : best,
+          null,
+        );
+        const fallbackFine = fines.length === 0 && fallbackAbsenceCount > 0
+          ? buildFallbackFine(cleanStudentId, attendance, fallbackAbsenceCount, matchingPenalty)
+          : null;
+
+        setSchoolYears(schoolYearRows);
+        setResultYearFilter(activeSchoolYearId);
+        setLookup({
+          profile: records.profile,
+          attendance,
+          finalResults,
+          attendanceEvents,
+          attendanceRecords,
+          schoolYears: schoolYearRows,
+          fines,
+          fallbackFine,
+          attendanceRequests,
+        });
+        setZeroAttendanceDialogOpen(false);
+        setResultDialogOpen(true);
+        updateProgress(100, "Search complete.", "Attendance result is ready to review.");
+      } catch (searchError) {
+        setLookup(null);
+        setResultDialogOpen(false);
+        setEventsDialogOpen(false);
+        setRequiredEventsDialogOpen(false);
+        setZeroAttendanceDialogOpen(false);
+        setError(searchError instanceof Error ? searchError.message : "Unable to search student records.");
+      } finally {
+        setIsSearching(false);
+        setSearchProgress(INITIAL_PROGRESSIVE_LOAD_PROGRESS);
+      }
+      return;
+    }
 
     setIsSearching(true);
     setError("");
@@ -5014,7 +5078,7 @@ export default function LandingPage() {
 
           <div className="mx-auto w-full min-w-0 max-w-4xl py-8 text-center sm:py-10 lg:py-14">
             <h1 className="mx-auto max-w-4xl text-[clamp(1.6rem,7vw,2.2rem)] font-black leading-tight tracking-tight [text-shadow:0_1px_9px_rgba(245,247,255,0.95),0_0_20px_rgba(245,247,255,0.8)] sm:text-5xl dark:[text-shadow:0_2px_10px_rgba(0,0,0,0.95),0_0_24px_rgba(0,0,0,0.8)] lg:text-6xl">
-              Check the status of your attendance correction request.
+              Check your attendance, absences, and fines.
             </h1>
 
             <form
@@ -5043,11 +5107,11 @@ export default function LandingPage() {
                 disabled={isSearching}
                 className="min-h-12 w-full rounded-2xl px-6 py-3 text-sm font-black sm:col-span-2"
               >
-                {isSearching ? "Checking..." : "Check Request Status"}
+                {isSearching ? "Checking..." : "Check Records"}
               </Button>
             </form>
 
-            {isSearching && isAuthenticated() ? (
+            {isSearching ? (
               <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
                   <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">
@@ -5071,70 +5135,6 @@ export default function LandingPage() {
               </div>
             ) : null}
 
-            {searchedId && !isSearching && !isAuthenticated() ? (
-              <section className="mx-auto mt-4 w-full max-w-3xl space-y-3 rounded-2xl border bg-card/90 p-4 text-left">
-                <h2 className="text-lg font-bold">Student details and request status</h2>
-                {publicStudentProfile ? (
-                  <div className="grid gap-2 text-sm sm:grid-cols-2">
-                    <p><strong>Student ID:</strong> {publicStudentProfile.student_id}</p>
-                    <p><strong>Course:</strong> {publicStudentProfile.course || "Not available"}</p>
-                    <p><strong>Year level:</strong> {publicStudentProfile.year_level || "Not available"}</p>
-                    <p><strong>College:</strong> {publicStudentProfile.college || "Not available"}</p>
-                    <p className="sm:col-span-2"><strong>Request status:</strong> {publicStudentProfile.status || "No correction request found"}</p>
-                  </div>
-                ) : <p className="text-sm text-muted-foreground">No matching Student ID was found.</p>}
-              </section>
-            ) : null}
-            {searchedId && !isSearching && isAuthenticated() ? (
-              <section className="mx-auto mt-4 w-full max-w-3xl space-y-3 rounded-2xl border bg-card/90 p-4">
-                <h2 className="text-lg font-bold">Correction request status</h2>
-                {publicStatuses.length ? publicStatuses.map((item) => (
-                  <article key={item.id} className="min-w-0 space-y-1 rounded-xl border p-3 text-sm">
-                    <p className="font-semibold">{item.request_type === "event_review" ? "Attendance review" : "Details correction"} · {item.status}</p>
-                    <p className="break-words">{item.school_year_name}</p>
-                    <p>Submitted: {new Date(item.created_at).toLocaleDateString()}</p>
-                    {item.reviewed_at ? <p>Reviewed: {new Date(item.reviewed_at).toLocaleDateString()}</p> : null}
-                    {item.review_note ? <p className="break-words">Decision note: {item.review_note}</p> : null}
-                  </article>
-                )) : <p className="text-sm text-muted-foreground">No matching correction requests were found.</p>}
-              </section>
-            ) : null}
-            {publicRequestsEnabled ? (
-              <div className="mx-auto mt-4 flex max-w-3xl flex-col gap-2 sm:flex-row">
-                <Button type="button" variant="outline" onClick={() => { setPublicRequestMode("event"); setFormStartedAt(Date.now()); }}>
-                  Submit attendance review
-                </Button>
-                <Button type="button" variant="outline" onClick={() => { setPublicRequestMode("details"); setFormStartedAt(Date.now()); }}>
-                  Request details correction
-                </Button>
-              </div>
-            ) : (
-              <p className="mx-auto mt-4 max-w-3xl rounded-xl border p-4 text-sm text-muted-foreground">
-                Online correction submissions are temporarily unavailable while student identity verification is being configured. Please contact the SSG office.
-              </p>
-            )}
-            {publicRequestsEnabled && publicRequestMode ? (
-              <form onSubmit={handlePublicRequest} className="mx-auto mt-3 grid w-full max-w-3xl gap-3 rounded-2xl border bg-card/95 p-4">
-                <h2 className="font-bold">{publicRequestMode === "event" ? "Attendance review request" : "Details correction request"}</h2>
-                <p className="text-xs text-muted-foreground">An SSG officer will independently verify your request before approval.</p>
-                <Input value={lastName} onChange={(event) => setLastName(event.target.value)} required maxLength={80} autoComplete="family-name" placeholder="Student's last name (for request verification)" />
-                {publicRequestMode === "event" ? <>
-                  <Input value={publicEventName} onChange={(event) => setPublicEventName(event.target.value)} maxLength={160} required placeholder="Exact event name" />
-                  <Input value={publicEvidence} onChange={(event) => setPublicEvidence(event.target.value)} type="url" maxLength={2048} required placeholder="Evidence URL (https://...)" />
-                </> : <>
-                  <Input value={publicName} onChange={(event) => setPublicName(event.target.value)} maxLength={160} required placeholder="Correct full name" />
-                  <Input value={publicYearLevel} onChange={(event) => setPublicYearLevel(event.target.value)} maxLength={80} placeholder="Correct year level (optional)" />
-                  <Input value={publicCollege} onChange={(event) => setPublicCollege(event.target.value)} maxLength={160} placeholder="Correct college (optional)" />
-                  <Input value={publicProgram} onChange={(event) => setPublicProgram(event.target.value)} maxLength={160} placeholder="Correct program (optional)" />
-                </>}
-                <Textarea value={publicNote} onChange={(event) => setPublicNote(event.target.value)} maxLength={1000} placeholder="Reason for requesting a correction (optional)" />
-                <input name="public_website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[10000px]" value={honeypot} onChange={(event) => setHoneypot(event.target.value)} />
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={publicRequestBusy || !studentId.trim() || !lastName.trim()} type="submit">{publicRequestBusy ? "Submitting..." : "Submit request"}</Button>
-                  <Button type="button" variant="outline" onClick={() => setPublicRequestMode(null)}>Cancel</Button>
-                </div>
-              </form>
-            ) : null}
             <div className="mx-auto mt-8 w-full max-w-5xl rounded-3xl border bg-card/90 p-4 text-left shadow-xl shadow-black/5 backdrop-blur sm:p-6">
               <div className="flex flex-col gap-2 text-center sm:text-left">
                 <p className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -5224,9 +5224,11 @@ export default function LandingPage() {
                   <h2 className="break-words text-2xl font-black sm:text-3xl">
                     Student ID: {searchedId}
                   </h2>
-                  <p className="mt-2 break-words text-base font-semibold text-muted-foreground">
-                    Name: {studentDisplayName || "—"}
-                  </p>
+                  <div className="mt-2 space-y-1 break-words text-base font-semibold text-muted-foreground">
+                    <p>Course: {displayedFinalResult?.program || displayedAttendance[0]?.program || lookup?.profile?.course || "—"}</p>
+                    <p>Year level: {displayedFinalResult?.year_level || displayedAttendance[0]?.year_level || lookup?.profile?.year_level || "—"}</p>
+                    <p>College: {displayedFinalResult?.college || displayedAttendance[0]?.college || lookup?.profile?.college || "—"}</p>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
                   <SchoolYearBadge label={selectedYearLabel} />
@@ -5491,6 +5493,9 @@ export default function LandingPage() {
       <DetailsCorrectionDialog
         open={detailsCorrectionDialogOpen}
         onOpenChange={setDetailsCorrectionDialogOpen}
+        requireLastName={!isAuthenticated()}
+        lastName={lastName}
+        onLastNameChange={setLastName}
         form={detailsCorrectionForm}
         error={detailsCorrectionError}
         isSaving={isSavingDetailsCorrection}
@@ -5666,6 +5671,9 @@ export default function LandingPage() {
 
       <AttendanceRequestDialog
         open={attendanceRequestDialogOpen}
+        requireLastName={!isAuthenticated()}
+        lastName={lastName}
+        onLastNameChange={setLastName}
         onOpenChange={setAttendanceRequestDialogOpen}
         form={attendanceRequestForm}
         schoolYears={schoolYears}
@@ -5684,7 +5692,7 @@ export default function LandingPage() {
         open={requiredEventsDialogOpen}
         onOpenChange={setRequiredEventsDialogOpen}
         studentId={searchedId}
-        studentName={studentDisplayName}
+        studentName={isAuthenticated() ? studentDisplayName : ""}
         events={requiredEvents}
         absentEvents={absentEvents}
         requiredEventCount={requiredEventCount}
@@ -5694,7 +5702,7 @@ export default function LandingPage() {
         open={eventsDialogOpen}
         onOpenChange={setEventsDialogOpen}
         studentId={searchedId}
-        studentName={studentDisplayName}
+        studentName={isAuthenticated() ? studentDisplayName : ""}
         events={attendedEvents}
       />
     </main>
