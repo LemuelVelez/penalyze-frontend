@@ -10,6 +10,10 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY . .
 
+# Vite embeds public API URLs at build time (runtime env alone is not enough).
+ARG VITE_Backend_URL=https://penalyze-api.jrmsu-tc.online
+ENV VITE_Backend_URL=${VITE_Backend_URL}
+
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS production
