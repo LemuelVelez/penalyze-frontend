@@ -1047,18 +1047,18 @@ export default function ManualAttendancePage() {
 
       const manualPromise = listAllManualAttendanceRecords({
         schoolYearId: fallbackSchoolYearId,
-        pageSize: 300,
+        pageSize: 200,
         maxPages: 100,
-        onPage: ({ rows, pageRows }) => {
+        onPage: ({ rows, hasMore }) => {
           if (!isCurrentRequest()) return;
           setRecords(sortByBackendEventOrder(rows));
           updatePageLoadStep(
             "Manual records",
-            pageRows.length < 300 ? "done" : "loading",
+            !hasMore ? "done" : "loading",
             `${rows.length.toLocaleString()} manual row/s loaded${
-              pageRows.length < 300 ? "" : " so far"
+              !hasMore ? "" : " so far"
             }`,
-            pageRows.length < 300 ? 82 : 55,
+            !hasMore ? 82 : 55,
             `Showing ${rows.length.toLocaleString()} manual row/s while remaining data finishes loading.`,
           );
         },

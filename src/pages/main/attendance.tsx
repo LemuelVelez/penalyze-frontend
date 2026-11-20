@@ -1388,13 +1388,13 @@ export default function AttendancePage({
 
       const resultsPromise = listAllAttendanceFinalResults({
         schoolYearId: fallbackSchoolYearId,
-        pageSize: 250,
+        pageSize: 200,
         includeMissedEvents: false,
-        onPage: ({ rows, pageRows, page }) => {
+        onPage: ({ rows, page, hasMore }) => {
           if (!isCurrentRequest()) return;
           setFinalResults(sortByBackendEventOrder(rows));
 
-          const isLastPage = pageRows.length < 250;
+          const isLastPage = !hasMore;
           updatePageLoadStep(
             "Final results",
             isLastPage ? "done" : "loading",

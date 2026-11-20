@@ -3,6 +3,9 @@ import { readProgressStream } from "./progressStream";
 
 export const CALCULATION_STATUS_UPDATED_EVENT = "calculation-status-updated";
 
+// Attendance list endpoints return no more than 200 rows per request.
+const ATTENDANCE_API_MAX_PAGE_SIZE = 200;
+
 export function notifyCalculationStatusUpdated() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CALCULATION_STATUS_UPDATED_EVENT));
@@ -1009,7 +1012,7 @@ type ListAllAttendanceRecordsOptions = Omit<ListOptions, "limit" | "offset"> & {
 export async function listAllAttendanceRecords(
   options: ListAllAttendanceRecordsOptions = {},
 ) {
-  const pageSize = options.pageSize ?? 500;
+  const pageSize = Math.min(ATTENDANCE_API_MAX_PAGE_SIZE, Math.max(1, Math.floor(options.pageSize ?? ATTENDANCE_API_MAX_PAGE_SIZE)));
   const maxPages = options.maxPages ?? 100;
   const records: AttendanceRecord[] = [];
 
@@ -1062,13 +1065,14 @@ type ListAllAttendanceFinalResultsOptions = Omit<
     rows: AttendanceFinalResultRecord[];
     pageRows: AttendanceFinalResultRecord[];
     page: number;
+    hasMore: boolean;
   }) => void | Promise<void>;
 };
 
 export async function listAllAttendanceFinalResults(
   options: ListAllAttendanceFinalResultsOptions = {},
 ) {
-  const pageSize = options.pageSize ?? 500;
+  const pageSize = Math.min(ATTENDANCE_API_MAX_PAGE_SIZE, Math.max(1, Math.floor(options.pageSize ?? ATTENDANCE_API_MAX_PAGE_SIZE)));
   const results: AttendanceFinalResultRecord[] = [];
   let offset = 0;
   let page = 0;
@@ -1082,7 +1086,7 @@ export async function listAllAttendanceFinalResults(
 
     results.push(...pageRows);
     page += 1;
-    await options.onPage?.({ rows: [...results], pageRows, page });
+    await options.onPage?.({ rows: [...results], pageRows, page, hasMore: pageRows.length === pageSize });
 
     if (pageRows.length < pageSize) break;
     offset += pageSize;
@@ -1442,10 +1446,11 @@ export async function listAllManualAttendanceRecords(
       rows: ManualAttendanceRecord[];
       pageRows: ManualAttendanceRecord[];
       page: number;
+      hasMore: boolean;
     }) => void | Promise<void>;
   } = {},
 ) {
-  const pageSize = options.pageSize ?? 500;
+  const pageSize = Math.min(ATTENDANCE_API_MAX_PAGE_SIZE, Math.max(1, Math.floor(options.pageSize ?? ATTENDANCE_API_MAX_PAGE_SIZE)));
   const maxPages = options.maxPages ?? 100;
   const rows: ManualAttendanceRecord[] = [];
 
@@ -1457,7 +1462,7 @@ export async function listAllManualAttendanceRecords(
     });
 
     rows.push(...pageRows);
-    await options.onPage?.({ rows: [...rows], pageRows, page: page + 1 });
+    await options.onPage?.({ rows: [...rows], pageRows, page: page + 1, hasMore: pageRows.length === pageSize });
 
     if (pageRows.length < pageSize) break;
   }

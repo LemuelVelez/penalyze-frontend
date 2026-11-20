@@ -667,12 +667,12 @@ export default function HistoryPage() {
 
       const finalPromise = listAllAttendanceFinalResults({
         schoolYearId: fallbackSchoolYearId,
-        pageSize: 250,
+        pageSize: 200,
         includeMissedEvents: false,
-        onPage: ({ rows, pageRows, page }) => {
+        onPage: ({ rows, page, hasMore }) => {
           if (!isCurrentRequest()) return;
           setFinalResults(rows);
-          const done = pageRows.length < 250;
+          const done = !hasMore;
           updatePageLoadStep(
             "Final results",
             done ? "done" : "loading",
@@ -689,12 +689,12 @@ export default function HistoryPage() {
 
       const manualPromise = listAllManualAttendanceRecords({
         schoolYearId: fallbackSchoolYearId,
-        pageSize: 300,
+        pageSize: 200,
         maxPages: 100,
-        onPage: ({ rows, pageRows, page }) => {
+        onPage: ({ rows, page, hasMore }) => {
           if (!isCurrentRequest()) return;
           setManualRecords(rows);
-          const done = pageRows.length < 300;
+          const done = !hasMore;
           updatePageLoadStep(
             "Manual records",
             done ? "done" : "loading",
