@@ -133,7 +133,8 @@ export default function RepositorySyncPage() {
     setBusy(true);
     try {
       await restoreRepositoryUploadedStatus(item.id);
-      toast.success(`Restored uploaded status for ${item.originalName}. No attendance was imported again.`);
+      toast.success(`Verified saved import for ${item.originalName}. No attendance was imported again.`);
+      setUploadErrors((current) => current.filter((message) => !message.startsWith(`${item.originalName}:`)));
       setSelected((current) => current.filter((id) => id !== item.id));
       await refresh(true);
     } catch (error) {
@@ -287,8 +288,8 @@ export default function RepositorySyncPage() {
               {(item.penalyzeStatus === "untracked" || item.penalyzeStatus === "outdated") && (
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => confirmMarkPending([item.id])}>Mark pending</Button>
               )}
-              {item.penalyzeStatus === "pending" && (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => void restoreUploaded(item)}>Restore uploaded status</Button>
+              {(item.penalyzeStatus === "untracked" || item.penalyzeStatus === "pending") && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void restoreUploaded(item)}>Verify saved import</Button>
               )}
             </div>
           ))}

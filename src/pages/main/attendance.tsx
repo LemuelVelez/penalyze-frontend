@@ -3,7 +3,7 @@ import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
 import { Loader2, Minus, Plus } from "lucide-react";
 import { getStoredUser } from "../../api/auth";
-import { markRepositorySync } from "../../api/repositorySync";
+import { markRepositorySync, restoreRepositoryUploadedStatus } from "../../api/repositorySync";
 import type { RepositoryAttendanceReview } from "../../api/repositorySync";
 
 import {
@@ -2239,22 +2239,34 @@ export default function AttendancePage({
           repositoryReview.workbooks.map((item) => [item.file, item.uploadId]),
         );
         const syncErrors: string[] = [];
-        for (const file of files) {
+        for (const [index, file] of files.entries()) {
           const uploadId = repositoryIdsByFile.get(file);
           if (!uploadId) continue;
-          const saved = (batchResult?.files ?? []).find(
-            (item) => item.fileName === file.name && item.status === "saved" && item.result?.importId,
-          );
-          if (!saved?.result?.importId) {
-            syncErrors.push(`${file.name}: no confirmed Penalyze import ID`);
-            continue;
-          }
+          // The save endpoint guarantees that result.files retains the request
+          // order. Match by index, not filename: filename formatting can differ
+          // between the browser's File and the uploaded multipart payload.
+          const saved = batchResult.files[index];
+          const confirmedImportId = saved?.status === "saved" ? saved.result?.importId : undefined;
           try {
-            await markRepositorySync(
-              "uploaded", [uploadId], "Reviewed and imported from Repository sync", saved.result.importId,
-            );
+            if (confirmedImportId) {
+              await markRepositorySync(
+                "uploaded", [uploadId], "Reviewed and imported from Repository sync", confirmedImportId,
+              );
+            } else {
+              // Recovery only succeeds when the backend finds exactly one
+              // existing saved import. Never re-upload attendance to fix metadata.
+              await restoreRepositoryUploadedStatus(uploadId);
+            }
           } catch (error) {
-            syncErrors.push(`${file.name}: ${error instanceof Error ? error.message : "Status update failed"}`);
+            try {
+              // A saved import may already exist even if the repository status
+              // update failed. The backend verifies the match before marking it.
+              await restoreRepositoryUploadedStatus(uploadId);
+            } catch (restoreError) {
+              const reason = restoreError instanceof Error ? restoreError.message
+                : error instanceof Error ? error.message : "Status recovery failed";
+              syncErrors.push(`${file.name}: ${reason}`);
+            }
           }
         }
         repositoryReviewRef.current = null;
