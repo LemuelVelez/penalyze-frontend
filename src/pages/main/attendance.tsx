@@ -375,14 +375,19 @@ function getAttendanceUploadFileKey(file: File) {
 // Imports store a filename, not a file hash. Match names conservatively to
 // avoid importing the same named workbook again (also across school years).
 function getAttendanceUploadFilenameKey(fileName: string) {
-  return fileName.normalize("NFC").trim().toLocaleLowerCase();
+  // Match the backend Multer fileFilter: repository filenames can contain ':'
+  // and other characters that are replaced with '_' before an import is stored.
+  return fileName.normalize("NFC").split(/[\\/]/).pop()!
+    .replace(/[^\p{L}\p{N}._() -]/gu, "_")
+    .trim().toLocaleLowerCase();
 }
 
 // The imports API paginates in event order, not upload order. Reading just its
 // first page can omit the newest upload (including uploads from another year).
 async function listAllActiveAttendanceImports() {
   const result: AttendanceImportRecord[] = [];
-  const pageSize = 250;
+  // The API caps import listings at 200; requesting 250 would stop pagination early.
+  const pageSize = 200;
 
   for (let offset = 0; offset < 50_000; offset += pageSize) {
     const page = await listAttendanceImports({ limit: pageSize, offset });

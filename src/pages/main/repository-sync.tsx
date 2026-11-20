@@ -29,13 +29,18 @@ const NO_COLLEGE = "__no_college__";
 const WORKBOOK_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function filenameKey(name: string) {
-  return name.normalize("NFC").trim().toLocaleLowerCase();
+  // Match the backend's upload filename sanitization exactly. A repository
+  // filename like "Representative: Name.xlsx" is saved as "Representative_ Name.xlsx".
+  return name.normalize("NFC").split(/[\\/]/).pop()!
+    .replace(/[^\p{L}\p{N}._() -]/gu, "_")
+    .trim().toLocaleLowerCase();
 }
 
 // Match the Attendance page's duplicate guard across all school years before importing.
 async function existingImportNames() {
   const names = new Set<string>();
-  const pageSize = 250;
+  // The API caps this endpoint at 200; use the same size for complete pagination.
+  const pageSize = 200;
   for (let offset = 0; offset < 50_000; offset += pageSize) {
     const imports = await listAttendanceImports({ limit: pageSize, offset });
     for (const item of imports) {
@@ -152,24 +157,49 @@ export default function RepositorySyncPage() {
     try {
       const alreadyImported = await existingImportNames();
       const selectedNames = new Set<string>();
-      const duplicates = workbooks.filter((item) => {
+      const toReview: RepositoryWorkbook[] = [];
+      const issues: string[] = [];
+      let restored = 0;
+
+      for (const [index, item] of workbooks.entries()) {
         const name = filenameKey(item.originalName);
-        if (alreadyImported.has(name) || selectedNames.has(name)) return true;
+        if (selectedNames.has(name)) {
+          issues.push(`${item.originalName}: This filename occurs more than once in the selection. Only the first workbook can be reviewed.`);
+          continue;
+        }
         selectedNames.add(name);
-        return false;
-      });
-      if (duplicates.length) {
-        const messages = duplicates.map((item) => `${item.originalName}: Already imported into Penalyze or selected twice. Remove it from the selection before reviewing the batch.`);
-        setUploadErrors(messages);
-        toast.error("Remove duplicate or previously imported files before continuing to review.");
-        return;
+        if (alreadyImported.has(name)) {
+          // A saved import already exists. Do not submit the workbook again:
+          // the backend must verify a unique matching import and recover only
+          // the repository status, without creating any attendance records.
+          setUploadProgress(`Verifying existing saved import ${index + 1} of ${workbooks.length}…`);
+          try {
+            await restoreRepositoryUploadedStatus(item.id);
+            restored += 1;
+          } catch (error) {
+            issues.push(`${item.originalName}: ${error instanceof Error ? error.message : "Unable to verify saved import"}. Attendance was not imported again.`);
+          }
+          continue;
+        }
+        toReview.push(item);
       }
+
+      if (restored > 0) {
+        toast.success(`${restored} previously saved workbook(s) marked uploaded without reimporting attendance.`);
+        setSelected((current) => current.filter((id) => !workbooks.some((item) => item.id === id && alreadyImported.has(filenameKey(item.originalName)))));
+        await refresh(true);
+      }
+      if (issues.length) {
+        setUploadErrors(issues);
+        toast.error(`${issues.length} workbook(s) need attention. No duplicate attendance was imported.`);
+      }
+      if (!toReview.length) return;
 
       // Download into memory only. Attendance's existing preview, row corrections,
       // event merging, and confirmation screens run before the save API is called.
       const downloaded: Array<{ uploadId: string; file: File }> = [];
-      for (const [index, item] of workbooks.entries()) {
-        setUploadProgress(`Preparing ${index + 1} of ${workbooks.length} for review: ${item.originalName}`);
+      for (const [index, item] of toReview.entries()) {
+        setUploadProgress(`Preparing ${index + 1} of ${toReview.length} for review: ${item.originalName}`);
         const blob = await downloadRepositoryWorkbook(item.id);
         downloaded.push({
           uploadId: item.id,
