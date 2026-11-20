@@ -4338,7 +4338,7 @@ export default function LandingPage() {
     setIsSavingDetailsCorrection(true);
     setDetailsCorrectionError("");
     try {
-      const submitted = await createAttendanceRequest({
+      await createAttendanceRequest({
         requestType: "details_correction",
         lastName,
         honeypot,
@@ -4491,7 +4491,7 @@ export default function LandingPage() {
     setIsSavingAttendanceRequest(true);
     setAttendanceRequestError("");
     try {
-      const submitted = await createAttendanceRequest({
+      await createAttendanceRequest({
         requestType: "event_review",
         lastName,
         honeypot,
@@ -4650,7 +4650,7 @@ export default function LandingPage() {
     setPublicRequestBusy(true);
     setError("");
     try {
-      const submitted = await createAttendanceRequest(publicRequestMode === "event" ? {
+      await createAttendanceRequest(publicRequestMode === "event" ? {
         requestType: "event_review", schoolYearId: "", studentId: studentId.trim(),
         lastName: lastName.trim(), honeypot, formStartedAt,
         name: "", note: publicNote,
