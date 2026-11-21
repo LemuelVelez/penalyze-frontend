@@ -1910,6 +1910,15 @@ export default function AttendancePage({
   }
 
   function handleUploadEventSelect(fileKey: string, value: string) {
+    // A manual selection supersedes an inferred match from the workbook name.
+    // A previous exempt-only error belongs to the earlier assignment, not the
+    // newly chosen event; the next save will validate exemptions for that event.
+    const changedFile = files.find((file) => getAttendanceUploadFileKey(file) === fileKey);
+    if (changedFile) {
+      setSkippedExemptFiles((current) => current.filter((message) =>
+        !message.includes(`"${changedFile.name}"`) && !message.includes(`${changedFile.name}:`),
+      ));
+    }
     setFileDetails((current) => {
       const details = current[fileKey];
       if (!details) return current;
@@ -1934,6 +1943,8 @@ export default function AttendancePage({
             mergeIntoEventId: "",
             mergeIntoBatchIndex: null,
             forceCreateEvent: true,
+            rowEventOverrides: {},
+            rowEventsReviewed: false,
           },
         };
       }
@@ -1951,6 +1962,8 @@ export default function AttendancePage({
             mergeIntoEventId: "",
             mergeIntoBatchIndex: null,
             forceCreateEvent: true,
+            rowEventOverrides: {},
+            rowEventsReviewed: false,
           },
         };
       }
@@ -1975,6 +1988,8 @@ export default function AttendancePage({
           forceCreateEvent: false,
           keepEventName: "existing",
           keepEventSchedule: "existing",
+          rowEventOverrides: {},
+          rowEventsReviewed: false,
         },
       };
     });
@@ -2150,6 +2165,21 @@ export default function AttendancePage({
     if (unresolvedRowEvents) {
       toast.error(`Review and confirm every row event in ${unresolvedRowEvents.name} before saving.`);
       openAttendanceEventRowReview(getAttendanceUploadFileKey(unresolvedRowEvents));
+      return;
+    }
+
+    // Never silently resolve an unconfirmed file event from its filename.
+    // This caused a September workbook to match an October event with different
+    // college exemptions. Each single-event workbook must have an intentional
+    // existing-event choice or a confirmed create/merge decision.
+    const missingEventChoice = files.find((attendanceFile) => {
+      const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
+      return details && !details.rowEventsReviewed &&
+        !details.eventId && !details.mergeIntoEventId &&
+        details.mergeIntoBatchIndex === null && !details.forceCreateEvent;
+    });
+    if (missingEventChoice) {
+      toast.error(`Select the event to import into for ${missingEventChoice.name} before saving.`);
       return;
     }
 
@@ -3482,7 +3512,7 @@ export default function AttendancePage({
                 <div role="alert" className="lg:col-span-5 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
                   <p className="font-semibold">No attendance was saved for these exempted files:</p>
                   <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
-                  <p className="mt-2">Check that the event date in each workbook matches the selected event date (for example, September 2 is not October 2). Change the event in the review below, or correct its exemptions in Events. Exempt attendees must not be imported into that event.</p>
+                  <p className="mt-2">Choose the intended event for each workbook below before retrying. Your selection overrides the workbook's detected name/date; exemptions are checked against the chosen event only. If that event itself exempts the college or year level, review its exemptions in Events.</p>
                 </div>
               )}
               {progress ? (
@@ -3592,12 +3622,15 @@ export default function AttendancePage({
                           details.schoolYearId || selectedSchoolYearId,
                         )
                       : null;
+                    // A detected event is only a suggestion. The dropdown
+                    // stays unselected until the user confirms an event; the
+                    // saved ID (not the filename) then controls exemptions.
                     const selectedEventValue =
                       details?.mergeIntoEventId ||
                       details?.eventId ||
-                      (detectedEvent
-                        ? FILE_UPLOAD_EVENT_VALUE
-                        : CUSTOM_UPLOAD_EVENT_VALUE);
+                      (details?.forceCreateEvent
+                        ? detectedEvent ? FILE_UPLOAD_EVENT_VALUE : CUSTOM_UPLOAD_EVENT_VALUE
+                        : "");
                     const matchedExistingEvent = Boolean(
                       details?.mergeDecisionConfirmed &&
                         details.mergeIntoEventId &&
@@ -3813,7 +3846,7 @@ export default function AttendancePage({
                                 <span className="text-xs font-bold">Event selection</span>
                                 {exemptedEventOptions.length ? (
                                   <span className="text-xs text-muted-foreground">
-                                    Exempted attendees are skipped for their specific event automatically.
+                                    Exemptions apply only to the event you select.
                                   </span>
                                 ) : null}
                               </div>
@@ -3825,7 +3858,7 @@ export default function AttendancePage({
                                 disabled={isSaving}
                               >
                                 <SelectTrigger className="min-h-11 h-auto w-full min-w-0 rounded-xl">
-                                  <SelectValue placeholder="Select event" />
+                                  <SelectValue placeholder="Choose event for this workbook (required)" />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {details.eventOptions.map((attendanceEvent) => {
@@ -3877,6 +3910,10 @@ export default function AttendancePage({
                                   ) : null}
                                 </SelectContent>
                               </Select>
+                              <p className="text-xs text-muted-foreground">
+                                Choose the event explicitly. Its ID overrides event names and dates
+                                detected in the workbook; only that event's exemptions apply.
+                              </p>
                             </div>
 
                             {!hasDetectedMetadata ? (
