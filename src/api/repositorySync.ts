@@ -28,6 +28,9 @@ async function request(path: string, init: RequestInit = {}) {
   if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(`${getApiBaseUrl()}/api/repository-sync${path}`, {
     ...init,
+    // A slow/unreachable repository must not keep an already-saved attendance
+    // batch waiting forever on a status update.
+    signal: init.signal ?? AbortSignal.timeout(init.method === "POST" ? 15000 : 30000),
     headers,
     credentials: "include",
     cache: "no-store",

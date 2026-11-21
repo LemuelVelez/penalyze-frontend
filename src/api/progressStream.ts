@@ -58,6 +58,12 @@ export async function readProgressStream<TProgress, TData>(
     for (const line of lines) {
       if (!line.trim()) continue;
       handleMessage(parseProgressStreamLine<TProgress, TData>(line));
+      // The backend has confirmed completion. Do not wait indefinitely for a
+      // reverse proxy to close a keep-alive HTTP response after this event.
+      if (successPayload) {
+        void reader.cancel().catch(() => undefined);
+        return successPayload;
+      }
     }
 
     if (done) break;

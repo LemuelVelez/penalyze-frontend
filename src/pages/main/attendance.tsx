@@ -683,7 +683,10 @@ function getAttendanceImportProgressDetail(progress: AttendanceImportProgress) {
     ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)}`
     : rowDetail;
 
-  return `${progress.message} ${stageDetail}.`;
+  const syncingNote = progress.stage === "syncing"
+    ? " The attendance is already committed; final-result calculations or repository status updates are still running. Please do not reimport these files."
+    : "";
+  return `${progress.message} ${stageDetail}.${syncingNote}`;
 }
 
 function normalizeStudentId(value: unknown) {
@@ -2213,7 +2216,12 @@ export default function AttendancePage({
 
       const batchResult = await saveAttendanceFile(files, {
         fileOptions,
-        onProgress: setProgress,
+        // Backend completion means the rows are committed, not that the
+        // Repository Sync status updates and page refresh have finished.
+        onProgress: (next) => setProgress(next.stage === "completed"
+          ? { ...next, stage: "syncing", percent: 99,
+              message: "Attendance saved. Finishing repository status updates..." }
+          : { ...next, percent: Math.min(99, next.percent) }),
       });
       const filesSaved = batchResult?.filesSaved ?? 0;
       const filesSkipped = batchResult?.filesSkipped ?? 0;
@@ -2251,8 +2259,8 @@ export default function AttendancePage({
 
       setProgress((current) => ({
         stage: "syncing",
-        percent: 98,
-        message: "Attendance saved. Refreshing the attendance page with the latest results...",
+        percent: 99,
+        message: "Attendance committed. Finalizing the import and Repository Sync statuses...",
         processedRows: current?.processedRows ?? recordsSaved,
         totalRows: current?.totalRows ?? recordsSaved,
         savedRecords: recordsSaved,
@@ -2278,6 +2286,10 @@ export default function AttendancePage({
         );
         const syncErrors: string[] = [];
         for (const [index, file] of files.entries()) {
+          setProgress((current) => current ? {
+            ...current, stage: "syncing", percent: 99,
+            message: `Verifying Repository Sync status (${index + 1} of ${files.length})...`,
+          } : current);
           const uploadId = repositoryIdsByFile.get(file);
           if (!uploadId) continue;
           // The save endpoint guarantees that result.files retains the request
