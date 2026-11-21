@@ -133,7 +133,6 @@ export type AttendanceRequest = {
 type BaseCreateAttendanceRequestInput = {
   schoolYearId: string;
   studentId: string;
-  lastName: string;
   honeypot: string;
   formStartedAt: number;
   name: string;
@@ -158,6 +157,7 @@ export type CreateAttendanceRequestInput =
     })
   | (BaseCreateAttendanceRequestInput & {
       requestType: "details_correction";
+      lastName: string;
       evidenceUrl?: never;
       events?: never;
     });

@@ -3201,9 +3201,6 @@ function AttendanceRequestDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: AttendanceRequestFormState;
-  requireLastName: boolean;
-  lastName: string;
-  onLastNameChange: (value: string) => void;
   schoolYears: SchoolYearRecord[];
   events: AttendanceEvent[];
   excludedEventIds: string[];
@@ -3251,13 +3248,6 @@ function AttendanceRequestDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
-          {props.requireLastName ? (
-            <label className="block space-y-2 text-sm font-bold">
-              <span>Last name (for verification)</span>
-              <Input value={props.lastName} onChange={(event) => props.onLastNameChange(event.target.value)}
-                required maxLength={80} autoComplete="family-name" className={textInputClassName} />
-            </label>
-          ) : null}
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
             <p>
               Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
@@ -4376,10 +4366,6 @@ export default function LandingPage() {
       setAttendanceRequestError("School year / semester is required.");
       return;
     }
-    if (!isAuthenticated() && !lastName.trim()) {
-      setAttendanceRequestError("Last name is required for verification.");
-      return;
-    }
     if (!attendanceRequestForm.selectedEventIds.length) {
       setAttendanceRequestError(
         "Select at least one event you attended and provide an evidence link.",
@@ -4422,7 +4408,6 @@ export default function LandingPage() {
     try {
       await createAttendanceRequest({
         requestType: "event_review",
-        lastName,
         honeypot,
         formStartedAt,
         schoolYearId,
@@ -5561,9 +5546,6 @@ export default function LandingPage() {
 
       <AttendanceRequestDialog
         open={attendanceRequestDialogOpen}
-        requireLastName={!isAuthenticated()}
-        lastName={lastName}
-        onLastNameChange={setLastName}
         onOpenChange={setAttendanceRequestDialogOpen}
         form={attendanceRequestForm}
         schoolYears={schoolYears}
