@@ -531,14 +531,16 @@ export type SavedAttendanceImportResult = AttendancePreviewResult & {
 
 export type AttendanceBatchFileSaveResult = {
   fileName: string;
-  status: "saved" | "failed";
+  status: "saved" | "skipped_exempt";
   error: string | null;
   result: SavedAttendanceImportResult | null;
+  exemptedRows: number;
 };
 
 export type AttendanceBatchSaveResult = {
   files: AttendanceBatchFileSaveResult[];
   filesSaved: number;
+  filesSkipped: number;
   filesFailed: number;
   recordsSaved: number;
   finesCreated: number;

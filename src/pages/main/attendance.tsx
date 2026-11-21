@@ -872,7 +872,7 @@ type AttendancePageProps = {
   reviewOnly?: boolean;
   initialRepositoryReview?: RepositoryAttendanceReview;
   onRepositoryReviewClose?: () => void;
-  onRepositoryReviewSaved?: (syncErrors: string[]) => void;
+  onRepositoryReviewSaved?: (syncErrors: string[], skippedFiles: string[]) => void;
 };
 
 export default function AttendancePage({
@@ -896,6 +896,7 @@ export default function AttendancePage({
   const repositoryReviewRef = useRef<RepositoryAttendanceReview | null>(null);
   const [repositoryReviewCount, setRepositoryReviewCount] = useState(0);
   const [repositorySyncFailures, setRepositorySyncFailures] = useState<string[]>([]);
+  const [skippedExemptFiles, setSkippedExemptFiles] = useState<string[]>([]);
   const [uploadCollegeDialogOpen, setUploadCollegeDialogOpen] = useState(false);
   const [collegeReviewFileKey, setCollegeReviewFileKey] = useState("");
   const [eventReviewFileKey, setEventReviewFileKey] = useState("");
@@ -2173,7 +2174,7 @@ export default function AttendancePage({
     setProgress({
       stage: "preparing",
       percent: 1,
-      message: "Preparing atomic attendance upload batch...",
+      message: "Preparing attendance upload batch...",
       processedRows: 0,
       totalRows: 0,
       savedRecords: 0,
@@ -2181,6 +2182,7 @@ export default function AttendancePage({
     });
 
     try {
+      setSkippedExemptFiles([]);
       const fileOptions = files.map((attendanceFile, index) => {
         const details = fileDetails[getAttendanceUploadFileKey(attendanceFile)];
 
@@ -2214,9 +2216,29 @@ export default function AttendancePage({
         onProgress: setProgress,
       });
       const filesSaved = batchResult?.filesSaved ?? 0;
+      const filesSkipped = batchResult?.filesSkipped ?? 0;
       const recordsSaved = batchResult?.recordsSaved ?? 0;
-      if (!batchResult || filesSaved !== files.length || batchResult.filesFailed) {
-        throw new Error("The complete attendance batch was not confirmed saved. Repository statuses were not updated.");
+      if (!batchResult || filesSaved + filesSkipped !== files.length || batchResult.filesFailed) {
+        throw new Error("The attendance batch result was incomplete. Repository statuses were not updated.");
+      }
+      const skipped = batchResult.files
+        .filter((item) => item.status === "skipped_exempt")
+        .map((item) => item.error || `${item.fileName}: all rows are event-exempted; no attendance was imported.`);
+      setSkippedExemptFiles(skipped);
+      if (filesSaved === 0) {
+        // Leave the review open so incorrect event/exemption assignments can
+        // be corrected; nothing was imported or marked uploaded.
+        setProgress({
+          stage: "completed",
+          percent: 100,
+          message: "No attendance imported: all selected files contain only event-exempted rows. Review their event and exemptions.",
+          processedRows: 0,
+          totalRows: 0,
+          savedRecords: 0,
+          createdFines: 0,
+        });
+        toast.warning("No attendance imported. Check the event and college/year-level exemptions.");
+        return;
       }
       setReconciliationReports(
         (batchResult?.files ?? [])
@@ -2242,7 +2264,8 @@ export default function AttendancePage({
         toast.error(batchResult.syncWarnings.join(" "), { duration: 10000 });
       } else {
         toast.success(
-          `${filesSaved.toLocaleString()} file/s saved atomically, ${recordsSaved.toLocaleString()} record/s saved.`,
+          `${filesSaved.toLocaleString()} file/s imported, ${recordsSaved.toLocaleString()} attendance record/s saved.` +
+          (filesSkipped ? ` ${filesSkipped} fully exempt file/s skipped; no records saved for those files.` : ""),
         );
       }
 
@@ -2261,6 +2284,9 @@ export default function AttendancePage({
           // order. Match by index, not filename: filename formatting can differ
           // between the browser's File and the uploaded multipart payload.
           const saved = batchResult.files[index];
+          // An exempt-only workbook has no import ID. Keep it pending for
+          // review; never restore or mark it uploaded.
+          if (saved?.status === "skipped_exempt") continue;
           const confirmedImportId = saved?.status === "saved" ? saved.result?.importId : undefined;
           try {
             if (confirmedImportId) {
@@ -2323,7 +2349,7 @@ export default function AttendancePage({
       }));
       setUploadDialogOpen(false);
       setProgress(null);
-      if (reviewOnly) onRepositoryReviewSaved?.(completedRepositorySyncErrors);
+      if (reviewOnly) onRepositoryReviewSaved?.(completedRepositorySyncErrors, skipped);
     } catch (error) {
       const message =
         error instanceof Error
@@ -3305,6 +3331,13 @@ export default function AttendancePage({
               </p>
             </div>
           ) : null}
+          {skippedExemptFiles.length > 0 && (
+            <div role="alert" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+              <p className="font-semibold">Fully exempt workbooks were not imported</p>
+              <p className="mt-1">No attendance was saved for these files. Verify the selected event and its college/year-level exemptions in Events. Repository workbooks remain pending.</p>
+              <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
+            </div>
+          )}
           {repositorySyncFailures.length > 0 && (
             <div role="alert" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
               <p className="font-semibold">Attendance saved, but {repositorySyncFailures.length} repository status update(s) need attention.</p>
@@ -3413,6 +3446,13 @@ export default function AttendancePage({
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0 lg:grid-cols-5">
+              {skippedExemptFiles.length > 0 && (
+                <div role="alert" className="lg:col-span-5 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
+                  <p className="font-semibold">No attendance was saved for these exempted files:</p>
+                  <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
+                  <p className="mt-2">Correct the event assignment or its exemption settings before retrying.</p>
+                </div>
+              )}
               {progress ? (
                 <LoadingStatus
                   title={
@@ -3668,7 +3708,9 @@ export default function AttendancePage({
 
                         {excludedRows.length > 0 ? (
                           <p className="mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs font-semibold">
-                            {excludedRows.length} event-exempted attendee row(s) will be skipped automatically (e.g. row {excludedRows[0].rowNumber}, {excludedRows[0].eventName}). Rows assigned to other eligible events will still be saved.
+                            {excludedRows.length === details.previewRows.length
+                              ? `All ${excludedRows.length} attendee rows are exempt from the selected event(s). This workbook will not create attendance records. Verify the event assignment and its exemptions before saving.`
+                              : `${excludedRows.length} event-exempted attendee row(s) will be skipped (e.g. row ${excludedRows[0].rowNumber}, ${excludedRows[0].eventName}). Eligible rows assigned to other events will still be saved.`}
                           </p>
                         ) : null}
                         <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
