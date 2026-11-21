@@ -24,6 +24,8 @@ const STATUSES: Record<RepositorySyncStatus, string> = {
   untracked: "Untracked", pending: "Pending upload", uploaded: "Uploaded to Penalyze ✓", outdated: "Outdated · modified since upload",
 };
 const MAX_SELECTION = 200;
+const MAX_REVIEW_FILES = 10; // Matches the attendance preview and atomic-save endpoints.
+const MAX_ATTENDANCE_FILE_BYTES = 5 * 1024 * 1024;
 const ALL_COLLEGES = "__all_colleges__";
 const NO_COLLEGE = "__no_college__";
 const WORKBOOK_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -94,6 +96,7 @@ export default function RepositorySyncPage() {
   [records, status, collegeFilter, search]);
   const everyVisible = visible.length > 0 && visible.every((item) => selected.includes(item.id));
   const selectedWorkbooks = records.filter((item) => selected.includes(item.id));
+  const filesToReviewCount = selectedWorkbooks.filter((item) => item.penalyzeStatus !== "uploaded").length;
   const canMarkSelectedPending = selectedWorkbooks.length === selected.length &&
     selectedWorkbooks.length > 0 && selectedWorkbooks.length <= MAX_SELECTION &&
     selectedWorkbooks.every((item) => item.penalyzeStatus === "untracked" || item.penalyzeStatus === "outdated");
@@ -150,7 +153,10 @@ export default function RepositorySyncPage() {
   const uploadSelected = async (college: string) => {
     const workbooks = selectedWorkbooks.filter((item) => item.penalyzeStatus !== "uploaded");
     if (!workbooks.length) { toast.error("Select workbooks that are not already marked uploaded."); return; }
-    if (workbooks.length > MAX_SELECTION) { toast.error(`Select at most ${MAX_SELECTION} workbooks.`); return; }
+    if (workbooks.length > MAX_REVIEW_FILES) {
+      toast.error(`Select at most ${MAX_REVIEW_FILES} workbooks per attendance import.`);
+      return;
+    }
     setUploadErrors([]);
     setBusy(true);
     setUploadProgress("Checking existing Penalyze imports…");
@@ -160,6 +166,7 @@ export default function RepositorySyncPage() {
       const toReview: RepositoryWorkbook[] = [];
       const issues: string[] = [];
       let restored = 0;
+      let restoreUnavailable = false;
 
       for (const [index, item] of workbooks.entries()) {
         const name = filenameKey(item.originalName);
@@ -169,6 +176,7 @@ export default function RepositorySyncPage() {
         }
         selectedNames.add(name);
         if (alreadyImported.has(name)) {
+          if (restoreUnavailable) continue;
           // A saved import already exists. Do not submit the workbook again:
           // the backend must verify a unique matching import and recover only
           // the repository status, without creating any attendance records.
@@ -177,7 +185,13 @@ export default function RepositorySyncPage() {
             await restoreRepositoryUploadedStatus(item.id);
             restored += 1;
           } catch (error) {
-            issues.push(`${item.originalName}: ${error instanceof Error ? error.message : "Unable to verify saved import"}. Attendance was not imported again.`);
+            const message = error instanceof Error ? error.message : "Unable to verify saved import";
+            if (message.startsWith("Penalyze backend is missing the repository restore endpoint")) {
+              restoreUnavailable = true;
+              issues.push(message); // Show the deployment issue once, not for every workbook.
+            } else {
+              issues.push(`${item.originalName}: ${message}. Attendance was not imported again.`);
+            }
           }
           continue;
         }
@@ -189,11 +203,13 @@ export default function RepositorySyncPage() {
         setSelected((current) => current.filter((id) => !workbooks.some((item) => item.id === id && alreadyImported.has(filenameKey(item.originalName)))));
         await refresh(true);
       }
-      if (issues.length) {
-        setUploadErrors(issues);
-        toast.error(`${issues.length} workbook(s) need attention. No duplicate attendance was imported.`);
+      if (!toReview.length) {
+        if (issues.length) {
+          setUploadErrors(issues);
+          toast.error(`${issues.length} workbook(s) need attention. No attendance was imported again.`);
+        }
+        return;
       }
-      if (!toReview.length) return;
 
       // Download into memory only. Attendance's existing preview, row corrections,
       // event merging, and confirmation screens run before the save API is called.
@@ -201,14 +217,22 @@ export default function RepositorySyncPage() {
       for (const [index, item] of toReview.entries()) {
         setUploadProgress(`Preparing ${index + 1} of ${toReview.length} for review: ${item.originalName}`);
         const blob = await downloadRepositoryWorkbook(item.id);
+        if (blob.size > MAX_ATTENDANCE_FILE_BYTES) {
+          issues.push(`${item.originalName}: Exceeds the 5 MB attendance import limit. Attendance was not imported.`);
+          continue;
+        }
         downloaded.push({
           uploadId: item.id,
           file: new File([blob], item.originalName, { type: WORKBOOK_MIME }),
         });
       }
+      if (issues.length) {
+        setUploadErrors(issues);
+        toast.error(`${issues.length} workbook(s) need attention.`);
+      }
       // Mount Attendance's actual preview, college-correction, and event-merge
       // dialogs here. Nothing gets saved until the user confirms in that wizard.
-      setReviewBatch({ college, workbooks: downloaded });
+      if (downloaded.length) setReviewBatch({ college, workbooks: downloaded });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not prepare workbooks for review.";
       setUploadErrors([message]);
@@ -276,7 +300,8 @@ export default function RepositorySyncPage() {
           <Button variant="ghost" size="sm" onClick={() => setSelected([])} disabled={!selected.length || busy}>Clear selection</Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busy || !selected.some((id) => records.some((item) => item.id === id && item.penalyzeStatus !== "uploaded")) || selected.length > MAX_SELECTION}
+          <Button disabled={busy || !filesToReviewCount || filesToReviewCount > MAX_REVIEW_FILES}
+            title={filesToReviewCount > MAX_REVIEW_FILES ? `Select at most ${MAX_REVIEW_FILES} files per import.` : undefined}
             onClick={() => setUploadDialogOpen(true)}><Upload className="size-4" /> Review & upload selected</Button>
           <Button disabled={busy || !canMarkSelectedPending} variant="outline" onClick={() => confirmMarkPending(selected)}
             title="Only untracked or outdated workbooks can be marked pending"><GitPullRequest className="size-4" /> Mark pending</Button>
@@ -290,7 +315,7 @@ export default function RepositorySyncPage() {
             <ul className="list-disc space-y-1 pl-5">{uploadErrors.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
           </div>
         )}
-        <p className="text-xs text-muted-foreground">Review selected workbooks here before saving: correct unrecognised colleges, review individual student rows, choose event merges or new events, and confirm. No manual download or page change is needed. Limit: 200 files.</p>
+        <p className="text-xs text-muted-foreground">Review up to 10 workbooks per attendance import (5 MB each); manual status actions allow up to 200. Correct colleges, review student rows and event merges before saving.</p>
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground">Manual sync status options</summary>
           <p className="mt-2 text-xs text-muted-foreground">Manual status overrides do not upload any files. Use only to record an import already completed elsewhere. If a file was accidentally marked pending, use its Restore uploaded status button instead.</p>

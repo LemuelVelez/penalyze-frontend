@@ -368,6 +368,9 @@ function getRowEventAssignmentValue(assignment?: AttendanceRowEventAssignment): 
   return assignment.eventId ? assignment.eventId : assignment.eventName ? "__create_event__" : "";
 }
 
+const MAX_ATTENDANCE_IMPORT_FILES = 10;
+const MAX_ATTENDANCE_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+
 function getAttendanceUploadFileKey(file: File) {
   return `${file.name}::${file.size}::${file.lastModified}`;
 }
@@ -1520,6 +1523,15 @@ export default function AttendancePage({
     }
 
     if (!acceptedFiles.length) return;
+    if (acceptedFiles.length > MAX_ATTENDANCE_IMPORT_FILES) {
+      toast.error(`Select at most ${MAX_ATTENDANCE_IMPORT_FILES} attendance files per import.`);
+      return;
+    }
+    const invalidFile = acceptedFiles.find((file) => file.size > MAX_ATTENDANCE_IMPORT_FILE_BYTES || file.name.length > 180);
+    if (invalidFile) {
+      toast.error(`${invalidFile.name}: Files must be at most 5 MB and filenames at most 180 characters.`);
+      return;
+    }
 
     setIsCheckingUploadFiles(true);
     let filesToPreview: File[] = [];
@@ -1552,6 +1564,36 @@ export default function AttendancePage({
 
     const fallbackSchoolYearId = uploadForm.schoolYearId || selectedSchoolYearId;
     const defaultEventOptions = sortByBackendEventOrder(attendanceEvents);
+    const failedPreviewDetails = (message: string): AttendanceUploadFileDetails => ({
+      metadata: {},
+      eventOptions: defaultEventOptions,
+      matchedEventId: "",
+      schoolYearId: fallbackSchoolYearId,
+      eventId: "",
+      eventName: "",
+      eventStartAt: "",
+      eventEndAt: "",
+      previewError: message,
+      rowsTotal: 0,
+      collegeLabels: [],
+      previewRows: [],
+      rowCollegeOverrides: {},
+      rowEventOverrides: {},
+      rowEventsReviewed: false,
+      selectedRowNumbers: [],
+      assignmentCollege: "",
+      rowSearch: "",
+      collegeMismatchRows: [],
+      invalidCollegeRows: [],
+      yearLevelScopes: [],
+      mergeCandidates: [],
+      mergeDecisionConfirmed: true,
+      mergeIntoEventId: "",
+      mergeIntoBatchIndex: null,
+      forceCreateEvent: false,
+      keepEventName: "existing",
+      keepEventSchedule: "existing",
+    });
 
     try {
       const previews = await previewAttendanceFile(filesToPreview, defaultCollege);
@@ -1560,6 +1602,7 @@ export default function AttendancePage({
           const fileKey = getAttendanceUploadFileKey(nextFile);
           const preview = previews[index];
           if (!preview) throw new Error(`No preview returned for ${nextFile.name}.`);
+          if (preview.previewError) return [fileKey, failedPreviewDetails(preview.previewError)] as const;
 
           const metadata = extractAttendancePreviewMetadata(
             preview.detectedEvent ?? {},
@@ -1623,42 +1666,9 @@ export default function AttendancePage({
       const message =
         error instanceof Error ? error.message : "Unable to preview attendance files.";
       toast.error(message);
-      const fallbackDetails = Object.fromEntries(
-        filesToPreview.map((nextFile) => [
-          getAttendanceUploadFileKey(nextFile),
-          {
-            metadata: {},
-            eventOptions: defaultEventOptions,
-            matchedEventId: "",
-            schoolYearId: fallbackSchoolYearId,
-            eventId: "",
-            eventName: "",
-            eventStartAt: "",
-            eventEndAt: "",
-            previewError: message,
-            rowsTotal: 0,
-            collegeLabels: [],
-            previewRows: [],
-            rowCollegeOverrides: {},
-            rowEventOverrides: {},
-            rowEventsReviewed: false,
-            selectedRowNumbers: [],
-            assignmentCollege: "",
-            rowSearch: "",
-            collegeMismatchRows: [],
-            invalidCollegeRows: [],
-            yearLevelScopes: [],
-            mergeCandidates: [],
-            mergeDecisionConfirmed: true,
-            mergeIntoEventId: "",
-            mergeIntoBatchIndex: null,
-            forceCreateEvent: false,
-            keepEventName: "existing" as const,
-            keepEventSchedule: "existing" as const,
-          },
-        ]),
-      );
-      setFileDetails(fallbackDetails);
+      setFileDetails(Object.fromEntries(
+        filesToPreview.map((file) => [getAttendanceUploadFileKey(file), failedPreviewDetails(message)]),
+      ));
     }
     } catch (error) {
       if (fileSelectionRequestRef.current === requestId) {
@@ -2263,6 +2273,10 @@ export default function AttendancePage({
               await restoreRepositoryUploadedStatus(uploadId);
             }
           } catch (error) {
+            if (error instanceof Error && error.message.startsWith("Penalyze backend is missing the repository restore endpoint")) {
+              syncErrors.push(`${file.name}: ${error.message}`);
+              continue;
+            }
             try {
               // A saved import may already exist even if the repository status
               // update failed. The backend verifies the match before marking it.
@@ -3566,7 +3580,7 @@ export default function AttendancePage({
                             {details ? (
                               <>
                                 <p className="mt-1 text-xs font-semibold text-muted-foreground">
-                                  {details.rowsTotal.toLocaleString()} incoming row/s
+                                  {details.previewError ? "Preview unavailable" : `${details.rowsTotal.toLocaleString()} incoming row/s`}
                                 </p>
                                 <p className="mt-1 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
                                   Colleges in file: {getAttendancePreviewCollegeLabels(details.previewRows).join(", ") || "None"}

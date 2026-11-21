@@ -19,6 +19,8 @@ export type RepositoryWorkbook = {
 };
 
 type Envelope<T> = { data: T; message: string };
+let restoreEndpointUnavailable = false;
+const RESTORE_MISSING_MESSAGE = "Penalyze backend is missing the repository restore endpoint. Deploy the updated penalyze-backend before verifying saved imports.";
 
 async function request(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -37,7 +39,9 @@ async function request(path: string, init: RequestInit = {}) {
       const data = await response.json() as { message?: string };
       if (data.message) message = data.message;
     } catch { /* Keep fallback. */ }
-    throw new Error(message);
+    const error = new Error(message) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   return response;
 }
@@ -60,10 +64,23 @@ export async function markRepositorySync(action: "pending" | "uploaded" | "reset
 // Only restores the repository status after the backend finds a matching saved
 // Penalyze import. It never creates or duplicates attendance records.
 export async function restoreRepositoryUploadedStatus(uploadId: string) {
-  const response = await request("/restore", {
-    method: "POST",
-    body: JSON.stringify({ uploadId }),
-  });
+  if (restoreEndpointUnavailable) throw new Error(RESTORE_MISSING_MESSAGE);
+  let response: Response;
+  try {
+    response = await request("/restore", {
+      method: "POST",
+      body: JSON.stringify({ uploadId }),
+    });
+  } catch (error) {
+    // Older backend deployments do not have this route. Do not repeat a 404
+    // for every selected workbook, and never silently mark imports uploaded.
+    if ((error as Error & { status?: number }).status === 404 &&
+        /^(route not found|resource not found)\.?$/i.test((error as Error).message)) {
+      restoreEndpointUnavailable = true;
+      throw new Error(RESTORE_MISSING_MESSAGE);
+    }
+    throw error;
+  }
   const result = (await response.json() as Envelope<{ uploadId: string; penalyzeImportId: string }>).data;
   window.dispatchEvent(new Event(REPOSITORY_SYNC_UPDATED_EVENT));
   return result;
