@@ -355,13 +355,16 @@ export default function RepositorySyncPage() {
         <AttendancePage
           reviewOnly
           initialRepositoryReview={reviewBatch}
-          onRepositoryReviewClose={() => setReviewBatch(null)}
+          onRepositoryReviewClose={() => {
+            setReviewBatch(null);
+            void refresh(true);
+          }}
           onRepositoryReviewSaved={(syncErrors, skippedFiles) => {
             setReviewBatch(null);
             setSelected([]);
             setUploadErrors([
               ...syncErrors.map((error) => `${error}. Attendance was saved; do not import this file again.`),
-              ...skippedFiles.map((message) => `${message} This workbook remains pending in Repository Sync.`),
+              ...skippedFiles.map((message) => `${message} The workbook was not imported or marked uploaded. Reopen it to correct the event assignment or review the event exemptions.`),
             ]);
             void refresh(true);
           }}

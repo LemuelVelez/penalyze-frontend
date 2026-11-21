@@ -2234,18 +2234,10 @@ export default function AttendancePage({
         .map((item) => item.error || `${item.fileName}: all rows are event-exempted; no attendance was imported.`);
       setSkippedExemptFiles(skipped);
       if (filesSaved === 0) {
-        // Leave the review open so incorrect event/exemption assignments can
-        // be corrected; nothing was imported or marked uploaded.
-        setProgress({
-          stage: "completed",
-          percent: 100,
-          message: "No attendance imported: all selected files contain only event-exempted rows. Review their event and exemptions.",
-          processedRows: 0,
-          totalRows: 0,
-          savedRecords: 0,
-          createdFines: 0,
-        });
-        toast.warning("No attendance imported. Check the event and college/year-level exemptions.");
+        // A save with zero eligible rows isn't complete: keep the review
+        // editable rather than showing a misleading 100% success progress.
+        setProgress(null);
+        toast.warning("No attendance imported. Correct the selected event or review its college/year-level exemptions.");
         return;
       }
       setReconciliationReports(
@@ -2326,8 +2318,6 @@ export default function AttendancePage({
             }
           }
         }
-        repositoryReviewRef.current = null;
-        setRepositoryReviewCount(0);
         completedRepositorySyncErrors = syncErrors;
         setRepositorySyncFailures(syncErrors);
         if (syncErrors.length) {
@@ -2335,6 +2325,34 @@ export default function AttendancePage({
         }
       }
 
+      if (filesSkipped) {
+        // Some files really saved and were marked uploaded. Keep ONLY the
+        // skipped files in the same review dialog so the user can correct
+        // their event assignments without accidentally reimporting the saved
+        // workbooks or losing their chosen college/row corrections.
+        const skippedFiles = files.filter((_, index) =>
+          batchResult.files[index]?.status === "skipped_exempt");
+        const skippedFileSet = new Set(skippedFiles);
+        setFiles(skippedFiles);
+        setFileDetails((current) => Object.fromEntries(
+          skippedFiles.flatMap((file) => {
+            const key = getAttendanceUploadFileKey(file);
+            return current[key] ? [[key, current[key]]] : [];
+          }),
+        ));
+        if (repositoryReview) {
+          const remainingWorkbooks = repositoryReview.workbooks.filter((item) =>
+            skippedFileSet.has(item.file));
+          repositoryReviewRef.current = { ...repositoryReview, workbooks: remainingWorkbooks };
+          setRepositoryReviewCount(remainingWorkbooks.length);
+        }
+        setProgress(null);
+        toast.warning(`${filesSkipped} workbook(s) remain in review. Choose the correct event or review its exemptions, then save again.`, { duration: 9000 });
+        return;
+      }
+
+      repositoryReviewRef.current = null;
+      setRepositoryReviewCount(0);
       setFiles([]);
       setFileDetails({});
       setUploadForm((current) => ({
@@ -3453,7 +3471,9 @@ export default function AttendancePage({
               <DialogTitle>{repositoryReviewCount ? "Review repository attendance files" : "Upload attendance file"}</DialogTitle>
               <DialogDescription>
                 {repositoryReviewCount
-                  ? `${repositoryReviewCount} workbook(s) came from Repository Sync. Review individual college assignments and event merges, then save only when everything is correct. No files have been imported yet.`
+                  ? skippedExemptFiles.length
+                    ? `${repositoryReviewCount} exempt-only workbook(s) remain. Already-saved workbooks were removed from this review; correct the event assignments before retrying.`
+                    : `${repositoryReviewCount} workbook(s) came from Repository Sync. Review individual college assignments and event merges, then save only when everything is correct. No files have been imported yet.`
                   : "Select attendance files and review detected event details before importing."}
               </DialogDescription>
             </DialogHeader>
@@ -3462,7 +3482,7 @@ export default function AttendancePage({
                 <div role="alert" className="lg:col-span-5 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
                   <p className="font-semibold">No attendance was saved for these exempted files:</p>
                   <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
-                  <p className="mt-2">Correct the event assignment or its exemption settings before retrying.</p>
+                  <p className="mt-2">Check that the event date in each workbook matches the selected event date (for example, September 2 is not October 2). Change the event in the review below, or correct its exemptions in Events. Exempt attendees must not be imported into that event.</p>
                 </div>
               )}
               {progress ? (
