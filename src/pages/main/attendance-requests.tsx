@@ -277,7 +277,11 @@ function RequestDetails({
                 </div>
               ) : null}
 
-              {request.request_type === "details_correction" ? null : (
+              {request.request_type === "zero_attendance" ? (
+                <div className="rounded-2xl border bg-background p-4 text-sm font-semibold">
+                  The student declares they did not participate in any event for this school year. Verify their college, program, year level, and attendance history before approval.
+                </div>
+              ) : request.request_type === "details_correction" ? null : (
                 <div className="space-y-3">
                   <h3 className="text-sm font-black uppercase tracking-wide">
                     Claimed events and evidence
@@ -836,7 +840,8 @@ export default function AttendanceRequestsPage() {
       const result = action === "approved"
         ? await reviewAttendanceRequestGroupWithProgress(input, (progress) => {
             const requestType = selected.some((request) => request.request_type === "event_review")
-              ? "event_review" : "details_correction";
+              ? "event_review" : selected.some((request) => request.request_type === "zero_attendance")
+                ? "zero_attendance" : "details_correction";
             setGroupProgress({
               progress: Math.min(92, Math.max(2, progress.percent * 0.92)),
               detail: progress.message,
@@ -993,6 +998,7 @@ export default function AttendanceRequestsPage() {
               <SelectItem value={ALL_REQUEST_TYPES}>All</SelectItem>
               <SelectItem value="event_review">Event Review</SelectItem>
               <SelectItem value="details_correction">Details Correction</SelectItem>
+              <SelectItem value="zero_attendance">No-Participation Review</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1072,7 +1078,9 @@ export default function AttendanceRequestsPage() {
                   <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
                     {request.request_type === "details_correction"
                       ? "Details Correction"
-                      : "Event Review"}
+                      : request.request_type === "zero_attendance"
+                        ? "No-Participation Review"
+                        : "Event Review"}
                   </span>
                   <span
                     className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusClassName(request.status)}`}
@@ -1147,7 +1155,9 @@ export default function AttendanceRequestsPage() {
                               <span className="font-black text-emerald-700 dark:text-emerald-400">
                                 {request.request_type === "details_correction"
                                   ? "Approve Correction"
-                                  : "Approve & Add Attendance"}
+                                  : request.request_type === "zero_attendance"
+                                    ? "Approve Declaration"
+                                    : "Approve & Add Attendance"}
                               </span>
                             ),
                           disabled:
@@ -1187,7 +1197,7 @@ export default function AttendanceRequestsPage() {
                   <Badge className="rounded-full bg-amber-100 font-black text-amber-900 dark:bg-amber-950 dark:text-amber-200">{group.pendingRequests.length} pending</Badge>
                   {[...new Set(group.requests.map((request) => request.request_type))].map((type) => (
                     <Badge key={type} variant="secondary" className="rounded-full font-black">
-                      {type === "details_correction" ? "Details Correction" : "Event Review"}
+                      {type === "details_correction" ? "Details Correction" : type === "zero_attendance" ? "No-Participation Review" : "Event Review"}
                     </Badge>
                   ))}
                 </div>
@@ -1307,7 +1317,7 @@ export default function AttendanceRequestsPage() {
                 <section key={request.id} className="space-y-4 rounded-3xl border bg-muted/10 p-4 [overflow-wrap:anywhere] sm:p-5">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary" className="rounded-full font-black">
-                      {request.request_type === "details_correction" ? "Details Correction" : "Event Review"}
+                      {request.request_type === "details_correction" ? "Details Correction" : request.request_type === "zero_attendance" ? "No-Participation Review" : "Event Review"}
                     </Badge>
                     <Badge variant="outline" className="rounded-full font-black">
                       {request.school_year_name} / {request.semester === "second_semester" ? "Second Semester" : "First Semester"}
@@ -1496,6 +1506,8 @@ export default function AttendanceRequestsPage() {
                       ) : (
                         "This will apply the requested student detail changes."
                       )
+                    ) : reviewConfirmation.request.request_type === "zero_attendance" ? (
+                      "This will record the student's verified no-participation declaration and calculate missed events and fines."
                     ) : (
                       "This will approve the request and add the verified attendance records."
                     )

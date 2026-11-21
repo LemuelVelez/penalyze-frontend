@@ -91,7 +91,7 @@ export function getPublicStudentRecords(studentId: string): Promise<PublicStuden
 }
 
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
-export type AttendanceRequestType = "event_review" | "details_correction";
+export type AttendanceRequestType = "event_review" | "details_correction" | "zero_attendance";
 
 export type AttendanceRequestEvent = {
   id: string;
@@ -171,6 +171,11 @@ export type CreateAttendanceRequestInput =
     })
   | (BaseCreateAttendanceRequestInput & {
       requestType: "details_correction";
+      evidenceUrl?: never;
+      events?: never;
+    })
+  | (BaseCreateAttendanceRequestInput & {
+      requestType: "zero_attendance";
       evidenceUrl?: never;
       events?: never;
     });

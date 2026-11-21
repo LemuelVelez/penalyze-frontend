@@ -234,6 +234,8 @@ type AttendanceRequestFormState = {
   note: string;
   selectedEventIds: string[];
   evidenceByEvent: Record<string, string>;
+  hasNoAttendanceRecord: boolean;
+  noEventsAttended: boolean;
 };
 
 type DetailsCorrectionFormState = {
@@ -322,6 +324,8 @@ const emptyAttendanceRequestForm: AttendanceRequestFormState = {
   note: "",
   selectedEventIds: [],
   evidenceByEvent: {},
+  hasNoAttendanceRecord: false,
+  noEventsAttended: false,
 };
 
 const emptyDetailsCorrectionForm: DetailsCorrectionFormState = {
@@ -2620,7 +2624,7 @@ function ZeroAttendanceRegistrationDialog(props: {
         <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Student ID not found</DialogTitle>
           <DialogDescription>
-            Choose how to continue when no attendance or fine record exists for this Student ID.
+            Choose how to continue when this Student ID has no recorded attendance.
           </DialogDescription>
         </DialogHeader>
 
@@ -2641,8 +2645,7 @@ function ZeroAttendanceRegistrationDialog(props: {
               SSG officers will review the evidence before attendance is added. Keep checking your status by entering your Student ID every now and then.
             </p>
             <p>
-              Use <strong>Save Zero Attendance</strong>{" "}
-              only when you did not attend any event.
+              Choose <strong>I did not attend any of these events</strong> if you did not participate in any event. Your declaration will be sent to SSG officers for review.
             </p>
           </div>
 
@@ -2872,7 +2875,7 @@ function ZeroAttendanceRegistrationDialog(props: {
               disabled={props.isSaving}
               className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
-              {props.isSaving ? "Saving..." : "Save Zero Attendance"}
+              {props.isSaving ? "Submitting..." : isAuthenticated() ? "Save Zero Attendance" : "Request No-Participation Review"}
             </Button>
           </DialogFooter>
         </form>
@@ -2885,7 +2888,7 @@ function ZeroAttendanceRegistrationDialog(props: {
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm zero attendance?</AlertDialogTitle>
+              <AlertDialogTitle>Confirm you did not participate?</AlertDialogTitle>
               <AlertDialogDescription>
                 You are about to record <strong>{props.form.studentId.trim()}</strong>{" "}
                 as having attended <strong>zero events</strong> for {schoolYearLabel}.
@@ -2904,7 +2907,7 @@ function ZeroAttendanceRegistrationDialog(props: {
                 onClick={() => props.onSubmit()}
                 className="bg-destructive text-destructive-foreground hover:opacity-90"
               >
-                {props.isSaving ? "Saving..." : "Confirm Zero Attendance"}
+                {props.isSaving ? "Submitting..." : "Submit Declaration"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2926,16 +2929,12 @@ function DetailsCorrectionDialog(props: {
   error: string;
   isSaving: boolean;
   onFieldChange: (
-    field: "name" | "yearLevel" | "college" | "program" | "note",
+    field: "yearLevel" | "college" | "program" | "note",
     value: string,
   ) => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   const programOptions = getStudentProgramOptions(props.form.college);
-  const nameChanged = detailsCorrectionValueChanged(
-    props.form.currentName,
-    props.form.name,
-  );
   const yearLevelChanged = detailsCorrectionValueChanged(
     props.form.currentYearLevel,
     props.form.yearLevel,
@@ -2948,8 +2947,7 @@ function DetailsCorrectionDialog(props: {
     props.form.currentProgram,
     props.form.program,
   );
-  const hasChanges =
-    nameChanged || yearLevelChanged || collegeChanged || programChanged;
+  const hasChanges = yearLevelChanged || collegeChanged || programChanged;
   const canSubmit = hasChanges;
   const changedFieldClassName =
     "min-w-0 rounded-2xl border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-950/35";
@@ -2964,8 +2962,8 @@ function DetailsCorrectionDialog(props: {
         <DialogHeader className={landingDialogHeaderClassName}>
           <DialogTitle>Details Correction</DialogTitle>
           <DialogDescription>
-            Correct a misspelled or wrong Name, Year Level, College, or Program.
-            Student ID cannot be changed.
+            Request corrections to your Year Level, College, or Program.
+            Student ID and name cannot be changed here.
           </DialogDescription>
         </DialogHeader>
 
@@ -3012,23 +3010,6 @@ function DetailsCorrectionDialog(props: {
               Correct details
             </h3>
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
-              <label className={nameChanged ? changedFieldClassName : unchangedFieldClassName}>
-                <span className="flex items-center justify-between gap-2 text-sm font-bold">
-                  <span>Name</span>
-                  {nameChanged ? (
-                    <span className="text-xs font-black uppercase text-amber-700 dark:text-amber-300">
-                      Changed
-                    </span>
-                  ) : null}
-                </span>
-                <Input
-                  value={props.form.name}
-                  onChange={(event) => props.onFieldChange("name", event.target.value)}
-                  placeholder="Correct full name"
-                  className={`${textInputClassName} mt-2`}
-                />
-              </label>
-
               <div className={yearLevelChanged ? changedFieldClassName : unchangedFieldClassName}>
                 <span className="flex items-center justify-between gap-2 text-sm font-bold">
                   <span>Year Level</span>
@@ -3200,14 +3181,16 @@ function AttendanceRequestDialog(props: {
   onFieldChange: (
     field: Exclude<
       keyof AttendanceRequestFormState,
-      "selectedEventIds" | "evidenceByEvent"
+      "selectedEventIds" | "evidenceByEvent" | "hasNoAttendanceRecord" | "noEventsAttended"
     >,
     value: string,
   ) => void;
   onToggleEvent: (eventId: string, selected: boolean) => void;
+  onNoEventsAttendedChange: (selected: boolean) => void;
   onEvidenceChange: (eventId: string, value: string) => void;
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
+  const programOptions = getStudentProgramOptions(props.form.college);
   const excludedEventIds = new Set(props.excludedEventIds);
   const availableEvents = props.events.filter(
     (event) =>
@@ -3233,17 +3216,17 @@ function AttendanceRequestDialog(props: {
           <DialogTitle>Request Event Attendance Review</DialogTitle>
           <DialogDescription>
             Student ID {props.form.studentId || "—"} · {schoolYearLabel}. Select
-            attended events and provide public evidence links for officer review.
+            the events you attended, or declare that you did not attend any.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
           <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800">
             <p>
-              Select every event you attended and paste an evidence link for each event. After you submit, please wait for the SSG officers to review and approve your request. Your attendance will only be added once it is approved. Keep checking your status every now and then by entering your Student ID on this page so you stay updated on the status of your attendance.
+              Select the events you attended and provide a public evidence link for each one. If you have no recorded attendance, you may instead declare that you did not attend any event. SSG officers must review and approve your request before your record is updated. Check your status using your Student ID.
             </p>
             <p className="mt-3">
-              To change your name, year level, college or program, use Request Details Correction instead.
+              For corrections to an existing year level, college or program, use Request Details Correction instead.
             </p>
             <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
               Warning: Your evidence link must be set to PUBLIC access (for example, 'Anyone with the link can view' in Google Drive) so SSG officers can easily open and view it during review. Links that are not public, or that ask the reviewer to request access, will NOT be accepted and your request may be rejected. You may use Google Drive, OneDrive, Dropbox, iCloud, or any other HTTP/HTTPS link.
@@ -3254,6 +3237,86 @@ function AttendanceRequestDialog(props: {
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
               {props.error}
             </div>
+          ) : null}
+
+          {props.form.hasNoAttendanceRecord ? (
+            <section className="space-y-4 rounded-3xl border bg-muted/30 p-4">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wide">Student details</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Required when there is no saved attendance record. Choose your actual college, program, and year level.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2 text-sm font-bold">
+                  <span>Full name</span>
+                  <Input
+                    value={props.form.name}
+                    onChange={(event) => props.onFieldChange("name", event.target.value)}
+                    placeholder="Enter your full name"
+                    required
+                    className={textInputClassName}
+                  />
+                </label>
+                <div className="space-y-2 text-sm font-bold">
+                  <span>Year Level</span>
+                  <Select value={props.form.yearLevel} onValueChange={(value) => props.onFieldChange("yearLevel", value)}>
+                    <SelectTrigger className={selectTriggerClassName}><SelectValue placeholder="Select year level" /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {renderCurrentStudentSelectOption(QR_CODE_YEAR_LEVEL_OPTIONS, props.form.yearLevel)}
+                      {QR_CODE_YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                        <SelectItem key={yearLevel} value={yearLevel}>{yearLevel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={props.form.yearLevel}
+                    onChange={(event) => props.onFieldChange("yearLevel", event.target.value)}
+                    placeholder="Other year level"
+                    className={customSelectInputClassName}
+                  />
+                </div>
+                <div className="space-y-2 text-sm font-bold">
+                  <span>College</span>
+                  <Select value={props.form.college} onValueChange={(value) => props.onFieldChange("college", value)}>
+                    <SelectTrigger className={selectTriggerClassName}><SelectValue placeholder="Select college" /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {renderCurrentStudentSelectOption(QR_CODE_COLLEGE_OPTIONS, props.form.college)}
+                      {QR_CODE_COLLEGE_OPTIONS.map((college) => (
+                        <SelectItem key={college} value={college}>{college}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={props.form.college}
+                    onChange={(event) => props.onFieldChange("college", event.target.value)}
+                    placeholder="Other college"
+                    className={customSelectInputClassName}
+                  />
+                </div>
+                <div className="space-y-2 text-sm font-bold">
+                  <span>Program</span>
+                  <Select value={props.form.program} onValueChange={(value) => props.onFieldChange("program", value)} disabled={!props.form.college}>
+                    <SelectTrigger className={selectTriggerClassName}>
+                      <SelectValue placeholder={props.form.college ? "Select program" : "Select college first"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {renderCurrentStudentSelectOption(programOptions, props.form.program)}
+                      {programOptions.map((program) => (
+                        <SelectItem key={program} value={program}>{program}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={props.form.program}
+                    onChange={(event) => props.onFieldChange("program", event.target.value)}
+                    placeholder="Other program"
+                    disabled={!props.form.college}
+                    className={customSelectInputClassName}
+                  />
+                </div>
+              </div>
+            </section>
           ) : null}
 
           <label className="block space-y-2 text-sm font-bold">
@@ -3280,7 +3343,23 @@ function AttendanceRequestDialog(props: {
               </p>
             </div>
 
-            {props.isLoadingEvents ? (
+            {props.form.hasNoAttendanceRecord ? (
+              <label className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 ${props.form.noEventsAttended ? "border-primary bg-muted/60" : "bg-background"}`}>
+                <Checkbox
+                  checked={props.form.noEventsAttended}
+                  onCheckedChange={(checked) => props.onNoEventsAttendedChange(checked === true)}
+                  className="mt-1 shrink-0"
+                />
+                <span className="min-w-0">
+                  <span className="block font-black">I did not attend any of these events</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Choose this only if you did not participate in any event for this school year. Your declaration will be reviewed by an officer.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+
+            {props.form.noEventsAttended ? null : props.isLoadingEvents ? (
               <div className="rounded-2xl border border-dashed bg-background p-5 text-center text-sm font-semibold text-muted-foreground">
                 Loading events for the selected school year / semester...
               </div>
@@ -3369,7 +3448,7 @@ function AttendanceRequestDialog(props: {
             </Button>
             <Button
               type="submit"
-              disabled={props.isSaving || props.isLoadingEvents}
+              disabled={props.isSaving || (props.isLoadingEvents && !props.form.noEventsAttended)}
               className="min-h-12 rounded-2xl px-6 py-3 text-sm font-black"
             >
               {props.isSaving ? "Submitting..." : "Submit Attendance Request"}
@@ -4002,6 +4081,7 @@ export default function LandingPage() {
     );
 
     setZeroAttendanceError("");
+    setFormStartedAt(Date.now());
     setResultYearFilter(activeSchoolYearId);
     setZeroAttendanceForm({
       ...emptyZeroAttendanceForm,
@@ -4092,12 +4172,14 @@ export default function LandingPage() {
       schoolYearId,
       selectedEventIds: [],
       evidenceByEvent: {},
+      noEventsAttended: false,
     });
     setAttendanceRequestDialogOpen(true);
     void loadAttendanceRequestEvents(schoolYearId);
   }
 
   function handleZeroAttendanceRequestReview() {
+    setZeroAttendanceDialogOpen(false);
     openAttendanceRequestReview({
       studentId: zeroAttendanceForm.studentId,
       schoolYearId: zeroAttendanceForm.schoolYearId,
@@ -4106,6 +4188,7 @@ export default function LandingPage() {
       college: zeroAttendanceForm.college,
       program: zeroAttendanceForm.program,
       institution: zeroAttendanceForm.institution,
+      hasNoAttendanceRecord: true,
     });
   }
 
@@ -4132,6 +4215,11 @@ export default function LandingPage() {
         institution: isAuthenticated()
           ? (displayedFinalResult?.institution || attendanceProfile?.institution || DEFAULT_STUDENT_INSTITUTION)
           : DEFAULT_STUDENT_INSTITUTION,
+        hasNoAttendanceRecord: !lookup?.attendance.some(
+          (record) =>
+            getAttendanceRecordYear(record, attendanceEventById) === schoolYearId &&
+            (Boolean(record.event_id) || Boolean(record.scanned_at)),
+        ),
       },
       getExcludedAttendanceRequestEventIds(schoolYearId),
     );
@@ -4173,7 +4261,7 @@ export default function LandingPage() {
   }
 
   function handleDetailsCorrectionFieldChange(
-    field: "name" | "yearLevel" | "college" | "program" | "note",
+    field: "yearLevel" | "college" | "program" | "note",
     value: string,
   ) {
     setDetailsCorrectionError("");
@@ -4200,12 +4288,10 @@ export default function LandingPage() {
     const schoolYearId =
       detailsCorrectionForm.schoolYearId.trim() ||
       getLandingActiveSchoolYearId(lookup?.schoolYears ?? schoolYears);
-    const name = detailsCorrectionForm.name.trim();
     const yearLevel = detailsCorrectionForm.yearLevel.trim();
     const college = detailsCorrectionForm.college.trim();
     const program = detailsCorrectionForm.program.trim();
     const hasChanges =
-      detailsCorrectionValueChanged(detailsCorrectionForm.currentName, name) ||
       detailsCorrectionValueChanged(
         detailsCorrectionForm.currentYearLevel,
         yearLevel || detailsCorrectionForm.currentYearLevel,
@@ -4227,10 +4313,6 @@ export default function LandingPage() {
       setDetailsCorrectionError("School year / semester is required.");
       return;
     }
-    if (isAuthenticated() && !name) {
-      setDetailsCorrectionError("Name is required.");
-      return;
-    }
     if (!hasChanges) {
       setDetailsCorrectionError("No changes detected.");
       return;
@@ -4244,7 +4326,7 @@ export default function LandingPage() {
         formStartedAt,
         schoolYearId,
         studentId: studentIdValue,
-        name,
+        name: detailsCorrectionForm.currentName,
         yearLevel,
         college,
         program,
@@ -4286,7 +4368,7 @@ export default function LandingPage() {
   function handleAttendanceRequestFieldChange(
     field: Exclude<
       keyof AttendanceRequestFormState,
-      "selectedEventIds" | "evidenceByEvent"
+      "selectedEventIds" | "evidenceByEvent" | "hasNoAttendanceRecord" | "noEventsAttended"
     >,
     value: string,
   ) {
@@ -4316,8 +4398,18 @@ export default function LandingPage() {
         ...current,
         selectedEventIds,
         evidenceByEvent,
+        noEventsAttended: selected ? false : current.noEventsAttended,
       };
     });
+  }
+
+  function handleNoEventsAttendedChange(selected: boolean) {
+    setAttendanceRequestError("");
+    setAttendanceRequestForm((current) => ({
+      ...current,
+      noEventsAttended: selected,
+      ...(selected ? { selectedEventIds: [], evidenceByEvent: {} } : {}),
+    }));
   }
 
   function handleAttendanceRequestEvidenceChange(
@@ -4346,13 +4438,19 @@ export default function LandingPage() {
       setAttendanceRequestError("Student ID is required.");
       return;
     }
-    if (!schoolYearId) {
+    if (!schoolYearId && !attendanceRequestForm.hasNoAttendanceRecord) {
       setAttendanceRequestError("School year / semester is required.");
       return;
     }
-    if (!attendanceRequestForm.selectedEventIds.length) {
+    if (attendanceRequestForm.hasNoAttendanceRecord &&
+        (!name || !attendanceRequestForm.yearLevel.trim() ||
+         !attendanceRequestForm.college.trim() || !attendanceRequestForm.program.trim())) {
+      setAttendanceRequestError("Full name, year level, college, and program are required.");
+      return;
+    }
+    if (!attendanceRequestForm.noEventsAttended && !attendanceRequestForm.selectedEventIds.length) {
       setAttendanceRequestError(
-        "Select at least one event you attended and provide an evidence link.",
+        "Select at least one event or confirm that you did not attend any.",
       );
       return;
     }
@@ -4390,8 +4488,7 @@ export default function LandingPage() {
     setIsSavingAttendanceRequest(true);
     setAttendanceRequestError("");
     try {
-      await createAttendanceRequest({
-        requestType: "event_review",
+      const common = {
         honeypot,
         formStartedAt,
         schoolYearId,
@@ -4402,8 +4499,10 @@ export default function LandingPage() {
         program: attendanceRequestForm.program.trim(),
         institution: attendanceRequestForm.institution.trim(),
         note: attendanceRequestForm.note.trim(),
-        events,
-      });
+      };
+      await createAttendanceRequest(attendanceRequestForm.noEventsAttended
+        ? { ...common, requestType: "zero_attendance" }
+        : { ...common, requestType: "event_review", events });
 
       if (lookup && searchedId && normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)) {
         try {
@@ -4459,10 +4558,34 @@ export default function LandingPage() {
       return;
     }
 
+    if (!payload.yearLevel || !payload.college || !payload.program) {
+      setZeroAttendanceError("Year level, college, and program are required.");
+      return;
+    }
     setIsSavingZeroAttendance(true);
     setZeroAttendanceError("");
 
     try {
+      // Student submissions must be reviewed by officers; the direct zero-attendance
+      // registration endpoint is reserved for authenticated administrators.
+      if (!isAuthenticated()) {
+        await createAttendanceRequest({
+          requestType: "zero_attendance",
+          honeypot,
+          formStartedAt,
+          studentId: payload.studentId,
+          schoolYearId: payload.schoolYearId || "",
+          name: payload.name,
+          yearLevel: payload.yearLevel || "",
+          college: payload.college || "",
+          program: payload.program || "",
+          institution: payload.institution || "",
+        });
+        setZeroAttendanceDialogOpen(false);
+        setZeroAttendanceForm(emptyZeroAttendanceForm);
+        toast.success("Declaration submitted for officer review. Check the status using your Student ID.");
+        return;
+      }
       const result = await registerZeroAttendanceFine(payload);
 
       if (!result?.attendanceRecord) {
@@ -4613,12 +4736,25 @@ export default function LandingPage() {
       try {
         const records = await getPublicStudentRecords(cleanStudentId);
         if (!records) {
-          setLookup(null);
-          setResultDialogOpen(false);
-          setEventsDialogOpen(false);
-          setRequiredEventsDialogOpen(false);
-          setZeroAttendanceDialogOpen(false);
-          setError("No record found for this Student ID.");
+          const existingRequests = await getStudentAttendanceRequestStatus(cleanStudentId)
+            .catch(() => [] as StudentAttendanceRequestStatus[]);
+          if (existingRequests.length) {
+            setLookup({
+              profile: null,
+              attendance: [],
+              finalResults: [],
+              attendanceEvents: [],
+              attendanceRecords: [],
+              schoolYears,
+              fines: [],
+              fallbackFine: null,
+              attendanceRequests: existingRequests,
+            });
+            setResultYearFilter(getLandingActiveSchoolYearId(schoolYears));
+            setAttendanceRequestsDialogOpen(true);
+          } else {
+            openZeroAttendanceRegistration(cleanStudentId);
+          }
           return;
         }
 
@@ -5450,7 +5586,9 @@ export default function LandingPage() {
                         <span className="inline-flex w-fit rounded-full border bg-muted px-3 py-1 text-xs font-black uppercase text-muted-foreground">
                           {request.request_type === "details_correction"
                             ? "Details Correction"
-                            : "Event Review"}
+                            : request.request_type === "zero_attendance"
+                              ? "No-Participation Review"
+                              : "Event Review"}
                         </span>
                         <span
                           className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-black uppercase ${attendanceRequestStatusBadgeClass(request.status)}`}
@@ -5480,7 +5618,9 @@ export default function LandingPage() {
                         {request.status === "approved"
                           ? request.request_type === "details_correction"
                             ? "Your corrected details have been applied."
-                            : "Your attendance for these events has been added."
+                            : request.request_type === "zero_attendance"
+                              ? "Your no-participation declaration has been recorded."
+                              : "Your attendance for these events has been added."
                           : request.status === "pending"
                             ? "Waiting for review."
                             : "This request was rejected. Review the note and submit a corrected request."}
@@ -5537,6 +5677,7 @@ export default function LandingPage() {
         isLoadingEvents={isLoadingAttendanceRequestEvents}
         onFieldChange={handleAttendanceRequestFieldChange}
         onToggleEvent={handleAttendanceRequestEventToggle}
+        onNoEventsAttendedChange={handleNoEventsAttendedChange}
         onEvidenceChange={handleAttendanceRequestEvidenceChange}
         onSubmit={handleAttendanceRequestSubmit}
       />
