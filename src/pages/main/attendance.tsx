@@ -2256,6 +2256,9 @@ export default function AttendancePage({
       const filesSaved = batchResult?.filesSaved ?? 0;
       const filesSkipped = batchResult?.filesSkipped ?? 0;
       const recordsSaved = batchResult?.recordsSaved ?? 0;
+      const fullyExemptImports = batchResult?.files.filter((item) =>
+        item.status === "saved" && item.result?.savedRecords.length === 0 && item.exemptedRows > 0,
+      ).length ?? 0;
       if (!batchResult || filesSaved + filesSkipped !== files.length || batchResult.filesFailed) {
         throw new Error("The attendance batch result was incomplete. Repository statuses were not updated.");
       }
@@ -2295,7 +2298,8 @@ export default function AttendancePage({
       } else {
         toast.success(
           `${filesSaved.toLocaleString()} file/s imported, ${recordsSaved.toLocaleString()} attendance record/s saved.` +
-          (filesSkipped ? ` ${filesSkipped} fully exempt file/s skipped; no records saved for those files.` : ""),
+          (fullyExemptImports ? ` ${fullyExemptImports} fully exempt workbook(s) imported with 0 attendance records; all exemptions remain active.` : "") +
+          (filesSkipped ? ` ${filesSkipped} workbook(s) require review by an older backend.` : ""),
         );
       }
 
@@ -3774,8 +3778,8 @@ export default function AttendancePage({
                         {excludedRows.length > 0 ? (
                           <p className="mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs font-semibold">
                             {excludedRows.length === details.previewRows.length
-                              ? `All ${excludedRows.length} attendee rows are exempt from the selected event(s). This workbook will not create attendance records. Verify the event assignment and its exemptions before saving.`
-                              : `${excludedRows.length} event-exempted attendee row(s) will be skipped (e.g. row ${excludedRows[0].rowNumber}, ${excludedRows[0].eventName}). Eligible rows assigned to other events will still be saved.`}
+                              ? `All ${excludedRows.length} attendee rows are exempt from the selected event(s). You can still import this workbook; it will be marked uploaded with zero attendance records. The event exemptions will remain active.`
+                              : `${excludedRows.length} event-exempted attendee row(s) will not create attendance records (e.g. row ${excludedRows[0].rowNumber}, ${excludedRows[0].eventName}). Other eligible rows will be saved and the workbook marked uploaded.`}
                           </p>
                         ) : null}
                         <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
