@@ -68,12 +68,26 @@ export type PublicStudentRecords = {
   collegeEventRecords: AttendanceRecord[];
 };
 
-export async function getPublicStudentRecords(studentId: string): Promise<PublicStudentRecords | null> {
-  const response = await apiRequest<PublicStudentRecords | null>(
+// A rapid double-submit should share its request, not consume two lookup slots.
+const inFlightPublicStudentRecords = new Map<string, Promise<PublicStudentRecords | null>>();
+
+export function getPublicStudentRecords(studentId: string): Promise<PublicStudentRecords | null> {
+  const cleanStudentId = studentId.trim();
+  const key = cleanStudentId.toLowerCase();
+  const existing = inFlightPublicStudentRecords.get(key);
+  if (existing) return existing;
+
+  const request = apiRequest<PublicStudentRecords | null>(
     "/api/public/student-records",
-    { method: "POST", body: JSON.stringify({ studentId: studentId.trim() }) },
-  );
-  return response.data ?? null;
+    { method: "POST", body: JSON.stringify({ studentId: cleanStudentId }) },
+  ).then((response) => response.data ?? null);
+  inFlightPublicStudentRecords.set(key, request);
+  void request.finally(() => {
+    if (inFlightPublicStudentRecords.get(key) === request) {
+      inFlightPublicStudentRecords.delete(key);
+    }
+  }).catch(() => undefined);
+  return request;
 }
 
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
@@ -235,6 +249,15 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     : null;
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retrySeconds = Number(response.headers.get("Retry-After"));
+      const wait = Number.isFinite(retrySeconds) && retrySeconds > 0
+        ? ` Please try again in ${retrySeconds < 60
+          ? `${Math.ceil(retrySeconds)} second(s)`
+          : `${Math.ceil(retrySeconds / 60)} minute(s)`}.`
+        : " Please try again later.";
+      throw new Error(`Too many requests.${wait}`);
+    }
     throw new Error(
       payload?.message || `Request failed with status ${response.status}.`,
     );
