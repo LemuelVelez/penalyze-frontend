@@ -171,7 +171,6 @@ export type CreateAttendanceRequestInput =
     })
   | (BaseCreateAttendanceRequestInput & {
       requestType: "details_correction";
-      lastName: string;
       evidenceUrl?: never;
       events?: never;
     });
@@ -421,7 +420,6 @@ export async function removeAttendanceRequestEvent(
 
 export async function getStudentAttendanceRequestStatus(
   studentId: string,
-  _lastName: string,
   schoolYearId?: string,
   accessCode?: string,
 ) {

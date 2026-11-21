@@ -2923,9 +2923,6 @@ function DetailsCorrectionDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: DetailsCorrectionFormState;
-  requireLastName: boolean;
-  lastName: string;
-  onLastNameChange: (value: string) => void;
   error: string;
   isSaving: boolean;
   onFieldChange: (
@@ -2973,13 +2970,6 @@ function DetailsCorrectionDialog(props: {
         </DialogHeader>
 
         <form onSubmit={props.onSubmit} className="w-full min-w-0 space-y-5">
-          {props.requireLastName ? (
-            <label className="block space-y-2 text-sm font-bold">
-              <span>Last name (for verification)</span>
-              <Input value={props.lastName} onChange={(event) => props.onLastNameChange(event.target.value)}
-                required maxLength={80} autoComplete="family-name" className={textInputClassName} />
-            </label>
-          ) : null}
           <div className="min-w-0 rounded-3xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold leading-6 text-blue-800 [overflow-wrap:anywhere]">
             Student ID: <strong>{props.form.studentId || "—"}</strong>. Officers will
             review the requested corrections before applying them.
@@ -3002,7 +2992,7 @@ function DetailsCorrectionDialog(props: {
             </div>
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
               {[
-                ...(!props.requireLastName ? [["Name", props.form.currentName]] : []),
+                ...(isAuthenticated() ? [["Name", props.form.currentName]] : []),
                 ["Year Level", props.form.currentYearLevel],
                 ["College", props.form.currentCollege],
                 ["Program", props.form.currentProgram],
@@ -3444,7 +3434,6 @@ async function listLandingAttendanceRecords(
 export default function LandingPage() {
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
-  const [lastName, setLastName] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
   const [lookup, setLookup] = useState<LookupState | null>(null);
@@ -4242,10 +4231,6 @@ export default function LandingPage() {
       setDetailsCorrectionError("Name is required.");
       return;
     }
-    if (!isAuthenticated() && !lastName.trim()) {
-      setDetailsCorrectionError("Last name is required for verification.");
-      return;
-    }
     if (!hasChanges) {
       setDetailsCorrectionError("No changes detected.");
       return;
@@ -4255,7 +4240,6 @@ export default function LandingPage() {
     try {
       await createAttendanceRequest({
         requestType: "details_correction",
-        lastName,
         honeypot,
         formStartedAt,
         schoolYearId,
@@ -4273,7 +4257,7 @@ export default function LandingPage() {
         normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)
       ) {
         try {
-          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId, lastName);
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
           setLookup((current) =>
             current ? { ...current, attendanceRequests: refreshedRequests } : current,
           );
@@ -4423,7 +4407,7 @@ export default function LandingPage() {
 
       if (lookup && searchedId && normalizeDisplayValue(searchedId) === normalizeDisplayValue(studentIdValue)) {
         try {
-          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId, lastName);
+          const refreshedRequests = await getStudentAttendanceRequestStatus(searchedId);
           setLookup((current) =>
             current ? { ...current, attendanceRequests: refreshedRequests } : current,
           );
@@ -4652,7 +4636,7 @@ export default function LandingPage() {
         const attendanceRecords = records.collegeEventRecords;
         const finalResults = records.finalResults;
 
-        const attendanceRequests = await getStudentAttendanceRequestStatus(cleanStudentId, lastName)
+        const attendanceRequests = await getStudentAttendanceRequestStatus(cleanStudentId)
           .catch(() => {
             setAttendanceRequestsLoadFailed(true);
             return [] as StudentAttendanceRequestStatus[];
@@ -4797,7 +4781,7 @@ export default function LandingPage() {
 
           return [] as AttendanceEvent[];
         });
-      const attendanceRequestsPromise = getStudentAttendanceRequestStatus(cleanStudentId, lastName)
+      const attendanceRequestsPromise = getStudentAttendanceRequestStatus(cleanStudentId)
         .then((requests) => {
           markProgressStepComplete(5, "Request status loaded...", `${requests.length.toLocaleString()} attendance request/s checked.`);
           return requests;
@@ -5384,9 +5368,6 @@ export default function LandingPage() {
       <DetailsCorrectionDialog
         open={detailsCorrectionDialogOpen}
         onOpenChange={setDetailsCorrectionDialogOpen}
-        requireLastName={!isAuthenticated()}
-        lastName={lastName}
-        onLastNameChange={setLastName}
         form={detailsCorrectionForm}
         error={detailsCorrectionError}
         isSaving={isSavingDetailsCorrection}
