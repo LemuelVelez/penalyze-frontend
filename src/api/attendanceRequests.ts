@@ -89,29 +89,17 @@ export type AttendanceRequestEvent = {
 };
 
 
+// Public status receipts expose only request metadata, not student details or evidence.
 export type StudentAttendanceRequestStatus = {
   id: string;
   school_year_id: string;
   school_year_name: string;
   semester: SchoolSemester;
   request_type: AttendanceRequestType;
-  name: string;
-  year_level: string | null;
-  college: string | null;
-  program: string | null;
-  current_name: string | null;
-  current_year_level: string | null;
-  current_college: string | null;
-  current_program: string | null;
   status: AttendanceRequestStatus;
-  request_note: string | null;
   review_note: string | null;
   reviewed_at: string | null;
   created_at: string;
-  events: Array<{
-    event_id: string | null;
-    event_name: string;
-  }>;
 };
 
 export type AttendanceRequest = {

@@ -911,70 +911,6 @@ function getAttendanceEventForMissedResult(
   );
 }
 
-function getAttendanceRequestEventMatch(
-  request: StudentAttendanceRequestStatus,
-  requestEvent: StudentAttendanceRequestStatus["events"][number],
-  attendanceEvents: AttendanceEvent[],
-) {
-  const eventId = String(requestEvent.event_id ?? "").trim();
-  if (eventId) {
-    return (
-      attendanceEvents.find(
-        (event) => String(event.id ?? "").trim() === eventId,
-      ) ?? null
-    );
-  }
-
-  const eventNameKey = normalizeEventKey(requestEvent.event_name);
-  if (!eventNameKey) return null;
-
-  return (
-    attendanceEvents.find(
-      (event) =>
-        event.school_year_id === request.school_year_id &&
-        normalizeEventKey(event.name) === eventNameKey,
-    ) ?? null
-  );
-}
-
-function filterExemptedRequestEvents(
-  request: StudentAttendanceRequestStatus,
-  attendance: AttendanceRecord[],
-  finalResult: AttendanceFinalResultRecord | null | undefined,
-  attendanceEvents: AttendanceEvent[],
-): StudentAttendanceRequestStatus | null {
-  if (request.request_type !== "event_review") return request;
-
-  const studentCollegeKey =
-    getResolvedStudentCollegeKey(attendance, finalResult) ||
-    normalizeCollegeKey(request.college) ||
-    normalizeCollegeKey(request.current_college);
-
-  const studentYearLevel =
-    getResolvedStudentYearLevel(attendance, finalResult) ||
-    request.year_level ||
-    request.current_year_level;
-
-  const visibleEvents = request.events.filter((requestEvent) => {
-    const matchedEvent = getAttendanceRequestEventMatch(
-      request,
-      requestEvent,
-      attendanceEvents,
-    );
-
-    return !isStudentExemptFromEvent(
-      matchedEvent,
-      studentCollegeKey,
-      studentYearLevel,
-    );
-  });
-
-  if (!visibleEvents.length) return null;
-  if (visibleEvents.length === request.events.length) return request;
-
-  return { ...request, events: visibleEvents };
-}
-
 function hasFinalAttendanceResultMarker(...values: unknown[]) {
   const finalAttendanceResultNames = new Set([
     normalizeDisplayValue(FINAL_ATTENDANCE_RESULT_NAME),
@@ -2983,19 +2919,6 @@ function detailsCorrectionValueChanged(currentValue: unknown, requestedValue: un
   return normalizeDisplayValue(currentValue) !== normalizeDisplayValue(requestedValue);
 }
 
-function getDetailsCorrectionChanges(request: StudentAttendanceRequestStatus) {
-  const fields = [
-    ["Name", request.current_name, request.name],
-    ["Year Level", request.current_year_level, request.year_level],
-    ["College", request.current_college, request.college],
-    ["Program", request.current_program, request.program],
-  ] as const;
-
-  return fields.filter(([, currentValue, requestedValue]) =>
-    detailsCorrectionValueChanged(currentValue, requestedValue),
-  );
-}
-
 function DetailsCorrectionDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -3710,28 +3633,11 @@ export default function LandingPage() {
   const displayedAttendanceRequests = useMemo(() => {
     if (!lookup) return [];
 
-    return lookup.attendanceRequests
-      .filter((request) =>
-        matchesSelectedYear(request.school_year_id, resultYearFilter),
-      )
-      .map((request) =>
-        filterExemptedRequestEvents(
-          request,
-          displayedAttendance,
-          displayedFinalResult,
-          lookup.attendanceEvents,
-        ),
-      )
-      .filter(
-        (request): request is StudentAttendanceRequestStatus =>
-          request !== null,
-      );
-  }, [
-    lookup,
-    resultYearFilter,
-    displayedAttendance,
-    displayedFinalResult,
-  ]);
+    // Public receipt-based status responses intentionally do not include event or student details.
+    return lookup.attendanceRequests.filter((request) =>
+      matchesSelectedYear(request.school_year_id, resultYearFilter),
+    );
+  }, [lookup, resultYearFilter]);
 
   const rejectedAttendanceRequestCount = displayedAttendanceRequests.filter(
     (request) => request.status === "rejected",
@@ -4246,7 +4152,7 @@ export default function LandingPage() {
           displayedFinalResult?.program || attendanceProfile?.program || "",
         institution: isAuthenticated()
           ? (displayedFinalResult?.institution || attendanceProfile?.institution || DEFAULT_STUDENT_INSTITUTION)
-          : "",
+          : DEFAULT_STUDENT_INSTITUTION,
       },
       getExcludedAttendanceRequestEventIds(schoolYearId),
     );
@@ -5588,25 +5494,9 @@ export default function LandingPage() {
                       </div>
                     </div>
 
-                    {request.request_type === "details_correction" ? (
-                      <div className="mt-4">
-                        <p className="text-xs font-bold uppercase text-muted-foreground">Requested changes</p>
-                        <div className="mt-2 space-y-2 text-sm font-semibold">
-                          {getDetailsCorrectionChanges(request).map(([label, currentValue, requestedValue]) => (
-                            <p key={label} className="break-words">
-                              {label}: {currentValue || "—"} → {requestedValue || "—"}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-4">
-                        <p className="text-xs font-bold uppercase text-muted-foreground">Claimed events</p>
-                        <p className="mt-1 break-words text-sm font-semibold">
-                          {request.events.map((event) => event.event_name).join(", ") || "—"}
-                        </p>
-                      </div>
-                    )}
+                    <p className="mt-4 text-sm font-semibold text-muted-foreground">
+                      Request details and evidence are available to authorized officers.
+                    </p>
 
                     {request.review_note ? (
                       <div className="mt-4 rounded-xl border bg-muted/40 p-3">
