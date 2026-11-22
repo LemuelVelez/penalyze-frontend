@@ -676,27 +676,26 @@ function CalculationStatusBadge(props: {
   } else if (props.isPreviewed) {
     label = "Calculated - Pending Save";
     className = "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200";
+  } else if (props.status) {
+    // This badge describes the selected calculation scope, not other pending files.
+    label = props.status.pending
+      ? "Pending Calculation"
+      : props.status.hasSourceData || props.status.hasSavedResults
+        ? "Up to Date"
+        : "No Data";
+    className = props.status.pending
+      ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+      : props.status.hasSourceData || props.status.hasSavedResults
+        ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+        : "border-border bg-muted text-muted-foreground";
   } else if (props.summary?.needsCalculation) {
     label = "Pending Calculation";
     className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
   } else if (props.summary) {
-    const hasAnyData =
-      Boolean(props.summary.lastCalculatedAt) ||
-      Boolean(props.status?.hasSourceData) ||
-      Boolean(props.status?.hasSavedResults);
-
-    label = hasAnyData ? "Up to Date" : "No Data";
-    className = hasAnyData
+    label = props.summary.lastCalculatedAt ? "Up to Date" : "No Data";
+    className = props.summary.lastCalculatedAt
       ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
       : "border-border bg-muted text-muted-foreground";
-  } else if (props.status?.pending) {
-    label = "Pending Calculation";
-    className = "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
-  } else if (props.status) {
-    label = props.status.hasSourceData || props.status.hasSavedResults
-      ? "Up to Date"
-      : "No Data";
-    className = "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
   }
 
   return (
@@ -2519,23 +2518,9 @@ export default function CalculatePage() {
     ) {
       return { label: "Checking...", disabled: true };
     }
-    if (hasOutsideSelectionPending) {
-      return {
-        label: "Select New Data",
-        disabled: false,
-        onClick: handleSelectNewData,
-      };
-    }
     if (isCurrentCalculationPreviewed) {
       return { label: "Already Calculated", disabled: true };
     }
-    if (
-      (calculationPendingSummary && !calculationPendingSummary.needsCalculation) ||
-      (isCalculationStatusCurrent && !calculationStatus?.pending)
-    ) {
-      return { label: "Up to Date", disabled: true, icon: true };
-    }
-    if (!canRunCalculation) return { label: "Select Data", disabled: true };
     if (canPreviewCalculation) {
       return {
         label: "Calculate Selected Files",
@@ -2543,6 +2528,17 @@ export default function CalculatePage() {
         onClick: handlePreviewCalculation,
       };
     }
+    if (hasOutsideSelectionPending) {
+      return {
+        label: "Select New Data",
+        disabled: false,
+        onClick: handleSelectNewData,
+      };
+    }
+    if (isCalculationStatusCurrent && !calculationStatus?.pending) {
+      return { label: "Up to Date", disabled: true, icon: true };
+    }
+    if (!canRunCalculation) return { label: "Select Data", disabled: true };
     return { label: "Checking...", disabled: true };
   }
 
