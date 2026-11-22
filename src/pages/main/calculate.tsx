@@ -681,6 +681,7 @@ function CalculationStatusBadge(props: {
   isPreviewed: boolean;
   status: CalculationStatusRecord | null;
   summary: CalculationPendingSummaryRecord | null;
+  isSavedScopeUpToDate: boolean;
 }) {
   let label = "Select data";
   let className = "border-border bg-muted text-muted-foreground";
@@ -691,6 +692,11 @@ function CalculationStatusBadge(props: {
   } else if (props.isPreviewed) {
     label = "Calculated - Pending Save";
     className = "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200";
+  } else if (props.isSavedScopeUpToDate && !props.status?.pending) {
+    // A completed save belongs to the selected scope; pending data outside it
+    // is shown by Select New Data rather than changing this badge.
+    label = "Up to Date";
+    className = "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
   } else if (props.status) {
     // This badge describes the selected calculation scope, not other pending files.
     label = props.status.pending
@@ -1006,6 +1012,10 @@ export default function CalculatePage() {
   const summaryRequestIdRef = useRef(0);
   const summaryRequestControllerRef = useRef<AbortController | null>(null);
   const autoSelectedPendingSignatureRef = useRef("");
+  const suppressPostSaveRefreshRef = useRef(false);
+  const savedCalculationSelectionKeyRef = useRef<string | null>(null);
+  const [lastSavedCalculationSelectionKey, setLastSavedCalculationSelectionKey] =
+    useState<string | null>(null);
 
   const selectedSchoolYearLabel = useMemo(() => {
     return getSchoolYearLabel(schoolYears, selectedSchoolYearId);
@@ -1104,6 +1114,14 @@ export default function CalculatePage() {
   const hasOutsideSelectionPending = pendingOutsideSelection.pending;
 
   useEffect(() => {
+    if (
+      suppressPostSaveRefreshRef.current ||
+      (savedCalculationSelectionKeyRef.current &&
+        savedCalculationSelectionKeyRef.current === currentCalculationSelectionKey)
+    ) {
+      return;
+    }
+
     const summary = calculationPendingSummary;
 
     if (!summary?.needsCalculation) {
@@ -1178,6 +1196,7 @@ export default function CalculatePage() {
   }, [
     attendanceImports,
     calculationPendingSummary,
+    currentCalculationSelectionKey,
     selectedSchoolYearId,
   ]);
 
@@ -1416,6 +1435,10 @@ export default function CalculatePage() {
 
   const loadCalculationPendingSummary = useCallback(
     async (nextSchoolYearId: string, keepCurrentSelection = false) => {
+      if (suppressPostSaveRefreshRef.current && !keepCurrentSelection) {
+        return null;
+      }
+
       summaryRequestControllerRef.current?.abort();
 
       const controller = new AbortController();
@@ -1439,9 +1462,9 @@ export default function CalculatePage() {
           return null;
         }
 
-        if (keepCurrentSelection && summary.needsCalculation) {
-          // Saving one selection must not silently add other pending sources
-          // and switch the badge back to Pending Calculation.
+        if (keepCurrentSelection) {
+          // Record the signature before publishing the new summary so an
+          // auto-selection effect cannot widen the just-saved scope.
           autoSelectedPendingSignatureRef.current = getPendingSummarySignature(
             nextSchoolYearId,
             summary,
@@ -1550,6 +1573,7 @@ export default function CalculatePage() {
       nextImportIds: string[],
       nextSourceTypes: CalculationSourceType[],
       progressTaskId?: string,
+      selectionMode: "initial" | "preserve" = "preserve",
     ) => {
       const { requestId, controller } = beginRequestRun();
       const { signal } = controller;
@@ -1581,11 +1605,13 @@ export default function CalculatePage() {
         if (!isCurrentRun()) return;
 
         const fallbackSchoolYearId =
-          nextSchoolYearId &&
-          nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
-          schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
-            ? nextSchoolYearId
-            : getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE;
+          selectionMode === "initial"
+            ? nextSchoolYearId &&
+              nextSchoolYearId !== ALL_SCHOOL_YEARS_VALUE &&
+              schoolYearRows.some((schoolYear) => schoolYear.id === nextSchoolYearId)
+              ? nextSchoolYearId
+              : getActiveSchoolYearId(schoolYearRows) || ALL_SCHOOL_YEARS_VALUE
+            : nextSchoolYearId;
         const requestSchoolYearId =
           fallbackSchoolYearId === ALL_SCHOOL_YEARS_VALUE
             ? undefined
@@ -1658,8 +1684,17 @@ export default function CalculatePage() {
         if (!isCurrentRun()) return;
 
         setSchoolYears(schoolYearRows);
-        setSelectedSchoolYearId(fallbackSchoolYearId);
-        setSelectedCalculationSources(normalizedSourceTypes);
+        if (selectionMode === "initial") {
+          setSelectedSchoolYearId((currentId) =>
+            currentId === fallbackSchoolYearId ? currentId : fallbackSchoolYearId,
+          );
+          setSelectedCalculationSources((currentSources) =>
+            currentSources.length === normalizedSourceTypes.length &&
+            currentSources.every((sourceType, index) => sourceType === normalizedSourceTypes[index])
+              ? currentSources
+              : normalizedSourceTypes,
+          );
+        }
         setAttendanceImports(sortByBackendEventOrder(importRows));
         setCalculationRows(savedRows);
         setLastCalculatedAt(latestCalculatedAt ?? "");
@@ -1835,6 +1870,8 @@ export default function CalculatePage() {
         ALL_SCHOOL_YEARS_VALUE,
         [],
         DEFAULT_SELECTED_CALCULATION_SOURCES,
+        undefined,
+        "initial",
       );
     }, 0);
 
@@ -1842,7 +1879,10 @@ export default function CalculatePage() {
   }, [loadSavedResults]);
 
   useEffect(() => {
+    if (suppressPostSaveRefreshRef.current) return;
+
     const timeoutId = window.setTimeout(() => {
+      if (suppressPostSaveRefreshRef.current) return;
       void loadCalculationStatus(
         selectedSchoolYearId,
         selectedImportIds,
@@ -1862,6 +1902,7 @@ export default function CalculatePage() {
 
   useEffect(() => {
     const refreshStatus = () => {
+      if (suppressPostSaveRefreshRef.current) return;
       void loadCalculationStatus(
         selectedSchoolYearId,
         selectedImportIds,
@@ -2342,6 +2383,20 @@ export default function CalculatePage() {
       return;
     }
 
+    const savedSchoolYearId = selectedSchoolYearId;
+    const savedSourceTypes = normalizeCalculationSourceTypes(selectedCalculationSources);
+    const savedImportIds = savedSourceTypes.includes("imported")
+      ? [...selectedImportIds]
+      : [];
+    const savedSelectionKey = getCalculationSelectionKey(
+      savedSchoolYearId,
+      savedImportIds,
+      savedSourceTypes,
+    );
+    suppressPostSaveRefreshRef.current = true;
+    summaryRequestControllerRef.current?.abort();
+    statusRequestControllerRef.current?.abort();
+
     const progressTaskId = startCalculationProgress(
       "Saving calculation results",
       "Saving calculated results",
@@ -2363,20 +2418,14 @@ export default function CalculatePage() {
 
     try {
       const requestSchoolYearId =
-        selectedSchoolYearId === ALL_SCHOOL_YEARS_VALUE
+        savedSchoolYearId === ALL_SCHOOL_YEARS_VALUE
           ? undefined
-          : selectedSchoolYearId;
-      const normalizedSourceTypes = normalizeCalculationSourceTypes(
-        selectedCalculationSources,
-      );
-      const requestImportIds = normalizedSourceTypes.includes("imported")
-        ? selectedImportIds
-        : [];
+          : savedSchoolYearId;
 
       await attendanceApi.refreshCalculationResults({
         schoolYearId: requestSchoolYearId,
-        importIds: requestImportIds,
-        sourceTypes: normalizedSourceTypes,
+        importIds: savedImportIds,
+        sourceTypes: savedSourceTypes,
         signal,
       });
       if (!isCurrentRun()) return;
@@ -2390,20 +2439,26 @@ export default function CalculatePage() {
       await yieldCalculationProgressFrame();
       if (!isCurrentRun()) return;
 
+      savedCalculationSelectionKeyRef.current = savedSelectionKey;
+      setLastSavedCalculationSelectionKey(savedSelectionKey);
+      // Discard the pre-save Pending status before publishing the saved badge.
+      setCalculationStatus(null);
+      setCalculationStatusSelectionKey(null);
       toast.success("Calculation results saved.");
       await loadSavedResults(
-        selectedSchoolYearId,
-        requestImportIds,
-        normalizedSourceTypes,
+        savedSchoolYearId,
+        savedImportIds,
+        savedSourceTypes,
         progressTaskId,
+        "preserve",
       );
       setPreviewedCalculationRevision(null);
       await loadCalculationStatus(
-        selectedSchoolYearId,
-        requestImportIds,
-        normalizedSourceTypes,
+        savedSchoolYearId,
+        savedImportIds,
+        savedSourceTypes,
       );
-      await loadCalculationPendingSummary(selectedSchoolYearId, true);
+      await loadCalculationPendingSummary(savedSchoolYearId, true);
     } catch (error) {
       if (isAbortError(error) || !isCurrentRun()) return;
 
@@ -2419,6 +2474,7 @@ export default function CalculatePage() {
           : "Unable to save calculated results.",
       );
     } finally {
+      suppressPostSaveRefreshRef.current = false;
       setIsSavingResults(false);
       if (activeRequestIdRef.current === requestId) {
         activeRequestControllerRef.current = null;
@@ -2592,6 +2648,9 @@ export default function CalculatePage() {
                   isPreviewed={isCurrentCalculationPreviewed}
                   status={isCalculationStatusCurrent ? calculationStatus : null}
                   summary={calculationPendingSummary}
+                  isSavedScopeUpToDate={
+                    lastSavedCalculationSelectionKey === currentCalculationSelectionKey
+                  }
                 />
               </div>
 
