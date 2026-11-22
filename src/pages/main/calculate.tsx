@@ -350,6 +350,21 @@ function getCalculationSelectionKey(
   ].join("|");
 }
 
+function getPendingSummarySignature(
+  schoolYearId: string,
+  summary: CalculationPendingSummaryRecord,
+) {
+  return JSON.stringify({
+    schoolYearId,
+    latestInputChangeAt: summary.latestInputChangeAt,
+    uncalculatedImportIds: summary.uncalculatedImports
+      .map((item) => item.id)
+      .sort(),
+    changedSourceTypes: [...summary.changedSourceTypes].sort(),
+    dependencyChanges: [...summary.dependencyChanges].sort(),
+  });
+}
+
 function getCalculationSourceLabel(sourceType: CalculationSourceType) {
   return (
     CALCULATION_SOURCE_OPTIONS.find((option) => option.value === sourceType)
@@ -1100,15 +1115,7 @@ export default function CalculatePage() {
       return;
     }
 
-    const signature = JSON.stringify({
-      schoolYearId: selectedSchoolYearId,
-      latestInputChangeAt: summary.latestInputChangeAt,
-      uncalculatedImportIds: summary.uncalculatedImports
-        .map((item) => item.id)
-        .sort(),
-      changedSourceTypes: [...summary.changedSourceTypes].sort(),
-      dependencyChanges: [...summary.dependencyChanges].sort(),
-    });
+    const signature = getPendingSummarySignature(selectedSchoolYearId, summary);
 
     if (autoSelectedPendingSignatureRef.current === signature) return;
 
@@ -1408,7 +1415,7 @@ export default function CalculatePage() {
   }, []);
 
   const loadCalculationPendingSummary = useCallback(
-    async (nextSchoolYearId: string) => {
+    async (nextSchoolYearId: string, keepCurrentSelection = false) => {
       summaryRequestControllerRef.current?.abort();
 
       const controller = new AbortController();
@@ -1432,6 +1439,14 @@ export default function CalculatePage() {
           return null;
         }
 
+        if (keepCurrentSelection && summary.needsCalculation) {
+          // Saving one selection must not silently add other pending sources
+          // and switch the badge back to Pending Calculation.
+          autoSelectedPendingSignatureRef.current = getPendingSummarySignature(
+            nextSchoolYearId,
+            summary,
+          );
+        }
         setCalculationPendingSummary(summary);
         return summary;
       } catch (error) {
@@ -2388,7 +2403,7 @@ export default function CalculatePage() {
         requestImportIds,
         normalizedSourceTypes,
       );
-      await loadCalculationPendingSummary(selectedSchoolYearId);
+      await loadCalculationPendingSummary(selectedSchoolYearId, true);
     } catch (error) {
       if (isAbortError(error) || !isCurrentRun()) return;
 
