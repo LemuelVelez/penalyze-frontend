@@ -1615,6 +1615,31 @@ function addAbsentEventSummary(
   }
 }
 
+function getRequestableMissedEventIds(
+  finalResult: AttendanceFinalResultRecord | null | undefined,
+): Set<string> | null {
+  if (!finalResult) return null;
+
+  if (Array.isArray(finalResult.event_details)) {
+    return new Set(
+      finalResult.event_details
+        .filter((event) => event.attended === false)
+        .map((event) => String(event.id ?? "").trim())
+        .filter(Boolean),
+    );
+  }
+
+  if (Array.isArray(finalResult.missed_events)) {
+    return new Set(
+      finalResult.missed_events
+        .map((event) => String(event.id ?? "").trim())
+        .filter(Boolean),
+    );
+  }
+
+  return null;
+}
+
 function getFinalResultAbsentEventSummaries(
   finalResult: AttendanceFinalResultRecord | null | undefined,
   attendance: AttendanceRecord[] = [],
@@ -4061,15 +4086,80 @@ export default function LandingPage() {
     }));
   }
 
+  function getAttendanceRequestFinalResult(schoolYearId: string) {
+    if (!lookup) return null;
+
+    return lookup.finalResults
+      .filter((result) => result.school_year_id === schoolYearId)
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at || left.created_at).getTime();
+        const rightTime = new Date(right.updated_at || right.created_at).getTime();
+        return rightTime - leftTime;
+      })[0] ?? null;
+  }
+
   async function loadAttendanceRequestEvents(schoolYearId: string) {
     if (!schoolYearId) {
       setAttendanceRequestEvents([]);
       return;
     }
 
+    const filterRequestableEvents = (rows: AttendanceEvent[]) => {
+      const allowedIds = getRequestableMissedEventIds(
+        getAttendanceRequestFinalResult(schoolYearId),
+      );
+      let filteredRows: AttendanceEvent[];
+
+      if (allowedIds !== null) {
+        filteredRows = rows.filter((event) => allowedIds.has(event.id));
+        const includedIds = new Set(filteredRows.map((event) => event.id));
+
+        for (const event of lookup?.attendanceEvents ?? []) {
+          if (
+            event.school_year_id === schoolYearId &&
+            allowedIds.has(event.id) &&
+            !includedIds.has(event.id)
+          ) {
+            filteredRows.push(event);
+            includedIds.add(event.id);
+          }
+        }
+      } else if (!isAuthenticated() && lookup?.attendanceRecords.length) {
+        const rosterEventIds = new Set(
+          lookup.attendanceRecords
+            .filter((record) =>
+              getAttendanceRecordYear(record, attendanceEventById) === schoolYearId,
+            )
+            .map((record) => String(record.event_id ?? "").trim())
+            .filter(Boolean),
+        );
+        filteredRows = rows.filter((event) => rosterEventIds.has(event.id));
+      } else {
+        filteredRows = rows;
+      }
+
+      return filteredRows.sort((left, right) => {
+        const orderDifference =
+          (left.event_order ?? Number.MAX_SAFE_INTEGER) -
+          (right.event_order ?? Number.MAX_SAFE_INTEGER);
+        if (orderDifference !== 0) return orderDifference;
+
+        const dateDifference = (left.event_start_at ?? "\uffff").localeCompare(
+          right.event_start_at ?? "\uffff",
+        );
+        if (dateDifference !== 0) return dateDifference;
+
+        return eventNameCollator.compare(left.name, right.name);
+      });
+    };
+
     if (!isAuthenticated()) {
       setAttendanceRequestEvents(
-        (lookup?.attendanceEvents ?? []).filter((item) => item.school_year_id === schoolYearId),
+        filterRequestableEvents(
+          (lookup?.attendanceEvents ?? []).filter(
+            (item) => item.school_year_id === schoolYearId,
+          ),
+        ),
       );
       return;
     }
@@ -4081,7 +4171,7 @@ export default function LandingPage() {
         limit: 500,
         offset: 0,
       });
-      setAttendanceRequestEvents(rows);
+      setAttendanceRequestEvents(filterRequestableEvents(rows));
     } catch (requestError) {
       setAttendanceRequestEvents([]);
       setAttendanceRequestError(
