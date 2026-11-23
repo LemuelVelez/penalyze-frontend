@@ -11,27 +11,6 @@ function escapeXml(value: unknown) {
     .replace(/'/g, "&apos;");
 }
 
-function parseCurrency(value: string | null | undefined) {
-  const text = String(value ?? "").trim();
-  const match = text.match(/^(?:₱|PHP\s*|P\s*)([\d,]+(?:\.\d{1,2})?)$/i);
-  if (!match) return null;
-  const amount = Number(match[1].replace(/,/g, ""));
-  return Number.isFinite(amount) ? amount : null;
-}
-
-export function getFineReportAmount(result: PenaltyResultRecord) {
-  return parseCurrency(result.prescribed_penalty);
-}
-
-export function formatFineReportCurrency(value: number | null) {
-  if (value == null) return "—";
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "PHP",
-    minimumFractionDigits: 2,
-  }).format(value);
-}
-
 function columnName(index: number) {
   let value = index + 1;
   let name = "";
@@ -72,8 +51,6 @@ function createSheetXml(rows: PenaltyResultRecord[]) {
     "College",
     "No. of Absences",
     "Prescribed Penalty",
-    "Fine Amount",
-    "Status",
     "Updated At",
   ];
 
@@ -83,8 +60,6 @@ function createSheetXml(rows: PenaltyResultRecord[]) {
     result.college ?? "",
     Number(result.no_of_absences || 0),
     result.prescribed_penalty,
-    getFineReportAmount(result),
-    result.status.toUpperCase(),
     excelDateSerial(result.updated_at),
   ]);
 
@@ -98,8 +73,7 @@ function createSheetXml(rows: PenaltyResultRecord[]) {
 
           const banded = rowIndex % 2 === 0;
           if (columnIndex === 3) return cellXml(ref, value, banded ? 5 : 2);
-          if (columnIndex === 5) return cellXml(ref, value, banded ? 6 : 3);
-          if (columnIndex === 7) return cellXml(ref, value, banded ? 7 : 4);
+          if (columnIndex === 5) return cellXml(ref, value, banded ? 7 : 4);
           return cellXml(ref, value, banded ? 8 : 0);
         })
         .join("");
@@ -116,12 +90,10 @@ function createSheetXml(rows: PenaltyResultRecord[]) {
     <col min="3" max="3" width="24" customWidth="1"/>
     <col min="4" max="4" width="16" customWidth="1"/>
     <col min="5" max="5" width="58" customWidth="1"/>
-    <col min="6" max="6" width="16" customWidth="1"/>
-    <col min="7" max="7" width="14" customWidth="1"/>
-    <col min="8" max="8" width="22" customWidth="1"/>
+    <col min="6" max="6" width="22" customWidth="1"/>
   </cols>
   <sheetData>${rowXml}</sheetData>
-  <autoFilter ref="A1:H${Math.max(1, rows.length + 1)}"/>
+  <autoFilter ref="A1:F${Math.max(1, rows.length + 1)}"/>
 </worksheet>`;
 }
 

@@ -30,7 +30,6 @@ type ExportReportProps = {
 type FineSummary = {
   absences: number;
   penalty: string;
-  status: string;
 };
 
 type ReportRow = {
@@ -180,17 +179,16 @@ function getReportRows(
       const absences = getAbsenceCount(fine.no_of_absences);
       const penalty =
         cleanValue(fine.prescribed_penalty) || "No prescribed penalty";
-      const status = cleanValue(fine.status).toUpperCase() || "NO STATUS";
-      const fineKey = `${absences}::${normalizeValue(penalty)}::${normalizeValue(status)}`;
+      const fineKey = `${absences}::${normalizeValue(penalty)}`;
 
       if (
         !row.fines.some(
           (item) =>
-            `${item.absences}::${normalizeValue(item.penalty)}::${normalizeValue(item.status)}` ===
+            `${item.absences}::${normalizeValue(item.penalty)}` ===
             fineKey,
         )
       ) {
-        row.fines.push({ absences, penalty, status });
+        row.fines.push({ absences, penalty });
       }
     });
   });
@@ -234,7 +232,7 @@ function getAbsenceText(row: ReportRow) {
 
 function getFineText(row: ReportRow) {
   if (!row.fines.length) return "No fine";
-  return row.fines.map((fine) => `${fine.penalty} (${fine.status})`).join("; ");
+  return row.fines.map((fine) => fine.penalty).join("; ");
 }
 
 function buildExcelDocument(

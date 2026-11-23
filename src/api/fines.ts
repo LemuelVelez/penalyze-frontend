@@ -2,8 +2,6 @@ import { checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import type { AttendanceRecord } from "./attendance";
 
-export type FineStatus = "unpaid" | "paid" | "waived";
-
 export type FineRecord = {
   id: string;
   school_year_id: string | null;
@@ -13,14 +11,13 @@ export type FineRecord = {
   name: string;
   no_of_absences?: number | null;
   prescribed_penalty: string;
-  status: FineStatus;
   attendance_event_id?: string | null;
   attendance_remarks?: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type FineSummary = Record<FineStatus, number>;
+export type FineSummary = { total: number };
 
 export type PenaltyRecord = {
   id: string;
@@ -38,7 +35,6 @@ export type PenaltyResultRecord = {
   no_of_absences: number;
   penalty_id: string | null;
   prescribed_penalty: string;
-  status: FineStatus;
   source_table: string | null;
   source_record_id: string | null;
   college?: string | null;
@@ -73,7 +69,6 @@ export type PenaltyResultUpdateInput = {
   name?: string;
   noOfAbsences: number;
   prescribedPenalty: string;
-  status: FineStatus;
 };
 
 export type ZeroAttendanceFinePayload = {
@@ -100,7 +95,6 @@ type ApiEnvelope<T> = {
 
 type ListFineOptions = {
   schoolYearId?: string;
-  status?: FineStatus | "";
   studentId?: string;
   limit?: number;
   offset?: number;
@@ -219,7 +213,6 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
 export async function listFines(options: ListFineOptions = {}) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
-    status: options.status || undefined,
     studentId: options.studentId,
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
@@ -242,7 +235,6 @@ export function penaltyResultToFineRecord(result: PenaltyResultRecord): FineReco
     name: result.name,
     no_of_absences: result.no_of_absences,
     prescribed_penalty: result.prescribed_penalty,
-    status: result.status,
     attendance_event_id: null,
     attendance_remarks:
       result.source_table === "manual_attendance_records"
@@ -273,7 +265,6 @@ export async function getStudentFines(studentId: string) {
 export async function listPenaltyResults(options: ListFineOptions = {}) {
   const query = buildSearchParams({
     schoolYearId: options.schoolYearId,
-    status: options.status || undefined,
     studentId: options.studentId,
     limit: options.limit ?? 5000,
     offset: options.offset ?? 0,
@@ -302,7 +293,6 @@ export async function listAllPenaltyResults(options: ListFineOptions & {
   for (let page = 0; page < maxPages; page += 1) {
     const pageRows = await listPenaltyResults({
       schoolYearId: options.schoolYearId,
-      status: options.status,
       studentId: options.studentId,
       limit: pageSize,
       offset: page * pageSize,
@@ -347,21 +337,6 @@ export async function refreshPenaltyResults(
   return response.data ?? [];
 }
 
-export async function updatePenaltyResultStatus(
-  id: string,
-  status: FineStatus,
-) {
-  const response = await apiRequest<PenaltyResultRecord>(
-    `/api/fines/penalty-results/${encodeURIComponent(id)}/status`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    },
-  );
-
-  return response.data;
-}
-
 export async function updatePenaltyResult(
   id: string,
   input: PenaltyResultUpdateInput,
@@ -404,7 +379,7 @@ export async function deletePenaltyResultsBySchoolYear(schoolYearId: string) {
 export async function getFineSummary(schoolYearId?: string) {
   const query = buildSearchParams({ schoolYearId });
   const response = await apiRequest<FineSummary>(`/api/fines/summary${query}`);
-  return response.data ?? { unpaid: 0, paid: 0, waived: 0 };
+  return response.data ?? { total: 0 };
 }
 
 export async function registerZeroAttendanceFine(
@@ -423,18 +398,6 @@ export async function registerZeroAttendanceFine(
   }
 
   notifyCalculationStatusUpdated();
-  return response.data;
-}
-
-export async function updateFineStatus(id: string, status: FineStatus) {
-  const response = await apiRequest<FineRecord>(
-    `/api/fines/${encodeURIComponent(id)}/status`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    },
-  );
-
   return response.data;
 }
 

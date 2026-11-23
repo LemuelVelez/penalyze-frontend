@@ -4,10 +4,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,7 +14,6 @@ import type {
   AttendanceDashboardOverview,
   AttendanceImportRecord,
 } from "../api/attendance";
-import type { FineSummary } from "../api/fines";
 
 type TooltipEntry = {
   color?: string;
@@ -168,75 +163,6 @@ export function AttendanceTrendChart({
           />
         </AreaChart>
       </ResponsiveContainer>
-    </div>
-  );
-}
-
-const fineStatusConfig = [
-  { key: "unpaid", label: "Unpaid", color: "var(--chart-unpaid)" },
-  { key: "paid", label: "Paid", color: "var(--chart-paid)" },
-  { key: "waived", label: "Waived", color: "var(--chart-waived)" },
-] as const;
-
-export function FineStatusDonutChart({
-  fineSummary,
-  isLoading,
-}: {
-  fineSummary: FineSummary;
-  isLoading: boolean;
-}) {
-  if (isLoading) return <ChartSkeleton />;
-
-  const data = fineStatusConfig.map((status) => ({
-    ...status,
-    value: fineSummary[status.key],
-  }));
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-
-  if (!total) return <EmptyChart message="No fine records for this school year." />;
-
-  return (
-    <div
-      className="relative h-72 w-full min-w-0 max-w-full"
-      role="img"
-      aria-label={`Fine status breakdown: ${fineSummary.unpaid.toLocaleString()} unpaid, ${fineSummary.paid.toLocaleString()} paid, and ${fineSummary.waived.toLocaleString()} waived.`}
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            nameKey="label"
-            cx="50%"
-            cy="45%"
-            innerRadius={62}
-            outerRadius={92}
-            paddingAngle={2}
-            stroke="var(--card)"
-            strokeWidth={2}
-          >
-            {data.map((item) => (
-              <Cell key={item.key} fill={item.color} />
-            ))}
-          </Pie>
-          <Tooltip content={<DashboardTooltip />} />
-          <Legend
-            verticalAlign="bottom"
-            iconType="circle"
-            formatter={(value) => (
-              <span className="text-xs font-semibold text-muted-foreground">
-                {value}
-              </span>
-            )}
-          />
-        </PieChart>
-      </ResponsiveContainer>
-      <div className="pointer-events-none absolute inset-x-0 top-[38%] flex -translate-y-1/2 flex-col items-center justify-center">
-        <span className="text-2xl font-black tabular-nums">{total.toLocaleString()}</span>
-        <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-          Total
-        </span>
-      </div>
     </div>
   );
 }

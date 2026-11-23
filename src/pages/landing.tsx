@@ -474,22 +474,6 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
-function statusBadge(status: FineRecord["status"]) {
-  const styles: Record<FineRecord["status"], string> = {
-    unpaid: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300",
-    paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300",
-    waived: "border-blue-200 bg-blue-50 text-blue-700",
-  };
-
-  return (
-    <span
-      className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${styles[status]}`}
-    >
-      {status}
-    </span>
-  );
-}
-
 function formatAbsenceCount(value: number, forceTenPlus = false) {
   const numericValue = Number(value || 0);
 
@@ -860,7 +844,6 @@ function isZeroAttendanceFine(fine: FineRecord) {
     fine.attendance_remarks,
     fineData.remarks,
     fineData.classification,
-    fineData.status,
     fineData.result,
   );
 }
@@ -2062,7 +2045,6 @@ function buildDisplayedAbsentEventFallbackFine(props: {
       props.studentId ||
       "Student record pending",
     no_of_absences: absenceCount,
-    status: "unpaid" as const,
     created_at: String(displayDate),
     updated_at: String(baseFine.updated_at ?? displayDate),
   } satisfies FineRecord;
@@ -2084,7 +2066,6 @@ function getFineDisplayKey(fine: FineRecord) {
     getFineAbsenceCount(fine),
     normalizeFineDisplayValue(fine.prescribed_penalty),
     normalizeFineDisplayValue(fine.created_at),
-    normalizeFineDisplayValue(fine.status),
   ].join("::");
 }
 
@@ -2184,16 +2165,6 @@ function compareFineRecordsByBackendEventOrder(
   );
 }
 
-function getMergedFineStatus(fines: FineRecord[]): FineRecord["status"] {
-  if (fines.some((fine) => fine.status === "unpaid")) return "unpaid";
-  if (fines.length && fines.every((fine) => fine.status === "paid"))
-    return "paid";
-  if (fines.length && fines.every((fine) => fine.status === "waived"))
-    return "waived";
-
-  return fines[0]?.status ?? "unpaid";
-}
-
 function getStudentMergedFineKey(fine: FineRecord) {
   if (isFallbackFine(fine)) return `fallback:${fine.id}`;
 
@@ -2242,7 +2213,6 @@ function mergeStudentFineRecords(fines: FineRecord[]): DisplayFineRecord[] {
     return {
       ...baseFine,
       no_of_absences: mergedAbsenceCount,
-      status: getMergedFineStatus(group),
       merged_fine_ids: getMergedFineIds(group),
       merged_record_count: group.length,
     };
@@ -2278,7 +2248,6 @@ function buildFallbackFine(
     no_of_absences: noOfAbsences,
     prescribed_penalty:
       penalty?.prescribed_penalty ?? "No prescribed penalty configured.",
-    status: "unpaid",
     attendance_event_id: latestAttendance?.event_id ?? null,
     attendance_remarks: latestAttendance?.remarks ?? null,
     created_at: String(latestAttendance?.created_at ?? now),
@@ -2304,11 +2273,6 @@ function normalizeManualAttendanceFineForDisplay(
   const updatedAt = String(
     fineRecord.updated_at ?? attendanceRecord.updated_at ?? createdAt,
   );
-  const status =
-    fineRecord.status === "paid" || fineRecord.status === "waived"
-      ? fineRecord.status
-      : "unpaid";
-
   return {
     id: String(fineRecord.id),
     school_year_id:
@@ -2323,7 +2287,6 @@ function normalizeManualAttendanceFineForDisplay(
     ),
     prescribed_penalty:
       fineRecord.prescribed_penalty ?? "No prescribed penalty configured.",
-    status,
     attendance_event_id:
       fineRecord.attendance_event_id ?? attendanceRecord.event_id ?? null,
     attendance_remarks:
@@ -4026,10 +3989,6 @@ export default function LandingPage() {
     displayedFinalResult,
   ]);
 
-  const unpaidFines = useMemo(() => {
-    return displayedFines.filter((fine) => fine.status === "unpaid").length;
-  }, [displayedFines]);
-
   const studentDisplayName = useMemo(() => {
     if (displayedFinalResult?.name) return displayedFinalResult.name;
 
@@ -5246,7 +5205,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                 <div
                   className={`rounded-2xl border px-5 py-4 ${resultClassificationClassName}`}
                 >
@@ -5263,12 +5222,6 @@ export default function LandingPage() {
                       Computed from the configured penalty table.
                     </p>
                   ) : null}
-                </div>
-                <div className="rounded-2xl border bg-card px-5 py-4">
-                  <p className="text-xs font-bold uppercase text-muted-foreground">
-                    Unpaid fines
-                  </p>
-                  <p className="text-2xl font-black">{unpaidFines}</p>
                 </div>
                 <Button
                   type="button"
@@ -5376,7 +5329,7 @@ export default function LandingPage() {
 
               {fallbackFineActive ? (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200">
-                  No saved fine record was returned. A computed unpaid fine is
+                  No saved fine record was returned. A computed fine is
                   shown using the configured penalty table.
                 </div>
               ) : null}
@@ -5458,7 +5411,6 @@ export default function LandingPage() {
                                 {isFallbackFine(fine) ? " • computed" : ""}
                               </p>
                             </div>
-                            {statusBadge(fine.status)}
                           </div>
                         </article>
                       ))}

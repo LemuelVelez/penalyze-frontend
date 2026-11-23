@@ -26,12 +26,6 @@ const AttendanceTrendChart = lazy(() =>
   })),
 );
 
-const FineStatusDonutChart = lazy(() =>
-  import("../../components/dashboard-charts").then((module) => ({
-    default: module.FineStatusDonutChart,
-  })),
-);
-
 const RecentImportsQualityChart = lazy(() =>
   import("../../components/dashboard-charts").then((module) => ({
     default: module.RecentImportsQualityChart,
@@ -113,11 +107,7 @@ export default function DashboardPage() {
   const [attendanceByCollege, setAttendanceByCollege] = useState<
     Array<{ college: string; count: number }>
   >([]);
-  const [fineSummary, setFineSummary] = useState<FineSummary>({
-    unpaid: 0,
-    paid: 0,
-    waived: 0,
-  });
+  const [fineSummary, setFineSummary] = useState<FineSummary>({ total: 0 });
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [yearFilter, setYearFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -194,7 +184,7 @@ export default function DashboardPage() {
         setAttendanceRecordCount(0);
         setAttendanceTrend([]);
         setAttendanceByCollege([]);
-        setFineSummary({ unpaid: 0, paid: 0, waived: 0 });
+        setFineSummary({ total: 0 });
         setLoadProgress((current) =>
           current
             ? {
@@ -223,7 +213,7 @@ export default function DashboardPage() {
       updateLoadStep(
         "Fine totals",
         "loading",
-        "Counting unpaid, paid, and waived fines",
+        "Counting fine records",
         32,
         "Attendance summary and fine totals are loading in parallel.",
       );
@@ -253,9 +243,7 @@ export default function DashboardPage() {
         updateLoadStep(
           "Fine totals",
           "done",
-          `${(
-            summary.unpaid + summary.paid + summary.waived
-          ).toLocaleString()} fine record/s counted`,
+          `${summary.total.toLocaleString()} fine record/s counted`,
           86,
           "Fine totals are ready. Finalizing the dashboard.",
         );
@@ -315,8 +303,7 @@ export default function DashboardPage() {
               Dashboard
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Monitor attendance imports, unpaid fines, paid records, and waived
-              penalties by selected year in one responsive view.
+              Monitor attendance imports and fine records by selected year in one responsive view.
             </p>
           </div>
           <div className="flex min-w-0 flex-col flex-wrap gap-2 sm:flex-row sm:items-center">
@@ -353,7 +340,7 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2">
           <StatCard
             label="Attendance records"
             value={attendanceRecordCount}
@@ -361,27 +348,15 @@ export default function DashboardPage() {
             image={BACKGROUND_CARD.dashboardAttendance}
           />
           <StatCard
-            label="Unpaid fines"
-            value={fineSummary.unpaid}
-            helper={`${yearLabel} needs settlement`}
-            image={BACKGROUND_CARD.dashboardUnpaid}
-          />
-          <StatCard
-            label="Paid fines"
-            value={fineSummary.paid}
-            helper={`${yearLabel} settled penalties`}
-            image={BACKGROUND_CARD.dashboardPaid}
-          />
-          <StatCard
-            label="Waived fines"
-            value={fineSummary.waived}
-            helper={`${yearLabel} approved waivers`}
-            image={BACKGROUND_CARD.dashboardWaived}
+            label="Fine records"
+            value={fineSummary.total}
+            helper={`${yearLabel} saved fine records`}
+            image={BACKGROUND_CARD.dashboardFines}
           />
         </section>
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-3">
-          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6 lg:col-span-2">
+        <section className="mt-6 grid gap-6">
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
             <h2 className="text-xl font-black">Attendance trend</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Attendance records from the last 14 days for {yearLabel}.
@@ -393,17 +368,6 @@ export default function DashboardPage() {
             </div>
           </article>
 
-          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
-            <h2 className="text-xl font-black">Fine status breakdown</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Unpaid, paid, and waived fine records for {yearLabel}.
-            </p>
-            <div className="mt-4">
-              <Suspense fallback={<ChartSuspenseFallback />}>
-                <FineStatusDonutChart fineSummary={fineSummary} isLoading={isLoading} />
-              </Suspense>
-            </div>
-          </article>
         </section>
 
         <section className="mt-6 grid gap-6 lg:grid-cols-3">

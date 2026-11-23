@@ -16,10 +16,8 @@ import {
   deletePenaltyResultsBySchoolYear,
   updatePenalty,
   updatePenaltyResult,
-  updatePenaltyResultStatus,
 } from "../../api/fines";
 import type {
-  FineStatus,
   PenaltyRecord,
   PenaltyResultRecord,
   PenaltyResultAbsentEvents,
@@ -27,10 +25,12 @@ import type {
 import {
   ALL_SCHOOL_YEARS_VALUE,
   getSchoolYearLabel,
+  getSemesterLabel,
   listSchoolYears,
 } from "../../api/schoolYears";
 import type { SchoolYearRecord } from "../../api/schoolYears";
 import { ActionMenu } from "../../components/action-menu";
+import { CollegeSelectDialog } from "../../components/college-select-dialog";
 import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { SortSelect } from "../../components/sort-select";
 import { LoadingStatus } from "../../components/loading-status";
@@ -55,11 +55,8 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { sortByDate, useSortOrderSearchParam } from "../../lib/sort";
-import {
-  downloadFinesReportXlsx,
-  formatFineReportCurrency,
-  getFineReportAmount,
-} from "../../components/finesReport";
+import { normalizeCollegeKey } from "../../lib/colleges";
+import { downloadFinesReportXlsx } from "../../components/finesReport";
 
 type PenaltyFormState = {
   id: string;
@@ -73,10 +70,7 @@ type PenaltyResultFormState = {
   name: string;
   noOfAbsences: string;
   prescribedPenalty: string;
-  status: FineStatus;
 };
-
-type StatusFilter = FineStatus | "all";
 
 type FinesPageLoadProgress = {
   progress: number;
@@ -97,21 +91,7 @@ const emptyPenaltyResultForm: PenaltyResultFormState = {
   name: "",
   noOfAbsences: "0",
   prescribedPenalty: "",
-  status: "unpaid",
 };
-
-const statusOptions: Array<{ value: StatusFilter; label: string }> = [
-  { value: "all", label: "All status" },
-  { value: "unpaid", label: "Unpaid" },
-  { value: "paid", label: "Paid" },
-  { value: "waived", label: "Waived" },
-];
-
-const fineStatusOptions: Array<{ value: FineStatus; label: string }> = [
-  { value: "unpaid", label: "Unpaid" },
-  { value: "paid", label: "Paid" },
-  { value: "waived", label: "Waived" },
-];
 
 const ALL_YEARS_VALUE = ALL_SCHOOL_YEARS_VALUE;
 
@@ -143,16 +123,6 @@ function matchesDateRange(
   ].join("-");
 
   return (!fromDate || localDate >= fromDate) && (!toDate || localDate <= toDate);
-}
-
-function getStatusBadgeClassName(status: FineStatus) {
-  const styles: Record<FineStatus, string> = {
-    unpaid: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300",
-    paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300",
-    waived: "border-blue-200 bg-blue-50 text-blue-700",
-  };
-
-  return styles[status];
 }
 
 function getPenaltyResultCollege(result: PenaltyResultRecord) {
@@ -249,11 +219,14 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
   );
 }
 
+function sanitizeFileNamePart(value: string) {
+  return value.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim();
+}
+
 export default function FinesPage() {
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [collegeFilter, setCollegeFilter] = useState("__all_colleges__");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -288,7 +261,8 @@ export default function FinesPage() {
   >([]);
   const [isDeletingPenaltyResults, setIsDeletingPenaltyResults] =
     useState(false);
-  const [updatingStatusId, setUpdatingStatusId] = useState("");
+  const [reportCollegeDialogOpen, setReportCollegeDialogOpen] = useState(false);
+  const [reportCollege, setReportCollege] = useState("");
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const activeStudentSearch = studentSearch.trim();
 
@@ -342,8 +316,6 @@ export default function FinesPage() {
     const normalizedSearch = studentSearch.trim().toLowerCase();
 
     const filtered = penaltyResults.filter((result) => {
-      const matchesStatus =
-        statusFilter === "all" || result.status === statusFilter;
       const resultCollege = getPenaltyResultCollege(result);
       const matchesCollege =
         collegeFilter === "__all_colleges__" ||
@@ -360,7 +332,7 @@ export default function FinesPage() {
         String(result.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
         String(result.name ?? "").toLowerCase().includes(normalizedSearch);
 
-      return matchesStatus && matchesCollege && matchesDate && matchesStudent;
+      return matchesCollege && matchesDate && matchesStudent;
     });
 
     return sortByDate(
@@ -370,13 +342,20 @@ export default function FinesPage() {
     );
   }, [
     penaltyResults,
-    statusFilter,
     collegeFilter,
     fromDate,
     toDate,
     studentSearch,
     sortOrder,
   ]);
+
+  const reportPenaltyResults = useMemo(() => {
+    if (!reportCollege) return [];
+    const key = normalizeCollegeKey(reportCollege);
+    return filteredPenaltyResults.filter(
+      (result) => normalizeCollegeKey(getPenaltyResultCollege(result)) === key,
+    );
+  }, [filteredPenaltyResults, reportCollege]);
 
   const penaltyResultsTotalPages = useMemo(() => {
     if (rowsPerPage === "all") return 1;
@@ -386,7 +365,6 @@ export default function FinesPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [
-    statusFilter,
     collegeFilter,
     fromDate,
     toDate,
@@ -436,14 +414,6 @@ export default function FinesPage() {
   const summary = useMemo(() => {
     return {
       total: filteredPenaltyResults.length,
-      unpaid: filteredPenaltyResults.filter(
-        (result) => result.status === "unpaid",
-      ).length,
-      paid: filteredPenaltyResults.filter((result) => result.status === "paid")
-        .length,
-      waived: filteredPenaltyResults.filter(
-        (result) => result.status === "waived",
-      ).length,
       absences: filteredPenaltyResults.reduce(
         (total, result) => total + Number(result.no_of_absences || 0),
         0,
@@ -741,7 +711,6 @@ export default function FinesPage() {
     try {
       const result =
         selectedSchoolYearId !== ALL_YEARS_VALUE &&
-        statusFilter === "all" &&
         collegeFilter === "__all_colleges__"
           ? await deletePenaltyResultsBySchoolYear(selectedSchoolYearId)
           : await deletePenaltyResultsByIds(resultIds);
@@ -836,35 +805,6 @@ export default function FinesPage() {
     }
   }
 
-  async function handleStatusChange(
-    result: PenaltyResultRecord,
-    status: FineStatus,
-  ) {
-    setUpdatingStatusId(result.id);
-
-    try {
-      const updated = await updatePenaltyResultStatus(result.id, status);
-      setPenaltyResults((current) =>
-        sortPenaltyResultsByBackendEventOrder(
-          current.map((item) =>
-            item.id === result.id && updated
-              ? mergePenaltyResultUpdate(item, updated)
-              : item,
-          ),
-        ),
-      );
-      toast.success("Penalty status updated.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to update penalty status.",
-      );
-    } finally {
-      setUpdatingStatusId("");
-    }
-  }
-
   function handleOpenPenaltyResultDialog(result: PenaltyResultRecord) {
     setPenaltyResultForm({
       id: result.id,
@@ -872,7 +812,6 @@ export default function FinesPage() {
       name: result.name,
       noOfAbsences: String(result.no_of_absences ?? 0),
       prescribedPenalty: result.prescribed_penalty ?? "",
-      status: result.status,
     });
     setPenaltyResultDialogOpen(true);
   }
@@ -920,7 +859,6 @@ export default function FinesPage() {
         name: penaltyResultForm.name.trim(),
         noOfAbsences,
         prescribedPenalty: penaltyResultForm.prescribedPenalty.trim(),
-        status: penaltyResultForm.status,
         ...(currentCollege ? { college: currentCollege } : {}),
       } as Parameters<typeof updatePenaltyResult>[1]);
 
@@ -959,20 +897,16 @@ export default function FinesPage() {
 
 
   function handleDownloadFinesReport() {
-    if (!filteredPenaltyResults.length) {
-      toast.error("No fine records are available for this report.");
+    if (!reportCollege || !reportPenaltyResults.length) {
+      toast.error("No fine records are available for this college.");
       return;
     }
-
-    const safeSchoolYear = selectedSchoolYearLabel
-      .replace(/[^a-z0-9_-]+/gi, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase();
-
-    downloadFinesReportXlsx(
-      filteredPenaltyResults,
-      `fines-report-${safeSchoolYear || "all"}.xlsx`,
-    );
+    const schoolYear = schoolYears.find((item) => item.id === selectedSchoolYearId);
+    const scopeLabel = schoolYear
+      ? `${schoolYear.name} - ${getSemesterLabel(schoolYear.semester)}`
+      : "All School Years";
+    const fileName = `${sanitizeFileNamePart(reportCollege)} - ${sanitizeFileNamePart(scopeLabel)}.xlsx`;
+    downloadFinesReportXlsx(reportPenaltyResults, fileName);
   }
 
   function handleEditPenalty(penalty: PenaltyRecord) {
@@ -1015,24 +949,6 @@ export default function FinesPage() {
                 ariaLabel="Sort penalty results"
                 className="min-h-12 min-w-0 w-full rounded-2xl sm:w-full"
               />
-
-              <Select
-                value={statusFilter}
-                onValueChange={(value) =>
-                  setStatusFilter(value as StatusFilter)
-                }
-              >
-                <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl sm:w-full">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
 
               <Select value={collegeFilter} onValueChange={setCollegeFilter}>
                 <SelectTrigger className="min-h-12 w-full min-w-0 rounded-2xl sm:w-full">
@@ -1082,7 +998,7 @@ export default function FinesPage() {
           />
         ) : null}
 
-        <section className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="min-w-0 rounded-3xl border bg-card p-4 sm:col-span-2 sm:p-5 xl:col-span-2">
             <p className="text-sm font-bold text-muted-foreground">
               School Year / Semester
@@ -1095,12 +1011,6 @@ export default function FinesPage() {
             <p className="text-sm font-bold text-muted-foreground">Results</p>
             <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
               {summary.total.toLocaleString()}
-            </p>
-          </div>
-          <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
-            <p className="text-sm font-bold text-muted-foreground">Unpaid</p>
-            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
-              {summary.unpaid.toLocaleString()}
             </p>
           </div>
           <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
@@ -1124,7 +1034,7 @@ export default function FinesPage() {
                 type="button"
                 variant="outline"
                 disabled={!filteredPenaltyResults.length}
-                onClick={() => setReportDialogOpen(true)}
+                onClick={() => setReportCollegeDialogOpen(true)}
                 className="min-h-12 w-full min-w-0 whitespace-normal rounded-2xl px-3 py-2 text-center text-xs font-black 2xl:w-auto 2xl:px-5"
               >
                 Fines Report
@@ -1280,10 +1190,7 @@ export default function FinesPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>
-                      {result.status}
-                    </span>
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -1294,27 +1201,10 @@ export default function FinesPage() {
                     </Button>
                   </div>
 
-                  <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 text-sm">
+                  <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
                       <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold uppercase text-muted-foreground">Status</p>
-                      <Select
-                        value={result.status}
-                        onValueChange={(value) => handleStatusChange(result, value as FineStatus)}
-                        disabled={updatingStatusId === result.id}
-                      >
-                        <SelectTrigger className="mt-1 min-h-11 w-full min-w-0 rounded-xl text-xs font-bold sm:w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {fineStatusOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
 
@@ -1360,7 +1250,6 @@ export default function FinesPage() {
                   <th className="px-4 py-3">College</th>
                   <th className="px-4 py-3">Absences</th>
                   <th className="px-4 py-3">Prescribed Penalty</th>
-                  <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -1400,36 +1289,6 @@ export default function FinesPage() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {result.prescribed_penalty}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}
-                          >
-                            {result.status}
-                          </span>
-                          <Select
-                            value={result.status}
-                            onValueChange={(value) =>
-                              handleStatusChange(result, value as FineStatus)
-                            }
-                            disabled={updatingStatusId === result.id}
-                          >
-                            <SelectTrigger className="h-9 w-32 rounded-xl text-xs font-bold">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {fineStatusOptions.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  value={option.value}
-                                >
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </td>
                       <td className="px-4 py-3 text-right">
                         <ActionMenu
                           ariaLabel={`Actions for ${result.student_id}`}
@@ -1446,7 +1305,7 @@ export default function FinesPage() {
                 ) : (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={7}
                       className="px-4 py-10 text-center text-sm font-semibold text-muted-foreground"
                     >
                       {isLoading ? (
@@ -1567,31 +1426,40 @@ export default function FinesPage() {
             )}
           </div>
         </section>
-        <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <CollegeSelectDialog
+          open={reportCollegeDialogOpen}
+          onOpenChange={setReportCollegeDialogOpen}
+          title="Select college for fines report"
+          description="Which college is this fines report for? Only this college's records will be included, and the file will be named after the college, school year and semester."
+          confirmLabel="Continue"
+          initialCollege={collegeFilter !== "__all_colleges__" && collegeFilter !== "__unassigned_college__" ? collegeFilter : undefined}
+          onConfirm={(college) => { setReportCollege(college); setReportDialogOpen(true); }}
+        />
+        <Dialog open={reportDialogOpen} onOpenChange={(open) => { setReportDialogOpen(open); if (!open) setReportCollege(""); }}>
           <DialogContent className="flex h-[min(90dvh,52rem)] min-w-0 max-w-full flex-col overflow-hidden sm:max-w-5xl">
             <DialogHeader className="shrink-0">
-              <DialogTitle>Fines report preview</DialogTitle>
+              <DialogTitle>Fines report — {reportCollege}</DialogTitle>
               <DialogDescription>
-                {filteredPenaltyResults.length.toLocaleString()} record(s) matching the current fines filters.
+                {reportPenaltyResults.length.toLocaleString()} record(s) for {reportCollege} · {selectedSchoolYearLabel}
               </DialogDescription>
             </DialogHeader>
 
             <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain">
-              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
-                {filteredPenaltyResults.map((result) => (
+              {reportPenaltyResults.length ? (
+                <>
+                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
+                {reportPenaltyResults.map((result) => (
                   <article key={result.id} className="min-w-0 rounded-2xl border bg-background p-3 text-sm sm:p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="break-all font-black">{result.student_id}</p>
                         <p className="break-words font-semibold" title={result.name}>{result.name}</p>
                       </div>
-                      <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${getStatusBadgeClassName(result.status)}`}>{result.status}</span>
                     </div>
                     <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                       <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
                       <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 break-all font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
                       <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 break-words">{result.prescribed_penalty || "—"}</p></div>
-                      <div><p className="text-xs font-bold uppercase text-muted-foreground">Fine amount</p><p className="mt-1 break-all font-black">{formatFineReportCurrency(getFineReportAmount(result))}</p></div>
                     </div>
                   </article>
                 ))}
@@ -1605,32 +1473,34 @@ export default function FinesPage() {
                     <th className="whitespace-nowrap border-b border-r px-3 py-2">College</th>
                     <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Absences</th>
                     <th className="min-w-80 border-b border-r px-3 py-2">Prescribed Penalty</th>
-                    <th className="whitespace-nowrap border-b border-r px-3 py-2 text-right">Fine Amount</th>
-                    <th className="whitespace-nowrap border-b border-r px-3 py-2">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPenaltyResults.map((result, index) => (
+                  {reportPenaltyResults.map((result, index) => (
                     <tr key={result.id} className={index % 2 ? "bg-muted/35" : "bg-background"}>
                       <td className={`sticky left-0 z-10 whitespace-nowrap border-b border-r px-3 py-2 font-semibold ${index % 2 ? "bg-muted" : "bg-background"}`}>{result.student_id}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2">{result.name}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2">{getPenaltyResultCollege(result) || "—"}</td>
                       <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{Number(result.no_of_absences || 0).toLocaleString()}</td>
                       <td className="border-b border-r px-3 py-2">{result.prescribed_penalty || "—"}</td>
-                      <td className="whitespace-nowrap border-b border-r px-3 py-2 text-right tabular-nums">{formatFineReportCurrency(getFineReportAmount(result))}</td>
-                      <td className="whitespace-nowrap border-b border-r px-3 py-2 font-semibold uppercase">{result.status}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              </div>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
+                  No fine records found for {reportCollege} with the current filters.
+                </div>
+              )}
             </div>
 
             <DialogFooter className="shrink-0">
-              <Button type="button" variant="outline" onClick={() => setReportDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => { setReportDialogOpen(false); setReportCollege(""); }}>
                 Close
               </Button>
-              <Button type="button" onClick={handleDownloadFinesReport}>
+              <Button type="button" onClick={handleDownloadFinesReport} disabled={!reportPenaltyResults.length}>
                 Download .xlsx
               </Button>
             </DialogFooter>
@@ -1697,29 +1567,6 @@ export default function FinesPage() {
                   />
                 </label>
 
-                <label className="min-w-0 space-y-2">
-                  <span className="text-sm font-bold">Status</span>
-                  <Select
-                    value={penaltyResultForm.status}
-                    onValueChange={(value) =>
-                      setPenaltyResultForm((current) => ({
-                        ...current,
-                        status: value as FineStatus,
-                      }))
-                    }
-                  >
-                    <SelectTrigger className="min-h-12 w-full rounded-2xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {fineStatusOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
 
                 <label className="min-w-0 space-y-2 sm:col-span-2">
                   <span className="text-sm font-bold">Prescribed penalty</span>
