@@ -103,7 +103,7 @@ export type AttendanceRequestEvent = {
 };
 
 
-// Public status receipts expose only request metadata, not student details or evidence.
+// Public lookups expose request status metadata; reviewer notes require a receipt.
 export type StudentAttendanceRequestStatus = {
   id: string;
   school_year_id: string;
@@ -112,6 +112,7 @@ export type StudentAttendanceRequestStatus = {
   request_type: AttendanceRequestType;
   status: AttendanceRequestStatus;
   review_note: string | null;
+  review_note_access: boolean;
   reviewed_at: string | null;
   created_at: string;
 };
@@ -428,12 +429,12 @@ export async function getStudentAttendanceRequestStatus(
   schoolYearId?: string,
   accessCode?: string,
 ) {
-  if (accessCode?.trim()) rememberStatusReceipt(studentId, accessCode.trim());
-  const receipts = readStatusReceipts(studentId);
-  if (!receipts.length) return [] as StudentAttendanceRequestStatus[];
+  const cleanStudentId = studentId.trim();
+  if (accessCode?.trim()) rememberStatusReceipt(cleanStudentId, accessCode.trim());
+  const receipts = readStatusReceipts(cleanStudentId);
   const response = await apiRequest<StudentAttendanceRequestStatus[]>(
     "/api/attendance/requests/student-status",
-    { method: "POST", body: JSON.stringify({ receipts }) },
+    { method: "POST", body: JSON.stringify({ studentId: cleanStudentId, receipts }) },
   );
   const rows = response.data ?? [];
   return schoolYearId ? rows.filter((row) => row.school_year_id === schoolYearId) : rows;

@@ -3679,7 +3679,7 @@ export default function LandingPage() {
   const displayedAttendanceRequests = useMemo(() => {
     if (!lookup) return [];
 
-    // Public receipt-based status responses intentionally do not include event or student details.
+    // Public status responses intentionally do not include event or student details.
     return lookup.attendanceRequests.filter((request) =>
       matchesSelectedYear(request.school_year_id, resultYearFilter),
     );
@@ -5572,7 +5572,7 @@ export default function LandingPage() {
           <DialogHeader className={landingDialogHeaderClassName}>
             <DialogTitle>Attendance Requests</DialogTitle>
             <DialogDescription>
-              Review the status and details of attendance requests for {selectedYearLabel}.
+              Review the status of attendance requests for {selectedYearLabel}. Reviewer notes require a valid request receipt.
             </DialogDescription>
           </DialogHeader>
 
@@ -5649,6 +5649,10 @@ export default function LandingPage() {
                         <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
                         <p className="mt-2 whitespace-pre-wrap break-words text-sm">{request.review_note}</p>
                       </div>
+                    ) : request.status !== "pending" && !request.review_note_access ? (
+                      <div className="mt-4 rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">
+                        Reviewer notes require the original request receipt. Check from the browser used to submit this request or contact your college officer.
+                      </div>
                     ) : request.status === "rejected" ? (
                       <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
                         No reason was provided. Please contact your college officer.
@@ -5665,7 +5669,9 @@ export default function LandingPage() {
                               : "Your attendance for these events has been added."
                           : request.status === "pending"
                             ? "Waiting for review."
-                            : "This request was rejected. Review the note and submit a corrected request."}
+                            : request.review_note
+                              ? "This request was rejected. Review the note and submit a corrected request."
+                              : "This request was rejected. Contact your college officer before submitting a corrected request."}
                       </p>
                       {request.status === "rejected" ? (
                         <Button
@@ -5687,11 +5693,11 @@ export default function LandingPage() {
                   </article>
                 ))}
               </div>
-            ) : (
+            ) : !attendanceRequestsLoadFailed ? (
               <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                 No attendance requests for this school year.
               </div>
-            )}
+            ) : null}
           </div>
 
           <DialogFooter className={landingDialogFooterClassName}>
