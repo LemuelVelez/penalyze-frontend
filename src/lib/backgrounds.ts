@@ -9,7 +9,7 @@ export const BACKGROUNDS = {
   // A real campus photograph works with the translucent app panels in dark mode.
   mainDark: `https://images.unsplash.com/photo-1523050854058-8df90110c9f1${params}`,
   loginPanel: `https://images.unsplash.com/photo-1541339907198-e08756dedf3f${params}`,
-  dashboardAttendance: `https://images.unsplash.com/photo-1523050854058-8df90110c9f1${params}`,
+  dashboardAttendance: `https://images.unsplash.com/photo-1523240795612-9a054b0db644${params}`,
   dashboardFines: `https://images.unsplash.com/photo-1524178232363-1fb2b075b655${params}`,
 } as const;
 
