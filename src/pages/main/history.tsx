@@ -288,6 +288,8 @@ export default function HistoryPage() {
   const [activeRecordsDialog, setActiveRecordsDialog] =
     useState<RecordsDialogKey | null>(null);
   const [recordDialogSearch, setRecordDialogSearch] = useState("");
+  const [attendanceRequestStatusFilter, setAttendanceRequestStatusFilter] =
+    useState<AttendanceRequestStatus | "all">("all");
   const [sortOrder, setSortOrder] = useSortOrderSearchParam();
   const [selectedRecords, setSelectedRecords] =
     useState<SelectedRecordState>(emptySelectedRecords);
@@ -494,6 +496,8 @@ export default function HistoryPage() {
 
   const filteredAttendanceRequests = useMemo(() => {
     const filtered = attendanceRequests.filter((request) =>
+      (attendanceRequestStatusFilter === "all" ||
+        request.status === attendanceRequestStatusFilter) &&
       recordMatchesSearch(recordDialogSearch, [
         request.id,
         request.student_id,
@@ -511,7 +515,7 @@ export default function HistoryPage() {
     );
 
     return sortByDate(filtered, (request) => request.created_at, sortOrder);
-  }, [attendanceRequests, recordDialogSearch, sortOrder]);
+  }, [attendanceRequests, attendanceRequestStatusFilter, recordDialogSearch, sortOrder]);
 
   const attendanceRequestStatusCounts = useMemo(() => {
     return attendanceRequests.reduce(
@@ -805,11 +809,13 @@ export default function HistoryPage() {
 
   function handleOpenRecordsDialog(groupKey: RecordsDialogKey) {
     setRecordDialogSearch("");
+    setAttendanceRequestStatusFilter("all");
     setActiveRecordsDialog(groupKey);
   }
 
   function handleCloseRecordsDialog() {
     setRecordDialogSearch("");
+    setAttendanceRequestStatusFilter("all");
     setActiveRecordsDialog(null);
   }
 
@@ -1813,30 +1819,31 @@ export default function HistoryPage() {
             </DialogHeader>
             {renderDialogSearchInput("attendance requests")}
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+              <button
+                type="button"
+                aria-pressed={attendanceRequestStatusFilter === "all"}
+                aria-label="Show all attendance requests"
+                onClick={() => setAttendanceRequestStatusFilter("all")}
+                className={`cursor-pointer rounded-full border border-transparent bg-muted px-3 py-1 text-xs font-bold text-muted-foreground transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${attendanceRequestStatusFilter === "all" ? "ring-2 ring-current ring-offset-2 ring-offset-background" : ""}`}
+              >
                 {attendanceRequests.length.toLocaleString()} request/s
-              </span>
-              {attendanceRequestStatusCounts.pending > 0 ? (
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("pending")}`}
+              </button>
+              {(["pending", "approved", "rejected"] as const).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={attendanceRequestStatusFilter === status}
+                  aria-label={`Filter ${status} attendance requests`}
+                  onClick={() =>
+                    setAttendanceRequestStatusFilter((current) =>
+                      current === status ? "all" : status,
+                    )
+                  }
+                  className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-black transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${attendanceRequestStatusClassName(status)} ${attendanceRequestStatusFilter === status ? "ring-2 ring-current ring-offset-2 ring-offset-background" : ""}`}
                 >
-                  {attendanceRequestStatusCounts.pending.toLocaleString()} pending
-                </span>
-              ) : null}
-              {attendanceRequestStatusCounts.approved > 0 ? (
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("approved")}`}
-                >
-                  {attendanceRequestStatusCounts.approved.toLocaleString()} approved
-                </span>
-              ) : null}
-              {attendanceRequestStatusCounts.rejected > 0 ? (
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-black ${attendanceRequestStatusClassName("rejected")}`}
-                >
-                  {attendanceRequestStatusCounts.rejected.toLocaleString()} rejected
-                </span>
-              ) : null}
+                  {attendanceRequestStatusCounts[status].toLocaleString()} {status}
+                </button>
+              ))}
             </div>
             <div className="mt-4 space-y-3">
               {attendanceRequests.length ? (
@@ -1967,7 +1974,9 @@ export default function HistoryPage() {
                   })
                 ) : (
                   renderEmptyRecordState(
-                    "No attendance requests match your search.",
+                    attendanceRequestStatusFilter === "all"
+                      ? "No attendance requests match your search."
+                      : `No ${attendanceRequestStatusFilter} attendance requests match the current filters.`,
                   )
                 )
               ) : (
