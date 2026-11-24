@@ -103,7 +103,7 @@ export type AttendanceRequestEvent = {
 };
 
 
-// Public lookups expose request status metadata; reviewer notes require a receipt.
+// Public lookups expose request status and reviewer notes, but not evidence.
 export type StudentAttendanceRequestStatus = {
   id: string;
   school_year_id: string;

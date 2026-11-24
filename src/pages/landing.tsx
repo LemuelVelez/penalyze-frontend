@@ -5572,7 +5572,7 @@ export default function LandingPage() {
           <DialogHeader className={landingDialogHeaderClassName}>
             <DialogTitle>Attendance Requests</DialogTitle>
             <DialogDescription>
-              Review the status of attendance requests for {selectedYearLabel}. Reviewer notes require a valid request receipt.
+              Review the status and reviewer notes of attendance requests for {selectedYearLabel}.
             </DialogDescription>
           </DialogHeader>
 
@@ -5648,10 +5648,6 @@ export default function LandingPage() {
                       <div className="mt-4 rounded-xl border bg-muted/40 p-3">
                         <p className="text-xs font-bold uppercase text-muted-foreground">Reviewer's note</p>
                         <p className="mt-2 whitespace-pre-wrap break-words text-sm">{request.review_note}</p>
-                      </div>
-                    ) : request.status !== "pending" && !request.review_note_access ? (
-                      <div className="mt-4 rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">
-                        Reviewer notes require the original request receipt. Check from the browser used to submit this request or contact your college officer.
                       </div>
                     ) : request.status === "rejected" ? (
                       <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
