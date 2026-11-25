@@ -1,3 +1,4 @@
+import { useMasterlistStatus } from "../lib/use-masterlist-status";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -154,6 +155,7 @@ function PendingBadge(props: {
 
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
+  const { active: masterlistActive } = useMasterlistStatus();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopGroupOpen, setDesktopGroupOpen] = useState<string | null>(null);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
@@ -273,7 +275,7 @@ export default function AppLayout(props: LayoutProps) {
   const navGroups = rawNavGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+      items: group.items.filter((item) => (!item.adminOnly || isAdmin) && (!masterlistActive || item.path !== "/manual-attendance")),
     }))
     .filter((group) => group.items.length > 0);
 

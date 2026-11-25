@@ -1,3 +1,4 @@
+import { invalidateMasterlistStatus } from "../../lib/use-masterlist-status";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -65,6 +66,7 @@ export default function MasterlistPage() {
       if (action === "reconcile") setSummary(await reconcileMasterlistWithProgress(setProgress));
       if (action === "delete" && deleteTarget) { await deleteMasterlist(deleteTarget.id); setSummary(null); setData(previous => previous ? {...previous,import:null,pendingUpload:null,rows:[],total:0} : previous); setDeleteOpen(false); setDeleteTarget(null); }
       if (action === "discard" && discardTarget) { await discardMasterlistUpload(discardTarget.id); setData(previous => previous ? {...previous,pendingUpload:null} : previous); setDiscardOpen(false); setDiscardTarget(null); }
+      if (action !== "discard") invalidateMasterlistStatus();
       setPage(0); toast.success(action === "delete" ? "Masterlist removed." : action === "discard" ? "Saved upload discarded. You can start a new upload." : "Masterlist reconciled.");
     } catch (e) { toast.error(e instanceof Error ? e.message : "Request failed."); }
     finally { deleting.current = false; setLoading(true); setRevision(v => v + 1); setBusy(false); setAction(null); }

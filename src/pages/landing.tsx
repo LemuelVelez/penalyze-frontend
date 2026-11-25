@@ -1,3 +1,4 @@
+import { useMasterlistStatus } from "../lib/use-masterlist-status";
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -3157,6 +3158,7 @@ function DetailsCorrectionDialog(props: {
 }
 
 function AttendanceRequestDialog(props: {
+  masterlistActive: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   form: AttendanceRequestFormState;
@@ -3204,7 +3206,7 @@ function AttendanceRequestDialog(props: {
           <DialogTitle>Request Event Attendance Review</DialogTitle>
           <DialogDescription>
             Student ID {props.form.studentId || "—"} · {schoolYearLabel}. Select
-            the events you attended, or declare that you did not attend any.
+            the events you attended{props.masterlistActive ? "." : ", or declare that you did not attend any."}
           </DialogDescription>
         </DialogHeader>
 
@@ -3331,7 +3333,9 @@ function AttendanceRequestDialog(props: {
               </p>
             </div>
 
-            {props.form.hasNoAttendanceRecord ? (
+            {props.masterlistActive ? (
+              <p className="rounded-2xl border bg-muted/40 p-3 text-sm">No-participation registration is not needed this semester. All students on the masterlist are already listed.</p>
+            ) : props.form.hasNoAttendanceRecord ? (
               <label className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 ${props.form.noEventsAttended ? "border-primary bg-muted/60" : "bg-background"}`}>
                 <Checkbox
                   checked={props.form.noEventsAttended}
@@ -3347,7 +3351,7 @@ function AttendanceRequestDialog(props: {
               </label>
             ) : null}
 
-            {props.form.noEventsAttended ? null : props.isLoadingEvents ? (
+            {props.form.noEventsAttended && !props.masterlistActive ? null : props.isLoadingEvents ? (
               <div className="rounded-2xl border border-dashed bg-background p-5 text-center text-sm font-semibold text-muted-foreground">
                 Loading events for the selected school year / semester...
               </div>
@@ -3499,6 +3503,7 @@ async function listLandingAttendanceRecords(
 }
 
 export default function LandingPage() {
+  const { active: masterlistActive, loading: masterlistStatusLoading } = useMasterlistStatus(true);
   const navigate = useNavigate();
   const [studentId, setStudentId] = useState("");
   const [honeypot, setHoneypot] = useState("");
@@ -4056,6 +4061,10 @@ export default function LandingPage() {
     cleanStudentId: string,
     availableSchoolYears: SchoolYearRecord[] = schoolYears,
   ) {
+    if (masterlistActive || masterlistStatusLoading) {
+      setError(masterlistActive ? "No-participation registration is not needed this semester. All students on the masterlist are already listed." : "Checking masterlist status. Please try again.");
+      return;
+    }
     setLookup(null);
     setResultDialogOpen(false);
     setEventsDialogOpen(false);
@@ -4453,6 +4462,7 @@ export default function LandingPage() {
   }
 
   function handleNoEventsAttendedChange(selected: boolean) {
+    if (masterlistActive) return;
     setAttendanceRequestError("");
     setAttendanceRequestForm((current) => ({
       ...current,
@@ -4495,6 +4505,11 @@ export default function LandingPage() {
         (!name || !attendanceRequestForm.yearLevel.trim() ||
          !attendanceRequestForm.college.trim() || !attendanceRequestForm.program.trim())) {
       setAttendanceRequestError("Full name, year level, college, and program are required.");
+      return;
+    }
+    if (masterlistActive && attendanceRequestForm.noEventsAttended) {
+      setAttendanceRequestForm(current => ({ ...current, noEventsAttended: false }));
+      setAttendanceRequestError("No-participation registration is not needed this semester. All students on the masterlist are already listed.");
       return;
     }
     if (!attendanceRequestForm.noEventsAttended && !attendanceRequestForm.selectedEventIds.length) {
@@ -5171,6 +5186,7 @@ export default function LandingPage() {
               </Button>
             </form>
 
+            {masterlistActive ? <p className="mt-3 text-sm text-muted-foreground">No-participation registration is not needed this semester. All students on the masterlist are already listed.</p> : null}
             {isSearching ? (
               <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
@@ -5529,7 +5545,7 @@ export default function LandingPage() {
       </Dialog>
 
       <ZeroAttendanceRegistrationDialog
-        open={zeroAttendanceDialogOpen}
+        open={zeroAttendanceDialogOpen && !masterlistActive && !masterlistStatusLoading}
         onOpenChange={(open) => {
           if (!open && attendanceRequestDialogOpen) return;
           setZeroAttendanceDialogOpen(open);
@@ -5710,6 +5726,7 @@ export default function LandingPage() {
       </Dialog>
 
       <AttendanceRequestDialog
+        masterlistActive={masterlistActive}
         open={attendanceRequestDialogOpen}
         onOpenChange={setAttendanceRequestDialogOpen}
         form={attendanceRequestForm}

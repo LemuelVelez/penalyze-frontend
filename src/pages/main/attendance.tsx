@@ -1,3 +1,5 @@
+import { useMasterlistStatus } from "../../lib/use-masterlist-status";
+import { normalizeStudentNumberKey } from "../../lib/student-number";
 import { Badge } from "../../components/ui/badge";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
@@ -769,7 +771,7 @@ function getResultBadgeClassName(result: AttendanceFinalResultRecord) {
   return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200";
 }
 
-function getResultLabel(result: AttendanceFinalResultRecord) {
+function getResultLabel(result: AttendanceFinalResultRecord, masterlistActive = false) {
   if (result.attendance_status === "unresolved_college") return "Needs review";
   if (
     result.expected_events > 0 &&
@@ -778,6 +780,7 @@ function getResultLabel(result: AttendanceFinalResultRecord) {
   ) {
     return `Perfect attendance (${result.attended_events}/${result.expected_events})`;
   }
+  if (masterlistActive && !result.latest_scanned_at && result.attendance_status === "with_absences") return "With absences";
   return `${result.total_absences} absence${result.total_absences === 1 ? "" : "s"}`;
 }
 
@@ -900,6 +903,7 @@ export default function AttendancePage({
   onRepositoryReviewClose,
   onRepositoryReviewSaved,
 }: AttendancePageProps = {}) {
+  const { active: masterlistActive } = useMasterlistStatus();
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] =
     useState(ALL_YEARS_VALUE);
@@ -1097,6 +1101,7 @@ export default function AttendancePage({
 
   const displayedFinalResults = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
+    const studentNumberKey = normalizeStudentNumberKey(studentSearch);
 
     const filtered = finalResults.filter((row) => {
       const matchesCollege =
@@ -1110,6 +1115,7 @@ export default function AttendancePage({
       const matchesStudent =
         !normalizedSearch ||
         String(row.student_id ?? "").toLowerCase().includes(normalizedSearch) ||
+        (!!studentNumberKey && normalizeStudentNumberKey(row.student_id).includes(studentNumberKey)) ||
         String(row.name ?? "").toLowerCase().includes(normalizedSearch);
 
       return matchesCollege && matchesDate && matchesStudent;
@@ -4512,7 +4518,7 @@ export default function AttendancePage({
                 {eventsDialogResult?.name || eventsDialogResult?.student_id}
               </DialogTitle>
               <DialogDescription>
-                Review this student's attended and missed events for the selected school year.{canAdjustEventAttendance ? " Use + / − for a single event, select multiple events for one batch update, or choose Add all / Subtract all. Original uploads stay intact." : ""}
+                Review this student's attended and missed events for the selected school year.{canAdjustEventAttendance ? " Click + next to a missed event or − next to an attended event. Tick several events and use Add selected / Subtract selected, or Add all / Subtract all. Totals, Calculate and Fines update automatically. Uploaded files are never changed." : ""}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-5">
@@ -5094,6 +5100,19 @@ export default function AttendancePage({
         ) : null}
 
         <section className="rounded-2xl border bg-card p-5 shadow-sm">
+          {masterlistActive && (
+            <aside className="mb-4 space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm">
+              <h3 className="font-bold">How to correct a student's attendance</h3>
+              <ol className="list-decimal space-y-1 pl-5">
+                <li>Search the student by <strong>name</strong> or <strong>Student ID</strong> in the search box.</li>
+                <li>On the student's row, click <strong>Events (attended / expected)</strong>.</li>
+                <li>Click <strong>+</strong> next to a missed event to mark it attended, or <strong>−</strong> next to an attended event to mark it missed.</li>
+                <li>To change several events at once, tick them and click <strong>Add selected</strong> / <strong>Subtract selected</strong>, or use <strong>Add all</strong> / <strong>Subtract all</strong>.</li>
+                <li>Totals, Calculate and Fines update automatically. Uploaded files are never changed.</li>
+              </ol>
+              <p>Every student on the masterlist is listed here, including students with no scans yet. They start with all expected events marked absent.</p>
+            </aside>
+          )}
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-lg font-semibold">Final attendance results</h2>
@@ -5238,7 +5257,7 @@ export default function AttendancePage({
                   </div>
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result)}`}>
-                      {getResultLabel(result)}
+                      {getResultLabel(result, masterlistActive)}
                     </span>
                     <Button
                       type="button"
@@ -5341,7 +5360,7 @@ export default function AttendancePage({
                           <span
                             className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getResultBadgeClassName(result)}`}
                           >
-                            {getResultLabel(result)}
+                            {getResultLabel(result, masterlistActive)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">

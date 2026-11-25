@@ -1,3 +1,4 @@
+import { useMasterlistStatus, resetMasterlistStatus } from "./lib/use-masterlist-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -145,7 +146,7 @@ function AppRoutes() {
       { path: "/dashboard", element: <DashboardPage /> },
       { path: "/attendance", element: <AttendancePage /> },
       { path: "/attendance-requests", element: <AttendanceRequestsPage /> },
-      { path: "/manual-attendance", element: <ManualAttendancePage /> },
+      { path: "/manual-attendance", element: <ManualAttendanceGuard /> },
       { path: "/events", element: <EventsPage /> },
       { path: "/masterlist", element: <MasterlistPage />, allowedRoles: ["admin"] as UserRole[] },
       { path: "/final-attendance", element: <FinalAttendancePage />, allowedRoles: ["admin"] as UserRole[] },
@@ -165,6 +166,7 @@ function AppRoutes() {
     setAuthenticated(false);
     setCurrentUser(null);
     navigate("/", { replace: true });
+    resetMasterlistStatus();
     toast.success("Logged out successfully.");
   }
 
@@ -204,4 +206,13 @@ export default function App() {
       <Toaster />
     </BrowserRouter>
   );
+}
+function ManualAttendanceGuard() {
+  const { active, loading } = useMasterlistStatus();
+  useEffect(() => {
+    if (!loading && active) toast.info("Manual attendance is disabled because the masterlist is active. Add or subtract events on the Attendance page.", { id: "manual-disabled" });
+  }, [active, loading]);
+  if (loading) return <Loading label="Checking masterlist..." />;
+  if (active) return <Navigate to="/attendance" replace />;
+  return <ManualAttendancePage />;
 }

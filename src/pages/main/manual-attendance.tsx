@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+import { invalidateMasterlistStatus } from "../../lib/use-masterlist-status";
 import { normalizeStudentNumberKey } from "../../lib/student-number";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
@@ -670,6 +672,7 @@ function getManualAttendanceSaveErrorMessage(error: unknown) {
 }
 
 export default function ManualAttendancePage() {
+  const navigate = useNavigate();
   const [schoolYears, setSchoolYears] = useState<SchoolYearRecord[]>([]);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [records, setRecords] = useState<ManualAttendanceRecord[]>([]);
@@ -1539,7 +1542,10 @@ export default function ManualAttendancePage() {
       };
 
       if (!editingGroup) {
-        await saveManualAttendanceRecords({ ...buildManualPayload(selectedEventIds[0]), eventIds: selectedEventIds });
+        await saveManualAttendanceRecords({ ...buildManualPayload(selectedEventIds[0]), eventIds: selectedEventIds }, progress => {
+          setSaveProgress(current => current ? { ...current, progress: Math.max(current.progress, Math.min(99, progress.percent)), detail: progress.message,
+            steps: current.steps.map(step => step.label === "Save attendance" ? { ...step, detail: progress.message } : step) } : current);
+        });
         savedRecords = saveOperationCount;
         completedWorkUnits += saveOperationCount;
         updateSaveProgress(`Saved ${savedRecords} manual attendance record(s).`, step =>
@@ -1604,6 +1610,12 @@ export default function ManualAttendancePage() {
       }));
     } catch (error) {
       const message = getManualAttendanceSaveErrorMessage(error);
+      if (error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE") {
+        toast.error(message);
+        invalidateMasterlistStatus();
+        navigate("/attendance", { replace: true });
+        return;
+      }
       setSaveProgress((current) =>
         current
           ? {

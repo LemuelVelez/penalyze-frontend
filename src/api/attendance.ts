@@ -771,7 +771,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
   if (!response.ok) {
     const message = payload?.message || `Request failed with status ${response.status}.`;
     const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
+    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
   }
 
   return payload as ApiEnvelope<T>;
@@ -1746,12 +1746,23 @@ export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
   return response.data;
 }
 
-export async function saveManualAttendanceRecords(input: ManualAttendanceInput & { eventIds: string[] }) {
-  const response = await apiRequest<ManualAttendanceSaveResult[]>("/api/attendance/manual/batch", {
-    method: "POST", body: JSON.stringify(input),
+export type ManualAttendanceProgress = { stage: string; percent: number; message: string };
+export async function saveManualAttendanceRecords(input: ManualAttendanceInput & { eventIds: string[] }, onProgress?: (progress: ManualAttendanceProgress) => void) {
+  const response = await fetch(`${getApiBaseUrl()}/api/attendance/manual/batch/progress`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Penalyze-Request": "1" },
+    credentials: "include", body: JSON.stringify(input),
   });
+  checkUnauthorized(response);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw Object.assign(new Error(body?.message || `Request failed with status ${response.status}.`), { code: body?.code });
+  }
+  const result = await readProgressStream<ManualAttendanceProgress, ManualAttendanceSaveResult[]>(response, onProgress, {
+    errorFallback: "Unable to save manual attendance.", missingSuccessMessage: "Manual attendance finished without a saved result.",
+  });
+  if (!result.data) throw new Error("Manual attendance finished without a saved result.");
   notifyCalculationStatusUpdated();
-  return response.data;
+  return result.data;
 }
 
 export async function updateAttendanceRecord(

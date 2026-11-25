@@ -264,9 +264,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
         : " Please try again later.";
       throw new Error(`Too many requests.${wait}`);
     }
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}.`,
-    );
+    throw Object.assign(new Error(payload?.message || `Request failed with status ${response.status}.`), { code: payload?.code });
   }
 
   return payload as ApiEnvelope<T>;
@@ -348,7 +346,7 @@ export async function reviewAttendanceRequestWithProgress(
       : null;
     const message = payload?.message || `Request failed with status ${response.status}.`;
     const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
+    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
   }
 
   const missingSuccessMessage = "Attendance request review finished without a result.";
@@ -414,7 +412,7 @@ export async function reviewAttendanceRequestGroupWithProgress(
       : null;
     const message = payload?.message || `Request failed with status ${response.status}.`;
     const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
+    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
   }
   const missingSuccessMessage = "Attendance request group review finished without a result.";
   try {

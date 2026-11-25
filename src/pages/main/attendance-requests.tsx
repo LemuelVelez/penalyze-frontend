@@ -761,7 +761,7 @@ export default function AttendanceRequestsPage() {
           steps: current?.steps ?? createReviewSteps(),
           error: message,
         }));
-        toast.error(message);
+        toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
       } finally {
         setReviewingId("");
       }
@@ -887,7 +887,7 @@ export default function AttendanceRequestsPage() {
         steps: current?.steps ?? createReviewSteps(),
         error: message,
       }));
-      toast.error(message);
+      toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
     } finally {
       setGroupSubmitting(false);
       setReviewingId("");

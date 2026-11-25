@@ -141,7 +141,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     ) {
       handleUnauthorized();
     }
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    throw Object.assign(new Error(payload?.message || `Request failed with status ${response.status}.`), { code: payload?.code });
   }
 
   return payload as ApiEnvelope<T>;
