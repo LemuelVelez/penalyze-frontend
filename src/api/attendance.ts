@@ -415,7 +415,7 @@ export type AttendanceEventInput = {
 };
 
 export type ParsedAttendanceRow = AttendanceImportInput & {
-  masterlist_status?: "matched_by_id" | "matched_by_name" | "id_name_mismatch" | "unmatched" | "no_masterlist";
+  masterlist_status?: "matched_by_id" | "matched_by_partial_id" | "matched_by_name" | "id_name_mismatch" | "unmatched" | "no_masterlist";
   masterlist_original?: { studentId: string; name: string };
   rowNumber: number;
   errors: string[];
@@ -572,6 +572,9 @@ type ApiEnvelope<T> = {
 type ListOptions = {
   schoolYearId?: string;
   studentId?: string;
+  studentName?: string;
+  studentCollege?: string;
+  studentProgram?: string;
   eventId?: string;
   importIds?: string[];
   sourceTypes?: CalculationSourceType[];
@@ -766,9 +769,9 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     : null;
 
   if (!response.ok) {
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}.`,
-    );
+    const message = payload?.message || `Request failed with status ${response.status}.`;
+    const requestId = payload?.requestId || response.headers.get("X-Request-ID");
+    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
   }
 
   return payload as ApiEnvelope<T>;
@@ -1048,6 +1051,9 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     limit: options.limit ?? 100,
     offset: options.offset ?? 0,
     studentId: options.studentId,
+    studentName: options.studentName,
+    studentCollege: options.studentCollege,
+    studentProgram: options.studentProgram,
     college: options.college,
     includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
     includeEventDetails: options.includeEventDetails ? "true" : undefined,
@@ -1706,6 +1712,14 @@ export async function saveManualAttendanceRecord(input: ManualAttendanceInput) {
     },
   );
 
+  notifyCalculationStatusUpdated();
+  return response.data;
+}
+
+export async function saveManualAttendanceRecords(input: ManualAttendanceInput & { eventIds: string[] }) {
+  const response = await apiRequest<ManualAttendanceSaveResult[]>("/api/attendance/manual/batch", {
+    method: "POST", body: JSON.stringify(input),
+  });
   notifyCalculationStatusUpdated();
   return response.data;
 }

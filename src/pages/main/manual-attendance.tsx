@@ -1,3 +1,4 @@
+import { normalizeStudentNumberKey } from "../../lib/student-number";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -10,6 +11,7 @@ import {
   listAttendanceEvents,
   listAttendanceFinalResults,
   saveManualAttendanceRecord,
+  saveManualAttendanceRecords,
   updateAttendanceRecord,
 } from "../../api/attendance";
 import type {
@@ -183,25 +185,30 @@ function formatDateTimeInputValue(value = new Date()) {
 }
 
 function normalizeStudentId(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
+  return normalizeStudentNumberKey(value).toLowerCase();
 }
 
+
+type StudentLookupProfile = { name: string; college: string; program: string };
+function getStudentLookupProfileKey(profile: StudentLookupProfile) {
+  return JSON.stringify([profile.name.trim().toLowerCase(), profile.college.trim().toLowerCase(), profile.program.trim().toLowerCase()]);
+}
 
 function getStudentCalculatedEventsCacheKey(
   studentId: unknown,
   schoolYearId: unknown,
+  profileKey: string,
 ) {
   const normalizedStudentId = normalizeStudentId(studentId);
   const normalizedSchoolYearId = String(schoolYearId ?? "").trim();
 
   return normalizedStudentId && normalizedSchoolYearId
-    ? `${normalizedStudentId}|${normalizedSchoolYearId}`
+    ? `${normalizedStudentId}|${normalizedSchoolYearId}|${profileKey}`
     : "";
 }
 
-function useStudentCalculatedEvents(studentId: string, schoolYearId: string) {
+function useStudentCalculatedEvents(studentId: string, schoolYearId: string, name: string, college: string, program: string) {
+  const profileKey = getStudentLookupProfileKey({ name, college, program });
   const cacheRef = useRef(new Map<string, StudentCalculatedEventsEntry>());
   const errorsRef = useRef(new Map<string, string>());
   const loadingKeysRef = useRef(new Set<string>());
@@ -215,51 +222,59 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string) {
   }, []);
 
   const getCached = useCallback(
-    (targetStudentId: string, targetSchoolYearId: string) => {
+    (targetStudentId: string, targetSchoolYearId: string, profile?: StudentLookupProfile) => {
       const key = getStudentCalculatedEventsCacheKey(
         targetStudentId,
         targetSchoolYearId,
+        profile ? getStudentLookupProfileKey(profile) : profileKey,
       );
       return key ? cacheRef.current.get(key) : undefined;
     },
-    [],
+    [profileKey],
   );
 
   const getError = useCallback(
-    (targetStudentId: string, targetSchoolYearId: string) => {
+    (targetStudentId: string, targetSchoolYearId: string, profile?: StudentLookupProfile) => {
       const key = getStudentCalculatedEventsCacheKey(
         targetStudentId,
         targetSchoolYearId,
+        profile ? getStudentLookupProfileKey(profile) : profileKey,
       );
       return key ? errorsRef.current.get(key) ?? "" : "";
     },
-    [],
+    [profileKey],
   );
 
   const isLoading = useCallback(
-    (targetStudentId: string, targetSchoolYearId: string) => {
+    (targetStudentId: string, targetSchoolYearId: string, profile?: StudentLookupProfile) => {
       const key = getStudentCalculatedEventsCacheKey(
         targetStudentId,
         targetSchoolYearId,
+        profile ? getStudentLookupProfileKey(profile) : profileKey,
       );
       return Boolean(key && loadingKeysRef.current.has(key));
     },
-    [],
+    [profileKey],
   );
 
   const load = useCallback(
     async (
       targetStudentId = studentId,
       targetSchoolYearId = schoolYearId,
+      profile?: StudentLookupProfile,
     ): Promise<StudentCalculatedEventsEntry | null> => {
       const normalizedStudentId = normalizeStudentId(targetStudentId);
       const normalizedSchoolYearId = String(targetSchoolYearId ?? "").trim();
       const key = getStudentCalculatedEventsCacheKey(
         normalizedStudentId,
         normalizedSchoolYearId,
+        profile ? getStudentLookupProfileKey(profile) : profileKey,
       );
 
       if (!key) return null;
+      const lookup = profile ?? { name, college, program };
+      const fullId = /^tc-\d{2}-[a-z]-\d{5}$/.test(normalizedStudentId) && !normalizedStudentId.endsWith("-00000");
+      if (!fullId && !lookup.name.trim() && !lookup.college.trim()) return null;
 
       const cached = cacheRef.current.get(key);
       if (cached) return cached;
@@ -274,16 +289,18 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string) {
 
         try {
           const results = await listAttendanceFinalResults({
-            studentId: normalizedStudentId,
+            studentId: targetStudentId,
+            studentName: lookup.name,
+            studentCollege: lookup.college,
+            studentProgram: lookup.program,
             schoolYearId: normalizedSchoolYearId,
+            consolidatedOnly: true,
             includeEventDetails: true,
           });
-          const finalResult =
-            results.find(
-              (result) =>
-                normalizeStudentId(result.student_id) === normalizedStudentId &&
-                result.school_year_id === normalizedSchoolYearId,
-            ) ?? null;
+          // A partial ID is resolved by the backend using the same masterlist rules.
+          const matching = results.filter(result => result.school_year_id === normalizedSchoolYearId &&
+            (normalizeStudentId(result.student_id) === normalizedStudentId || Boolean(lookup.name.trim() || lookup.college.trim())));
+          const finalResult = matching.length === 1 ? matching[0] : null;
           const entry: StudentCalculatedEventsEntry = {
             finalResult,
             attendedEvents: (finalResult?.event_details ?? []).filter(
@@ -311,22 +328,23 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string) {
       inFlightRef.current.set(key, request);
       return request;
     },
-    [refresh, schoolYearId, studentId],
+    [refresh, schoolYearId, studentId, profileKey, name, college, program],
   );
 
   const invalidate = useCallback(
-    (targetStudentId: string, targetSchoolYearId: string) => {
+    (targetStudentId: string, targetSchoolYearId: string, profile?: StudentLookupProfile) => {
       const key = getStudentCalculatedEventsCacheKey(
         targetStudentId,
         targetSchoolYearId,
+        profile ? getStudentLookupProfileKey(profile) : profileKey,
       );
       if (!key) return;
 
-      cacheRef.current.delete(key);
-      errorsRef.current.delete(key);
+      cacheRef.current.clear();
+      errorsRef.current.clear();
       refresh();
     },
-    [refresh],
+    [refresh, profileKey],
   );
 
   return { getCached, getError, isLoading, load, invalidate };
@@ -520,7 +538,7 @@ function mergeManualAttendanceByStudent(
   const groups = new Map<string, ManualAttendanceRecord[]>();
 
   records.forEach((record) => {
-    const key = normalizeStudentId(record.student_id) || record.id;
+    const key = String(record.student_id ?? "").trim().toLowerCase() || record.id;
     const current = groups.get(key) ?? [];
 
     current.push(record);
@@ -648,30 +666,7 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
 }
 
 function getManualAttendanceSaveErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "";
-  const normalized = message.toLowerCase();
-
-  if (
-    normalized.includes("on conflict do update command cannot affect row a second time") ||
-    normalized.includes("21000") ||
-    normalized.includes("cardinality violation")
-  ) {
-    return "Unable to save manual attendance because duplicate student records were detected. Please refresh and try again.";
-  }
-
-  const looksLikeDatabaseError =
-    normalized.includes("duplicate key value") ||
-    normalized.includes("constraint matching the on conflict") ||
-    normalized.includes("sqlstate") ||
-    normalized.includes("postgres") ||
-    normalized.includes("syntax error at or near") ||
-    (normalized.includes("violates") && normalized.includes("constraint"));
-
-  if (looksLikeDatabaseError) {
-    return "Unable to save manual attendance. Please refresh and try again.";
-  }
-
-  return message || "Unable to save manual attendance. Please try again.";
+  return error instanceof Error && error.message ? error.message : "Unable to save manual attendance. Please try again.";
 }
 
 export default function ManualAttendancePage() {
@@ -713,6 +708,9 @@ export default function ManualAttendancePage() {
   const calculatedAttendance = useStudentCalculatedEvents(
     form.studentId,
     form.schoolYearId,
+    form.name,
+    form.college,
+    form.program,
   );
 
   const studentGroups = useMemo(
@@ -881,6 +879,7 @@ export default function ManualAttendancePage() {
     ? calculatedAttendance.getCached(
         eventsDialogGroup.studentId,
         eventsDialogSchoolYearId,
+        eventsDialogGroup,
       )
     : undefined;
   const eventsDialogCombinedEvents = eventsDialogGroup
@@ -893,12 +892,14 @@ export default function ManualAttendancePage() {
     ? calculatedAttendance.isLoading(
         eventsDialogGroup.studentId,
         eventsDialogSchoolYearId,
+        eventsDialogGroup,
       )
     : false;
   const eventsDialogError = eventsDialogGroup
     ? calculatedAttendance.getError(
         eventsDialogGroup.studentId,
         eventsDialogSchoolYearId,
+        eventsDialogGroup,
       )
     : "";
 
@@ -907,6 +908,7 @@ export default function ManualAttendancePage() {
     const calculatedEntry = calculatedAttendance.getCached(
       group.studentId,
       schoolYearId,
+      group,
     );
 
     return calculatedEntry
@@ -1145,7 +1147,6 @@ export default function ManualAttendancePage() {
   useEffect(() => {
     if (
       !manualAttendanceDialogOpen ||
-      editingGroupKey ||
       !normalizeStudentId(form.studentId) ||
       !form.schoolYearId
     ) {
@@ -1325,7 +1326,7 @@ export default function ManualAttendancePage() {
     setManualCollegeDialogOpen(false);
     setManualAttendanceDialogOpen(true);
     if (schoolYearId) {
-      void calculatedAttendance.load(group.studentId, schoolYearId);
+      void calculatedAttendance.load(group.studentId, schoolYearId, group);
     }
   }
 
@@ -1333,7 +1334,7 @@ export default function ManualAttendancePage() {
     setEventsDialogGroup(group);
     const schoolYearId = getManualGroupSchoolYearId(group);
     if (schoolYearId) {
-      void calculatedAttendance.load(group.studentId, schoolYearId);
+      void calculatedAttendance.load(group.studentId, schoolYearId, group);
     }
   }
 
@@ -1481,35 +1482,33 @@ export default function ManualAttendancePage() {
 
     try {
       if (recordsToDelete.length) {
-        await Promise.all(
-          recordsToDelete.map(async (record) => {
-            await deleteAttendanceRecord(record.id);
-            deletedRecords += 1;
-            completedWorkUnits += 1;
-            updateSaveProgress(
-              `Removed ${deletedRecords} of ${recordsToDelete.length} old attendance record${recordsToDelete.length === 1 ? "" : "s"}.`,
-              (step) => {
-                if (step.label === "Remove old records") {
-                  return {
-                    ...step,
-                    status:
-                      deletedRecords === recordsToDelete.length
-                        ? "done"
-                        : "loading",
-                    detail: `${deletedRecords} of ${recordsToDelete.length} removed`,
-                  };
-                }
-                if (
-                  step.label === "Save attendance" &&
-                  deletedRecords === recordsToDelete.length
-                ) {
-                  return { ...step, status: "loading" };
-                }
-                return step;
-              },
-            );
-          }),
-        );
+        for (const record of recordsToDelete) {
+          await deleteAttendanceRecord(record.id);
+          deletedRecords += 1;
+          completedWorkUnits += 1;
+          updateSaveProgress(
+            `Removed ${deletedRecords} of ${recordsToDelete.length} old attendance record${recordsToDelete.length === 1 ? "" : "s"}.`,
+            (step) => {
+              if (step.label === "Remove old records") {
+                return {
+                  ...step,
+                  status:
+                    deletedRecords === recordsToDelete.length
+                      ? "done"
+                      : "loading",
+                  detail: `${deletedRecords} of ${recordsToDelete.length} removed`,
+                };
+              }
+              if (
+                step.label === "Save attendance" &&
+                deletedRecords === recordsToDelete.length
+              ) {
+                return { ...step, status: "loading" };
+              }
+              return step;
+            },
+          );
+        }
       }
 
       const saveOne = async (
@@ -1539,15 +1538,14 @@ export default function ManualAttendancePage() {
         );
       };
 
-      if (selectedEventIds.length) {
-        await Promise.all(
-          selectedEventIds.map((eventId) =>
-            saveOne(
-              eventId,
-              editingGroup ? existingByEventId.get(eventId) : undefined,
-            ),
-          ),
-        );
+      if (!editingGroup) {
+        await saveManualAttendanceRecords({ ...buildManualPayload(selectedEventIds[0]), eventIds: selectedEventIds });
+        savedRecords = saveOperationCount;
+        completedWorkUnits += saveOperationCount;
+        updateSaveProgress(`Saved ${savedRecords} manual attendance record(s).`, step =>
+          step.label === "Save attendance" ? { ...step, status: "done", detail: `${savedRecords} of ${saveOperationCount} saved` } : step);
+      } else if (selectedEventIds.length) {
+        for (const eventId of selectedEventIds) await saveOne(eventId, existingByEventId.get(eventId));
       } else {
         await saveOne(undefined);
       }
@@ -1632,18 +1630,13 @@ export default function ManualAttendancePage() {
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form.college.trim()) {
-      toast.error("Select a college before saving manual attendance.");
-      return;
-    }
-
     if (!form.schoolYearId) {
       toast.error("Active school year is required.");
       return;
     }
 
-    if (!form.studentId.trim() || !form.name.trim()) {
-      toast.error("Student ID and name are required.");
+    if (!form.studentId.trim() && !form.name.trim()) {
+      toast.error("Enter a student ID or name.");
       return;
     }
 
@@ -1653,10 +1646,7 @@ export default function ManualAttendancePage() {
       form.schoolYearId,
     );
     if (calculatedError) {
-      toast.error(
-        "Unable to verify calculated attendance. Refresh and try again before saving manual attendance.",
-      );
-      return;
+      toast.warning("Unable to verify calculated attendance. Saving will continue; the server will validate the record.");
     }
 
     const blockedUploadedEventIds = new Set(
@@ -1686,9 +1676,7 @@ export default function ManualAttendancePage() {
     setIsSaving(true);
 
     try {
-      await Promise.all(
-        group.records.map((record) => deleteAttendanceRecord(record.id)),
-      );
+      for (const record of group.records) await deleteAttendanceRecord(record.id);
       setSelectedManualRecordIds((current) =>
         current.filter(
           (recordId) => !getManualGroupRecordIds(group).includes(recordId),
