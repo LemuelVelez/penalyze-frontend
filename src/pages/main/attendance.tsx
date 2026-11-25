@@ -350,6 +350,14 @@ type AttendanceRowEventGroup = {
   rows: ParsedAttendanceRow[];
 };
 
+function hasMasterlistMatch(row: ParsedAttendanceRow) {
+  return row.masterlist_status === "matched_by_id" || row.masterlist_status === "matched_by_name" || row.masterlist_status === "id_name_mismatch";
+}
+
+function getEffectivePreviewCollege(row: ParsedAttendanceRow, override: string | undefined, fallback: string) {
+  return hasMasterlistMatch(row) ? row.college ?? "" : override || row.college || fallback;
+}
+
 function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
   const status = row.masterlist_status;
   if (!status || status === "no_masterlist") return null;
@@ -439,7 +447,7 @@ function getAttendanceCollegeSummary(
 ) {
   const effectiveRows = rows.map((row) => ({
     ...row,
-    college: overrides[String(row.rowNumber)] || row.college || defaultCollege,
+    college: getEffectivePreviewCollege(row, overrides[String(row.rowNumber)], defaultCollege),
   }));
   const knownKeys = new Set(QR_CODE_COLLEGE_OPTIONS.map(normalizeCollegeKey));
   const rowInfo = (row: ParsedAttendanceRow) => ({
@@ -454,7 +462,7 @@ function getAttendanceCollegeSummary(
       Boolean(row.college && normalizeCollegeKey(row.college) !== normalizeCollegeKey(defaultCollege)),
     ).map(rowInfo),
     invalidCollegeRows: effectiveRows.filter((row) =>
-      !knownKeys.has(normalizeCollegeKey(row.college)),
+      !hasMasterlistMatch(row) && !knownKeys.has(normalizeCollegeKey(row.college)),
     ).map(rowInfo),
     yearLevelScopes: getAttendancePreviewYearLevelScopes(effectiveRows),
   };
@@ -510,7 +518,7 @@ function getAttendanceUploadExemptedRows(
     if (!assignedEventId) return [];
     const event = details.eventOptions.find((item) => item.id === assignedEventId);
     if (!event) return [];
-    const college = details.rowCollegeOverrides[String(row.rowNumber)] || row.college || fallbackCollege;
+    const college = getEffectivePreviewCollege(row, details.rowCollegeOverrides[String(row.rowNumber)], fallbackCollege);
     const isCollegeExempt = isCollegeExemptFromEvent(event, college);
     const isYearExempt = isYearLevelExemptFromEvent(event, row.yearLevel, college);
     if (!isCollegeExempt && !isYearExempt) return [];
@@ -1034,7 +1042,7 @@ export default function AttendancePage({
   );
   const collegeReviewRows = collegeReviewDetails?.previewRows.filter((row) => {
     const override = collegeReviewDetails.rowCollegeOverrides[String(row.rowNumber)];
-    const effectiveCollege = override || row.college || uploadForm.college;
+    const effectiveCollege = getEffectivePreviewCollege(row, override, uploadForm.college);
     const isDifferent =
       normalizeCollegeKey(effectiveCollege) !== normalizeCollegeKey(uploadForm.college);
     const isUnrecognised = collegeReviewInvalidNumbers.has(row.rowNumber);
@@ -1816,7 +1824,7 @@ export default function AttendancePage({
   ) {
     setFileDetails((current) => {
       const details = current[fileKey];
-      if (!details) return current;
+      if (!details || details.previewRows.some(row => row.rowNumber === rowNumber && hasMasterlistMatch(row))) return current;
       const overrides = { ...details.rowCollegeOverrides };
       if (college === null) delete overrides[String(rowNumber)];
       else overrides[String(rowNumber)] = college;
@@ -1869,6 +1877,7 @@ export default function AttendancePage({
       }
       const overrides = { ...details.rowCollegeOverrides };
       details.selectedRowNumbers.forEach((rowNumber) => {
+        if (details.previewRows.some(row => row.rowNumber === rowNumber && hasMasterlistMatch(row))) return;
         if (clear) delete overrides[String(rowNumber)];
         else overrides[String(rowNumber)] = details.assignmentCollege;
       });
@@ -4223,7 +4232,7 @@ export default function AttendancePage({
               {shownCollegeReviewRows.length ? shownCollegeReviewRows.map((row) => {
                 const originalCollege = String(row.college ?? "").trim();
                 const override = collegeReviewDetails?.rowCollegeOverrides[String(row.rowNumber)];
-                const effectiveCollege = override || originalCollege || uploadForm.college;
+                const effectiveCollege = getEffectivePreviewCollege(row, override, uploadForm.college);
                 const validCollege = QR_CODE_COLLEGE_OPTIONS.find(
                   (college) => normalizeCollegeKey(college) === normalizeCollegeKey(effectiveCollege),
                 );
@@ -4233,8 +4242,8 @@ export default function AttendancePage({
                   <div key={row.rowNumber} className={`grid min-w-0 w-full grid-cols-1 gap-2 border-b p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
                     <div className="flex min-w-0 items-start gap-3">
                       <Checkbox
-                        checked={collegeReviewSelectedNumbers.has(row.rowNumber)}
-                        disabled={isSaving}
+                        checked={collegeReviewSelectedNumbers.has(row.rowNumber) && !hasMasterlistMatch(row)}
+                        disabled={isSaving || hasMasterlistMatch(row)}
                         onCheckedChange={(checked) => updateAttendanceRowSelection(
                           collegeReviewFileKey,
                           checked === true
@@ -4249,21 +4258,21 @@ export default function AttendancePage({
                         <p className="break-words text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
                         <MasterlistRowBadge row={row} />
                         <p className={`break-words text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
-                          In file: {originalCollege || "Blank (uses upload default)"}
+                          {hasMasterlistMatch(row) ? `Masterlist college: ${originalCollege || "Unmapped program (college not assigned)"}` : `In file: ${originalCollege || "Blank (uses upload default)"}`}
                         </p>
                         <p className="text-xs">
-                          {isInvalid ? "Unrecognised — choose a college" : override ? "Manually corrected" : isDifferent ? "Different valid college" : "Matches upload default"}
+                          {hasMasterlistMatch(row) ? "Masterlist profile takes precedence" : isInvalid ? "Unrecognised — choose a college" : override ? "Manually corrected" : isDifferent ? "Different valid college" : "Matches upload default"}
                         </p>
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                       <Select
                         value={validCollege ?? ""}
-                        disabled={isSaving}
+                        disabled={isSaving || hasMasterlistMatch(row)}
                         onValueChange={(college) => updateAttendanceRowCollege(collegeReviewFileKey, row.rowNumber, college)}>
                         <SelectTrigger className={`w-full min-w-0 sm:flex-1 sm:basis-36 ${isInvalid ? "border-destructive" : ""}`}
                           aria-label={`College for row ${row.rowNumber}`}>
-                          <SelectValue placeholder="Choose the correct college" />
+                          <SelectValue placeholder={hasMasterlistMatch(row) ? "Unmapped masterlist program" : "Choose the correct college"} />
                         </SelectTrigger>
                         <SelectContent>
                           {QR_CODE_COLLEGE_OPTIONS.map((college) => (
