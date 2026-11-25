@@ -58,8 +58,25 @@ export const resumeMasterlistUploadWithProgress = (jobId: string, onProgress?: (
 export const discardMasterlistUpload = (jobId: string) => json<{schoolYear: SchoolYearRecord; discardedRows: number}>("/api/masterlist/upload/pending",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId,confirmation:"DISCARD UPLOAD"})});
 export const reconcileMasterlistWithProgress = (onProgress?: (progress: MasterlistProgress) => void) => progressRequest<MasterlistSummary>("/api/masterlist/reconcile/progress",{method:"POST"},onProgress);
 export const deleteMasterlist = (importId: string) => json<{ schoolYear: SchoolYearRecord; deletedRows: number }>("/api/masterlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({confirmation:"DELETE MASTERLIST",importId}) });
-export const getFinalAttendance = (filters: MasterlistFilters = {}, signal?: AbortSignal) => json<FinalAttendanceResponse>(`/api/attendance/final-attendance${queryString(filters)}`,{signal});
-export const getFinalAttendanceUnmatched = (filters: MasterlistFilters = {}, signal?: AbortSignal) => json<{rows: FinalAttendanceResponse["unmatched"]; total: number}>(`/api/attendance/final-attendance/unmatched${queryString(filters)}`,{signal});
+async function finalAttendanceJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener("abort", cancel, { once: true });
+  let timedOut = false;
+  const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 60_000);
+  try {
+    return await json<T>(path, { signal: controller.signal });
+  } catch (error) {
+    if (timedOut && !signal?.aborted) throw new Error("Final attendance is taking too long to load. Please retry or narrow your filters.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", cancel);
+  }
+}
+export const getFinalAttendance = (filters: MasterlistFilters = {}, signal?: AbortSignal) => finalAttendanceJson<FinalAttendanceResponse>(`/api/attendance/final-attendance${queryString(filters)}`,signal);
+export const getFinalAttendanceUnmatched = (filters: MasterlistFilters = {}, signal?: AbortSignal) => finalAttendanceJson<{rows: FinalAttendanceResponse["unmatched"]; total: number}>(`/api/attendance/final-attendance/unmatched${queryString(filters)}`,signal);
 export async function downloadFinalAttendanceXlsx(filters: MasterlistFilters = {}) {
   const response = await request(`/api/attendance/final-attendance/export${queryString(filters)}`);
   const filename = /filename="?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? "final-attendance.xlsx";
