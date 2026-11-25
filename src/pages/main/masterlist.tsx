@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { listSchoolYears, type SchoolYearRecord } from "../../api/schoolYears";
-import { listMasterlist, uploadMasterlist, reconcileMasterlist, deleteMasterlist, isMasterlistTerm, type MasterlistSummary } from "../../api/masterlist";
+import { listMasterlist, uploadMasterlistWithProgress, reconcileMasterlistWithProgress, deleteMasterlist, isMasterlistTerm, type MasterlistSummary, type MasterlistProgress } from "../../api/masterlist";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { FilePicker } from "../../components/ui/file-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../../components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
+import { LoadingStatus, type LoadingStatusStep } from "../../components/loading-status";
+import { ProtectedDeleteDialog } from "../../components/protected-delete-dialog";
 import { QR_CODE_COLLEGE_OPTIONS } from "../../lib/colleges";
 import { QR_CODE_YEAR_LEVEL_OPTIONS } from "../../lib/year-levels";
 
@@ -25,25 +27,52 @@ export default function MasterlistPage() {
   const [summary, setSummary] = useState<MasterlistSummary | null>(null);
   const [search, setSearch] = useState(""); const [college, setCollege] = useState(""); const [yearLevel, setYearLevel] = useState(""); const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(true); const [revision, setRevision] = useState(0);
+  const [action, setAction] = useState<"upload" | "reconcile" | "delete" | null>(null);
+  const [progress, setProgress] = useState<MasterlistProgress | null>(null);
+  const deleting = useRef(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<NonNullable<NonNullable<typeof data>["import"]> | null>(null);
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload",warn);
+    return () => window.removeEventListener("beforeunload",warn);
+  },[busy]);
   useEffect(() => { let live = true; listSchoolYears().then(years => { if (live) setActive(years.find(y => y.is_active) ?? null); }).catch(e => toast.error(e.message)); return () => { live = false; }; }, []);
   useEffect(() => { let live = true; setLoading(true); listMasterlist({ search, college, yearLevel, limit: 50, offset: page * 50 }).then(r => { if (live) setData(r); }).catch(e => { if (live) toast.error(e.message); }).finally(() => { if (live) setLoading(false); }); return () => { live = false; }; }, [search, college, yearLevel, page, revision]);
   const allowed = isMasterlistTerm(active);
   async function run(action: "upload" | "reconcile" | "delete") {
     if (!allowed || busy || (action === "upload" && !file)) return;
-    setBusy(true);
+    if (action === "delete" && !deleteTarget) return;
+    if (action === "delete") deleting.current = true;
+    setBusy(true); setAction(action); setProgress(null);
     try {
-      if (action === "upload" && file) { const result = await uploadMasterlist(file); setSummary(result.summary); setFile(null); }
-      if (action === "reconcile") setSummary(await reconcileMasterlist());
-      if (action === "delete") { await deleteMasterlist(); setSummary(null); }
+      if (action === "upload" && file) { const result = await uploadMasterlistWithProgress(file,setProgress); setSummary(result.summary); setFile(null); setData(previous => previous ? {...previous,import:result.import} : previous); }
+      if (action === "reconcile") setSummary(await reconcileMasterlistWithProgress(setProgress));
+      if (action === "delete" && deleteTarget) { await deleteMasterlist(deleteTarget.id); setSummary(null); setData(previous => previous ? {...previous,import:null,rows:[],total:0} : previous); setDeleteOpen(false); setDeleteTarget(null); }
       setPage(0); setRevision(v => v + 1); toast.success(action === "delete" ? "Masterlist removed." : "Masterlist reconciled.");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Request failed."); } finally { setBusy(false); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Request failed."); } finally { deleting.current = false; setBusy(false); setAction(null); }
   }
+  const steps: {label:string; stages:MasterlistProgress["stage"][]}[] = [
+    {label:"Parse",stages:["parsing"]},
+    {label:"Save masterlist",stages:["saving_masterlist"]},
+    {label:"Reconcile records",stages:["reconciling_records"]},
+    {label:"Update students",stages:["remapping_overrides","updating_students"]},
+    {label:"Sync absences",stages:["syncing_absences"]},
+    {label:"Refresh results",stages:["refreshing_final_results","refreshing_calculations","refreshing_penalties"]},
+  ];
+  const currentStep = progress?.stage === "finalizing" ? steps.length : progress ? steps.findIndex(step=>step.stages.includes(progress.stage)) : action === "reconcile" ? 2 : 0;
+  const loadingSteps: LoadingStatusStep[] = steps.map((step,index)=>({label:step.label,status: index < currentStep ? "done" : index === currentStep ? "loading" : "pending"}));
+  const progressDetail = progress ? `${progress.message}${progress.chunkIndex !== undefined && progress.chunkTotal !== undefined ? ` (chunk ${progress.chunkIndex} of ${progress.chunkTotal})` : ""}` : "Starting…";
   const stats = summary ?? data?.import?.summary;
   return <main className="space-y-5"><header><h1 className="text-2xl font-black tracking-tight">Student Masterlist</h1><p className="text-muted-foreground">{allowed && active ? `Masterlist for 1st Semester, A.Y. ${active.name}` : "Masterlist for 1st Semester, A.Y. 2026-2027"}</p><p className="text-sm">Active school year: {active ? `${active.name} · ${active.semester === "first_semester" ? "1st Semester" : "2nd Semester"}` : "Unavailable"}</p></header>
     <section aria-busy={busy} className="space-y-4 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Upload masterlist</h2>{!allowed && <p className="rounded-xl border p-3 text-sm text-muted-foreground">Upload and reconciliation require the active first semester of A.Y. 2026-2027.</p>}
       <FilePicker accept=".xlsx,.csv" disabled={!allowed || busy} buttonLabel={file?.name ?? "Choose masterlist (.xlsx, .csv)"} onChange={e => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-      <div className="flex flex-wrap gap-2"><Button disabled={!allowed || busy || !file} onClick={() => void run("upload")}>Upload &amp; Reconcile</Button><Button variant="outline" disabled={!allowed || busy || !data?.import} onClick={() => void run("reconcile")}>Reconcile now</Button><AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" disabled={!allowed || busy || !data?.import}>Delete masterlist</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete masterlist?</AlertDialogTitle><AlertDialogDescription>Previously reconciled attendance records will not be reverted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => void run("delete")}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>
-      {busy && <p className="flex items-center gap-2 text-sm" role="status"><Loader2 className="size-4 animate-spin" /> Reconciliation in progress…</p>}
+      <div className="flex flex-wrap gap-2"><Button disabled={!allowed || busy || loading || !data || !file} onClick={() => data?.import ? setReplaceOpen(true) : void run("upload")}>Upload &amp; Reconcile</Button><Button variant="outline" disabled={!allowed || busy || loading || !data?.import} onClick={() => void run("reconcile")}>Reconcile now</Button><Button variant="destructive" disabled={!allowed || busy || loading || !data?.import} onClick={() => {setDeleteTarget(data?.import ?? null);setDeleteOpen(true);}}>Delete masterlist</Button></div>
+      <AlertDialog open={replaceOpen} onOpenChange={setReplaceOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Replace current masterlist?</AlertDialogTitle><AlertDialogDescription>This will replace {data?.import?.file_name} ({data?.import?.rows_valid ?? 0} valid rows) and reconcile attendance using the new file.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy || !file} onClick={() => {setReplaceOpen(false);void run("upload");}}>Replace &amp; Reconcile</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <ProtectedDeleteDialog open={deleteOpen} onOpenChange={open=>{if(!deleting.current && !busy)setDeleteOpen(open);}} title="Delete masterlist?" description={`School year: ${data?.schoolYear?.name ?? active?.name ?? "Unknown"} · 1st Semester. Latest import: ${deleteTarget?.file_name ?? "Unknown"} (${deleteTarget?.rows_valid ?? 0} valid rows). Previously reconciled attendance records will not be reverted.`} confirmationPhrase="DELETE MASTERLIST" confirmLabel="Delete masterlist" isPending={busy} confirmDisabled={!deleteTarget || !allowed} onConfirm={()=>run("delete")} />
+      {busy && (action === "delete" ? <LoadingStatus title="Deleting masterlist" detail="Removing masterlist…" progress={50} /> : <LoadingStatus title={action === "upload" ? "Uploading masterlist" : "Reconciling masterlist"} detail={progressDetail} progress={progress?.percent ?? 0} steps={loadingSteps} />)}
       {data?.import && <p className="text-sm text-muted-foreground">Latest import: {data.import.file_name} · {data.import.rows_valid} valid / {data.import.rows_invalid} invalid</p>}
       {stats && <><div className="grid grid-cols-2 gap-2 md:grid-cols-4">{[["Masterlist rows",stats.masterlistRows],["Matched by ID",stats.matchedById],["Matched by name",stats.matchedByName],["ID/name mismatches",stats.idNameMismatches],["Unmatched",stats.unmatched],["Students updated",stats.studentsUpdated],["Records updated",stats.recordsUpdated]].map(([label,value]) => <div key={label} className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold">{value}</p></div>)}</div>{stats.unmappedPrograms.length > 0 && <p className="text-sm">Unmapped programs: {stats.unmappedPrograms.join(", ")}</p>}</>}
     </section>

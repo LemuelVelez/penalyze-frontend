@@ -1,18 +1,29 @@
 import { checkUnauthorized, getApiBaseUrl } from "./auth";
 import type { SchoolYearRecord } from "./schoolYears";
+import { readProgressStream } from "./progressStream";
 
-export type MasterlistFilters = { schoolYearId?: string; college?: string; yearLevel?: string; program?: string; search?: string; limit?: number; offset?: number };
+export type MasterlistFilters = { schoolYearId?: string; college?: string; yearLevel?: string; program?: string; search?: string; limit?: number; offset?: number; includeUnmatched?: boolean };
+export type MasterlistProgress = {
+  stage: "parsing" | "saving_masterlist" | "reconciling_records" | "remapping_overrides" | "updating_students" | "syncing_absences" | "refreshing_final_results" | "refreshing_calculations" | "refreshing_penalties" | "finalizing";
+  percent: number;
+  message: string;
+  table?: string;
+  processed?: number;
+  total?: number;
+  chunkIndex?: number;
+  chunkTotal?: number;
+};
 export type MasterlistRow = { id: string; student_number: string; last_name: string; given_name: string; middle_initial: string | null; program: string | null; year_level: string | null; college: string | null };
 export type MasterlistSummary = { schoolYear: SchoolYearRecord; masterlistRows: number; matchedById: number; matchedByName: number; idNameMismatches: number; unmatched: number; studentsUpdated: number; recordsUpdated: number; unmappedPrograms: string[] };
 export type MasterlistImport = { id: string; file_name: string; rows_total: number; rows_valid: number; rows_invalid: number; summary: MasterlistSummary | null; created_at: string };
 export type FinalAttendanceRow = Omit<MasterlistRow, "id" | "last_name" | "given_name"> & { name: string; last_name: string | null; given_name: string | null; attended_events: number; expected_events: number | null; total_absences: number | null; attendance_status: string; event_details: Record<string, "P" | "A" | "E"> };
-export type FinalAttendanceResponse = { rows: FinalAttendanceRow[]; total: number; schoolYear: SchoolYearRecord; events: { id: string; name: string }[]; unmatched: { student_id: string; name: string; college: string | null; program: string | null; reason: string }[]; hasMasterlist: boolean; programs: string[] };
+export type FinalAttendanceResponse = { rows: FinalAttendanceRow[]; total: number; schoolYear: SchoolYearRecord; events: { id: string; name: string }[]; unmatched: { student_id: string; name: string; college: string | null; program: string | null; reason: string }[]; unmatchedCount: number | null; hasMasterlist: boolean; programs: string[] };
 export function isMasterlistTerm(year: SchoolYearRecord | null | undefined) {
   return !!year && year.semester === "first_semester" && (/2026\s*[-–—/]\s*2027/.test(year.name) || (new Date(year.starts_at).getUTCFullYear() === 2026 && new Date(year.ends_at).getUTCFullYear() === 2027));
 }
 function queryString(filters: MasterlistFilters) {
   const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
+  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, key === "includeUnmatched" ? (value ? "1" : "0") : String(value)); });
   return `?${params.toString()}`;
 }
 async function request(path: string, init: RequestInit = {}) {
@@ -20,7 +31,10 @@ async function request(path: string, init: RequestInit = {}) {
   if (init.method && init.method !== "GET") headers.set("X-Penalyze-Request", "1");
   const response = checkUnauthorized(await fetch(`${getApiBaseUrl()}${path}`, { ...init, headers, credentials: "include" }));
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
+    const body = await response.json().catch((error: unknown) => {
+      if (init.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+      return null;
+    });
     throw new Error(body?.message ?? "Masterlist request failed.");
   }
   return response;
@@ -29,8 +43,20 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> { return (a
 export function uploadMasterlist(file: File) { const form = new FormData(); form.append("file", file); return json<{ import: MasterlistImport; schoolYear: SchoolYearRecord; summary: MasterlistSummary }>("/api/masterlist/upload", { method: "POST", body: form }); }
 export const listMasterlist = (filters: MasterlistFilters = {}) => json<{ rows: MasterlistRow[]; total: number; schoolYear: SchoolYearRecord | null; import: MasterlistImport | null }>(`/api/masterlist${queryString(filters)}`);
 export const reconcileMasterlist = () => json<MasterlistSummary>("/api/masterlist/reconcile", { method: "POST" });
-export const deleteMasterlist = () => json<{ schoolYear: SchoolYearRecord }>("/api/masterlist", { method: "DELETE" });
-export const getFinalAttendance = (filters: MasterlistFilters = {}) => json<FinalAttendanceResponse>(`/api/attendance/final-attendance${queryString(filters)}`);
+async function progressRequest<T>(path: string, init: RequestInit, onProgress?: (progress: MasterlistProgress) => void): Promise<T> {
+  const response = await request(path, init);
+  const result = await readProgressStream<MasterlistProgress, T>(response,onProgress,{errorFallback:"Masterlist request failed.",missingSuccessMessage:"Masterlist operation finished without a result."});
+  if (result.data === undefined) throw new Error("Masterlist operation finished without a result.");
+  return result.data;
+}
+export function uploadMasterlistWithProgress(file: File, onProgress?: (progress: MasterlistProgress) => void) {
+  const form = new FormData(); form.append("file",file);
+  return progressRequest<{ import: MasterlistImport; schoolYear: SchoolYearRecord; summary: MasterlistSummary }>("/api/masterlist/upload/progress",{method:"POST",body:form},onProgress);
+}
+export const reconcileMasterlistWithProgress = (onProgress?: (progress: MasterlistProgress) => void) => progressRequest<MasterlistSummary>("/api/masterlist/reconcile/progress",{method:"POST"},onProgress);
+export const deleteMasterlist = (importId: string) => json<{ schoolYear: SchoolYearRecord; deletedRows: number }>("/api/masterlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({confirmation:"DELETE MASTERLIST",importId}) });
+export const getFinalAttendance = (filters: MasterlistFilters = {}, signal?: AbortSignal) => json<FinalAttendanceResponse>(`/api/attendance/final-attendance${queryString(filters)}`,{signal});
+export const getFinalAttendanceUnmatched = (filters: MasterlistFilters = {}, signal?: AbortSignal) => json<{rows: FinalAttendanceResponse["unmatched"]; total: number}>(`/api/attendance/final-attendance/unmatched${queryString(filters)}`,{signal});
 export async function downloadFinalAttendanceXlsx(filters: MasterlistFilters = {}) {
   const response = await request(`/api/attendance/final-attendance/export${queryString(filters)}`);
   const filename = /filename="?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? "final-attendance.xlsx";
