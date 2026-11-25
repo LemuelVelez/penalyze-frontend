@@ -3181,6 +3181,7 @@ function AttendanceRequestDialog(props: {
   onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
 }) {
   const programOptions = getStudentProgramOptions(props.form.college);
+  const showStudentDetails = props.form.hasNoAttendanceRecord && !props.masterlistActive;
   const excludedEventIds = new Set(props.excludedEventIds);
   const availableEvents = props.events.filter(
     (event) =>
@@ -3229,7 +3230,7 @@ function AttendanceRequestDialog(props: {
             </div>
           ) : null}
 
-          {props.form.hasNoAttendanceRecord ? (
+          {showStudentDetails ? (
             <section className="space-y-4 rounded-3xl border bg-muted/30 p-4">
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wide">Student details</h3>
@@ -4501,7 +4502,7 @@ export default function LandingPage() {
       setAttendanceRequestError("School year / semester is required.");
       return;
     }
-    if (attendanceRequestForm.hasNoAttendanceRecord &&
+    if (attendanceRequestForm.hasNoAttendanceRecord && !masterlistActive &&
         (!name || !attendanceRequestForm.yearLevel.trim() ||
          !attendanceRequestForm.college.trim() || !attendanceRequestForm.program.trim())) {
       setAttendanceRequestError("Full name, year level, college, and program are required.");
