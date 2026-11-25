@@ -1247,10 +1247,40 @@ export async function updateStudentEventAttendance(
   return response.data;
 }
 
+export type AttendanceFinalResultProfileProgress = {
+  percent: number;
+  message: string;
+};
+
 export async function updateAttendanceFinalResultProfile(
   id: string,
   input: AttendanceFinalResultProfileUpdateInput,
+  onProgress?: (progress: AttendanceFinalResultProfileProgress) => void,
 ) {
+  if (onProgress) {
+    const body = JSON.stringify(input);
+    const response = await fetch(`${getApiBaseUrl()}/api/attendance/final-results/${encodeURIComponent(id)}/profile/progress`, {
+      method: "PATCH",
+      headers: getApiRequestHeaders({ body }),
+      credentials: "include",
+      body,
+    });
+    checkUnauthorized(response);
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const payload = contentType.includes("application/json") ? await response.json() : null;
+      const message = payload?.message || `Request failed with status ${response.status}.`;
+      const requestId = payload?.requestId || response.headers.get("X-Request-ID");
+      throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
+    }
+    const payload = await readProgressStream<AttendanceFinalResultProfileProgress, AttendanceFinalResultProfileUpdateResult>(response, onProgress, {
+      errorFallback: "Unable to save student details.",
+      missingSuccessMessage: "Connection closed before the save was confirmed. Check the student details before retrying.",
+    });
+    if (!payload.data) throw new Error("Updated student attendance details are missing.");
+    notifyCalculationStatusUpdated();
+    return payload.data;
+  }
   const response = await apiRequest<AttendanceFinalResultProfileUpdateResult>(
     `/api/attendance/final-results/${encodeURIComponent(id)}/profile`,
     {

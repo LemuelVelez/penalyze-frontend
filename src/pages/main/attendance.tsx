@@ -3180,6 +3180,15 @@ export default function AttendancePage({
           college: finalResultForm.college.trim(),
           program: finalResultForm.program.trim(),
           institution: finalResultForm.institution.trim(),
+        }, (profileProgress) => {
+          setFinalResultSaveProgress((current) => current ? {
+            ...current,
+            progress: Math.min(99, Math.round((completedWorkUnits + Math.min(100, Math.max(0, profileProgress.percent)) / 100) / totalWorkUnits * 100)),
+            detail: profileProgress.message,
+            steps: current.steps.map((step) => step.label === "Save student details"
+              ? { ...step, status: "loading", detail: profileProgress.message }
+              : step),
+          } : current);
         });
         mergedIntoExistingStudent = savedProfile.mergedIntoExistingStudent;
         completedWorkUnits += 1;
