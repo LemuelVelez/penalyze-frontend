@@ -13,6 +13,7 @@ export type MasterlistProgress = {
   chunkIndex?: number;
   chunkTotal?: number;
 };
+export type MasterlistUploadCheckpoint = { id: string; fileName: string; rowsValid: number; phase: "staged" | "syncing" | "refreshing"; processed: number; totalStudents: number; percent: number };
 export type MasterlistRow = { id: string; student_number: string; last_name: string; given_name: string; middle_initial: string | null; program: string | null; year_level: string | null; college: string | null };
 export type MasterlistSummary = { schoolYear: SchoolYearRecord; masterlistRows: number; matchedById: number; matchedByName: number; idNameMismatches: number; unmatched: number; studentsUpdated: number; recordsUpdated: number; unmappedPrograms: string[] };
 export type MasterlistImport = { id: string; file_name: string; rows_total: number; rows_valid: number; rows_invalid: number; summary: MasterlistSummary | null; created_at: string };
@@ -41,7 +42,7 @@ async function request(path: string, init: RequestInit = {}) {
 }
 async function json<T>(path: string, init?: RequestInit): Promise<T> { return (await request(path, init)).json() as Promise<T>; }
 export function uploadMasterlist(file: File) { const form = new FormData(); form.append("file", file); return json<{ import: MasterlistImport; schoolYear: SchoolYearRecord; summary: MasterlistSummary }>("/api/masterlist/upload", { method: "POST", body: form }); }
-export const listMasterlist = (filters: MasterlistFilters = {}) => json<{ rows: MasterlistRow[]; total: number; schoolYear: SchoolYearRecord | null; import: MasterlistImport | null }>(`/api/masterlist${queryString(filters)}`);
+export const listMasterlist = (filters: MasterlistFilters = {}) => json<{ rows: MasterlistRow[]; total: number; schoolYear: SchoolYearRecord | null; import: MasterlistImport | null; pendingUpload: MasterlistUploadCheckpoint | null }>(`/api/masterlist${queryString(filters)}`);
 export const reconcileMasterlist = () => json<MasterlistSummary>("/api/masterlist/reconcile", { method: "POST" });
 async function progressRequest<T>(path: string, init: RequestInit, onProgress?: (progress: MasterlistProgress) => void): Promise<T> {
   const response = await request(path, init);
@@ -53,6 +54,8 @@ export function uploadMasterlistWithProgress(file: File, onProgress?: (progress:
   const form = new FormData(); form.append("file",file);
   return progressRequest<{ import: MasterlistImport; schoolYear: SchoolYearRecord; summary: MasterlistSummary }>("/api/masterlist/upload/progress",{method:"POST",body:form},onProgress);
 }
+export const resumeMasterlistUploadWithProgress = (jobId: string, onProgress?: (progress: MasterlistProgress) => void) => progressRequest<{ import: MasterlistImport; schoolYear: SchoolYearRecord; summary: MasterlistSummary }>("/api/masterlist/upload/resume/progress",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId})},onProgress);
+export const discardMasterlistUpload = (jobId: string) => json<{schoolYear: SchoolYearRecord; discardedRows: number}>("/api/masterlist/upload/pending",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobId,confirmation:"DISCARD UPLOAD"})});
 export const reconcileMasterlistWithProgress = (onProgress?: (progress: MasterlistProgress) => void) => progressRequest<MasterlistSummary>("/api/masterlist/reconcile/progress",{method:"POST"},onProgress);
 export const deleteMasterlist = (importId: string) => json<{ schoolYear: SchoolYearRecord; deletedRows: number }>("/api/masterlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({confirmation:"DELETE MASTERLIST",importId}) });
 export const getFinalAttendance = (filters: MasterlistFilters = {}, signal?: AbortSignal) => json<FinalAttendanceResponse>(`/api/attendance/final-attendance${queryString(filters)}`,{signal});
