@@ -16,6 +16,8 @@ import AppLayout from "./components/layout";
 import Loading from "./components/loading";
 import { Toaster } from "./components/ui/sonner";
 import LoginPage from "./pages/auth/login";
+import MasterlistPage from "./pages/main/masterlist";
+import FinalAttendancePage from "./pages/main/final-attendance";
 import AttendancePage from "./pages/main/attendance";
 import AttendanceRequestsPage from "./pages/main/attendance-requests";
 import HistoryPage from "./pages/main/history";
@@ -145,6 +147,8 @@ function AppRoutes() {
       { path: "/attendance-requests", element: <AttendanceRequestsPage /> },
       { path: "/manual-attendance", element: <ManualAttendancePage /> },
       { path: "/events", element: <EventsPage /> },
+      { path: "/masterlist", element: <MasterlistPage />, allowedRoles: ["admin"] as UserRole[] },
+      { path: "/final-attendance", element: <FinalAttendancePage />, allowedRoles: ["admin"] as UserRole[] },
       { path: "/history", element: <HistoryPage /> },
       { path: "/repository-sync", element: <RepositorySyncPage />, allowedRoles: ["admin"] as UserRole[] },
       { path: "/calculate", element: <CalculatePage /> },

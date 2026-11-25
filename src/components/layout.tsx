@@ -214,6 +214,8 @@ export default function AppLayout(props: LayoutProps) {
       label: "Records",
       showCalculationBadge: true,
       items: [
+        { path: "/masterlist", label: "Masterlist", description: "Manage semester student masterlist", icon: Users, adminOnly: true },
+        { path: "/final-attendance", label: "Final Attendance", description: "Preview and export final attendance", icon: ClipboardCheck, adminOnly: true },
         {
           path: "/history",
           label: "History",

@@ -415,6 +415,8 @@ export type AttendanceEventInput = {
 };
 
 export type ParsedAttendanceRow = AttendanceImportInput & {
+  masterlist_status?: "matched_by_id" | "matched_by_name" | "id_name_mismatch" | "unmatched" | "no_masterlist";
+  masterlist_original?: { studentId: string; name: string };
   rowNumber: number;
   errors: string[];
   raw: Record<string, unknown>;
@@ -1620,10 +1622,11 @@ export async function deleteManualAttendanceRecordsBySchoolYear(
   return response.data ?? { deletedCount: 0, deletedRecords: [] };
 }
 
-export async function previewAttendanceFile(files: File[], college?: string) {
+export async function previewAttendanceFile(files: File[], college?: string, schoolYearId?: string) {
   const body = new FormData();
   files.forEach((file) => body.append("files", file));
   if (college) body.set("college", college);
+  if (schoolYearId) body.set("schoolYearId", schoolYearId);
 
   const response = await apiRequest<AttendancePreviewResult[]>(
     "/api/attendance/import/preview",

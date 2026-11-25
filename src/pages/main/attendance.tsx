@@ -1,3 +1,4 @@
+import { Badge } from "../../components/ui/badge";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, SyntheticEvent } from "react";
 import { toast } from "sonner";
@@ -348,6 +349,13 @@ type AttendanceRowEventGroup = {
   eventEndAt: string;
   rows: ParsedAttendanceRow[];
 };
+
+function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
+  const status = row.masterlist_status;
+  if (!status || status === "no_masterlist") return null;
+  const labels = { matched_by_id: "Corrected by ID", matched_by_name: "Matched by name", id_name_mismatch: "ID/name mismatch", unmatched: "Not in masterlist" };
+  return <div className="mt-1 space-y-1"><Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>{row.masterlist_original && <p className="text-xs text-muted-foreground">Original: {row.masterlist_original.studentId} · {row.masterlist_original.name}</p>}</div>;
+}
 
 function getAttendanceRowEventGroups(rows: ParsedAttendanceRow[]): AttendanceRowEventGroup[] {
   const groups = new Map<string, AttendanceRowEventGroup>();
@@ -1600,7 +1608,7 @@ export default function AttendancePage({
     });
 
     try {
-      const previews = await previewAttendanceFile(filesToPreview, defaultCollege);
+      const previews = await previewAttendanceFile(filesToPreview, defaultCollege, fallbackSchoolYearId);
       const detailsEntries = await Promise.all(
         filesToPreview.map(async (nextFile, index) => {
           const fileKey = getAttendanceUploadFileKey(nextFile);
@@ -4084,6 +4092,7 @@ export default function AttendancePage({
                       <div key={row.rowNumber} className="grid min-w-0 w-full grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
                         <div className="min-w-0 text-xs">
                           <p className="break-words font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
+                          <MasterlistRowBadge row={row} />
                           <p className="break-words text-muted-foreground">In file: {row.eventName || "No event name"}</p>
                         </div>
                         <Select disabled={isSaving} value={getRowEventAssignmentValue(assignment)}
@@ -4238,6 +4247,7 @@ export default function AttendancePage({
                       <div className="min-w-0 flex-1 space-y-1 [overflow-wrap:anywhere]">
                         <p className="break-words text-xs font-semibold">Row {row.rowNumber} — {row.name || "Unnamed student"}</p>
                         <p className="break-words text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
+                        <MasterlistRowBadge row={row} />
                         <p className={`break-words text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           In file: {originalCollege || "Blank (uses upload default)"}
                         </p>
