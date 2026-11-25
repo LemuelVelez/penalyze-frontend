@@ -220,7 +220,8 @@ export type ReviewAttendanceRequestGroupInput = {
 };
 
 export type ReviewAttendanceRequestGroupResult = {
-  requests: AttendanceRequest[];
+  requests?: AttendanceRequest[];
+  requestIds?: string[];
   approvedCount: number;
   rejectedCount: number;
   autoClosedCount: number;
@@ -345,22 +346,35 @@ export async function reviewAttendanceRequestWithProgress(
     const payload = contentType.includes("application/json")
       ? await response.json()
       : null;
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}.`,
-    );
+    const message = payload?.message || `Request failed with status ${response.status}.`;
+    const requestId = payload?.requestId || response.headers.get("X-Request-ID");
+    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
   }
 
-  const payload = await readProgressStream<
-    AttendanceRequestReviewProgress,
-    ReviewAttendanceRequestResult
-  >(response, onProgress, {
-    errorFallback: "Unable to review attendance request.",
-    missingSuccessMessage: "Attendance request review finished without a result.",
-  });
+  const missingSuccessMessage = "Attendance request review finished without a result.";
+  try {
+    const payload = await readProgressStream<
+      AttendanceRequestReviewProgress,
+      ReviewAttendanceRequestResult
+    >(response, onProgress, {
+      errorFallback: "Unable to review attendance request.",
+      missingSuccessMessage,
+    });
 
-  notifyAttendanceRequestsUpdated();
-  notifyCalculationStatusUpdated();
-  return payload.data ?? null;
+    notifyAttendanceRequestsUpdated();
+    notifyCalculationStatusUpdated();
+    return payload.data ?? null;
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
+    const latest = await listAttendanceRequests();
+    const request = latest.find((r) => r.id === id);
+    if (request && request.status !== "pending") {
+      notifyAttendanceRequestsUpdated();
+      notifyCalculationStatusUpdated();
+      return { request } as ReviewAttendanceRequestResult;
+    }
+    throw new Error("The connection closed before the server confirmed the approval. The request may still be pending. The server may still be processing it; refresh the list in a minute before retrying.");
+  }
 }
 
 export async function reviewAttendanceRequestGroup(
@@ -398,18 +412,42 @@ export async function reviewAttendanceRequestGroupWithProgress(
     const payload = contentType.includes("application/json")
       ? await response.json()
       : null;
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    const message = payload?.message || `Request failed with status ${response.status}.`;
+    const requestId = payload?.requestId || response.headers.get("X-Request-ID");
+    throw new Error(requestId ? `${message} (Request ID: ${requestId})` : message);
   }
-  const payload = await readProgressStream<
-    AttendanceRequestReviewProgress,
-    ReviewAttendanceRequestGroupResult
-  >(response, onProgress, {
-    errorFallback: "Unable to review attendance request group.",
-    missingSuccessMessage: "Attendance request group review finished without a result.",
-  });
-  notifyAttendanceRequestsUpdated();
-  notifyCalculationStatusUpdated();
-  return payload.data ?? null;
+  const missingSuccessMessage = "Attendance request group review finished without a result.";
+  try {
+    const payload = await readProgressStream<
+      AttendanceRequestReviewProgress,
+      ReviewAttendanceRequestGroupResult
+    >(response, onProgress, {
+      errorFallback: "Unable to review attendance request group.",
+      missingSuccessMessage,
+    });
+    notifyAttendanceRequestsUpdated();
+    notifyCalculationStatusUpdated();
+    return payload.data ?? null;
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
+    const latest = await listAttendanceRequests({ studentId: input.studentId });
+    const selected = latest.filter((r) => input.requestIds.includes(r.id));
+    if (selected.length === input.requestIds.length && selected.every((r) => r.status !== "pending")) {
+      notifyAttendanceRequestsUpdated();
+      notifyCalculationStatusUpdated();
+      return {
+        requests: selected,
+        approvedCount: selected.filter((r) => r.status === "approved").length,
+        rejectedCount: selected.filter((r) => r.status === "rejected").length,
+        autoClosedCount: 0,
+        createdAttendanceCount: 0,
+        updatedRowCount: 0,
+        removedExemptedEventCount: 0,
+      };
+    }
+    const pendingCount = input.requestIds.length - selected.filter((r) => r.status !== "pending").length;
+    throw new Error(`The connection closed before the server confirmed the approval. ${pendingCount} of ${input.requestIds.length} request(s) are still pending. The server may still be processing them; refresh the list in a minute before retrying.`);
+  }
 }
 
 export async function removeAttendanceRequestEvent(
