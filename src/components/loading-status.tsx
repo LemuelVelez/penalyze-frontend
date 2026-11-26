@@ -1,10 +1,10 @@
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, Loader2 } from "lucide-react";
 
 import { Progress } from "./ui/progress";
 
 export type LoadingStatusStep = {
   label: string;
-  status: "pending" | "loading" | "done";
+  status: "pending" | "loading" | "done" | "error";
   detail?: string;
 };
 
@@ -51,6 +51,8 @@ export function LoadingStatus(props: LoadingStatusProps) {
             >
               {step.status === "done" ? (
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              ) : step.status === "error" ? (
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-500" aria-hidden="true" />
               ) : step.status === "loading" ? (
                 <Loader2
                   className="mt-0.5 size-4 shrink-0 animate-spin"

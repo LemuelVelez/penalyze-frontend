@@ -7,13 +7,18 @@ function wait(ms: number, signal?: AbortSignal | null): Promise<void> {
     signal?.addEventListener("abort", abort, { once: true });
   });
 }
-function retryDelay(response: Response | undefined, attempt: number) {
+function retryDelay(response: Response | undefined, attempt: number, maxRetryDelayMs: number) {
   const header = response?.headers.get("Retry-After");
   const seconds = header == null ? NaN : Number(header);
   const delay = Number.isFinite(seconds) ? seconds * 1000 : header ? Date.parse(header) - Date.now() : NaN;
-  return Math.min(15000, Math.max(0, Number.isFinite(delay) ? delay : 1000 * 2 ** attempt));
+  return Math.min(maxRetryDelayMs, Math.max(0, Number.isFinite(delay) ? delay : 1000 * 2 ** attempt));
 }
-export async function fetchWithRetry(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+export async function fetchWithRetry(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  retryOptions: { maxRetries?: number; maxRetryDelayMs?: number } = {},
+): Promise<Response> {
+  const { maxRetries = 3, maxRetryDelayMs = 15000 } = retryOptions;
   const method = (init.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   if (method !== "GET" && method !== "HEAD") return fetch(input, init);
   const signal = init.signal ?? (input instanceof Request ? input.signal : undefined);
@@ -21,11 +26,11 @@ export async function fetchWithRetry(input: string | URL | Request, init: Reques
     let response: Response | undefined;
     try { response = await fetch(input, init); }
     catch (error) {
-      if (signal?.aborted || (error instanceof Error && error.name === "AbortError") || attempt >= 3) throw error;
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError") || attempt >= maxRetries) throw error;
     }
-    if (response && (!retryableStatus.has(response.status) || attempt >= 3)) return response;
+    if (response && (!retryableStatus.has(response.status) || attempt >= maxRetries)) return response;
     if (response?.body) void response.body.cancel().catch(() => undefined);
-    await wait(retryDelay(response, attempt), signal);
+    await wait(retryDelay(response, attempt, maxRetryDelayMs), signal);
   }
 }
 export function isDatabaseBusy(error: unknown): boolean {

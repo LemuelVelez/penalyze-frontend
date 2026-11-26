@@ -356,6 +356,8 @@ export type AttendanceDashboardOverview = {
   recentImports: AttendanceImportRecord[];
   attendanceTrend: Array<{ date: string; count: number }>;
   attendanceByCollege: Array<{ college: string; count: number }>;
+  partial?: boolean;
+  failedSections?: Array<"summary" | "recentRecords" | "recentImports">;
 };
 
 export type AttendanceImportDeleteImpact = {
@@ -753,7 +755,11 @@ function buildSearchParams(
   return text ? `?${text}` : "";
 }
 
-async function apiRequest<T>(path: string, options: RequestInit = {}) {
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  retryOptions?: { maxRetries?: number; maxRetryDelayMs?: number },
+) {
   const headers = new Headers(options.headers);
   headers.set("X-Penalyze-Request", "1");
 
@@ -769,7 +775,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     ...options,
     headers,
     credentials: "include",
-  });
+  }, retryOptions);
   checkUnauthorized(response);
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -959,6 +965,7 @@ export async function getAttendanceDashboardOverview(options: {
   const response = await apiRequest<AttendanceDashboardOverview>(
     `/api/attendance/dashboard-overview${query}`,
     { signal: options.signal },
+    { maxRetries: 1, maxRetryDelayMs: 3000 },
   );
 
   const data = response.data;
@@ -969,6 +976,8 @@ export async function getAttendanceDashboardOverview(options: {
     recentImports: data?.recentImports ?? [],
     attendanceTrend: data?.attendanceTrend ?? [],
     attendanceByCollege: data?.attendanceByCollege ?? [],
+    partial: data?.partial ?? false,
+    failedSections: data?.failedSections ?? [],
   };
 }
 

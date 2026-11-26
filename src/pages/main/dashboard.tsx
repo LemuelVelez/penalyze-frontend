@@ -118,6 +118,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [databaseBusy,setDatabaseBusy] = useState(false);
   const loadRequestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const yearLabel = getSchoolYearLabel(schoolYears, yearFilter);
 
@@ -146,6 +147,13 @@ export default function DashboardPage() {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
     const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(
+      () => controller.abort(new DOMException("The attendance summary took too long to load.", "TimeoutError")),
+      45000,
+    );
 
     setIsLoading(true);
     setError("");
@@ -223,20 +231,39 @@ export default function DashboardPage() {
 
       const attendancePromise = getAttendanceDashboardOverview({
         schoolYearId: activeSchoolYearId,
+        signal: controller.signal,
       }).then((overview) => {
         if (!isCurrentRequest()) return overview;
-        setAttendanceRecordCount(overview.attendanceRecordCount);
-        setRecentRecords(overview.recentAttendanceRecords);
-        setRecentImports(overview.recentImports);
-        setAttendanceTrend(overview.attendanceTrend);
-        setAttendanceByCollege(overview.attendanceByCollege);
-        updateLoadStep(
-          "Attendance",
-          "done",
-          `${overview.attendanceRecordCount.toLocaleString()} total record/s; recent rows ready`,
-          76,
-          "Attendance summary is visible. Finishing the remaining dashboard totals.",
-        );
+        const failedSections = overview.failedSections;
+        if (!failedSections.includes("summary")) {
+          setAttendanceRecordCount(overview.attendanceRecordCount);
+          setAttendanceTrend(overview.attendanceTrend);
+          setAttendanceByCollege(overview.attendanceByCollege);
+        }
+        if (!failedSections.includes("recentRecords")) {
+          setRecentRecords(overview.recentAttendanceRecords);
+        }
+        if (!failedSections.includes("recentImports")) {
+          setRecentImports(overview.recentImports);
+        }
+        if (overview.partial) {
+          setDatabaseBusy(true);
+          updateLoadStep(
+            "Attendance",
+            "error",
+            "Some attendance sections are still loading on the server — showing last loaded values",
+            76,
+            "Attendance loaded partially. Finishing the remaining dashboard totals.",
+          );
+        } else {
+          updateLoadStep(
+            "Attendance",
+            "done",
+            `${overview.attendanceRecordCount.toLocaleString()} total record/s; recent rows ready`,
+            76,
+            "Attendance summary is visible. Finishing the remaining dashboard totals.",
+          );
+        }
         return overview;
       });
 
@@ -253,19 +280,46 @@ export default function DashboardPage() {
         return summary;
       });
 
-      await Promise.all([attendancePromise, finesPromise]);
+      const [attendanceResult, finesResult] = await Promise.allSettled([attendancePromise, finesPromise]);
       if (!isCurrentRequest()) return;
+
+      function handleSectionError(label: string, detail: string, reason: unknown) {
+        const name = reason instanceof Error || reason instanceof DOMException ? reason.name : "";
+        const message = reason instanceof Error || reason instanceof DOMException
+          ? reason.message
+          : "Unable to load dashboard.";
+        if (
+          isDatabaseBusy(reason) ||
+          (controller.signal.aborted &&
+            controller.signal.reason instanceof DOMException &&
+            controller.signal.reason.name === "TimeoutError" &&
+            (name === "TimeoutError" || name === "AbortError"))
+        ) {
+          setDatabaseBusy(true);
+        } else {
+          setError(message);
+        }
+        updateLoadStep(label, "error", detail, 100, "Loaded with some sections unavailable. Use Retry to try again.");
+      }
+
+      if (attendanceResult.status === "rejected") {
+        handleSectionError("Attendance", "Attendance summary unavailable — Retry", attendanceResult.reason);
+      }
+      if (finesResult.status === "rejected") {
+        handleSectionError("Fine totals", "Fine totals unavailable — Retry", finesResult.reason);
+      }
 
       setLoadProgress((current) =>
         current
           ? {
               ...current,
               progress: 100,
-              detail:
-                "Ready. The dashboard loaded summaries and recent rows without downloading the full attendance and fines tables.",
+              detail: current.steps.some((step) => step.status === "error")
+                ? "Loaded with some sections unavailable. Use Retry to try again."
+                : "Ready.",
               steps: current.steps.map((step) => ({
                 ...step,
-                status: "done",
+                status: step.status === "error" ? "error" : "done",
               })),
             }
           : current,
@@ -277,14 +331,28 @@ export default function DashboardPage() {
       if(isDatabaseBusy(loadError)) setDatabaseBusy(true);
       else setError(message);
       setLoadProgress((current) =>
-        current ? { ...current, detail: `Loading stopped: ${message}` } : current,
+        current
+          ? {
+              ...current,
+              progress: 100,
+              detail: `Loading stopped: ${message}`,
+              steps: current.steps.map((step) => ({
+                ...step,
+                status: step.status === "loading" ? "error" : step.status,
+                detail: step.status === "loading" ? message : step.detail,
+              })),
+            }
+          : current,
       );
     } finally {
+      window.clearTimeout(timeoutId);
       if (isCurrentRequest()) {
         setIsLoading(false);
         window.setTimeout(() => {
           if (loadRequestIdRef.current === requestId) {
-            setLoadProgress(null);
+            setLoadProgress((current) =>
+              current?.steps.some((step) => step.status === "error") ? current : null,
+            );
           }
         }, 1600);
       }
@@ -293,6 +361,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadDashboard();
+    return () => {
+      loadRequestIdRef.current += 1;
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   return (
