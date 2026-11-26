@@ -5,6 +5,7 @@ import {
   getAttendanceDashboardOverview,
 } from "../../api/attendance";
 import type {
+  AttendanceDashboardOverview,
   AttendanceImportRecord,
   AttendanceRecord,
 } from "../../api/attendance";
@@ -48,6 +49,15 @@ type DashboardLoadProgress = {
   detail: string;
   steps: LoadingStatusStep[];
 };
+
+type AttendanceSection = NonNullable<AttendanceDashboardOverview["failedSections"]>[number];
+type AttendanceSectionStatus = "pending" | "ready" | "unavailable" | "stale";
+const EMPTY_ATTENDANCE_STATUS: Record<AttendanceSection, AttendanceSectionStatus> = {
+  summary: "pending",
+  recentRecords: "pending",
+  recentImports: "pending",
+};
+const ATTENDANCE_SECTIONS: AttendanceSection[] = ["summary", "recentRecords", "recentImports"];
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -101,7 +111,9 @@ function SchoolYearBadge(props: { label: string; className?: string }) {
 export default function DashboardPage() {
   const [recentRecords, setRecentRecords] = useState<AttendanceRecord[]>([]);
   const [recentImports, setRecentImports] = useState<AttendanceImportRecord[]>([]);
-  const [attendanceRecordCount, setAttendanceRecordCount] = useState(0);
+  const [attendanceRecordCount, setAttendanceRecordCount] = useState<number | null>(null);
+  const [attendanceStatus, setAttendanceStatus] = useState(EMPTY_ATTENDANCE_STATUS);
+  const attendanceYearRef = useRef<string | null>(null);
   const [attendanceTrend, setAttendanceTrend] = useState<
     Array<{ date: string; count: number }>
   >([]);
@@ -143,6 +155,20 @@ export default function DashboardPage() {
     });
   }
 
+  function updateAttendanceStatus(failedSections: AttendanceSection[]) {
+    setAttendanceStatus((current) => {
+      const next = { ...current };
+      for (const section of ATTENDANCE_SECTIONS) {
+        next[section] = failedSections.includes(section)
+          ? current[section] === "ready" || current[section] === "stale"
+            ? "stale"
+            : "unavailable"
+          : "ready";
+      }
+      return next;
+    });
+  }
+
   async function loadDashboard() {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
@@ -177,6 +203,15 @@ export default function DashboardPage() {
         schoolYearRows[0]?.id ??
         "";
 
+      if (attendanceYearRef.current !== activeSchoolYearId) {
+        attendanceYearRef.current = activeSchoolYearId;
+        setRecentRecords([]);
+        setRecentImports([]);
+        setAttendanceRecordCount(null);
+        setAttendanceTrend([]);
+        setAttendanceByCollege([]);
+        setAttendanceStatus(EMPTY_ATTENDANCE_STATUS);
+      }
       setSchoolYears(schoolYearRows);
       setYearFilter(activeSchoolYearId);
       updateLoadStep(
@@ -193,6 +228,7 @@ export default function DashboardPage() {
         setRecentRecords([]);
         setRecentImports([]);
         setAttendanceRecordCount(0);
+        updateAttendanceStatus([]);
         setAttendanceTrend([]);
         setAttendanceByCollege([]);
         setFineSummary({ total: 0 });
@@ -235,6 +271,7 @@ export default function DashboardPage() {
       }).then((overview) => {
         if (!isCurrentRequest()) return overview;
         const failedSections = overview.failedSections;
+        updateAttendanceStatus(failedSections);
         if (!failedSections.includes("summary")) {
           setAttendanceRecordCount(overview.attendanceRecordCount);
           setAttendanceTrend(overview.attendanceTrend);
@@ -251,7 +288,7 @@ export default function DashboardPage() {
           updateLoadStep(
             "Attendance",
             "error",
-            "Some attendance sections are still loading on the server — showing last loaded values",
+            `Unavailable: ${failedSections.map((section) => ({ summary: "count and charts", recentRecords: "recent attendance", recentImports: "recent imports" })[section]).join(", ")}. Retry to load missing data.`,
             76,
             "Attendance loaded partially. Finishing the remaining dashboard totals.",
           );
@@ -303,6 +340,7 @@ export default function DashboardPage() {
       }
 
       if (attendanceResult.status === "rejected") {
+        updateAttendanceStatus(ATTENDANCE_SECTIONS);
         handleSectionError("Attendance", "Attendance summary unavailable — Retry", attendanceResult.reason);
       }
       if (finesResult.status === "rejected") {
@@ -328,6 +366,7 @@ export default function DashboardPage() {
       if (!isCurrentRequest()) return;
       const message =
         loadError instanceof Error ? loadError.message : "Unable to load dashboard.";
+      updateAttendanceStatus(ATTENDANCE_SECTIONS);
       if(isDatabaseBusy(loadError)) setDatabaseBusy(true);
       else setError(message);
       setLoadProgress((current) =>
@@ -409,7 +448,7 @@ export default function DashboardPage() {
         {loadProgress ? (
           <div className="mb-6">
             <LoadingStatus
-              title="Loading dashboard"
+              title={isLoading ? "Loading dashboard" : "Dashboard load status"}
               detail={loadProgress.detail}
               progress={loadProgress.progress}
               steps={loadProgress.steps}
@@ -420,8 +459,14 @@ export default function DashboardPage() {
         <section className="grid gap-4 md:grid-cols-2">
           <StatCard
             label="Attendance records"
-            value={attendanceRecordCount}
-            helper={`${yearLabel} saved entries`}
+            value={attendanceRecordCount ?? "—"}
+            helper={attendanceStatus.summary === "unavailable"
+              ? "Attendance count unavailable — Retry"
+              : attendanceStatus.summary === "stale"
+                ? `${yearLabel} saved entries · last loaded count`
+                : attendanceRecordCount === null
+                  ? "Loading attendance count..."
+                  : `${yearLabel} saved entries`}
             image={BACKGROUND_CARD.dashboardAttendance}
           />
           <StatCard
@@ -436,12 +481,16 @@ export default function DashboardPage() {
           <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
             <h2 className="text-xl font-black">Attendance trend</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Attendance records from the last 14 days for {yearLabel}.
+              Attendance records from the last 14 days for {yearLabel}.{attendanceStatus.summary === "stale" ? " Showing last loaded data." : ""}
             </p>
             <div className="mt-4">
-              <Suspense fallback={<ChartSuspenseFallback />}>
-                <AttendanceTrendChart data={attendanceTrend} isLoading={isLoading} />
-              </Suspense>
+              {attendanceStatus.summary === "unavailable" ? (
+                <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">Attendance trend unavailable — Retry.</p>
+              ) : (
+                <Suspense fallback={<ChartSuspenseFallback />}>
+                  <AttendanceTrendChart data={attendanceTrend} isLoading={isLoading && attendanceStatus.summary === "pending"} />
+                </Suspense>
+              )}
             </div>
           </article>
 
@@ -451,7 +500,7 @@ export default function DashboardPage() {
           <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6 lg:col-span-2">
             <h2 className="text-xl font-black">Recent attendance</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Latest saved attendance records for {yearLabel}.
+              Latest saved attendance records for {yearLabel}.{attendanceStatus.recentRecords === "stale" ? " Showing last loaded data." : ""}
             </p>
 
             <div className="flex-1">
@@ -480,9 +529,11 @@ export default function DashboardPage() {
                   ))
                 ) : (
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
-                    {isLoading
-                      ? "Loading recent attendance..."
-                      : "No attendance records available."}
+                    {attendanceStatus.recentRecords === "unavailable"
+                      ? "Recent attendance unavailable — Retry."
+                      : isLoading && attendanceStatus.recentRecords === "pending"
+                        ? "Loading recent attendance..."
+                        : "No attendance records available."}
                   </div>
                 )}
               </div>
@@ -519,9 +570,11 @@ export default function DashboardPage() {
                           colSpan={4}
                           className="px-3 py-8 text-center text-sm font-semibold text-muted-foreground"
                         >
-                          {isLoading
-                            ? "Loading recent attendance..."
-                            : "No attendance records available."}
+                          {attendanceStatus.recentRecords === "unavailable"
+                            ? "Recent attendance unavailable — Retry."
+                            : isLoading && attendanceStatus.recentRecords === "pending"
+                              ? "Loading recent attendance..."
+                              : "No attendance records available."}
                         </td>
                       </tr>
                     )}
@@ -542,13 +595,15 @@ export default function DashboardPage() {
           <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
             <h2 className="text-xl font-black">Recent imports</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Latest attendance import batches for {yearLabel}.
+              Latest attendance import batches for {yearLabel}.{attendanceStatus.recentImports === "stale" ? " Showing last loaded data." : ""}
             </p>
 
             <div className="mt-4">
-              <Suspense fallback={<ChartSuspenseFallback heightClass="h-40" />}>
-                <RecentImportsQualityChart data={recentImports} isLoading={isLoading} />
-              </Suspense>
+              {attendanceStatus.recentImports !== "unavailable" && (
+                <Suspense fallback={<ChartSuspenseFallback heightClass="h-40" />}>
+                  <RecentImportsQualityChart data={recentImports} isLoading={isLoading && attendanceStatus.recentImports === "pending"} />
+                </Suspense>
+              )}
             </div>
 
             <div className="mt-4 flex-1 space-y-2">
@@ -601,7 +656,7 @@ export default function DashboardPage() {
           <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
             <h2 className="text-xl font-black">Attendance by college</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Top colleges by visible attendance records for {yearLabel}.
+              Top colleges by visible attendance records for {yearLabel}.{attendanceStatus.summary === "stale" ? " Showing last loaded data." : ""}
             </p>
             <div className="mt-4">
               <Suspense fallback={<ChartSuspenseFallback />}>
