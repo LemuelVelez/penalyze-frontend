@@ -362,7 +362,7 @@ function getEffectivePreviewCollege(row: ParsedAttendanceRow, override: string |
 
 function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
   const status = row.masterlist_status;
-  const labels = { matched_by_id: "Corrected by ID", matched_by_partial_id: "Matched by partial ID", matched_by_name: "Matched by name", id_name_mismatch: "ID/name mismatch", unmatched: "Not in masterlist" };
+  const labels = { matched_by_id: "Corrected by ID", matched_by_partial_id: "Matched by partial ID", matched_by_name: "Matched by name", id_name_mismatch: "ID/name mismatch", unmatched: "Unresolved masterlist identity" };
   if ((!status || status === "no_masterlist") && !row.warnings?.length) return null;
   return <div className="mt-1 space-y-1">
     {status && status !== "no_masterlist" && <Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>}
@@ -468,7 +468,7 @@ function getAttendanceCollegeSummary(
       Boolean(row.college && normalizeCollegeKey(row.college) !== normalizeCollegeKey(defaultCollege)),
     ).map(rowInfo),
     invalidCollegeRows: effectiveRows.filter((row) =>
-      !hasMasterlistMatch(row) && !knownKeys.has(normalizeCollegeKey(row.college)),
+      row.masterlist_status !== "unmatched" && !hasMasterlistMatch(row) && !knownKeys.has(normalizeCollegeKey(row.college)),
     ).map(rowInfo),
     yearLevelScopes: getAttendancePreviewYearLevelScopes(effectiveRows),
   };
@@ -1566,13 +1566,13 @@ export default function AttendancePage({
     setIsCheckingUploadFiles(true);
     let filesToPreview: File[] = [];
     try {
-      const existingNames = await getExistingAttendanceUploadNames();
+      const existingNames = masterlistActive ? new Set<string>() : await getExistingAttendanceUploadNames();
       if (fileSelectionRequestRef.current !== requestId) return;
 
       const seenNames = new Set<string>();
       const duplicates: string[] = [];
       filesToPreview = acceptedFiles.filter((file) => {
-        const nameKey = getAttendanceUploadFilenameKey(file.name);
+        const nameKey = masterlistActive ? getAttendanceUploadFileKey(file) : getAttendanceUploadFilenameKey(file.name);
         if (existingNames.has(nameKey) || seenNames.has(nameKey)) {
           duplicates.push(file.name);
           return false;
@@ -2137,7 +2137,7 @@ export default function AttendancePage({
     saveDuplicateCheckRef.current = true;
     setIsCheckingUploadFiles(true);
     try {
-      const existingNames = await getExistingAttendanceUploadNames();
+      const existingNames = masterlistActive ? new Set<string>() : await getExistingAttendanceUploadNames();
       const duplicates = files.filter((file) =>
         existingNames.has(getAttendanceUploadFilenameKey(file.name)),
       );
@@ -3759,6 +3759,19 @@ export default function AttendancePage({
                           ) : null}
                         </div>
 
+                        {details?.previewRows.some(row => row.masterlist_status === "unmatched") ? (
+                          <div className="mt-4 rounded-xl border border-destructive/40 p-3 text-sm">
+                            <p className="font-semibold">Unmatched or ambiguous students — correct the source file before saving to count their attendance.</p>
+                            <div className="mt-2 max-h-60 space-y-2 overflow-auto">
+                              {details.previewRows.filter(row => row.masterlist_status === "unmatched").map(row => (
+                                <div key={row.rowNumber} className="border-b pb-2">
+                                  <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "Selected event"}</p>
+                                  <MasterlistRowBadge row={row} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                         {details?.previewRows.length ? (
                           <div className="mt-4 flex min-w-0 flex-col gap-2 rounded-xl border bg-muted/15 p-3 sm:flex-row sm:flex-wrap sm:items-center">
                             <p className="min-w-0 flex-1 text-xs text-muted-foreground">

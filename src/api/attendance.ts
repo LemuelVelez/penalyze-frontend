@@ -159,6 +159,8 @@ export type AttendanceRecord = {
   delete_reason: string | null;
   created_at: string;
   updated_at: string;
+  masterlist_status?: ParsedAttendanceRow["masterlist_status"] | null;
+  masterlist_original?: ParsedAttendanceRow["masterlist_original"] | null;
 };
 
 export type ManualAttendanceType = "manual" | "zero_attendance";
@@ -184,6 +186,8 @@ export type ManualAttendanceRecord = {
   scanned_at: string | null;
   created_at: string;
   updated_at: string;
+  masterlist_status?: ParsedAttendanceRow["masterlist_status"] | null;
+  masterlist_original?: ParsedAttendanceRow["masterlist_original"] | null;
 };
 
 export type AttendanceFinalResultRecord = {
@@ -416,7 +420,7 @@ export type AttendanceEventInput = {
 
 export type ParsedAttendanceRow = AttendanceImportInput & {
   masterlist_status?: "matched_by_id" | "matched_by_partial_id" | "matched_by_name" | "id_name_mismatch" | "unmatched" | "no_masterlist";
-  masterlist_original?: { studentId: string; name: string };
+  masterlist_original?: { studentId: string; name: string; college?: string; program?: string; yearLevel?: string };
   rowNumber: number;
   errors: string[];
   warnings?: string[];
