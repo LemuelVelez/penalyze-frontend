@@ -24,7 +24,7 @@ export function MasterlistPager({ page, total, onChange }: { page: number; total
   return <div className="flex flex-wrap items-center justify-between gap-2 pt-4 text-sm"><span>{total} records · Page {page + 1} of {pages}</span><div className="flex gap-2"><Button variant="outline" disabled={page === 0} onClick={() => onChange(page - 1)}>Previous</Button><Button variant="outline" disabled={page + 1 >= pages} onClick={() => onChange(page + 1)}>Next</Button></div></div>;
 }
 export default function MasterlistPage() {
-  const {rebuildJob,refresh:refreshJobs} = useMaintenanceJobs();
+  const {rebuildJob} = useMaintenanceJobs();
   const [reconcileJob,setReconcileJob] = useState<MaintenanceJob|null>(null);
   const rebuildController = useRef<AbortController | null>(null);
   useEffect(()=>()=>rebuildController.current?.abort(),[]);
@@ -61,14 +61,14 @@ export default function MasterlistPage() {
     return ()=>{controller.abort();window.removeEventListener("focus",refresh);window.clearInterval(timer);};
   },[active?.id,revision]);
   async function runRebuild() {
-    if (!rebuildJob || busy || rebuildRunning) return;
+    if (!rebuildJob || busy || rebuildRunning || rebuildController.current || rebuildJob.status === "running") return;
     const controller = new AbortController(); rebuildController.current = controller;
     setRebuildRunning(true);setRebuildProgress(null);
     try {
       const result = await runMaintenanceJob(rebuildJob.id,setRebuildProgress,controller.signal);
       if (result.status === "completed") {setSummary(result.result as MasterlistSummary);toast.success("Attendance data rebuilt.");}
     } catch(e) {toast.error(e instanceof Error ? e.message : "Rebuild paused. Press Resume to continue.");}
-    finally {rebuildController.current=null;setRebuildRunning(false);refreshJobs();setRevision(v=>v+1);}
+    finally {rebuildController.current=null;setRebuildRunning(false);setRebuildProgress(null);invalidateMasterlistStatus();setRevision(v=>v+1);}
   }
   const allowed = isMasterlistTerm(active);
   const pending = data?.pendingUpload;
@@ -117,7 +117,7 @@ export default function MasterlistPage() {
   const rebuildStep = steps.findIndex(step=>step.stages.includes(rebuildStage));
   const rebuildSteps: LoadingStatusStep[] = steps.map((step,index)=>({label:step.label,status:index<rebuildStep ? "done" : index===rebuildStep && (rebuildRunning || rebuildJob?.status === "running") ? "loading" : "pending"}));
   return <main className="space-y-5"><header><h1 className="text-2xl font-black tracking-tight">Student Masterlist</h1><p className="text-muted-foreground">{allowed && active ? `Masterlist for 1st Semester, A.Y. ${active.name}` : "Masterlist for 1st Semester, A.Y. 2026-2027"}</p><p className="text-sm">Active school year: {active ? `${active.name} · ${active.semester === "first_semester" ? "1st Semester" : "2nd Semester"}` : "Unavailable"}</p></header>
-    {rebuildJob && <section className="space-y-3 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Attendance data rebuild</h2><p className="text-sm">Status: {rebuildRunning ? "running" : rebuildJob.status} · {rebuildJob.phase.replace(/[:_]/g," ")}</p><LoadingStatus title="Attendance data rebuild" detail={rebuildProgress?.message ?? rebuildJob.message ?? "Ready to rebuild attendance data."} progress={rebuildProgress?.percent ?? rebuildJob.percent} steps={rebuildSteps}/>{rebuildJob.last_error && <p className="text-sm text-destructive">{rebuildJob.last_error}</p>}<Button disabled={busy || rebuildRunning || !!pending || rebuildJob.status === "running"} onClick={()=>void runRebuild()}>{rebuildRunning ? "Rebuilding…" : rebuildJob.status === "running" ? "Running in another tab" : rebuildJob.status === "pending" ? "Start rebuild" : "Resume"}</Button></section>}
+    {rebuildJob && <section className="space-y-3 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Attendance data rebuild</h2><p className="text-sm">Status: {rebuildRunning ? "running" : rebuildJob.status} · {rebuildJob.phase.replace(/[:_]/g," ")}</p><LoadingStatus title="Attendance data rebuild" detail={rebuildProgress?.message ?? rebuildJob.message ?? "Ready to rebuild attendance data."} progress={rebuildProgress?.percent ?? rebuildJob.percent} steps={rebuildSteps}/>{!rebuildRunning && rebuildJob.status !== "running" && rebuildJob.last_error && <p className="text-sm text-destructive">{rebuildJob.last_error}</p>}<Button disabled={busy || rebuildRunning || !!pending || rebuildJob.status === "running"} onClick={()=>void runRebuild()}>{rebuildRunning ? "Rebuilding…" : rebuildJob.status === "running" ? "Running in another tab" : rebuildJob.status === "pending" ? "Start rebuild" : "Resume"}</Button></section>}
     <section aria-busy={busy} className="space-y-4 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Upload masterlist</h2>{!allowed && <p className="rounded-xl border p-3 text-sm text-muted-foreground">Upload and reconciliation require the active first semester of A.Y. 2026-2027.</p>}
       <FilePicker accept=".xlsx,.csv" disabled={!allowed || busy || !!pending || loading} buttonLabel={file?.name ?? "Choose masterlist (.xlsx, .csv)"} onChange={e => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
       <div className="flex flex-wrap gap-2">
