@@ -3765,7 +3765,7 @@ export default function AttendancePage({
                             <div className="mt-2 max-h-60 space-y-2 overflow-auto">
                               {details.previewRows.filter(row => row.masterlist_status === "unmatched").map(row => (
                                 <div key={row.rowNumber} className="border-b pb-2">
-                                  <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "Selected event"}</p>
+                                  <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "No event in source — review assignment"}</p>
                                   <MasterlistRowBadge row={row} />
                                 </div>
                               ))}
