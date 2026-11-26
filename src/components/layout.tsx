@@ -1,4 +1,7 @@
+import { MaintenanceJobsNotice } from "./maintenance-jobs-notice";
+import { useMaintenanceJobs } from "../lib/use-maintenance-jobs";
 import { useMasterlistStatus } from "../lib/use-masterlist-status";
+import { isDatabaseBusy } from "../api/http";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -61,6 +64,7 @@ function pollAttendanceBadge<T>(
   load: (signal: AbortSignal) => Promise<T>,
   apply: (value: T) => void,
   updateEvent: string,
+  onBusy?: (busy:boolean)=>void,
 ) {
   let active = true;
   let failures = 0;
@@ -88,11 +92,12 @@ function pollAttendanceBadge<T>(
     controller = new AbortController();
     try {
       const value = await load(controller.signal);
-      if (active) apply(value);
+      if (active) {apply(value);onBusy?.(false);}
       failures = 0;
       retryNotBefore = 0;
-    } catch {
+    } catch (error) {
       if (active) {
+        if(isDatabaseBusy(error)) onBusy?.(true);
         failures += 1;
         retryNotBefore = Date.now() + Math.min(300_000, 30_000 * 2 ** Math.min(failures, 4));
       }
@@ -219,6 +224,10 @@ function PendingBadge(props: {
 export default function AppLayout(props: LayoutProps) {
   const navigate = useNavigate();
   const { active: masterlistActive } = useMasterlistStatus();
+  const {rebuildJob} = useMaintenanceJobs();
+  const [requestBusy,setRequestBusy] = useState(false);
+  const [calculationBusy,setCalculationBusy] = useState(false);
+  const [badgeRevision,setBadgeRevision] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopGroupOpen, setDesktopGroupOpen] = useState<string | null>(null);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
@@ -348,8 +357,9 @@ export default function AppLayout(props: LayoutProps) {
       getPendingAttendanceRequestCount,
       setPendingRequestCount,
       ATTENDANCE_REQUESTS_UPDATED_EVENT,
+      setRequestBusy,
     );
-  }, [isAdmin]);
+  }, [isAdmin,badgeRevision]);
 
   useEffect(() => {
     let active = true;
@@ -380,8 +390,9 @@ export default function AppLayout(props: LayoutProps) {
       async (signal) => (await getCalculationPendingSummary({ signal })).needsCalculation,
       setCalculationNeeded,
       CALCULATION_STATUS_UPDATED_EVENT,
+      setCalculationBusy,
     );
-  }, [isAdmin]);
+  }, [isAdmin,badgeRevision]);
 
   useEffect(() => {
     setDesktopGroupOpen(null);
@@ -753,7 +764,11 @@ export default function AppLayout(props: LayoutProps) {
         </div>
       </header>
 
-      <div className="min-w-0 max-w-full scroll-pt-16 pt-[calc(4rem+env(safe-area-inset-top))]">{props.children}</div>
+      <div className="min-w-0 max-w-full scroll-pt-16 pt-[calc(4rem+env(safe-area-inset-top))]">
+        {isAdmin && rebuildJob && <aside role="status" className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-3 text-sm">Attendance data needs a rebuild — results may be incomplete. <Button variant="link" onClick={()=>handleNavigate("/masterlist")}>Open Masterlist</Button></aside>}
+        {isAdmin && (requestBusy || calculationBusy) && <aside role="status" className="flex flex-wrap items-center gap-3 border-b px-4 py-2 text-sm">Attendance status is temporarily unavailable. <Button variant="outline" onClick={()=>setBadgeRevision(v=>v+1)}>Retry</Button></aside>}
+        {isAdmin && <MaintenanceJobsNotice key={props.currentPath} path={props.currentPath}/>}
+        {props.children}</div>
     </div>
   );
 }

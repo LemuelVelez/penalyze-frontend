@@ -1,3 +1,4 @@
+import { fetchWithRetry, responseError } from "./http";
 import { getApiBaseUrl, checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import { readProgressStream } from "./progressStream";
@@ -243,7 +244,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetchWithRetry(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
     credentials: "include",
@@ -264,7 +265,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
         : " Please try again later.";
       throw new Error(`Too many requests.${wait}`);
     }
-    throw Object.assign(new Error(payload?.message || `Request failed with status ${response.status}.`), { code: payload?.code });
+    throw responseError(response,payload);
   }
 
   return payload as ApiEnvelope<T>;

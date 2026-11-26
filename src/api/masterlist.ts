@@ -1,3 +1,4 @@
+import { fetchWithRetry, responseError } from "./http";
 import { checkUnauthorized, getApiBaseUrl } from "./auth";
 import type { SchoolYearRecord } from "./schoolYears";
 import { readProgressStream } from "./progressStream";
@@ -30,13 +31,13 @@ function queryString(filters: MasterlistFilters) {
 async function request(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (init.method && init.method !== "GET") headers.set("X-Penalyze-Request", "1");
-  const response = checkUnauthorized(await fetch(`${getApiBaseUrl()}${path}`, { ...init, headers, credentials: "include" }));
+  const response = checkUnauthorized(await fetchWithRetry(`${getApiBaseUrl()}${path}`, { ...init, headers, credentials: "include" }));
   if (!response.ok) {
     const body = await response.json().catch((error: unknown) => {
       if (init.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
       return null;
     });
-    throw new Error(body?.message ?? "Masterlist request failed.");
+    throw responseError(response,body,"Masterlist request failed.");
   }
   return response;
 }

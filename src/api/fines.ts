@@ -1,3 +1,4 @@
+import { fetchWithRetry, responseError } from "./http";
 import { checkUnauthorized } from "./auth";
 import { notifyCalculationStatusUpdated } from "./attendance";
 import type { AttendanceRecord } from "./attendance";
@@ -189,7 +190,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetchWithRetry(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
     credentials: "include",
@@ -202,9 +203,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     : null;
 
   if (!response.ok) {
-    throw new Error(
-      payload?.message || `Request failed with status ${response.status}.`,
-    );
+    throw responseError(response,payload);
   }
 
   return payload as ApiEnvelope<T>;

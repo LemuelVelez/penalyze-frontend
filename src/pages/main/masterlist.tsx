@@ -1,3 +1,5 @@
+import { useMaintenanceJobs } from "../../lib/use-maintenance-jobs";
+import { listMaintenanceJobs, runMaintenanceJob, type MaintenanceJob } from "../../api/maintenanceJobs";
 import { invalidateMasterlistStatus } from "../../lib/use-masterlist-status";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +24,12 @@ export function MasterlistPager({ page, total, onChange }: { page: number; total
   return <div className="flex flex-wrap items-center justify-between gap-2 pt-4 text-sm"><span>{total} records · Page {page + 1} of {pages}</span><div className="flex gap-2"><Button variant="outline" disabled={page === 0} onClick={() => onChange(page - 1)}>Previous</Button><Button variant="outline" disabled={page + 1 >= pages} onClick={() => onChange(page + 1)}>Next</Button></div></div>;
 }
 export default function MasterlistPage() {
+  const {rebuildJob,refresh:refreshJobs} = useMaintenanceJobs();
+  const [reconcileJob,setReconcileJob] = useState<MaintenanceJob|null>(null);
+  const rebuildController = useRef<AbortController | null>(null);
+  useEffect(()=>()=>rebuildController.current?.abort(),[]);
+  const [rebuildRunning,setRebuildRunning] = useState(false);
+  const [rebuildProgress,setRebuildProgress] = useState<MasterlistProgress|null>(null);
   const [active, setActive] = useState<SchoolYearRecord | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [data, setData] = useState<Awaited<ReturnType<typeof listMasterlist>> | null>(null);
@@ -37,13 +45,31 @@ export default function MasterlistPage() {
   const [discardTarget, setDiscardTarget] = useState<NonNullable<NonNullable<typeof data>["pendingUpload"]> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NonNullable<NonNullable<typeof data>["import"]> | null>(null);
   useEffect(() => {
-    if (!busy) return;
+    if (!busy && !rebuildRunning) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload",warn);
     return () => window.removeEventListener("beforeunload",warn);
-  },[busy]);
+  },[busy,rebuildRunning]);
   useEffect(() => { let live = true; listSchoolYears().then(years => { if (live) setActive(years.find(y => y.is_active) ?? null); }).catch(e => toast.error(e.message)); return () => { live = false; }; }, []);
   useEffect(() => { let live = true; setLoading(true); listMasterlist({ search, college, yearLevel, limit: 50, offset: page * 50 }).then(r => { if (live) setData(r); }).catch(e => { if (live) toast.error(e.message); }).finally(() => { if (live) setLoading(false); }); return () => { live = false; }; }, [search, college, yearLevel, page, revision]);
+  useEffect(()=>{
+    if (!active?.id) return;
+    const controller = new AbortController();
+    const refresh = () => void listMaintenanceJobs({kind:"masterlist_reconcile",schoolYearId:active.id,open:true},controller.signal).then(jobs=>{if(!controller.signal.aborted)setReconcileJob(jobs[0]??null);}).catch(()=>undefined);
+    refresh(); window.addEventListener("focus",refresh);
+    const timer=window.setInterval(refresh,10000);
+    return ()=>{controller.abort();window.removeEventListener("focus",refresh);window.clearInterval(timer);};
+  },[active?.id,revision]);
+  async function runRebuild() {
+    if (!rebuildJob || busy || rebuildRunning) return;
+    const controller = new AbortController(); rebuildController.current = controller;
+    setRebuildRunning(true);setRebuildProgress(null);
+    try {
+      const result = await runMaintenanceJob(rebuildJob.id,setRebuildProgress,controller.signal);
+      if (result.status === "completed") {setSummary(result.result as MasterlistSummary);toast.success("Attendance data rebuilt.");}
+    } catch(e) {toast.error(e instanceof Error ? e.message : "Rebuild paused. Press Resume to continue.");}
+    finally {rebuildController.current=null;setRebuildRunning(false);refreshJobs();setRevision(v=>v+1);}
+  }
   const allowed = isMasterlistTerm(active);
   const pending = data?.pendingUpload;
   const savedProgress: MasterlistProgress | null = pending ? {
@@ -52,7 +78,7 @@ export default function MasterlistPage() {
     message: pending.phase === "staged" ? `${pending.rowsValid} students saved. Ready to publish and reconcile.` : pending.phase === "syncing" ? `${pending.processed} / ${pending.totalStudents} students synchronized and saved.` : "Absence synchronization saved. Ready to refresh results.",
   } : null;
   async function run(action: "upload" | "resume" | "reconcile" | "delete" | "discard") {
-    if (!allowed || busy || loading || (action === "upload" && (!file || pending))) return;
+    if (!allowed || busy || rebuildRunning || rebuildJob?.status === "running" || loading || (action === "upload" && (!file || pending))) return;
     if (action === "delete" && !deleteTarget) return;
     if (action === "discard" && !discardTarget) return;
     if (action === "resume" && !pending) return;
@@ -63,7 +89,10 @@ export default function MasterlistPage() {
         const result = action === "resume" && pending ? await resumeMasterlistUploadWithProgress(pending.id,setProgress) : await uploadMasterlistWithProgress(file!,setProgress);
         setSummary(result.summary); setFile(null); setData(previous => previous ? {...previous,import:result.import,pendingUpload:null} : previous);
       }
-      if (action === "reconcile") setSummary(await reconcileMasterlistWithProgress(setProgress));
+      if (action === "reconcile") {
+        if (reconcileJob) { const result=await runMaintenanceJob(reconcileJob.id,setProgress);setSummary(result.result as MasterlistSummary); }
+        else setSummary(await reconcileMasterlistWithProgress(setProgress));
+      }
       if (action === "delete" && deleteTarget) { await deleteMasterlist(deleteTarget.id); setSummary(null); setData(previous => previous ? {...previous,import:null,pendingUpload:null,rows:[],total:0} : previous); setDeleteOpen(false); setDeleteTarget(null); }
       if (action === "discard" && discardTarget) { await discardMasterlistUpload(discardTarget.id); setData(previous => previous ? {...previous,pendingUpload:null} : previous); setDiscardOpen(false); setDiscardTarget(null); }
       if (action !== "discard") invalidateMasterlistStatus();
@@ -84,12 +113,16 @@ export default function MasterlistPage() {
   const loadingSteps: LoadingStatusStep[] = steps.map((step,index)=>({label:step.label,status: index < currentStep ? "done" : index === currentStep && busy ? "loading" : "pending"}));
   const progressDetail = displayProgress ? `${displayProgress.message}${displayProgress.chunkIndex !== undefined && displayProgress.chunkTotal !== undefined ? ` (chunk ${displayProgress.chunkIndex} of ${displayProgress.chunkTotal})` : ""}` : "Starting…";
   const stats = pending && pending.phase !== "staged" ? null : summary ?? data?.import?.summary;
+  const rebuildStage = rebuildProgress?.stage ?? (rebuildJob?.phase === "normalize_masterlist" ? "saving_masterlist" : rebuildJob?.phase.startsWith("reconcile:") || rebuildJob?.phase.startsWith("dedupe:") ? "reconciling_records" : rebuildJob?.phase === "sync_absences" ? "syncing_absences" : rebuildJob?.phase === "remap_overrides" ? "remapping_overrides" : rebuildJob?.phase === "update_students" ? "updating_students" : rebuildJob?.phase === "refresh_final_results" ? "refreshing_final_results" : rebuildJob?.phase === "refresh_calculations" ? "refreshing_calculations" : rebuildJob?.phase === "refresh_penalties" ? "refreshing_penalties" : "parsing");
+  const rebuildStep = steps.findIndex(step=>step.stages.includes(rebuildStage));
+  const rebuildSteps: LoadingStatusStep[] = steps.map((step,index)=>({label:step.label,status:index<rebuildStep ? "done" : index===rebuildStep && (rebuildRunning || rebuildJob?.status === "running") ? "loading" : "pending"}));
   return <main className="space-y-5"><header><h1 className="text-2xl font-black tracking-tight">Student Masterlist</h1><p className="text-muted-foreground">{allowed && active ? `Masterlist for 1st Semester, A.Y. ${active.name}` : "Masterlist for 1st Semester, A.Y. 2026-2027"}</p><p className="text-sm">Active school year: {active ? `${active.name} · ${active.semester === "first_semester" ? "1st Semester" : "2nd Semester"}` : "Unavailable"}</p></header>
+    {rebuildJob && <section className="space-y-3 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Attendance data rebuild</h2><p className="text-sm">Status: {rebuildRunning ? "running" : rebuildJob.status} · {rebuildJob.phase.replace(/[:_]/g," ")}</p><LoadingStatus title="Attendance data rebuild" detail={rebuildProgress?.message ?? rebuildJob.message ?? "Ready to rebuild attendance data."} progress={rebuildProgress?.percent ?? rebuildJob.percent} steps={rebuildSteps}/>{rebuildJob.last_error && <p className="text-sm text-destructive">{rebuildJob.last_error}</p>}<Button disabled={busy || rebuildRunning || !!pending || rebuildJob.status === "running"} onClick={()=>void runRebuild()}>{rebuildRunning ? "Rebuilding…" : rebuildJob.status === "running" ? "Running in another tab" : rebuildJob.status === "pending" ? "Start rebuild" : "Resume"}</Button></section>}
     <section aria-busy={busy} className="space-y-4 rounded-2xl border bg-card p-5"><h2 className="text-lg font-bold">Upload masterlist</h2>{!allowed && <p className="rounded-xl border p-3 text-sm text-muted-foreground">Upload and reconciliation require the active first semester of A.Y. 2026-2027.</p>}
       <FilePicker accept=".xlsx,.csv" disabled={!allowed || busy || !!pending || loading} buttonLabel={file?.name ?? "Choose masterlist (.xlsx, .csv)"} onChange={e => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
       <div className="flex flex-wrap gap-2">
         {pending ? <Button disabled={!allowed || busy || loading} onClick={() => void run("resume")}>Resume upload</Button> : <Button disabled={!allowed || busy || loading || !data || !file} onClick={() => data?.import ? setReplaceOpen(true) : void run("upload")}>Upload &amp; Reconcile</Button>}
-        <Button variant="outline" disabled={!allowed || busy || loading || !!pending || !data?.import} onClick={() => void run("reconcile")}>Reconcile now</Button>
+        <Button variant="outline" disabled={!allowed || busy || rebuildRunning || loading || !!pending || !data?.import || reconcileJob?.status === "running"} onClick={() => void run("reconcile")}>{reconcileJob?.status === "running" ? "Running in another tab" : reconcileJob ? "Resume reconciliation" : "Reconcile now"}</Button>
         {pending?.phase === "staged" && <Button variant="destructive" disabled={!allowed || busy || loading} onClick={() => {setDiscardTarget(pending);setDiscardOpen(true);}}>Discard saved upload</Button>}
         <Button variant="destructive" disabled={!allowed || busy || loading || pending?.phase === "staged" || !data?.import} onClick={() => {setDeleteTarget(data?.import ?? null);setDeleteOpen(true);}}>{pending && pending.phase !== "staged" ? "Delete masterlist & start over" : "Delete masterlist"}</Button>
       </div>

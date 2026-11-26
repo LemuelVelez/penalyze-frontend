@@ -1,3 +1,4 @@
+import { isDatabaseBusy } from "../../api/http";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import {
@@ -115,6 +116,7 @@ export default function DashboardPage() {
     null,
   );
   const [error, setError] = useState("");
+  const [databaseBusy,setDatabaseBusy] = useState(false);
   const loadRequestIdRef = useRef(0);
 
   const yearLabel = getSchoolYearLabel(schoolYears, yearFilter);
@@ -147,6 +149,7 @@ export default function DashboardPage() {
 
     setIsLoading(true);
     setError("");
+    setDatabaseBusy(false);
     setLoadProgress({
       progress: 6,
       detail: "Finding the active school year before requesting dashboard data.",
@@ -271,7 +274,8 @@ export default function DashboardPage() {
       if (!isCurrentRequest()) return;
       const message =
         loadError instanceof Error ? loadError.message : "Unable to load dashboard.";
-      setError(message);
+      if(isDatabaseBusy(loadError)) setDatabaseBusy(true);
+      else setError(message);
       setLoadProgress((current) =>
         current ? { ...current, detail: `Loading stopped: ${message}` } : current,
       );
@@ -323,6 +327,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {databaseBusy && <aside role="status" className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-3 text-sm">The database is busy. Previously loaded dashboard data is retained. <Button variant="outline" disabled={isLoading} onClick={()=>void loadDashboard()}>Retry</Button></aside>}
         {error ? (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300">
             {error}

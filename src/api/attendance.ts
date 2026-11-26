@@ -1,3 +1,4 @@
+import { fetchWithRetry, responseError } from "./http";
 import { checkUnauthorized } from "./auth";
 import { readProgressStream } from "./progressStream";
 
@@ -761,7 +762,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetchWithRetry(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
     credentials: "include",
@@ -774,9 +775,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
     : null;
 
   if (!response.ok) {
-    const message = payload?.message || `Request failed with status ${response.status}.`;
-    const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
+    throw responseError(response,payload);
   }
 
   return payload as ApiEnvelope<T>;

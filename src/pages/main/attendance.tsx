@@ -1,3 +1,4 @@
+import { isDatabaseBusy } from "../../api/http";
 import { useMasterlistStatus } from "../../lib/use-masterlist-status";
 import { normalizeStudentNumberKey } from "../../lib/student-number";
 import { Badge } from "../../components/ui/badge";
@@ -954,6 +955,7 @@ export default function AttendancePage({
   const [imports, setImports] = useState<AttendanceImportRecord[]>([]);
   const [isLoadingImports, setIsLoadingImports] = useState(false);
   const [importsLoadError, setImportsLoadError] = useState("");
+  const [databaseBusy,setDatabaseBusy] = useState(false);
   const [attendanceEvents, setAttendanceEvents] = useState<AttendanceEvent[]>(
     [],
   );
@@ -1289,7 +1291,7 @@ export default function AttendancePage({
     setIsLoading(true);
     setIsLoadingImports(true);
     setImportsLoadError("");
-    setImports([]);
+    setDatabaseBusy(false);
     setSelectedFinalResultIds([]);
     setPageLoadProgress({
       progress: 5,
@@ -1412,9 +1414,9 @@ export default function AttendancePage({
         return importRows;
       }).catch((error) => {
         if (isCurrentRequest()) {
-          setImports([]);
+          if (isDatabaseBusy(error)) setDatabaseBusy(true);
+          else setImportsLoadError(error instanceof Error ? error.message : "Unable to load uploaded files.");
           setIsLoadingImports(false);
-          setImportsLoadError(error instanceof Error ? error.message : "Unable to load uploaded files.");
         }
         throw error;
       });
@@ -1466,7 +1468,8 @@ export default function AttendancePage({
     } catch (error) {
       if (!isCurrentRequest()) return;
       setIsLoadingImports(false);
-      setImportsLoadError((current) => current || (error instanceof Error ? error.message : "Unable to load uploaded files."));
+      if (isDatabaseBusy(error)) setDatabaseBusy(true);
+      else setImportsLoadError((current) => current || (error instanceof Error ? error.message : "Unable to load uploaded files."));
       setPageLoadProgress((current) =>
         current
           ? {
@@ -1478,7 +1481,7 @@ export default function AttendancePage({
             }
           : current,
       );
-      toast.error(
+      if (!isDatabaseBusy(error)) toast.error(
         error instanceof Error
           ? error.message
           : "Unable to load attendance records.",
@@ -5107,6 +5110,7 @@ export default function AttendancePage({
           </DialogContent>
         </Dialog>
 
+        {databaseBusy && <aside role="status" className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-3 text-sm">The database is busy. Previously loaded attendance data is retained. <Button variant="outline" disabled={isLoading} onClick={()=>void loadPageData()}>Retry</Button></aside>}
         {pageLoadProgress ? (
           <LoadingStatus
             title="Loading final attendance results"
