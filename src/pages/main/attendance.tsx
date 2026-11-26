@@ -1,3 +1,5 @@
+import { listMaintenanceJobs, runMaintenanceJob, type MaintenanceJob } from "../../api/maintenanceJobs";
+import type { MasterlistProgress } from "../../api/masterlist";
 import { isDatabaseBusy } from "../../api/http";
 import { useMasterlistStatus } from "../../lib/use-masterlist-status";
 import { normalizeStudentNumberKey } from "../../lib/student-number";
@@ -21,6 +23,7 @@ import {
   listAttendanceEvents,
   listAttendanceFinalResults,
   listAttendanceImports,
+  notifyCalculationStatusUpdated,
   previewAttendanceFile,
   refreshAttendanceFinalResults,
   saveAttendanceFile,
@@ -970,6 +973,14 @@ export default function AttendancePage({
   const [isLoadingEventsDialogDetails, setIsLoadingEventsDialogDetails] =
     useState(false);
   const [eventsDialogLoadMessage, setEventsDialogLoadMessage] = useState("");
+  const [eventsDialogLoadError, setEventsDialogLoadError] = useState("");
+  const [eventsDialogLoadProgress, setEventsDialogLoadProgress] = useState(0);
+  const eventDetailsPageSizeRef = useRef(8);
+  const eventDetailsCheckpointRef = useRef<{result:AttendanceFinalResultRecord; cursor:string; scanned:number; total:number} | null>(null);
+  const [eventsDialogJobChecking, setEventsDialogJobChecking] = useState(false);
+  const [eventsDialogJob, setEventsDialogJob] = useState<MaintenanceJob | null>(null);
+  const [eventsDialogJobRevision, setEventsDialogJobRevision] = useState(0);
+  const eventSaveAbortRef = useRef<AbortController | null>(null);
   const [savingEventId, setSavingEventId] = useState<string | null>(null);
   const savingEventInFlightRef = useRef(false);
   const [selectedEventChanges, setSelectedEventChanges] = useState<Record<string, boolean>>({});
@@ -988,6 +999,36 @@ export default function AttendancePage({
     new Map<string, AttendanceFinalResultRecord>(),
   );
   const eventsDialogAbortRef = useRef<AbortController | null>(null);
+  const eventsDialogId = eventsDialogResult?.id;
+  useEffect(() => {
+    if (!eventsDialogId || !canAdjustEventAttendance) { setEventsDialogJob(null); setEventsDialogJobChecking(false); return; }
+    setEventsDialogJobChecking(true);
+    const controller = new AbortController();
+    let loading = false;
+    const refresh = async () => {
+      if (loading || controller.signal.aborted) return;
+      loading = true;
+      try {
+        const jobs = await listMaintenanceJobs({kind:"final_result_event_batch",open:true},controller.signal);
+        if (!controller.signal.aborted) {
+          setEventsDialogJob(jobs.find(job => (job.input as {finalResultId?:string} | null)?.finalResultId === eventsDialogId) ?? null);
+          setEventsDialogJobChecking(false);
+        }
+      } catch { /* Retain the last known saved job. */ }
+      finally { loading=false; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    window.addEventListener("focus",refresh);
+    return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("focus",refresh); };
+  },[eventsDialogId,canAdjustEventAttendance,eventsDialogJobRevision]);
+  useEffect(() => () => { eventsDialogAbortRef.current?.abort(); eventSaveAbortRef.current?.abort(); }, []);
+  useEffect(() => {
+    if (!savingEventId) return;
+    const warn = (event:BeforeUnloadEvent) => { event.preventDefault(); event.returnValue=""; };
+    window.addEventListener("beforeunload",warn);
+    return () => window.removeEventListener("beforeunload",warn);
+  },[savingEventId]);
   useEffect(() => {
     if (!savingEventId) return;
 
@@ -1230,7 +1271,7 @@ export default function AttendancePage({
   const selectedAddCount = Object.values(selectedEventChanges).filter(Boolean).length;
   const selectedSubtractCount = Object.values(selectedEventChanges).filter((attended) => !attended).length;
   const selectedEventChangeCount = selectedAddCount + selectedSubtractCount;
-  const isEventAdjustmentBusy = Boolean(savingEventId) || isLoadingEventsDialogDetails;
+  const isEventAdjustmentBusy = Boolean(savingEventId) || isLoadingEventsDialogDetails || Boolean(eventsDialogLoadError) || Boolean(eventsDialogJob) || eventsDialogJobChecking;
 
   function toggleEventChange(eventId: string, attended: boolean, checked: boolean) {
     setSelectedEventChanges((current) => {
@@ -2623,63 +2664,147 @@ export default function AttendancePage({
     return { studentId, schoolYearId, uploaded, manual };
   }
 
-  async function handleOpenEventsDialog(result: AttendanceFinalResultRecord) {
+  async function handleOpenEventsDialog(result: AttendanceFinalResultRecord, force = false) {
     setSelectedEventChanges({});
+    if (canAdjustEventAttendance && eventsDialogResult?.id !== result.id) { setEventsDialogJob(null); setEventsDialogJobChecking(true); }
     const cacheKey = `${result.id}:${result.updated_at}`;
-    const cachedResult = eventsDialogCacheRef.current.get(cacheKey);
-
+    const cachedResult = force ? undefined : eventsDialogCacheRef.current.get(cacheKey);
     eventsDialogAbortRef.current?.abort();
-    setEventsDialogResult(cachedResult ?? result);
-    setEventsDialogLoadMessage(
-      cachedResult
-        ? "Event details loaded from cache."
-        : `Loading the ${result.expected_events}-event college roster in one request.`,
-    );
-
-    if (cachedResult) {
-      setIsLoadingEventsDialogDetails(false);
-      return;
-    }
+    let checkpoint = eventDetailsCheckpointRef.current;
+    if (force || !checkpoint || checkpoint.result.id !== result.id || checkpoint.result.updated_at !== result.updated_at) checkpoint = null;
+    if (force || (!checkpoint && !eventsDialogLoadError)) eventDetailsPageSizeRef.current = 8;
+    eventDetailsCheckpointRef.current = checkpoint;
+    setEventsDialogResult(checkpoint?.result ?? cachedResult ?? result);
+    setEventsDialogLoadError("");
+    setEventsDialogLoadProgress(checkpoint ? Math.min(99,100*checkpoint.scanned/Math.max(1,checkpoint.total)) : 0);
+    setEventsDialogLoadMessage(checkpoint ? `Resuming after ${checkpoint.scanned} of ${checkpoint.total} event candidates.` : "Loading this student's expected events and attendance records in small pages.");
 
     const controller = new AbortController();
     eventsDialogAbortRef.current = controller;
     setIsLoadingEventsDialogDetails(true);
-
+    let timedOut = false;
+    let restarted = false;
     try {
-      const rows = await listAttendanceFinalResults({
-        schoolYearId: result.school_year_id ?? undefined,
-        studentId: result.student_id,
-        limit: 1,
-        offset: 0,
-        consolidatedOnly: true,
-        includeEventDetails: true,
-        signal: controller.signal,
-      });
-      const detailedResult = rows.find((row) => row.import_id === null)
-        ?? rows.find((row) => row.id === result.id)
-        ?? rows[0] ?? result;
-
-      if (controller.signal.aborted) return;
-
-      eventsDialogCacheRef.current.set(cacheKey, detailedResult);
-      setEventsDialogResult(detailedResult);
-      setEventsDialogLoadMessage(
-        `Loaded ${detailedResult.event_details?.length ?? 0} expected event/s.`,
-      );
+      while (!controller.signal.aborted) {
+        const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, 45000);
+        let rows: AttendanceFinalResultRecord[];
+        try {
+          rows = await listAttendanceFinalResults({
+            schoolYearId: result.school_year_id ?? undefined,
+            studentId: result.student_id,
+            limit: 1,
+            offset: 0,
+            consolidatedOnly: true,
+            includeEventDetails: true,
+            eventDetailsPageSize: eventDetailsPageSizeRef.current,
+            eventDetailsCursor: checkpoint?.cursor,
+            signal: controller.signal,
+          });
+        } finally { window.clearTimeout(timer); }
+        if (controller.signal.aborted) return;
+        const detailedResult = rows.find(row => row.id === result.id) ?? rows.find(row => row.import_id === null) ?? rows[0];
+        if (!detailedResult || !Array.isArray(detailedResult.event_details)) throw new Error("The student's event details could not be loaded.");
+        if (checkpoint && (checkpoint.result.id !== detailedResult.id || checkpoint.result.updated_at !== detailedResult.updated_at)) {
+          eventDetailsCheckpointRef.current = checkpoint = null;
+          if (restarted) throw new Error("Attendance changed during loading. Resume to fetch a consistent event list.");
+          restarted = true;
+          setEventsDialogLoadProgress(0);
+          setEventsDialogLoadMessage("Attendance changed during loading. Fetching the latest version.");
+          continue;
+        }
+        const details = [...new Map([...(checkpoint?.result.event_details ?? []), ...detailedResult.event_details].map(event => [event.id,event])).values()].sort((left,right) =>
+          (left.event_order ?? Number.MAX_SAFE_INTEGER) - (right.event_order ?? Number.MAX_SAFE_INTEGER)
+          || (left.event_start_at ?? left.event_end_at ?? "9999").localeCompare(right.event_start_at ?? right.event_end_at ?? "9999")
+          || left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+        const merged = {...detailedResult,event_details:details};
+        const page = detailedResult.event_details_page;
+        const scanned = (checkpoint?.scanned ?? 0)+(page?.scanned ?? details.length);
+        setEventsDialogResult(merged);
+        if (page?.nextCursor) {
+          if (!page.scanned || page.nextCursor === checkpoint?.cursor) throw new Error("The event details cursor did not advance. Resume loading.");
+          checkpoint = {result:merged,cursor:page.nextCursor,scanned,total:page.total};
+          eventDetailsCheckpointRef.current = checkpoint;
+          setEventsDialogLoadProgress(Math.min(99,100*scanned/Math.max(1,page.total)));
+          setEventsDialogLoadMessage(`Checked ${scanned} of ${page.total} event candidates; ${details.length} expected events loaded.`);
+          continue;
+        }
+        eventDetailsCheckpointRef.current = null;
+        const completed = {...merged,event_details_page:undefined};
+        if (eventsDialogCacheRef.current.size >= 64) eventsDialogCacheRef.current.clear();
+        eventsDialogCacheRef.current.set(`${completed.id}:${completed.updated_at}`, completed);
+        setEventsDialogResult(completed);
+        setFinalResults(current => current.map(row => row.id === completed.id ? completed : row));
+        setEventsDialogLoadProgress(100);
+        setEventsDialogLoadMessage(`Loaded ${details.length} expected event/s.`);
+        break;
+      }
     } catch (error) {
-      if (controller.signal.aborted) return;
-
-      setEventsDialogLoadMessage("Unable to load complete event details.");
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to load event details.",
-      );
+      if (eventsDialogAbortRef.current !== controller || (controller.signal.aborted && !timedOut)) return;
+      if (timedOut || isDatabaseBusy(error)) eventDetailsPageSizeRef.current = Math.max(1,Math.floor(eventDetailsPageSizeRef.current/2));
+      setEventsDialogLoadError(timedOut ? "The database is taking too long. Resume from the last loaded event page." : error instanceof Error ? error.message : "Unable to load event details.");
+      setEventsDialogLoadMessage("Previously loaded event pages are retained.");
     } finally {
       if (eventsDialogAbortRef.current === controller) {
         eventsDialogAbortRef.current = null;
         setIsLoadingEventsDialogDetails(false);
       }
+    }
+  }
+
+  function pauseEventDetails() {
+    eventsDialogAbortRef.current?.abort();
+    eventsDialogAbortRef.current = null;
+    setIsLoadingEventsDialogDetails(false);
+    setEventsDialogLoadError("Loading paused. Resume from the last loaded event page.");
+  }
+
+  function applySavedJobProgress(progress: MasterlistProgress) {
+    const stage: StudentEventUpdateStage = progress.message.startsWith("Waiting for another") ? "waiting_for_lock"
+      : progress.stage === "parsing" ? "validating"
+      : progress.stage === "reconciling_records" || progress.stage === "syncing_absences" ? "saving_override"
+      : progress.stage === "finalizing" ? "committing"
+      : progress.stage === "refreshing_final_results" || progress.stage === "refreshing_calculations" || progress.stage === "refreshing_penalties" ? progress.stage : "validating";
+    setSavingEventProgress(current => current ? {...current,stage,percent:Math.max(current.percent,Math.min(89,progress.percent)),message:progress.message} : current);
+  }
+
+  async function refreshAffectedFinalResults(result: AttendanceFinalResultRecord) {
+    if (!result.school_year_id) return;
+    const requestId=loadRequestIdRef.current;
+    try {
+      const rows=await listAllAttendanceFinalResults({schoolYearId:result.school_year_id,pageSize:200});
+      if (loadRequestIdRef.current!==requestId) return;
+      setFinalResults(current => sortByBackendEventOrder([...current.filter(row=>row.school_year_id!==result.school_year_id),...rows]));
+    } catch (error) {
+      toast.error("Other student totals may be out of date. Refresh attendance results to reload them.");
+    }
+  }
+
+  async function resumeStudentEventJob(job: MaintenanceJob) {
+    const result=eventsDialogResult;
+    if (!result || savingEventInFlightRef.current || job.status === "running") return;
+    const controller=new AbortController();
+    eventSaveAbortRef.current=controller;
+    savingEventInFlightRef.current=true;
+    setSavingEventId("__batch__");
+    setSavingEventElapsedSeconds(0);
+    setSavingEventProgress({stage:"validating",percent:Math.min(89,job.percent),message:job.message??"Resuming saved attendance adjustments.",eventName:result.name,action:"Updating"});
+    try {
+      const completed=await runMaintenanceJob(job.id,applySavedJobProgress,controller.signal);
+      if(completed.status!=="completed") throw new Error("Operation paused. Resume from the saved checkpoint.");
+      setEventsDialogJob(null);
+      eventsDialogCacheRef.current.clear();
+      notifyCalculationStatusUpdated();
+      await handleOpenEventsDialog(result,true);
+      if ((completed.result as {requiresTableRefresh?:boolean} | null)?.requiresTableRefresh) void refreshAffectedFinalResults(result);
+      toast.success("Saved attendance adjustments completed.");
+    } catch(error) {
+      if(!controller.signal.aborted) toast.error(error instanceof Error?error.message:"Unable to resume attendance adjustments.");
+    } finally {
+      eventSaveAbortRef.current=null;
+      savingEventInFlightRef.current=false;
+      setSavingEventId(null);
+      setSavingEventProgress(null);
+      setEventsDialogJobRevision(value=>value+1);
     }
   }
 
@@ -2689,7 +2814,7 @@ export default function AttendancePage({
 
   async function handleChangeStudentEventAttendances(changes: StudentEventAttendanceChange[]) {
     const result = eventsDialogResult;
-    if (!result || !canAdjustEventAttendance || savingEventInFlightRef.current || isLoadingEventsDialogDetails) return;
+    if (!result || !canAdjustEventAttendance || savingEventInFlightRef.current || isEventAdjustmentBusy) return;
 
     // Keep one target status per event and exclude stale selections.
     const eligibleDetails = new Map((result.event_details ?? []).map((event) => [event.id, event]));
@@ -2716,6 +2841,8 @@ export default function AttendancePage({
       ? onlyChange.attended ? "Adding" : "Removing"
       : "Updating";
 
+    const controller = new AbortController();
+    eventSaveAbortRef.current = controller;
     savingEventInFlightRef.current = true;
     setSavingEventId(onlyChange?.eventId ?? "__batch__");
     setSavingEventElapsedSeconds(0);
@@ -2730,69 +2857,25 @@ export default function AttendancePage({
     let savedOnServer = false;
     try {
       const response = await updateStudentEventAttendancesWithProgress(
-        result.id,
-        uniqueChanges,
-        (progress) => {
-          setSavingEventProgress((current) => current ? {
-            ...current,
-            ...progress,
-          } : current);
-        },
+        result.id, uniqueChanges,
+        (progress) => setSavingEventProgress(current => current ? {...current,...progress,percent:Math.max(current.percent,Math.min(89,progress.percent))} : current),
+        controller.signal,
       );
       savedOnServer = true;
-
-      setSavingEventProgress((current) => current ? {
-        ...current,
-        stage: "refreshing_student",
-        percent: 91,
-        message: `${response.updatedCount} event correction(s) committed. Fetching the student's new attended and missed events.`,
-      } : current);
+      setEventsDialogJob(null);
+      setSavingEventProgress(current => current ? {...current,stage:"refreshing_student",percent:91,message:`${response.updatedCount} event correction(s) committed. Reloading only this student.`} : current);
       eventsDialogCacheRef.current.clear();
-      const rows = await listAttendanceFinalResults({
-        schoolYearId: result.school_year_id ?? undefined,
-        studentId: result.student_id,
-        limit: 1,
-        offset: 0,
-        consolidatedOnly: true,
-        includeEventDetails: true,
-      });
-      const refreshed = rows.find((row) => row.import_id === null)
-        ?? rows.find((row) => row.id === result.id)
-        ?? rows[0];
-      if (!refreshed) {
-        throw new Error("Changes were saved, but the updated student's event details could not be loaded. Reopen the attendance dialog to refresh.");
-      }
-      setEventsDialogResult((current) => current?.id === result.id ? refreshed : current);
-      eventsDialogCacheRef.current.set(`${refreshed.id}:${refreshed.updated_at}`, refreshed);
-      setSelectedEventChanges((current) => {
-        const next = { ...current };
-        for (const change of uniqueChanges) delete next[change.eventId];
-        return next;
-      });
-
-      setSavingEventProgress((current) => current ? {
-        ...current,
-        stage: "refreshing_page",
-        percent: 94,
-        message: "Student events updated. Reloading the attendance table, events and uploads.",
-      } : current);
-      await loadPageData(selectedSchoolYearId);
-      setSavingEventProgress((current) => current ? {
-        ...current,
-        stage: "finished",
-        percent: 100,
-        message: "Batch attendance adjustment and page refresh completed.",
-      } : current);
-      toast.success(`${response.updatedCount} of ${response.totalCount} event attendance status${response.totalCount === 1 ? "" : "es"} updated.`);
+      await handleOpenEventsDialog(result,true);
+      if (response.requiresTableRefresh) void refreshAffectedFinalResults(result);
+      toast.success(`${response.updatedCount} of ${response.totalCount} event attendance statuses updated.`);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Unable to update event attendance.",
-        savedOnServer ? { description: "The changes were saved. Reload this page if the displayed totals are out of date." } : undefined,
-      );
+      if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Unable to update event attendance.", savedOnServer ? {description:"Changes were saved. Resume loading event details."} : {description:"Check for a saved operation and use Resume instead of submitting the changes again."});
     } finally {
+      eventSaveAbortRef.current=null;
       savingEventInFlightRef.current = false;
       setSavingEventId(null);
       setSavingEventProgress(null);
+      setEventsDialogJobRevision(value=>value+1);
     }
   }
 
@@ -4527,6 +4610,8 @@ export default function AttendancePage({
               setEventsDialogResult(null);
               setSelectedEventChanges({});
               setEventsDialogLoadMessage("");
+              setEventsDialogLoadError("");
+              setEventsDialogJob(null);
               setIsLoadingEventsDialogDetails(false);
             }
           }}
@@ -4565,15 +4650,30 @@ export default function AttendancePage({
                 </div>
               ) : null}
               {isLoadingEventsDialogDetails ? (
-                <LoadingStatus
-                  title="Loading event details"
-                  detail={
-                    eventsDialogLoadMessage ||
-                    "Loading only this student's event records."
-                  }
-                  progress={65}
-                />
+                <div className="space-y-2 rounded-2xl border p-4" role="status" aria-live="polite">
+                  <p className="flex items-center gap-2 text-sm font-semibold"><Loader2 className="size-4 animate-spin" /> Loading event details</p>
+                  <p className="text-xs text-muted-foreground">{eventsDialogLoadMessage}</p>
+                  <Progress value={eventsDialogLoadProgress}/>
+                  <Button type="button" variant="outline" size="sm" disabled={Boolean(savingEventId)} onClick={pauseEventDetails}>Pause loading</Button>
+                </div>
               ) : null}
+              {eventsDialogLoadError && (
+                <div className="space-y-2 rounded-2xl border p-3" role="alert">
+                  <p className="text-sm text-muted-foreground">{eventsDialogLoadError}</p>
+                  <Progress value={eventsDialogLoadProgress}/>
+                  <Button type="button" size="sm" disabled={Boolean(savingEventId)} onClick={()=>eventsDialogResult && void handleOpenEventsDialog(eventsDialogResult)}>Resume loading</Button>
+                </div>
+              )}
+              {savingEventId && !isLoadingEventsDialogDetails && (
+                <Button type="button" size="sm" variant="outline" onClick={()=>eventSaveAbortRef.current?.abort()}>Pause adjustment</Button>
+              )}
+              {eventsDialogJobChecking && !savingEventId && <p className="text-xs text-muted-foreground">Checking for saved attendance adjustments…</p>}
+              {eventsDialogJob && !savingEventId && (
+                <div className="space-y-2 rounded-2xl border p-3">
+                  <LoadingStatus title={`Saved attendance adjustment · ${eventsDialogJob.status}`} detail={eventsDialogJob.last_error??eventsDialogJob.message??eventsDialogJob.phase} progress={eventsDialogJob.percent}/>
+                  <Button type="button" size="sm" disabled={eventsDialogJob.status==="running"} onClick={()=>void resumeStudentEventJob(eventsDialogJob)}>{eventsDialogJob.status==="running"?"Running in another tab":"Resume adjustment"}</Button>
+                </div>
+              )}
               {canAdjustEventAttendance ? (
                 <div className="space-y-3 rounded-2xl border bg-muted/20 p-3">
                   <p className="text-sm font-bold">Bulk attendance adjustments</p>
@@ -4710,7 +4810,7 @@ export default function AttendancePage({
                           className="shrink-0 border-green-600 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950"
                           aria-label={`Mark ${event.name} attended`}
                           title="Add event attendance"
-                          disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
+                          disabled={isEventAdjustmentBusy}
                           onClick={() => void handleChangeStudentEventAttendance(event.id, true)}
                         >
                           {savingEventId === event.id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
@@ -4722,6 +4822,7 @@ export default function AttendancePage({
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                     {isLoadingEventsDialogDetails
                       ? "Loading missed events..."
+                      : eventsDialogLoadError ? "Event details are not loaded. Resume loading to continue."
                       : unresolvedMissedEventCount > 0
                         ? `${unresolvedMissedEventCount} missed event${
                             unresolvedMissedEventCount === 1 ? "" : "s"
@@ -4789,7 +4890,7 @@ export default function AttendancePage({
                           className="shrink-0 border-destructive text-destructive hover:bg-destructive/10"
                           aria-label={`Mark ${eventSummary.eventName} missed`}
                           title="Remove event attendance"
-                          disabled={Boolean(savingEventId) || isLoadingEventsDialogDetails}
+                          disabled={isEventAdjustmentBusy}
                           onClick={() => void handleChangeStudentEventAttendance(eventSummary.eventId, false)}
                         >
                           {savingEventId === eventSummary.eventId ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Minus aria-hidden="true" />}
@@ -4801,6 +4902,7 @@ export default function AttendancePage({
                   <div className="rounded-2xl border border-dashed bg-background p-6 text-center text-sm font-semibold text-muted-foreground">
                     {isLoadingEventsDialogDetails
                       ? "Loading attended events..."
+                      : eventsDialogLoadError ? "Event details are not loaded. Resume loading to continue."
                       : "No attended events found for this student."}
                   </div>
                 )}

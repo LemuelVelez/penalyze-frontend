@@ -4,7 +4,7 @@ import type { MasterlistProgress } from "./masterlist";
 import { readProgressStream } from "./progressStream";
 export type MaintenanceJobStatus = "pending" | "running" | "paused" | "failed" | "completed" | "cancelled";
 export type MaintenanceJobSummary = { id:string; status:MaintenanceJobStatus; phase:string; percent:number; message:string|null; last_error?:string|null; };
-export type MaintenanceJob = MaintenanceJobSummary & {kind:string; school_year_id:string|null; processed:number; total:number; result:unknown; heartbeat_at:string|null;};
+export type MaintenanceJob = MaintenanceJobSummary & {kind:string; school_year_id:string|null; processed:number; total:number; result:unknown; input?:unknown; heartbeat_at:string|null;};
 async function request(path:string,init:RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("X-Penalyze-Request","1");

@@ -215,6 +215,7 @@ export type AttendanceFinalResultRecord = {
     event_start_at: string | null;
     event_end_at: string | null;
   }>;
+  event_details_page?: { nextCursor: string | null; scanned: number; total: number };
   event_details?: Array<{
     id: string;
     name: string;
@@ -590,6 +591,8 @@ type ListOptions = {
   includeDeleted?: boolean;
   includeMissedEvents?: boolean;
   includeEventDetails?: boolean;
+  eventDetailsCursor?: string;
+  eventDetailsPageSize?: number;
   consolidatedOnly?: boolean;
   zeroAttendanceOnly?: boolean;
   signal?: AbortSignal;
@@ -1061,6 +1064,8 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     college: options.college,
     includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
     includeEventDetails: options.includeEventDetails ? "true" : undefined,
+    eventDetailsCursor: options.eventDetailsCursor,
+    eventDetailsPageSize: options.eventDetailsPageSize,
     consolidatedOnly: options.consolidatedOnly ? "true" : undefined,
   });
 
@@ -1152,6 +1157,7 @@ export async function updateStudentEventAttendancesWithProgress(
   finalResultId: string,
   changes: StudentEventAttendanceChange[],
   onProgress: (progress: StudentEventAttendanceProgress) => void,
+  signal?: AbortSignal,
 ) {
   const body = JSON.stringify({ changes });
   const response = await fetch(
@@ -1161,6 +1167,7 @@ export async function updateStudentEventAttendancesWithProgress(
       headers: getApiRequestHeaders({ body }),
       credentials: "include",
       body,
+      signal,
     },
   );
   checkUnauthorized(response);
@@ -1170,7 +1177,7 @@ export async function updateStudentEventAttendancesWithProgress(
     const payload = contentType.includes("application/json")
       ? await response.json()
       : null;
-    throw new Error(payload?.message || `Request failed with status ${response.status}.`);
+    throw responseError(response,payload);
   }
 
   const payload = await readProgressStream<
@@ -1179,6 +1186,7 @@ export async function updateStudentEventAttendancesWithProgress(
       studentId: string;
       totalCount: number;
       updatedCount: number;
+      requiresTableRefresh?: boolean;
       changes: Array<StudentEventAttendanceChange & { eventName: string; updated: boolean }>;
     }
   >(response, onProgress, {
