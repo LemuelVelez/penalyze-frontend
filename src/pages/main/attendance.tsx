@@ -362,9 +362,13 @@ function getEffectivePreviewCollege(row: ParsedAttendanceRow, override: string |
 
 function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
   const status = row.masterlist_status;
-  if (!status || status === "no_masterlist") return null;
   const labels = { matched_by_id: "Corrected by ID", matched_by_partial_id: "Matched by partial ID", matched_by_name: "Matched by name", id_name_mismatch: "ID/name mismatch", unmatched: "Not in masterlist" };
-  return <div className="mt-1 space-y-1"><Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>{row.masterlist_original && <p className="text-xs text-muted-foreground">Original: {row.masterlist_original.studentId} · {row.masterlist_original.name}</p>}</div>;
+  if ((!status || status === "no_masterlist") && !row.warnings?.length) return null;
+  return <div className="mt-1 space-y-1">
+    {status && status !== "no_masterlist" && <Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>}
+    {row.masterlist_original && <p className="text-xs text-muted-foreground">Original: {row.masterlist_original.studentId} · {row.masterlist_original.name}</p>}
+    {row.warnings?.map((warning, index) => <p key={index} className="break-words text-xs text-amber-700 dark:text-amber-300">Warning: {warning}</p>)}
+  </div>;
 }
 
 function getAttendanceRowEventGroups(rows: ParsedAttendanceRow[]): AttendanceRowEventGroup[] {

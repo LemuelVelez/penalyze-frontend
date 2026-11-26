@@ -391,7 +391,7 @@ export type AttendanceImportInput = {
   eventName?: string;
   eventStartAt?: string;
   eventEndAt?: string;
-  scannedAt?: string;
+  scannedAt?: string | null;
   studentId: string;
   name: string;
   yearLevel?: string;
@@ -419,6 +419,7 @@ export type ParsedAttendanceRow = AttendanceImportInput & {
   masterlist_original?: { studentId: string; name: string };
   rowNumber: number;
   errors: string[];
+  warnings?: string[];
   raw: Record<string, unknown>;
 };
 
