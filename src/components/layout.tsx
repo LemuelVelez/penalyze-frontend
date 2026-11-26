@@ -30,7 +30,7 @@ import {
 } from "../api/attendance";
 import {
   ATTENDANCE_REQUESTS_UPDATED_EVENT,
-  listAttendanceRequests,
+  getPendingAttendanceRequestCount,
 } from "../api/attendanceRequests";
 import {
   AlertDialog,
@@ -54,6 +54,69 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "./ui/sheet";
+
+// Run at most one request per badge. Slow or unavailable APIs must not
+// accumulate overlapping background reads or erase the last successful value.
+function pollAttendanceBadge<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  apply: (value: T) => void,
+  updateEvent: string,
+) {
+  let active = true;
+  let failures = 0;
+  let retryNotBefore = 0;
+  let timer: number | undefined;
+  let controller: AbortController | undefined;
+  let refreshRequested = false;
+
+  const schedule = (delay: number) => {
+    if (!active) return;
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = window.setTimeout(() => { void refresh(); }, delay);
+  };
+  async function refresh() {
+    if (!active || document.hidden) return;
+    if (controller) {
+      refreshRequested = true;
+      return;
+    }
+    if (Date.now() < retryNotBefore) {
+      schedule(retryNotBefore - Date.now());
+      return;
+    }
+    if (timer !== undefined) window.clearTimeout(timer);
+    controller = new AbortController();
+    try {
+      const value = await load(controller.signal);
+      if (active) apply(value);
+      failures = 0;
+      retryNotBefore = 0;
+    } catch {
+      if (active) {
+        failures += 1;
+        retryNotBefore = Date.now() + Math.min(300_000, 30_000 * 2 ** Math.min(failures, 4));
+      }
+    } finally {
+      controller = undefined;
+      const delay = failures ? Math.max(0, retryNotBefore - Date.now()) : refreshRequested ? 0 : 30_000;
+      refreshRequested = false;
+      schedule(delay);
+    }
+  }
+  const onUpdate = () => { void refresh(); };
+  window.addEventListener(updateEvent, onUpdate);
+  window.addEventListener("focus", onUpdate);
+  document.addEventListener("visibilitychange", onUpdate);
+  void refresh();
+  return () => {
+    active = false;
+    controller?.abort();
+    if (timer !== undefined) window.clearTimeout(timer);
+    window.removeEventListener(updateEvent, onUpdate);
+    window.removeEventListener("focus", onUpdate);
+    document.removeEventListener("visibilitychange", onUpdate);
+  };
+}
 
 type LayoutProps = {
   children: ReactNode;
@@ -280,28 +343,13 @@ export default function AppLayout(props: LayoutProps) {
     .filter((group) => group.items.length > 0);
 
   useEffect(() => {
-    let active = true;
-
-    async function refreshPendingRequestCount() {
-      try {
-        const rows = await listAttendanceRequests({ status: "pending" });
-        if (active) setPendingRequestCount(rows.length);
-      } catch {
-        if (active) setPendingRequestCount(0);
-      }
-    }
-
-    const handleRequestsUpdated = () => void refreshPendingRequestCount();
-    void refreshPendingRequestCount();
-    window.addEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
-    const intervalId = window.setInterval(refreshPendingRequestCount, 30_000);
-
-    return () => {
-      active = false;
-      window.removeEventListener(ATTENDANCE_REQUESTS_UPDATED_EVENT, handleRequestsUpdated);
-      window.clearInterval(intervalId);
-    };
-  }, []);
+    if (!isAdmin) return;
+    return pollAttendanceBadge(
+      getPendingAttendanceRequestCount,
+      setPendingRequestCount,
+      ATTENDANCE_REQUESTS_UPDATED_EVENT,
+    );
+  }, [isAdmin]);
 
   useEffect(() => {
     let active = true;
@@ -327,36 +375,13 @@ export default function AppLayout(props: LayoutProps) {
   }, []);
 
   useEffect(() => {
-    let active = true;
-
-    async function refreshCalculationNeeded() {
-      try {
-        const summary = await getCalculationPendingSummary();
-        if (active) setCalculationNeeded(summary.needsCalculation);
-      } catch {
-        if (active) setCalculationNeeded(false);
-      }
-    }
-
-    const handleCalculationStatusUpdated = () => void refreshCalculationNeeded();
-    void refreshCalculationNeeded();
-    window.addEventListener(
+    if (!isAdmin) return;
+    return pollAttendanceBadge(
+      async (signal) => (await getCalculationPendingSummary({ signal })).needsCalculation,
+      setCalculationNeeded,
       CALCULATION_STATUS_UPDATED_EVENT,
-      handleCalculationStatusUpdated,
     );
-    window.addEventListener("focus", handleCalculationStatusUpdated);
-    const intervalId = window.setInterval(refreshCalculationNeeded, 30_000);
-
-    return () => {
-      active = false;
-      window.removeEventListener(
-        CALCULATION_STATUS_UPDATED_EVENT,
-        handleCalculationStatusUpdated,
-      );
-      window.removeEventListener("focus", handleCalculationStatusUpdated);
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     setDesktopGroupOpen(null);

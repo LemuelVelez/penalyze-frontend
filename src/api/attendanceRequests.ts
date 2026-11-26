@@ -285,6 +285,19 @@ export async function createAttendanceRequest(
   return response.data ?? null;
 }
 
+export async function getPendingAttendanceRequestCount(signal?: AbortSignal) {
+  const response = await apiRequest<number | AttendanceRequest[]>(
+    "/api/attendance/requests?status=pending&countOnly=true",
+    { signal },
+  );
+  // Older API instances may return the regular list during a rolling deploy.
+  if (Array.isArray(response.data)) return response.data.length;
+  if (typeof response.data !== "number") {
+    throw new Error("Pending attendance request count is missing.");
+  }
+  return response.data;
+}
+
 export async function listAttendanceRequests(options: {
   status?: AttendanceRequestStatus;
   requestType?: AttendanceRequestType;
