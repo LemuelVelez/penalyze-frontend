@@ -71,46 +71,78 @@ export type PublicStudentRecords = {
   collegeEventRecords: AttendanceRecord[];
 };
 
-const PUBLIC_RECORDS_TIMEOUT_MS = 45_000;
-const PUBLIC_STATUS_TIMEOUT_MS = 10_000;
+export type PublicStudentRecordsProgress = {
+  percent: number;
+  message: string;
+  detail: string;
+};
+type PublicRecordsProgressListener = (progress: PublicStudentRecordsProgress) => void;
+type PublicRecordsRequest = {
+  promise: Promise<PublicStudentRecords | null>;
+  listeners: Set<PublicRecordsProgressListener>;
+  latest?: PublicStudentRecordsProgress;
+};
 
-// Bound both the fetch and the response-body read; a stalled connection must
-// release the loading state and allow another lookup.
-async function publicLookupRequest<T>(path: string, options: RequestInit, timeoutMs: number, timeoutMessage: string) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await apiRequest<T>(path, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (controller.signal.aborted) throw new Error(timeoutMessage);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const inFlightPublicStudentRecords = new Map<string, PublicRecordsRequest>();
 
-// A rapid double-submit should share its request, not consume two lookup slots.
-const inFlightPublicStudentRecords = new Map<string, Promise<PublicStudentRecords | null>>();
-
-export function getPublicStudentRecords(studentId: string): Promise<PublicStudentRecords | null> {
+export function getPublicStudentRecords(
+  studentId: string,
+  onProgress?: PublicRecordsProgressListener,
+): Promise<PublicStudentRecords | null> {
   const cleanStudentId = studentId.trim();
   const key = cleanStudentId.toLowerCase();
   const existing = inFlightPublicStudentRecords.get(key);
-  if (existing) return existing;
-
-  const request = publicLookupRequest<PublicStudentRecords | null>(
-    "/api/public/student-records",
-    { method: "POST", body: JSON.stringify({ studentId: cleanStudentId }) },
-    PUBLIC_RECORDS_TIMEOUT_MS,
-    "Student records are taking too long to load. Please try again shortly.",
-  ).then((response) => response.data ?? null);
-  inFlightPublicStudentRecords.set(key, request);
-  void request.finally(() => {
-    if (inFlightPublicStudentRecords.get(key) === request) {
-      inFlightPublicStudentRecords.delete(key);
+  if (existing) {
+    if (onProgress) {
+      existing.listeners.add(onProgress);
+      if (existing.latest) onProgress(existing.latest);
     }
+    return existing.promise;
+  }
+
+  const listeners = new Set<PublicRecordsProgressListener>();
+  if (onProgress) listeners.add(onProgress);
+  let entry: PublicRecordsRequest;
+  const promise = (async () => {
+    // No client-side deadline: read actual backend progress until it finishes.
+    const response = await fetchWithRetry(`${getApiBaseUrl()}/api/public/student-records`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Penalyze-Request": "1" },
+      credentials: "include",
+      body: JSON.stringify({ studentId: cleanStudentId, progress: true }),
+    });
+    checkUnauthorized(response);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok) {
+      const payload = contentType.includes("application/json") ? await response.json() : null;
+      if (response.status === 429) {
+        const seconds = Number(response.headers.get("Retry-After"));
+        throw new Error(`Too many requests.${seconds > 0 ? ` Please try again in ${Math.ceil(seconds)} second(s).` : " Please try again later."}`);
+      }
+      throw responseError(response, payload);
+    }
+    // During a rolling deploy an older API may still return ordinary JSON.
+    if (contentType.includes("application/json")) {
+      const payload = await response.json() as ApiEnvelope<PublicStudentRecords | null>;
+      return payload.data ?? null;
+    }
+    const payload = await readProgressStream<PublicStudentRecordsProgress, PublicStudentRecords | null>(
+      response,
+      (progress) => {
+        entry.latest = progress;
+        for (const listener of listeners) listener(progress);
+      },
+      { errorFallback: "Unable to load student records.", missingSuccessMessage: "The connection closed before student records finished loading. Please try again." },
+    );
+    return payload.data ?? null;
+  })();
+  entry = { promise, listeners };
+  inFlightPublicStudentRecords.set(key, entry);
+  void promise.finally(() => {
+    listeners.clear();
+    if (inFlightPublicStudentRecords.get(key) === entry) inFlightPublicStudentRecords.delete(key);
   }).catch(() => undefined);
-  return request;
+  return promise;
 }
 
 export type AttendanceRequestStatus = "pending" | "approved" | "rejected";
@@ -504,11 +536,9 @@ export async function getStudentAttendanceRequestStatus(
   const cleanStudentId = studentId.trim();
   if (accessCode?.trim()) rememberStatusReceipt(cleanStudentId, accessCode.trim());
   const receipts = readStatusReceipts(cleanStudentId);
-  const response = await publicLookupRequest<StudentAttendanceRequestStatus[]>(
+  const response = await apiRequest<StudentAttendanceRequestStatus[]>(
     "/api/attendance/requests/student-status",
     { method: "POST", body: JSON.stringify({ studentId: cleanStudentId, receipts }) },
-    PUBLIC_STATUS_TIMEOUT_MS,
-    "Attendance request status is taking too long to load. Please try again shortly.",
   );
   const rows = response.data ?? [];
   return schoolYearId ? rows.filter((row) => row.school_year_id === schoolYearId) : rows;
