@@ -71,6 +71,24 @@ export type PublicStudentRecords = {
   collegeEventRecords: AttendanceRecord[];
 };
 
+const PUBLIC_RECORDS_TIMEOUT_MS = 45_000;
+const PUBLIC_STATUS_TIMEOUT_MS = 10_000;
+
+// Bound both the fetch and the response-body read; a stalled connection must
+// release the loading state and allow another lookup.
+async function publicLookupRequest<T>(path: string, options: RequestInit, timeoutMs: number, timeoutMessage: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await apiRequest<T>(path, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // A rapid double-submit should share its request, not consume two lookup slots.
 const inFlightPublicStudentRecords = new Map<string, Promise<PublicStudentRecords | null>>();
 
@@ -80,9 +98,11 @@ export function getPublicStudentRecords(studentId: string): Promise<PublicStuden
   const existing = inFlightPublicStudentRecords.get(key);
   if (existing) return existing;
 
-  const request = apiRequest<PublicStudentRecords | null>(
+  const request = publicLookupRequest<PublicStudentRecords | null>(
     "/api/public/student-records",
     { method: "POST", body: JSON.stringify({ studentId: cleanStudentId }) },
+    PUBLIC_RECORDS_TIMEOUT_MS,
+    "Student records are taking too long to load. Please try again shortly.",
   ).then((response) => response.data ?? null);
   inFlightPublicStudentRecords.set(key, request);
   void request.finally(() => {
@@ -484,9 +504,11 @@ export async function getStudentAttendanceRequestStatus(
   const cleanStudentId = studentId.trim();
   if (accessCode?.trim()) rememberStatusReceipt(cleanStudentId, accessCode.trim());
   const receipts = readStatusReceipts(cleanStudentId);
-  const response = await apiRequest<StudentAttendanceRequestStatus[]>(
+  const response = await publicLookupRequest<StudentAttendanceRequestStatus[]>(
     "/api/attendance/requests/student-status",
     { method: "POST", body: JSON.stringify({ studentId: cleanStudentId, receipts }) },
+    PUBLIC_STATUS_TIMEOUT_MS,
+    "Attendance request status is taking too long to load. Please try again shortly.",
   );
   const rows = response.data ?? [];
   return schoolYearId ? rows.filter((row) => row.school_year_id === schoolYearId) : rows;

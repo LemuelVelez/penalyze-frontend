@@ -3558,6 +3558,8 @@ export default function LandingPage() {
     searchProgress.percent,
   );
 
+  const waitingForPublicRecords = isSearching && searchProgress.percent === 2 && !isAuthenticated();
+
   async function loadLandingSchoolYears() {
     try {
       const rows = await listSchoolYears({ activeOnly: true });
@@ -4741,6 +4743,7 @@ export default function LandingPage() {
 
   async function handleSearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSearching) return;
 
     const cleanStudentId = normalizeStudentNumberKey(studentId);
     if (!cleanStudentId) {
@@ -4811,13 +4814,13 @@ export default function LandingPage() {
       setError("");
       setAttendanceRequestsLoadFailed(false);
       setSearchedId(cleanStudentId);
-      updateProgress(2, "Searching student records...", "Loading your attendance, fines, and events.");
+      updateProgress(2, "Searching student records...", "Waiting for the server to load your attendance, fines, and events. The search will time out if the server does not respond.");
 
       try {
         const records = await getPublicStudentRecords(cleanStudentId);
         if (!records) {
-          const existingRequests = await getStudentAttendanceRequestStatus(cleanStudentId)
-            .catch(() => [] as StudentAttendanceRequestStatus[]);
+          updateProgress(55, "Checking attendance requests...", "Looking for any existing attendance requests.");
+          const existingRequests = await getStudentAttendanceRequestStatus(cleanStudentId);
           if (existingRequests.length) {
             setLookup({
               profile: null,
@@ -4852,6 +4855,7 @@ export default function LandingPage() {
         const attendanceRecords = records.collegeEventRecords;
         const finalResults = records.finalResults;
 
+        updateProgress(70, "Checking attendance requests...", "Your student records are loaded. Checking request status.");
         const attendanceRequests = await getStudentAttendanceRequestStatus(cleanStudentId)
           .catch(() => {
             setAttendanceRequestsLoadFailed(true);
@@ -5211,16 +5215,22 @@ export default function LandingPage() {
             </form>
 
             {isSearching ? (
-              <div className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur-sm">
+              <div role="status" aria-live="polite" className="mx-auto mt-4 w-full max-w-3xl space-y-2 rounded-2xl border bg-card/90 p-4 text-left shadow-sm backdrop-blur-sm">
                 <div className="flex items-center justify-between gap-3 text-xs font-black text-muted-foreground">
                   <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere">
                     {searchProgress.message || "Searching student records..."}
                   </span>
                   <span className="shrink-0 tabular-nums">
-                    {searchProgressPercent}%
+                    {waitingForPublicRecords ? "Checking…" : `${searchProgressPercent}%`}
                   </span>
                 </div>
-                <Progress value={searchProgressPercent} />
+                {waitingForPublicRecords ? (
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                    <div className="h-full w-full rounded-full bg-primary/70 motion-safe:animate-pulse" />
+                  </div>
+                ) : (
+                  <Progress value={searchProgressPercent} />
+                )}
                 <p className="text-xs font-semibold leading-5 text-muted-foreground">
                   {searchProgress.detail ||
                     "Checking attendance records, events, and fines from the server."}
