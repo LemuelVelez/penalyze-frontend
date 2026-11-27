@@ -424,7 +424,7 @@ export type AttendanceEventInput = {
 
 export type ParsedAttendanceRow = AttendanceImportInput & {
   masterlist_status?: "matched_by_id" | "matched_by_partial_id" | "matched_by_name" | "id_name_mismatch" | "unmatched" | "no_masterlist";
-  masterlist_original?: { studentId: string; name: string; college?: string; program?: string; yearLevel?: string };
+  masterlist_original?: { studentId: string; name: string; college?: string; program?: string; yearLevel?: string; reconciledStudentNumber?: string };
   rowNumber: number;
   errors: string[];
   warnings?: string[];
@@ -613,6 +613,7 @@ export type AttendanceFileSaveOption = {
   rowEventsReviewed?: boolean;
   college?: string;
   rowCollegeOverrides?: Record<string, string>;
+  rowMasterlistOverrides?: Record<string, string>;
   index?: number;
   fileName?: string;
   schoolYearId?: string;
@@ -663,6 +664,7 @@ export type AttendanceImportSaveOptions = AttendanceFileSaveOption & {
 export type AttendanceRowsSaveInput = {
   college?: string;
   rowCollegeOverrides?: Record<string, string>;
+  rowMasterlistOverrides?: Record<string, string>;
   schoolYearId?: string;
   eventId?: string;
   eventName?: string;
@@ -849,6 +851,8 @@ function appendSaveOptions(
     body.set("resumeImportId", options.resumeImportId);
   if (options.allowExemptedRows)
     body.set("allowExemptedRows", "true");
+  if (options.rowMasterlistOverrides)
+    body.set("rowMasterlistOverrides", JSON.stringify(options.rowMasterlistOverrides));
   if (options.fileOptions?.length)
     body.set("fileOptions", JSON.stringify(options.fileOptions));
 }

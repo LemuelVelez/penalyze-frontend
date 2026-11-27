@@ -1,5 +1,5 @@
 import { listMaintenanceJobs, runMaintenanceJob, type MaintenanceJob } from "../../api/maintenanceJobs";
-import type { MasterlistProgress } from "../../api/masterlist";
+import { listMasterlist, type MasterlistProgress, type MasterlistRow } from "../../api/masterlist";
 import { isDatabaseBusy } from "../../api/http";
 import { useMasterlistStatus } from "../../lib/use-masterlist-status";
 import { normalizeStudentNumberKey } from "../../lib/student-number";
@@ -329,6 +329,8 @@ type AttendanceUploadFileDetails = {
   collegeLabels: string[];
   previewRows: ParsedAttendanceRow[];
   rowCollegeOverrides: Record<string, string>;
+  rowMasterlistOverrides: Record<string, string>;
+  reconciledRowSnapshots: Record<string, ParsedAttendanceRow>;
   rowEventOverrides: Record<string, AttendanceRowEventAssignment>;
   rowEventsReviewed: boolean;
   selectedRowNumbers: number[];
@@ -367,9 +369,11 @@ function getEffectivePreviewCollege(row: ParsedAttendanceRow, override: string |
 function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
   const status = row.masterlist_status;
   const labels = { matched_by_id: "Corrected by ID", matched_by_partial_id: "Matched by partial ID", matched_by_name: "Matched by name", id_name_mismatch: "ID/name mismatch", unmatched: "Unresolved masterlist identity" };
-  if ((!status || status === "no_masterlist") && !row.warnings?.length) return null;
+  if (!row.masterlist_original?.reconciledStudentNumber && (!status || status === "no_masterlist") && !row.warnings?.length) return null;
   return <div className="mt-1 space-y-1">
-    {status && status !== "no_masterlist" && <Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>}
+    {row.masterlist_original?.reconciledStudentNumber
+      ? <Badge variant="secondary">Reconciled manually</Badge>
+      : status && status !== "no_masterlist" && <Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>}
     {row.masterlist_original && <p className="text-xs text-muted-foreground">Original: {row.masterlist_original.studentId} · {row.masterlist_original.name}</p>}
     {row.warnings?.map((warning, index) => <p key={index} className="break-words text-xs text-amber-700 dark:text-amber-300">Warning: {warning}</p>)}
   </div>;
@@ -946,6 +950,11 @@ export default function AttendancePage({
   const [fileDetails, setFileDetails] = useState<
     Record<string, AttendanceUploadFileDetails>
   >({});
+  const [reconcileTarget, setReconcileTarget] = useState<{ fileKey: string; row: ParsedAttendanceRow } | null>(null);
+  const [reconcileSearch, setReconcileSearch] = useState("");
+  const [reconcileResults, setReconcileResults] = useState<MasterlistRow[]>([]);
+  const [reconcileSelectedId, setReconcileSelectedId] = useState("");
+  const [isReconcileSearching, setIsReconcileSearching] = useState(false);
   const [mergeDialogFileKey, setMergeDialogFileKey] = useState("");
   const [mergeDialogCandidateIndex, setMergeDialogCandidateIndex] = useState(0);
   const [mergeKeepEventName, setMergeKeepEventName] = useState<
@@ -1070,6 +1079,36 @@ export default function AttendancePage({
   const [reconciliationReports, setReconciliationReports] = useState<
     Array<{ fileName: string; reconciliation: AttendanceImportReconciliation }>
   >([]);
+  useEffect(() => {
+    if (!reconcileTarget) return;
+    let active = true;
+    const row = reconcileTarget.row;
+    const originalId = (row.masterlist_original?.studentId || row.studentId).trim();
+    const originalName = (row.masterlist_original?.name || row.name).trim();
+    const search = reconcileSearch.trim();
+    const searches = search === originalId
+      ? [...new Set([originalId, originalName].filter(Boolean))]
+      : [search];
+    setIsReconcileSearching(true);
+    const timeout = window.setTimeout(async () => {
+      try {
+        const responses = await Promise.all((searches.length ? searches : [""]).map(query => listMasterlist({ search: query, limit: 20 })));
+        if (!active) return;
+        const results = new Map<string, MasterlistRow>();
+        responses.forEach(response => response.rows.forEach(student => results.set(student.id, student)));
+        setReconcileResults([...results.values()]);
+      } catch (error) {
+        if (active) {
+          setReconcileResults([]);
+          toast.error(error instanceof Error ? error.message : "Unable to search the masterlist.");
+        }
+      } finally {
+        if (active) setIsReconcileSearching(false);
+      }
+    }, 300);
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [reconcileTarget, reconcileSearch]);
+
   const acceptedFileTypes = getAcceptedAttendanceFileTypes();
   const collegeReviewFile = files.find(
     (file) => getAttendanceUploadFileKey(file) === collegeReviewFileKey,
@@ -1652,6 +1691,8 @@ export default function AttendancePage({
       collegeLabels: [],
       previewRows: [],
       rowCollegeOverrides: {},
+      rowMasterlistOverrides: {},
+      reconciledRowSnapshots: {},
       rowEventOverrides: {},
       rowEventsReviewed: false,
       selectedRowNumbers: [],
@@ -1714,6 +1755,8 @@ export default function AttendancePage({
             rowsTotal: preview.rowsTotal,
             previewRows: preview.rows,
             rowCollegeOverrides: {},
+            rowMasterlistOverrides: {},
+            reconciledRowSnapshots: {},
             rowEventOverrides: {},
             rowEventsReviewed: false,
             selectedRowNumbers: [],
@@ -1888,6 +1931,80 @@ export default function AttendancePage({
           ...details,
           rowCollegeOverrides: overrides,
           ...getAttendanceCollegeSummary(details.previewRows, overrides, uploadForm.college),
+        },
+      };
+    });
+  }
+
+  function openMasterlistReconcileDialog(fileKey: string, row: ParsedAttendanceRow) {
+    setReconcileResults([]);
+    setReconcileSelectedId("");
+    setIsReconcileSearching(true);
+    setReconcileSearch(row.masterlist_original?.studentId || row.studentId);
+    setReconcileTarget({ fileKey, row });
+  }
+
+  function confirmMasterlistReconciliation() {
+    const selected = reconcileResults.find(student => student.id === reconcileSelectedId);
+    if (!reconcileTarget || !selected || isSaving || isReconcileSearching) return;
+    const { fileKey, row: targetRow } = reconcileTarget;
+    const rowNumber = String(targetRow.rowNumber);
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      const row = details?.previewRows.find(item => item.rowNumber === targetRow.rowNumber);
+      if (!details || !row) return current;
+      const newCollegeOverrides = { ...details.rowCollegeOverrides };
+      delete newCollegeOverrides[rowNumber];
+      const newPreviewRows = details.previewRows.map((item): ParsedAttendanceRow => item.rowNumber === row.rowNumber ? {
+        ...row,
+        studentId: selected.student_number,
+        name: `${selected.given_name}${selected.middle_initial ? " " + selected.middle_initial + "." : ""} ${selected.last_name}`,
+        college: selected.college ?? undefined,
+        program: selected.program ?? undefined,
+        yearLevel: selected.year_level ?? undefined,
+        masterlist_status: "matched_by_id",
+        masterlist_original: {
+          ...(row.masterlist_original ?? { studentId: row.studentId, name: row.name, college: row.college, program: row.program, yearLevel: row.yearLevel }),
+          reconciledStudentNumber: selected.student_number,
+        },
+        warnings: (row.warnings ?? []).filter(w => !w.startsWith("Masterlist: ")),
+        errors: row.errors.filter(e => !e.includes(": unrecognised college ")),
+      } : item);
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          previewRows: newPreviewRows,
+          rowCollegeOverrides: newCollegeOverrides,
+          rowMasterlistOverrides: { ...details.rowMasterlistOverrides, [rowNumber]: selected.student_number },
+          reconciledRowSnapshots: { ...details.reconciledRowSnapshots, [rowNumber]: details.reconciledRowSnapshots[rowNumber] ?? row },
+          ...getAttendanceCollegeSummary(newPreviewRows, newCollegeOverrides, uploadForm.college),
+        },
+      };
+    });
+    setReconcileTarget(null);
+    toast.success(`Row ${targetRow.rowNumber} reconciled to ${selected.student_number}.`);
+  }
+
+  function undoMasterlistReconciliation(fileKey: string, rowNumber: number) {
+    setFileDetails((current) => {
+      const details = current[fileKey];
+      const key = String(rowNumber);
+      const snapshot = details?.reconciledRowSnapshots[key];
+      if (!details || !snapshot) return current;
+      const overrides = { ...details.rowMasterlistOverrides };
+      const snapshots = { ...details.reconciledRowSnapshots };
+      delete overrides[key];
+      delete snapshots[key];
+      const previewRows = details.previewRows.map(row => row.rowNumber === rowNumber ? snapshot : row);
+      return {
+        ...current,
+        [fileKey]: {
+          ...details,
+          previewRows,
+          rowMasterlistOverrides: overrides,
+          reconciledRowSnapshots: snapshots,
+          ...getAttendanceCollegeSummary(previewRows, details.rowCollegeOverrides, uploadForm.college),
         },
       };
     });
@@ -2294,6 +2411,7 @@ export default function AttendancePage({
           index,
           college: uploadForm.college,
           rowCollegeOverrides: details?.rowCollegeOverrides ?? {},
+          rowMasterlistOverrides: details?.rowMasterlistOverrides ?? {},
           rowEventOverrides: details?.rowEventsReviewed ? details.rowEventOverrides : undefined,
           rowEventsReviewed: details?.rowEventsReviewed || undefined,
           fileName: attendanceFile.name,
@@ -3845,17 +3963,44 @@ export default function AttendancePage({
                           ) : null}
                         </div>
 
-                        {details?.previewRows.some(row => row.masterlist_status === "unmatched") ? (
-                          <div className="mt-4 rounded-xl border border-destructive/40 p-3 text-sm">
-                            <p className="font-semibold">Unmatched or ambiguous students — correct the source file before saving to count their attendance.</p>
-                            <div className="mt-2 max-h-60 space-y-2 overflow-auto">
-                              {details.previewRows.filter(row => row.masterlist_status === "unmatched").map(row => (
-                                <div key={row.rowNumber} className="border-b pb-2">
-                                  <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "No event in source — review assignment"}</p>
-                                  <MasterlistRowBadge row={row} />
+                        {details && (details.previewRows.some(row => row.masterlist_status === "unmatched") || Object.keys(details.rowMasterlistOverrides).length > 0) ? (
+                          <div className="mt-4 rounded-xl border p-3 text-sm">
+                            {details.previewRows.some(row => row.masterlist_status === "unmatched") && (
+                              <>
+                                <p className="font-semibold">Unmatched or ambiguous students — correct the source file or reconcile with the masterlist before saving to count their attendance.</p>
+                                <div className="mt-2 max-h-60 space-y-2 overflow-auto">
+                                  {details.previewRows.filter(row => row.masterlist_status === "unmatched").map(row => (
+                                    <div key={row.rowNumber} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b pb-2">
+                                      <div className="min-w-0 flex-1 break-words">
+                                        <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "No event in source — review assignment"}</p>
+                                        <MasterlistRowBadge row={row} />
+                                      </div>
+                                      <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={() => openMasterlistReconcileDialog(fileKey, row)}>Reconcile</Button>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              </>
+                            )}
+                            {Object.keys(details.rowMasterlistOverrides).length > 0 && (
+                              <div className="mt-2">
+                                <p className="font-semibold">Reconciled rows</p>
+                                <div className="mt-2 max-h-60 space-y-2 overflow-auto">
+                                  {details.previewRows.filter(row => Boolean(details.rowMasterlistOverrides[String(row.rowNumber)])).map(row => {
+                                    const snapshot = details.reconciledRowSnapshots[String(row.rowNumber)];
+                                    const original = snapshot?.masterlist_original ?? snapshot ?? row.masterlist_original;
+                                    return (
+                                      <div key={row.rowNumber} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b pb-2">
+                                        <div className="min-w-0 flex-1 break-words">
+                                          <p>Row {row.rowNumber}: {original?.studentId || "No ID"} · {original?.name || "No name"} → {row.studentId} · {row.name}</p>
+                                          <MasterlistRowBadge row={row} />
+                                        </div>
+                                        <Button type="button" size="sm" variant="outline" disabled={isSaving} onClick={() => undoMasterlistReconciliation(fileKey, row.rowNumber)}>Undo</Button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : null}
                         {details?.previewRows.length ? (
@@ -4127,6 +4272,48 @@ export default function AttendancePage({
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(reconcileTarget)} onOpenChange={(open) => { if (!open) setReconcileTarget(null); }}>
+          <DialogContent className="flex min-w-0 w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Reconcile with masterlist</DialogTitle>
+              <DialogDescription>Search the masterlist and select the correct student for this attendance row.</DialogDescription>
+            </DialogHeader>
+            {reconcileTarget && (
+              <div className="rounded-xl border p-3 text-sm">
+                <p className="font-semibold">Row {reconcileTarget.row.rowNumber}</p>
+                <p className="break-words">{reconcileTarget.row.masterlist_original?.studentId || reconcileTarget.row.studentId || "No ID"} · {reconcileTarget.row.masterlist_original?.name || reconcileTarget.row.name || "No name"}</p>
+                {reconcileTarget.row.warnings?.filter(warning => warning.startsWith("Masterlist: ")).map((warning, index) => (
+                  <p key={index} className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">{warning}</p>
+                ))}
+              </div>
+            )}
+            <Input aria-label="Search masterlist" placeholder="Search by student number or name" value={reconcileSearch} onChange={(event) => {
+              setReconcileSearch(event.target.value);
+              setReconcileResults([]);
+              setReconcileSelectedId("");
+              setIsReconcileSearching(true);
+            }} />
+            <div className="max-h-[45dvh] min-h-0 space-y-2 overflow-y-auto" aria-busy={isReconcileSearching}>
+              {isReconcileSearching ? (
+                <p className="flex items-center gap-2 p-3 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Searching masterlist...</p>
+              ) : reconcileResults.length ? (
+                reconcileResults.map(student => (
+                  <button key={student.id} type="button" aria-pressed={reconcileSelectedId === student.id}
+                    className={`w-full min-w-0 rounded-xl border p-3 text-left text-sm break-words ${reconcileSelectedId === student.id ? "border-primary bg-primary/10" : "hover:bg-muted/50"}`}
+                    onClick={() => setReconcileSelectedId(student.id)}>
+                    <p className="font-semibold">{student.student_number} · {student.last_name}, {student.given_name}{student.middle_initial ? ` ${student.middle_initial}.` : ""}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{student.program || "No program"} · {student.year_level || "No year level"} · {student.college || "No college"}</p>
+                  </button>
+                ))
+              ) : <p className="p-3 text-sm text-muted-foreground">No masterlist students found.</p>}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setReconcileTarget(null)}>Cancel</Button>
+              <Button type="button" disabled={isSaving || isReconcileSearching || !reconcileResults.some(student => student.id === reconcileSelectedId)} onClick={confirmMasterlistReconciliation}>Reconcile row</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
