@@ -584,6 +584,7 @@ type ListOptions = {
   studentName?: string;
   studentCollege?: string;
   studentProgram?: string;
+  studentYearLevel?: string;
   eventId?: string;
   importIds?: string[];
   sourceTypes?: CalculationSourceType[];
@@ -1074,6 +1075,7 @@ export async function listAttendanceFinalResults(options: ListOptions = {}) {
     studentName: options.studentName,
     studentCollege: options.studentCollege,
     studentProgram: options.studentProgram,
+    studentYearLevel: options.studentYearLevel,
     college: options.college,
     includeMissedEvents: options.includeMissedEvents ? "true" : undefined,
     includeEventDetails: options.includeEventDetails ? "true" : undefined,

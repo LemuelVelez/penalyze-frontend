@@ -1,3 +1,4 @@
+import { normalizeStudentNumberKey, isPlaceholderStudentNumber, placeholderStudentNumberMessage } from "../lib/student-number";
 import { useMasterlistStatus } from "../lib/use-masterlist-status";
 import { useEffect, useMemo, useState } from "react";
 import type { SyntheticEvent } from "react";
@@ -89,6 +90,8 @@ import {
 } from "../components/ui/select";
 
 type LookupState = {
+  masterlist?: { active: boolean; schoolYearId: string | null; onMasterlist: boolean };
+  resolvedCollege?: string;
   profile?: PublicStudentLookup | null;
   attendance: AttendanceRecord[];
   finalResults: AttendanceFinalResultRecord[];
@@ -995,10 +998,9 @@ function getStudentCollegeKey(attendance: AttendanceRecord[]) {
 function getResolvedStudentCollegeKey(
   attendance: AttendanceRecord[],
   finalResult: AttendanceFinalResultRecord | null | undefined,
+  preferredCollegeKey?: string | null,
 ) {
-  return (
-    getStudentCollegeKey(attendance) || normalizeCollegeKey(finalResult?.college)
-  );
+  return normalizeCollegeKey(preferredCollegeKey) || normalizeCollegeKey(finalResult?.college) || getStudentCollegeKey(attendance);
 }
 
 function getStudentYearLevel(attendance: AttendanceRecord[]) {
@@ -1062,9 +1064,11 @@ function getCollegeLinkedEventSummaryMap(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
+  preferredCollegeKey?: string | null,
+  preferredYearLevel?: string | null,
 ) {
-  const studentCollegeKey = getStudentCollegeKey(attendance);
-  const studentYearLevel = getStudentYearLevel(attendance);
+  const studentCollegeKey = normalizeCollegeKey(preferredCollegeKey) || getStudentCollegeKey(attendance);
+  const studentYearLevel = preferredYearLevel || getStudentYearLevel(attendance);
 
   if (!studentCollegeKey || !allAttendanceRecords.length) return null;
 
@@ -1110,11 +1114,15 @@ function getCollegeLinkedAbsentEventSummaries(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
+  preferredCollegeKey?: string | null,
+  preferredYearLevel?: string | null,
 ) {
   const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(
     attendance,
     allAttendanceRecords,
     attendanceEvents,
+    preferredCollegeKey,
+    preferredYearLevel,
   );
 
   if (!collegeLinkedEvents) return null;
@@ -1141,11 +1149,15 @@ function getCollegeLinkedAttendanceScope(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
+  preferredCollegeKey?: string | null,
+  preferredYearLevel?: string | null,
 ): CollegeLinkedAttendanceScope {
   const collegeLinkedEvents = getCollegeLinkedEventSummaryMap(
     attendance,
     allAttendanceRecords,
     attendanceEvents,
+    preferredCollegeKey,
+    preferredYearLevel,
   );
   const eventKeys = new Set<string>();
   const recordIds = new Set<string>();
@@ -1156,7 +1168,7 @@ function getCollegeLinkedAttendanceScope(
 
   collegeLinkedEvents.forEach((_summary, key) => eventKeys.add(key));
 
-  const studentCollegeKey = getStudentCollegeKey(attendance);
+  const studentCollegeKey = normalizeCollegeKey(preferredCollegeKey) || getStudentCollegeKey(attendance);
   const eventById = getAttendanceEventById(attendanceEvents);
 
   getUniqueDisplayAttendance(allAttendanceRecords).forEach((record) => {
@@ -1700,6 +1712,8 @@ function getStudentAbsentEventSummaries(
   attendanceEvents: AttendanceEvent[] = [],
   allAttendanceRecords: AttendanceRecord[] = [],
   authoritativeAbsenceCount: number | null = null,
+  preferredCollegeKey?: string | null,
+  preferredYearLevel?: string | null,
 ) {
   const authoritativeAbsenceTotal =
     authoritativeAbsenceCount === null
@@ -1709,6 +1723,8 @@ function getStudentAbsentEventSummaries(
     attendance,
     allAttendanceRecords,
     attendanceEvents,
+    preferredCollegeKey,
+    preferredYearLevel,
   );
 
   if (collegeLinkedAbsentEvents !== null) {
@@ -1894,11 +1910,15 @@ function getFallbackAbsenceCount(
   attendance: AttendanceRecord[],
   allAttendanceRecords: AttendanceRecord[] = [],
   attendanceEvents: AttendanceEvent[] = [],
+  preferredCollegeKey?: string | null,
+  preferredYearLevel?: string | null,
 ) {
   const collegeLinkedAbsentEvents = getCollegeLinkedAbsentEventSummaries(
     attendance,
     allAttendanceRecords,
     attendanceEvents,
+    preferredCollegeKey,
+    preferredYearLevel,
   );
 
   if (collegeLinkedAbsentEvents !== null)
@@ -2338,38 +2358,18 @@ function getResultClassification(props: {
   if (hasZeroAttendanceRecord) return "Zero attendance";
   if (props.totalAbsences > 0) return "With absences";
 
-  if (props.finalResult) {
-    const expectedEvents = Math.max(
-      0,
-      Number(props.finalResult.expected_events || 0),
-    );
-    const hasCompleteVisibleAttendance =
-      expectedEvents > 0
-        ? props.attendedEvents.length >= expectedEvents
-        : props.attendedEvents.length > 0;
-
-    if (
-      hasCompleteVisibleAttendance &&
-      props.totalAbsences === 0 &&
-      (props.finalResult.attendance_status === "perfect_attendance" ||
-        Number(props.finalResult.attended_events || 0) > 0)
-    ) {
-      return "Perfect attendance";
-    }
-  }
-
-  if (
-    props.attendedEvents.length > 0 &&
-    props.totalAbsences === 0 &&
-    props.displayedFines.length === 0
-  ) {
-    return "Perfect attendance";
-  }
-
-  if (props.totalAbsences > 0 || props.displayedFines.length > 0)
-    return "With absences";
-
+  const final = props.finalResult;
+  const expected = Number(final?.expected_events ?? 0);
+  if (final && expected > 0 && props.attendedEvents.length >= expected && Number(final.attended_events) >= expected && props.totalAbsences === 0 && Number(final.total_absences) === 0) return "Perfect attendance";
+  if (props.displayedFines.length > 0) return "With absences";
+  if (props.attendedEvents.length > 0) return !final && props.lookup.masterlist?.active && props.lookup.masterlist.onMasterlist === false ? "Not on masterlist" : "Pending final result";
   return "No attendance record";
+}
+
+function pendingAttendanceMessage(classification: string) {
+  if (classification === "Not on masterlist") return "This Student ID is not on the masterlist for this semester, so no final attendance result exists yet. If you scanned with a wrong Student ID, your attendance is moved to your real Student ID when your name matches the masterlist. Search your real Student ID or ask your SSG/college officer to correct it.";
+  if (classification === "Pending final result") return "No final attendance result has been calculated for this Student ID yet. The events shown are scans recorded under this ID only.";
+  return "";
 }
 
 function getClassificationStyle(classification: string) {
@@ -2377,7 +2377,7 @@ function getClassificationStyle(classification: string) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/35 dark:text-emerald-300";
   if (classification === "Zero attendance")
     return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/35 dark:text-red-300";
-  if (classification === "With absences")
+  if (["With absences", "Not on masterlist", "Pending final result"].includes(classification))
     return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/35 dark:text-amber-200";
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
@@ -2473,6 +2473,7 @@ function RequiredEventsDialog(props: {
   events: RequiredAttendanceEventSummary[];
   absentEvents: StudentAbsentEventSummary[];
   requiredEventCount: number;
+  classification: string;
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -2489,7 +2490,9 @@ function RequiredEventsDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        {props.absentEvents.length ? (
+        {pendingAttendanceMessage(props.classification) ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200">{pendingAttendanceMessage(props.classification)}</div>
+        ) : props.absentEvents.length ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
             <p className="font-black">
               You have missed perfect attendance by missing these events:
@@ -2512,13 +2515,13 @@ function RequiredEventsDialog(props: {
               ))}
             </div>
           </div>
-        ) : (
+        ) : props.classification === "Perfect attendance" ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
             You have perfect attendance — you attended all{" "}
             {props.requiredEventCount} required event
             {props.requiredEventCount === 1 ? "" : "s"}.
           </div>
-        )}
+        ) : null}
 
         {props.events.length ? (
           <div className="space-y-3">
@@ -3474,6 +3477,7 @@ function manualAttendanceToLandingAttendanceRecord(
     institution: record.institution,
     no_of_absences: record.no_of_absences,
     remarks: record.remarks,
+    masterlist_status: record.masterlist_status,
     scanned_at: record.scanned_at,
     deleted_at: null,
     deleted_by: null,
@@ -3742,8 +3746,10 @@ export default function LandingPage() {
       displayedAttendance,
       displayedCollegeAttendanceRecords,
       lookup?.attendanceEvents ?? [],
+      lookup?.resolvedCollege ?? lookup?.profile?.college ?? displayedFinalResult?.college,
+      lookup?.profile?.year_level ?? displayedFinalResult?.year_level,
     );
-  }, [displayedAttendance, displayedCollegeAttendanceRecords, lookup]);
+  }, [displayedAttendance, displayedCollegeAttendanceRecords, displayedFinalResult, lookup]);
   const attendedEvents = useMemo(() => {
     if (Array.isArray(displayedFinalResult?.event_details)) {
       return getFinalResultAttendedEventSummaries(
@@ -3771,6 +3777,9 @@ export default function LandingPage() {
       allDisplayedFines,
       lookup?.attendanceEvents ?? [],
       displayedCollegeAttendanceRecords,
+      null,
+      lookup?.resolvedCollege ?? lookup?.profile?.college ?? displayedFinalResult?.college,
+      lookup?.profile?.year_level ?? displayedFinalResult?.year_level,
     );
   }, [
     displayedAttendance,
@@ -3785,6 +3794,7 @@ export default function LandingPage() {
     const studentCollegeKey = getResolvedStudentCollegeKey(
       displayedAttendance,
       displayedFinalResult,
+      lookup?.resolvedCollege ?? lookup?.profile?.college,
     );
     const studentYearLevel = getResolvedStudentYearLevel(
       displayedAttendance,
@@ -4062,6 +4072,7 @@ export default function LandingPage() {
     cleanStudentId: string,
     availableSchoolYears: SchoolYearRecord[] = schoolYears,
   ) {
+    if (isPlaceholderStudentNumber(cleanStudentId)) {setError(placeholderStudentNumberMessage(cleanStudentId));return;}
     if (masterlistActive || masterlistStatusLoading) {
       setError(masterlistActive ? "No-participation registration is not needed this semester. All students on the masterlist are already listed." : "Checking masterlist status. Please try again.");
       return;
@@ -4215,6 +4226,7 @@ export default function LandingPage() {
     initial: Partial<AttendanceRequestFormState>,
     excludedEventIds: string[] = [],
   ) {
+    if (initial.studentId && isPlaceholderStudentNumber(initial.studentId)) {setError(placeholderStudentNumberMessage(initial.studentId));return;}
     const schoolYearId =
       initial.schoolYearId ||
       (resultYearFilter && resultYearFilter !== ALL_YEARS_VALUE
@@ -4285,6 +4297,7 @@ export default function LandingPage() {
   }
 
   function handleLookupDetailsCorrection() {
+    if (isPlaceholderStudentNumber(searchedId)) {setError(placeholderStudentNumberMessage(searchedId));return;}
     const attendanceProfile = displayedAttendance[0] ?? lookup?.attendance[0];
     const currentName = isAuthenticated()
       ? (displayedFinalResult?.name || attendanceProfile?.name || studentDisplayName || "")
@@ -4731,7 +4744,7 @@ export default function LandingPage() {
   async function handleSearch(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const cleanStudentId = studentId.trim();
+    const cleanStudentId = normalizeStudentNumberKey(studentId);
     if (!cleanStudentId) {
       setError("Enter your Student ID.");
       setLookup(null);
@@ -4740,6 +4753,10 @@ export default function LandingPage() {
       setRequiredEventsDialogOpen(false);
       setZeroAttendanceDialogOpen(false);
       return;
+    }
+
+    if (isPlaceholderStudentNumber(cleanStudentId)) {
+      setError(placeholderStudentNumberMessage(cleanStudentId));setLookup(null);setResultDialogOpen(false);setEventsDialogOpen(false);setRequiredEventsDialogOpen(false);setZeroAttendanceDialogOpen(false);setAttendanceRequestDialogOpen(false);setDetailsCorrectionDialogOpen(false);return;
     }
 
     let completedWeight = 0;
@@ -4850,7 +4867,7 @@ export default function LandingPage() {
           .reduce((highest, result) => Math.max(highest, Number(result.total_absences || 0)), 0);
         const fallbackAbsenceCount = Math.max(
           authoritativeAbsenceCount,
-          getFallbackAbsenceCount(attendance, attendanceRecords, attendanceEvents),
+          getFallbackAbsenceCount(attendance, attendanceRecords, attendanceEvents, records.resolvedCollege ?? records.profile?.college, records.profile?.year_level),
         );
         // The private match-penalty route selects the greatest threshold <= absences.
         const matchingPenalty = records.penalties.reduce<PenaltyRecord | null>(
@@ -4866,6 +4883,8 @@ export default function LandingPage() {
         setResultYearFilter(activeSchoolYearId);
         setLookup({
           profile: records.profile,
+          masterlist: records.masterlist,
+          resolvedCollege: records.resolvedCollege,
           attendance,
           finalResults,
           attendanceEvents,
@@ -4913,8 +4932,8 @@ export default function LandingPage() {
         }).catch(() => [] as ManualAttendanceRecord[]),
       ]).then(([attendance, manualAttendance]) => {
         const combinedAttendance = getUniqueDisplayAttendance([
-          ...attendance,
-          ...manualAttendance.map(manualAttendanceToLandingAttendanceRecord),
+          ...attendance.filter(r => !masterlistActive || r.masterlist_status !== "unmatched"),
+          ...manualAttendance.filter(r => !masterlistActive || r.masterlist_status !== "unmatched").map(manualAttendanceToLandingAttendanceRecord),
         ]);
 
         markProgressStepComplete(
@@ -5025,7 +5044,7 @@ export default function LandingPage() {
         fines,
         schoolYearRows,
         attendanceEvents,
-        attendanceRecords,
+        rawAttendanceRecords,
         attendanceRequests,
       ] = await Promise.all([
         attendancePromise,
@@ -5037,6 +5056,7 @@ export default function LandingPage() {
         attendanceRequestsPromise,
       ]);
 
+      const attendanceRecords = masterlistActive ? rawAttendanceRecords.filter(r=>r.masterlist_status!=="unmatched") : rawAttendanceRecords;
       setSchoolYears(schoolYearRows);
 
       updateProgress(
@@ -5066,12 +5086,15 @@ export default function LandingPage() {
             Math.max(highestAbsenceCount, Number(result.total_absences || 0)),
           0,
         );
+      const newestFinal = [...finalResults].sort((a,b)=>String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")))[0];
       const fallbackAbsenceCount = Math.max(
         authoritativeAbsenceCount,
         getFallbackAbsenceCount(
           attendance,
           attendanceRecords,
           attendanceEvents,
+          newestFinal?.college,
+          newestFinal?.year_level,
         ),
       );
       const shouldBuildFallbackFine =
@@ -5087,6 +5110,8 @@ export default function LandingPage() {
 
       setResultYearFilter(activeSchoolYearId);
       setLookup({
+        masterlist: {active: masterlistActive, schoolYearId: null, onMasterlist: finalResults.length > 0},
+        resolvedCollege: newestFinal?.college ?? undefined,
         attendance,
         finalResults,
         attendanceEvents,
@@ -5302,9 +5327,9 @@ export default function LandingPage() {
                     Student ID: {searchedId}
                   </h2>
                   <div className="mt-2 space-y-1 break-words text-base font-semibold text-muted-foreground">
-                    <p>Course: {displayedFinalResult?.program || displayedAttendance[0]?.program || lookup?.profile?.course || "—"}</p>
-                    <p>Year level: {displayedFinalResult?.year_level || displayedAttendance[0]?.year_level || lookup?.profile?.year_level || "—"}</p>
-                    <p>College: {displayedFinalResult?.college || displayedAttendance[0]?.college || lookup?.profile?.college || "—"}</p>
+                    <p>Course: {displayedFinalResult?.program || lookup?.profile?.course || displayedAttendance[0]?.program || "—"}</p>
+                    <p>Year level: {displayedFinalResult?.year_level || lookup?.profile?.year_level || displayedAttendance[0]?.year_level || "—"}</p>
+                    <p>College: {displayedFinalResult?.college || lookup?.profile?.college || displayedAttendance[0]?.college || "—"}</p>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
@@ -5397,7 +5422,8 @@ export default function LandingPage() {
                   ) : null}
                 </Button>
 
-              {resultClassification !== "Zero attendance" &&
+              {pendingAttendanceMessage(resultClassification) ? <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">{pendingAttendanceMessage(resultClassification)}</div> : null}
+              {!pendingAttendanceMessage(resultClassification) && resultClassification !== "Zero attendance" &&
               resultClassification !== "No attendance record" &&
               requiredEventCount > 0 ? (
                 <Button
@@ -5752,6 +5778,7 @@ export default function LandingPage() {
         events={requiredEvents}
         absentEvents={absentEvents}
         requiredEventCount={requiredEventCount}
+        classification={resultClassification}
       />
 
       <StudentAttendedEventsDialog

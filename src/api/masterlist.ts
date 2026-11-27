@@ -19,7 +19,7 @@ export type MasterlistRow = { id: string; student_number: string; last_name: str
 export type MasterlistSummary = { schoolYear: SchoolYearRecord; masterlistRows: number; matchedById: number; matchedByPartialId: number; matchedByName: number; idNameMismatches: number; unmatched: number; studentsUpdated: number; recordsUpdated: number; unmappedPrograms: string[] };
 export type MasterlistImport = { id: string; file_name: string; rows_total: number; rows_valid: number; rows_invalid: number; summary: MasterlistSummary | null; created_at: string };
 export type FinalAttendanceRow = Omit<MasterlistRow, "id" | "last_name" | "given_name"> & { name: string; last_name: string | null; given_name: string | null; attended_events: number; expected_events: number | null; total_absences: number | null; attendance_status: string; event_details: Record<string, "P" | "A" | "E"> };
-export type FinalAttendanceResponse = { rows: FinalAttendanceRow[]; total: number; schoolYear: SchoolYearRecord; events: { id: string; name: string }[]; unmatched: { student_id: string; name: string; college: string | null; program: string | null; reason: string }[]; unmatchedCount: number | null; hasMasterlist: boolean; programs: string[] };
+export type FinalAttendanceResponse = { rows: FinalAttendanceRow[]; total: number; schoolYear: SchoolYearRecord; events: { id: string; name: string }[]; unmatched: UnmatchedStudent[]; unmatchedCount: number | null; hasMasterlist: boolean; programs: string[] };
 export function isMasterlistTerm(year: SchoolYearRecord | null | undefined) {
   return !!year && year.semester === "first_semester" && (/2026\s*[-–—/]\s*2027/.test(year.name) || (new Date(year.starts_at).getUTCFullYear() === 2026 && new Date(year.ends_at).getUTCFullYear() === 2027));
 }
@@ -84,3 +84,9 @@ export async function downloadFinalAttendanceXlsx(filters: MasterlistFilters = {
   const url = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export type StudentSuggestion = { student_number:string;full_name:string;program:string|null;year_level:string|null;college:string|null };
+export type UnmatchedStudent = {student_id:string;name:string;college:string|null;program:string|null;year_level:string|null;reason:string;is_placeholder?:boolean;id_owner?:{student_number:string;full_name:string}|null;suggestions?:StudentSuggestion[]};
+export type CorrectedStudent = {original_student_id:string;original_name:string;corrected_student_id:string;corrected_name:string;college:string|null;program:string|null;year_level:string|null;masterlist_status:string;record_count:number;latest_scanned_at:string|null};
+export const reassignStudentAttendance = (body:{schoolYearId:string;originalStudentId:string;originalName:string;studentNumber:string}) => json<{studentNumber:string;name:string;recordsUpdated:number}>("/api/masterlist/reassign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+export const getFinalAttendanceCorrected = (filters:MasterlistFilters={},signal?:AbortSignal) => finalAttendanceJson<{rows:CorrectedStudent[];total:number}>(`/api/attendance/final-attendance/corrected${queryString(filters)}`,signal);

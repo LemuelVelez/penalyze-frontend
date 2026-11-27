@@ -57,6 +57,8 @@ export async function lookupPublicStudentById(studentId: string): Promise<Public
 }
 
 export type PublicStudentRecords = {
+  masterlist?: { active: boolean; schoolYearId: string | null; onMasterlist: boolean };
+  resolvedCollege?: string;
   profile: PublicStudentLookup | null;
   attendance: AttendanceRecord[];
   manualAttendance: ManualAttendanceRecord[];

@@ -191,9 +191,9 @@ function normalizeStudentId(value: unknown) {
 }
 
 
-type StudentLookupProfile = { name: string; college: string; program: string };
+type StudentLookupProfile = { name: string; college: string; program: string; yearLevel?: string };
 function getStudentLookupProfileKey(profile: StudentLookupProfile) {
-  return JSON.stringify([profile.name.trim().toLowerCase(), profile.college.trim().toLowerCase(), profile.program.trim().toLowerCase()]);
+  return JSON.stringify([profile.name.trim().toLowerCase(), profile.college.trim().toLowerCase(), profile.program.trim().toLowerCase(), (profile.yearLevel ?? "").trim().toLowerCase()]);
 }
 
 function getStudentCalculatedEventsCacheKey(
@@ -209,8 +209,8 @@ function getStudentCalculatedEventsCacheKey(
     : "";
 }
 
-function useStudentCalculatedEvents(studentId: string, schoolYearId: string, name: string, college: string, program: string) {
-  const profileKey = getStudentLookupProfileKey({ name, college, program });
+function useStudentCalculatedEvents(studentId: string, schoolYearId: string, name: string, college: string, program: string, yearLevel: string) {
+  const profileKey = getStudentLookupProfileKey({ name, college, program, yearLevel });
   const cacheRef = useRef(new Map<string, StudentCalculatedEventsEntry>());
   const errorsRef = useRef(new Map<string, string>());
   const loadingKeysRef = useRef(new Set<string>());
@@ -274,7 +274,7 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string, nam
       );
 
       if (!key) return null;
-      const lookup = profile ?? { name, college, program };
+      const lookup = profile ?? { name, college, program, yearLevel };
       const fullId = /^tc-\d{2}-[a-z]-\d{5}$/.test(normalizedStudentId) && !normalizedStudentId.endsWith("-00000");
       if (!fullId && !lookup.name.trim() && !lookup.college.trim()) return null;
 
@@ -295,6 +295,7 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string, nam
             studentName: lookup.name,
             studentCollege: lookup.college,
             studentProgram: lookup.program,
+            studentYearLevel: lookup.yearLevel,
             schoolYearId: normalizedSchoolYearId,
             consolidatedOnly: true,
             includeEventDetails: true,
@@ -330,7 +331,7 @@ function useStudentCalculatedEvents(studentId: string, schoolYearId: string, nam
       inFlightRef.current.set(key, request);
       return request;
     },
-    [refresh, schoolYearId, studentId, profileKey, name, college, program],
+    [refresh, schoolYearId, studentId, profileKey, name, college, program, yearLevel],
   );
 
   const invalidate = useCallback(
@@ -714,6 +715,7 @@ export default function ManualAttendancePage() {
     form.name,
     form.college,
     form.program,
+    form.yearLevel,
   );
 
   const studentGroups = useMemo(
