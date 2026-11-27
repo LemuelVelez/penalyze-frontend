@@ -708,7 +708,9 @@ function getAttendanceImportProgressSteps(
 function getAttendanceImportProgressDetail(progress: AttendanceImportProgress) {
   const rowDetail = progress.totalRows
     ? `${formatNumber(progress.processedRows)} of ${formatNumber(progress.totalRows)} row/s processed`
-    : "Preparing attendance rows";
+    : progress.stage === "syncing" || progress.stage === "completed"
+      ? `${formatNumber(progress.savedRecords)} attendance record/s saved`
+      : "";
   const stageDetail = progress.stageCounts
     ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)}`
     : rowDetail;
@@ -716,7 +718,7 @@ function getAttendanceImportProgressDetail(progress: AttendanceImportProgress) {
   const syncingNote = progress.stage === "syncing"
     ? " The attendance is already committed; final-result calculations or repository status updates are still running. Please do not reimport these files."
     : "";
-  return `${progress.message} ${stageDetail}.${syncingNote}`;
+  return `${progress.message}${stageDetail ? ` ${stageDetail}.` : ""}${syncingNote}`;
 }
 
 function normalizeStudentId(value: unknown) {
