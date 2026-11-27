@@ -375,7 +375,7 @@ function MasterlistRowBadge({ row }: { row: ParsedAttendanceRow }) {
       ? <Badge variant="secondary">Reconciled manually</Badge>
       : status && status !== "no_masterlist" && <Badge variant={status === "unmatched" || status === "id_name_mismatch" ? "destructive" : "secondary"}>{labels[status]}</Badge>}
     {row.masterlist_original && <p className="text-xs text-muted-foreground">Original: {row.masterlist_original.studentId} · {row.masterlist_original.name}</p>}
-    {row.warnings?.map((warning, index) => <p key={index} className="break-words text-xs text-amber-700 dark:text-amber-300">Warning: {warning}</p>)}
+    {row.warnings?.map((warning, index) => <p key={index} className="wrap-break-word text-xs text-amber-700 dark:text-amber-300">Warning: {warning}</p>)}
   </div>;
 }
 
@@ -635,7 +635,7 @@ function getSchoolYearBadgeLabel(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-semibold ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal wrap-anywhere min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-semibold ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -3626,11 +3626,11 @@ export default function AttendancePage({
           {progress ? (
             <div className="mt-5 rounded-2xl border bg-background p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 text-sm font-bold">
-                <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{progress.message}</span>
+                <span className="min-w-0 flex-1 wrap-anywhere">{progress.message}</span>
                 <span className="shrink-0">{progress.percent}%</span>
               </div>
               <Progress value={progress.percent} className="mt-3 h-3" />
-              <p className="mt-2 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+              <p className="mt-2 text-xs font-semibold text-muted-foreground wrap-anywhere">
                 {progress.stageCounts
                   ? `parsed ${formatNumber(progress.stageCounts.parsed)} → normalized ${formatNumber(progress.stageCounts.normalized)} → valid ${formatNumber(progress.stageCounts.valid)} → merged ${formatNumber(progress.stageCounts.merged)} → saved ${formatNumber(progress.stageCounts.saved)} → distinct final results ${formatNumber(progress.stageCounts.distinctFinalResults)}`
                   : `${formatNumber(progress.savedRecords)} saved record/s from ${formatNumber(progress.totalRows)} row/s`}
@@ -3641,14 +3641,14 @@ export default function AttendancePage({
             <div role="alert" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
               <p className="font-semibold">Fully exempt workbooks were not imported</p>
               <p className="mt-1">No attendance was saved for these files. Verify the selected event and its college/year-level exemptions in Events. Repository workbooks remain pending.</p>
-              <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
+              <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="wrap-break-word">{message}</li>)}</ul>
             </div>
           )}
           {repositorySyncFailures.length > 0 && (
             <div role="alert" className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
               <p className="font-semibold">Attendance saved, but {repositorySyncFailures.length} repository status update(s) need attention.</p>
               <p className="mt-1">Do not reimport these workbooks. Mark their existing imports uploaded manually in Repository Sync.</p>
-              <ul className="mt-2 list-disc pl-5">{repositorySyncFailures.map((error, index) => <li key={index} className="break-words">{error}</li>)}</ul>
+              <ul className="mt-2 list-disc pl-5">{repositorySyncFailures.map((error, index) => <li key={index} className="wrap-break-word">{error}</li>)}</ul>
             </div>
           )}
           {reconciliationReports.map(({ fileName, reconciliation }) => {
@@ -3665,13 +3665,13 @@ export default function AttendancePage({
 
             return (
               <details key={fileName} className="mt-4 rounded-2xl border bg-background p-4">
-                <summary className="cursor-pointer break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                <summary className="cursor-pointer text-sm font-semibold wrap-anywhere">
                   {fileName}: {reconciliation.rowsInSource.toLocaleString()} rows in file, {reconciliation.rowsSaved.toLocaleString()} saved
                   {mergedCount ? ` — ${mergedCount} row/s merged` : ""}
                   {reconciliation.rowsInvalid.length ? ` — ${reconciliation.rowsInvalid.length} invalid row/s` : ""}
                   {reconciliation.rowsExempted?.length ? ` — ${reconciliation.rowsExempted.length} exempted row/s excluded` : ""}
                 </summary>
-                <div className="mt-3 min-w-0 space-y-2 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                <div className="mt-3 min-w-0 space-y-2 text-xs text-muted-foreground wrap-anywhere">
                   <p>
                     parsed {reconciliation.stageCounts.parsed} → normalized {reconciliation.stageCounts.normalized} → valid {reconciliation.stageCounts.valid} → merged {reconciliation.stageCounts.merged} → saved {reconciliation.stageCounts.saved} → distinct final results {reconciliation.stageCounts.distinctFinalResults}
                   </p>
@@ -3757,7 +3757,7 @@ export default function AttendancePage({
               {skippedExemptFiles.length > 0 && (
                 <div role="alert" className="lg:col-span-5 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
                   <p className="font-semibold">No attendance was saved for these exempted files:</p>
-                  <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
+                  <ul className="mt-2 list-disc pl-5">{skippedExemptFiles.map((message, index) => <li key={index} className="wrap-break-word">{message}</li>)}</ul>
                   <p className="mt-2">Choose the intended event for each workbook below before retrying. Your selection overrides the workbook's detected name/date; exemptions are checked against the chosen event only. If that event itself exempts the college or year level, review its exemptions in Events.</p>
                 </div>
               )}
@@ -3787,7 +3787,7 @@ export default function AttendancePage({
                     ? `${files.length.toLocaleString()} attendance file/s selected`
                     : "Drop attendance files here"}
                 </span>
-                <span className="mt-2 max-w-full break-words text-sm font-semibold text-muted-foreground">
+                <span className="mt-2 max-w-full wrap-break-word text-sm font-semibold text-muted-foreground">
                   Only .xlsx and .csv files are supported.
                 </span>
                 {files.length ? (
@@ -3933,22 +3933,22 @@ export default function AttendancePage({
                                 <p className="mt-1 text-xs font-semibold text-muted-foreground">
                                   {details.previewError ? "Preview unavailable" : `${details.rowsTotal.toLocaleString()} incoming row/s`}
                                 </p>
-                                <p className="mt-1 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+                                <p className="mt-1 text-xs font-semibold text-muted-foreground wrap-anywhere">
                                   Colleges in file: {getAttendancePreviewCollegeLabels(details.previewRows).join(", ") || "None"}
                                 </p>
-                                <p className="mt-1 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+                                <p className="mt-1 text-xs font-semibold text-muted-foreground wrap-anywhere">
                                   Colleges after assignments: {details.collegeLabels.join(", ") || uploadForm.college}
                                 </p>
                                 {details.collegeMismatchRows.length ? (
-                                  <div className="mt-2 min-w-0 break-words rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs [overflow-wrap:anywhere]" role="status">
+                                  <div className="mt-2 min-w-0 rounded-xl border border-amber-500/50 bg-amber-500/5 p-3 text-xs wrap-anywhere" role="status">
                                     <p className="font-bold">{details.collegeMismatchRows.length} record(s) belong to a different college than the upload default ({uploadForm.college}). Valid colleges are allowed; open the college review dialog if any record needs correcting.</p>
                                   </div>
                                 ) : null}
                                 {details.invalidCollegeRows.length ? (
-                                  <div className="mt-2 min-w-0 break-words rounded-xl border border-destructive p-3 text-xs text-destructive [overflow-wrap:anywhere]" role="alert">
+                                  <div className="mt-2 min-w-0 rounded-xl border border-destructive p-3 text-xs text-destructive wrap-anywhere" role="alert">
                                     <p className="font-bold">{details.invalidCollegeRows.length} unrecognised college row(s) must be corrected before saving:</p>
                                     {details.invalidCollegeRows.slice(0, 10).map((row) => (
-                                      <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1 break-words [overflow-wrap:anywhere]">
+                                      <p key={`${row.rowNumber}-${row.studentId}`} className="mt-1 wrap-anywhere">
                                         Row {row.rowNumber} — {row.name || row.studentId || "Unknown student"} ({row.studentId || "no ID"}): {row.college}
                                       </p>
                                     ))}
@@ -3973,7 +3973,7 @@ export default function AttendancePage({
                                 <div className="mt-2 max-h-60 space-y-2 overflow-auto">
                                   {details.previewRows.filter(row => row.masterlist_status === "unmatched").map(row => (
                                     <div key={row.rowNumber} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b pb-2">
-                                      <div className="min-w-0 flex-1 break-words">
+                                      <div className="min-w-0 flex-1 wrap-break-word">
                                         <p>Row {row.rowNumber}: {row.studentId || "No ID"} · {row.name || "No name"} · {row.eventName || "No event in source — review assignment"}</p>
                                         <MasterlistRowBadge row={row} />
                                       </div>
@@ -3992,7 +3992,7 @@ export default function AttendancePage({
                                     const original = snapshot?.masterlist_original ?? snapshot ?? row.masterlist_original;
                                     return (
                                       <div key={row.rowNumber} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b pb-2">
-                                        <div className="min-w-0 flex-1 break-words">
+                                        <div className="min-w-0 flex-1 wrap-break-word">
                                           <p>Row {row.rowNumber}: {original?.studentId || "No ID"} · {original?.name || "No name"} → {row.studentId} · {row.name}</p>
                                           <MasterlistRowBadge row={row} />
                                         </div>
@@ -4018,7 +4018,7 @@ export default function AttendancePage({
                               size="sm"
                               variant={details.invalidCollegeRows.length ? "destructive" : "outline"}
                               disabled={isSaving}
-                              className="h-auto w-full min-w-0 whitespace-normal break-words py-2 [overflow-wrap:anywhere] sm:w-auto"
+                              className="h-auto w-full min-w-0 whitespace-normal py-2 wrap-anywhere sm:w-auto"
                               onClick={() => openAttendanceCollegeReviewDialog(fileKey, "different")}
                             >
                               Select different / unrecognised ({new Set([
@@ -4027,7 +4027,7 @@ export default function AttendancePage({
                               ]).size})
                             </Button>
                             <Button type="button" size="sm" variant="outline" disabled={isSaving}
-                              className="h-auto w-full min-w-0 whitespace-normal break-words py-2 [overflow-wrap:anywhere] sm:w-auto"
+                              className="h-auto w-full min-w-0 whitespace-normal py-2 wrap-anywhere sm:w-auto"
                               onClick={() => openAttendanceCollegeReviewDialog(fileKey, "all")}
                             >
                               Review all records ({details.previewRows.length})
@@ -4069,7 +4069,7 @@ export default function AttendancePage({
                             <p className="text-xs font-bold text-muted-foreground">
                               Detected event
                             </p>
-                            <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                            <p className="mt-1 text-sm font-semibold wrap-anywhere">
                               {hasMultipleRowEvents
                                 ? `${eventGroups.length} separate events detected in the rows`
                                 : details?.metadata.eventName || "—"}
@@ -4094,7 +4094,7 @@ export default function AttendancePage({
                         </div>
 
                         {details?.previewError ? (
-                          <p className="mt-3 break-words text-xs font-semibold text-destructive [overflow-wrap:anywhere]">
+                          <p className="mt-3 text-xs font-semibold text-destructive wrap-anywhere">
                             {details.previewError}
                           </p>
                         ) : null}
@@ -4103,7 +4103,7 @@ export default function AttendancePage({
                           <div className="mt-4 space-y-3">
                             {suggestedExistingEvent ? (
                               <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="min-w-0 break-words [overflow-wrap:anywhere]">
+                                <div className="min-w-0 wrap-anywhere">
                                   <p className="text-xs font-semibold">
                                     This looks like {suggestedExistingEvent.name} — attach to it?
                                   </p>
@@ -4120,7 +4120,7 @@ export default function AttendancePage({
                                   variant={matchedExistingEvent ? "default" : "outline"}
                                   disabled={isSaving || matchedExistingEvent}
                                   onClick={() => openMergeDecisionDialog(fileKey)}
-                                  className="h-auto w-full whitespace-normal break-words rounded-xl text-xs font-semibold sm:w-auto"
+                                  className="h-auto w-full whitespace-normal wrap-break-word rounded-xl text-xs font-semibold sm:w-auto"
                                 >
                                   {matchedExistingEvent ? "Merge confirmed" : "Review merge"}
                                 </Button>
@@ -4286,9 +4286,9 @@ export default function AttendancePage({
             {reconcileTarget && (
               <div className="rounded-xl border p-3 text-sm">
                 <p className="font-semibold">Row {reconcileTarget.row.rowNumber}</p>
-                <p className="break-words">{reconcileTarget.row.masterlist_original?.studentId || reconcileTarget.row.studentId || "No ID"} · {reconcileTarget.row.masterlist_original?.name || reconcileTarget.row.name || "No name"}</p>
+                <p className="wrap-break-word">{reconcileTarget.row.masterlist_original?.studentId || reconcileTarget.row.studentId || "No ID"} · {reconcileTarget.row.masterlist_original?.name || reconcileTarget.row.name || "No name"}</p>
                 {reconcileTarget.row.warnings?.filter(warning => warning.startsWith("Masterlist: ")).map((warning, index) => (
-                  <p key={index} className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">{warning}</p>
+                  <p key={index} className="mt-1 wrap-break-word text-xs text-amber-700 dark:text-amber-300">{warning}</p>
                 ))}
               </div>
             )}
@@ -4304,7 +4304,7 @@ export default function AttendancePage({
               ) : reconcileResults.length ? (
                 reconcileResults.map(student => (
                   <button key={student.id} type="button" aria-pressed={reconcileSelectedId === student.id}
-                    className={`w-full min-w-0 rounded-xl border p-3 text-left text-sm break-words ${reconcileSelectedId === student.id ? "border-primary bg-primary/10" : "hover:bg-muted/50"}`}
+                    className={`w-full min-w-0 rounded-xl border p-3 text-left text-sm wrap-break-word ${reconcileSelectedId === student.id ? "border-primary bg-primary/10" : "hover:bg-muted/50"}`}
                     onClick={() => setReconcileSelectedId(student.id)}>
                     <p className="font-semibold">{student.student_number} · {student.last_name}, {student.given_name}{student.middle_initial ? ` ${student.middle_initial}.` : ""}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{student.program || "No program"} · {student.year_level || "No year level"} · {student.college || "No college"}</p>
@@ -4345,7 +4345,7 @@ export default function AttendancePage({
                   return (
                     <div key={group.key} className="space-y-2 rounded-xl border bg-background p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="min-w-0 flex-1 break-words text-sm font-semibold">
+                        <p className="min-w-0 flex-1 wrap-break-word text-sm font-semibold">
                           {group.eventName || "Unnamed event — enter a name"}
                           <span className="ml-2 text-xs text-muted-foreground">({group.rows.length} rows)</span>
                         </p>
@@ -4387,7 +4387,7 @@ export default function AttendancePage({
                         </label>
                       </div>
                       <Button type="button" size="sm" variant="outline" disabled={isSaving || !(eventReviewGroupNames[group.key] ?? group.eventName).trim()}
-                        className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
+                        className="h-auto w-full min-w-0 whitespace-normal wrap-break-word py-2 sm:w-auto"
                         onClick={() => assignAttendanceEventGroup(eventReviewFileKey, group, "__create_event__")}>
                         Apply new event name to this group
                       </Button>
@@ -4407,9 +4407,9 @@ export default function AttendancePage({
                     return (
                       <div key={row.rowNumber} className="grid min-w-0 w-full grid-cols-1 gap-2 rounded-lg border p-2 sm:grid-cols-2">
                         <div className="min-w-0 text-xs">
-                          <p className="break-words font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
+                          <p className="wrap-break-word font-semibold">Row {row.rowNumber} · {row.name} ({row.studentId})</p>
                           <MasterlistRowBadge row={row} />
-                          <p className="break-words text-muted-foreground">In file: {row.eventName || "No event name"}</p>
+                          <p className="wrap-break-word text-muted-foreground">In file: {row.eventName || "No event name"}</p>
                         </div>
                         <Select disabled={isSaving} value={getRowEventAssignmentValue(assignment)}
                           onValueChange={(value) => {
@@ -4546,7 +4546,7 @@ export default function AttendancePage({
                 const isInvalid = collegeReviewInvalidNumbers.has(row.rowNumber);
                 const isDifferent = normalizeCollegeKey(effectiveCollege) !== normalizeCollegeKey(uploadForm.college);
                 return (
-                  <div key={row.rowNumber} className={`grid min-w-0 w-full grid-cols-1 gap-2 border-b p-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
+                  <div key={row.rowNumber} className={`grid min-w-0 w-full grid-cols-1 gap-2 border-b p-3 last:border-b-0 sm:grid-cols-2 sm:items-center ${isInvalid ? "bg-destructive/5" : ""}`}>
                     <div className="flex min-w-0 items-start gap-3">
                       <Checkbox
                         checked={collegeReviewSelectedNumbers.has(row.rowNumber) && !hasMasterlistMatch(row)}
@@ -4560,11 +4560,11 @@ export default function AttendancePage({
                         className="shrink-0"
                         aria-label={`Select row ${row.rowNumber}, ${row.name || row.studentId || "unnamed student"}`}
                       />
-                      <div className="min-w-0 flex-1 space-y-1 [overflow-wrap:anywhere]">
-                        <p className="break-words text-xs font-semibold">Row {row.rowNumber} — {row.name || "Unnamed student"}</p>
-                        <p className="break-words text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
+                      <div className="min-w-0 flex-1 space-y-1 wrap-anywhere">
+                        <p className="wrap-break-word text-xs font-semibold">Row {row.rowNumber} — {row.name || "Unnamed student"}</p>
+                        <p className="wrap-break-word text-xs text-muted-foreground">ID: {row.studentId || "Not provided"}</p>
                         <MasterlistRowBadge row={row} />
-                        <p className={`break-words text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                        <p className={`wrap-break-word text-xs ${isInvalid ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           {hasMasterlistMatch(row) ? `Masterlist college: ${originalCollege || "Unmapped program (college not assigned)"}` : `In file: ${originalCollege || "Blank (uses upload default)"}`}
                         </p>
                         <p className="text-xs">
@@ -4624,12 +4624,12 @@ export default function AttendancePage({
                 </Select>
               </div>
               <Button type="button" size="sm" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length || !collegeReviewDetails?.assignmentCollege}
-                className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
+                className="h-auto w-full min-w-0 whitespace-normal wrap-break-word py-2 sm:w-auto"
                 onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey)}>
                 Apply to selected ({collegeReviewDetails?.selectedRowNumbers.length ?? 0})
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={isSaving || !collegeReviewDetails?.selectedRowNumbers.length}
-                className="h-auto w-full min-w-0 whitespace-normal break-words py-2 sm:w-auto"
+                className="h-auto w-full min-w-0 whitespace-normal wrap-break-word py-2 sm:w-auto"
                 onClick={() => applyAttendanceCollegeAssignments(collegeReviewFileKey, true)}>
                 Reset selected
               </Button>
@@ -4659,7 +4659,7 @@ export default function AttendancePage({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="min-w-0 space-y-4 break-words [overflow-wrap:anywhere]">
+            <div className="min-w-0 space-y-4 wrap-anywhere">
               <div className="rounded-2xl border bg-muted/30 p-4">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Incoming file</p>
                 <p className="mt-1 break-all font-semibold">{mergeDialogFile?.name}</p>
@@ -4681,14 +4681,14 @@ export default function AttendancePage({
                     key={`${candidate.source}-${candidate.eventId ?? candidate.batchFileIndex}-${index}`}
                     type="button"
                     onClick={() => setMergeDialogCandidateIndex(index)}
-                    className={`min-w-0 w-full break-words [overflow-wrap:anywhere] rounded-2xl border p-4 text-left transition ${
+                    className={`min-w-0 w-full wrap-break-word wrap-anywhere rounded-2xl border p-4 text-left transition ${
                       index === mergeDialogCandidateIndex
                         ? "border-primary ring-2 ring-primary/20"
                         : "hover:bg-muted/40"
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="min-w-0 flex-1 break-words font-semibold [overflow-wrap:anywhere]">{candidate.eventName}</p>
+                      <p className="min-w-0 flex-1 font-semibold wrap-anywhere">{candidate.eventName}</p>
                       <span className="rounded-full border px-2.5 py-1 text-xs font-bold">
                         {Math.round(candidate.score * 100)}% {candidate.confidence}
                       </span>
@@ -4987,7 +4987,7 @@ export default function AttendancePage({
                           {index + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="break-words font-semibold">{event.name}</p>
+                          <p className="wrap-break-word font-semibold">{event.name}</p>
                           <p className="mt-1 text-sm text-muted-foreground">
                             Missed • {formatDateTime(event.event_start_at ?? event.event_end_at)}
                           </p>
@@ -5059,7 +5059,7 @@ export default function AttendancePage({
                           {index + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="break-words font-semibold">
+                          <p className="wrap-break-word font-semibold">
                             {eventSummary.eventName}
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -5350,7 +5350,7 @@ export default function AttendancePage({
                                 aria-label={`Select ${sourceLabel} ${eventLabel}`}
                               />
                               <span className="min-w-0">
-                                <span className="block break-words font-semibold">{eventLabel}</span>
+                                <span className="block wrap-break-word font-semibold">{eventLabel}</span>
                                 <span className="mt-0.5 block text-xs text-muted-foreground">{sourceLabel}</span>
                                 {exemptionReason ? (
                                   <span className="mt-1 block text-xs font-semibold text-amber-700 dark:text-amber-300">
@@ -5553,7 +5553,7 @@ export default function AttendancePage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
-                      <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]" title={result.name}>{result.name}</p>
+                      <p className="mt-1 text-sm font-semibold wrap-anywhere" title={result.name}>{result.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -5583,11 +5583,11 @@ export default function AttendancePage({
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={result.college || "—"}>{result.college || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={result.college || "—"}>{result.college || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={result.program || "—"}>{result.program || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>
@@ -5607,7 +5607,7 @@ export default function AttendancePage({
           </div>
 
           <div className="table-scroll-hint hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
-            <table className="w-full min-w-[1050px] text-left text-sm">
+            <table className="w-full min-w-262.5 text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
@@ -5646,16 +5646,16 @@ export default function AttendancePage({
                             aria-label={`Select final result for ${result.student_id}`}
                           />
                         </td>
-                        <td className="sticky left-12 z-10 bg-background px-4 py-3 break-words font-semibold">
+                        <td className="sticky left-12 z-10 bg-background px-4 py-3 wrap-break-word font-semibold">
                           {result.student_id}
                         </td>
-                        <td className="px-4 py-3 break-words font-semibold">
+                        <td className="px-4 py-3 wrap-break-word font-semibold">
                           {result.name}
                         </td>
-                        <td className="px-4 py-3 break-words text-muted-foreground">
+                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
                           {result.college || "—"}
                         </td>
-                        <td className="px-4 py-3 break-words text-muted-foreground">
+                        <td className="px-4 py-3 wrap-break-word text-muted-foreground">
                           {result.program || "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -5769,7 +5769,7 @@ export default function AttendancePage({
                 Loading uploaded files...
               </p>
             ) : importsLoadError ? (
-              <p className="rounded-2xl border border-destructive bg-background p-5 break-words text-sm text-destructive" role="alert">
+              <p className="rounded-2xl border border-destructive bg-background p-5 wrap-break-word text-sm text-destructive" role="alert">
                 Unable to load uploaded files: {importsLoadError}
               </p>
             ) : imports.length ? (
@@ -5781,7 +5781,7 @@ export default function AttendancePage({
                   <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="break-all font-semibold">{item.file_name}</p>
-                      <p className="mt-1 break-words text-sm text-muted-foreground">
+                      <p className="mt-1 wrap-break-word text-sm text-muted-foreground">
                         {item.event_name || "Uploaded attendance"} •{" "}
                         {item.college_label || "College not recorded"} •{" "}
                         {formatDateTime(item.created_at)}

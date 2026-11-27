@@ -59,7 +59,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-clip overflow-y-auto break-words rounded-3xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:w-[calc(100%-2rem)] sm:max-w-sm lg:w-full data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 [&>*]:min-w-0",
+          "fixed top-1/2 left-1/2 z-50 grid min-w-0 max-w-full grid-cols-1 max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none -translate-x-1/2 -translate-y-1/2 gap-4 overflow-x-clip overflow-y-auto wrap-break-word rounded-3xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:w-[calc(100%-2rem)] sm:max-w-sm lg:w-full data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 [&>*]:min-w-0",
           className
         )}
         {...props}
@@ -105,7 +105,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex min-w-0 shrink-0 flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end [&>button]:min-w-0 [&>button]:max-w-full [&>button]:whitespace-normal [&>button]:[overflow-wrap:anywhere]",
+        "flex min-w-0 shrink-0 flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end [&>button]:min-w-0 [&>button]:max-w-full [&>button]:whitespace-normal [&>button]:wrap-anywhere",
         className
       )}
       {...props}
@@ -127,7 +127,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("min-w-0 break-words [overflow-wrap:anywhere] font-heading text-sm font-medium", className)}
+      className={cn("min-w-0 wrap-anywhere font-heading text-sm font-medium", className)}
       {...props}
     />
   )

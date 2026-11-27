@@ -416,14 +416,14 @@ export default function ExportReport(props: ExportReportProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid min-w-0 shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0 rounded-2xl border bg-muted/40 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
               College to preview/export
             </p>
             <Select value={selectedCollege} onValueChange={setSelectedCollege}>
               <SelectTrigger className="mt-2 min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-2xl bg-background text-left text-xs font-semibold sm:max-w-64">
-                <SelectValue placeholder="All colleges" className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" />
+                <SelectValue placeholder="All colleges" className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere" />
               </SelectTrigger>
               <SelectContent className="max-w-[calc(100vw-2rem)] sm:max-w-xs">
                 <SelectItem value={ALL_COLLEGES_VALUE}>All colleges</SelectItem>
@@ -431,7 +431,7 @@ export default function ExportReport(props: ExportReportProps) {
                   <SelectItem
                     key={college}
                     value={college}
-                    className="break-words"
+                    className="wrap-break-word"
                   >
                     {college}
                   </SelectItem>
@@ -443,7 +443,7 @@ export default function ExportReport(props: ExportReportProps) {
             <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">
               Year
             </p>
-            <p className="mt-1 break-words text-2xl font-black">
+            <p className="mt-1 wrap-break-word text-2xl font-black">
               {selectedYearLabel}
             </p>
           </div>
@@ -473,12 +473,12 @@ export default function ExportReport(props: ExportReportProps) {
                   <article key={row.key} className="min-w-0 rounded-2xl border bg-background p-4">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={row.studentId || "—"}>{row.studentId || "—"}</p>
-                      <p className="mt-1 break-words text-sm font-semibold" title={row.name || "—"}>{row.name || "—"}</p>
+                      <p className="mt-1 wrap-break-word text-sm font-semibold" title={row.name || "—"}>{row.name || "—"}</p>
                     </div>
                     <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <div className="min-w-0">
                         <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                        <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={college}>{college}</p>
+                        <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={college}>{college}</p>
                       </div>
                       <div>
                         <p className="text-xs font-bold uppercase text-muted-foreground">Absences</p>
@@ -486,7 +486,7 @@ export default function ExportReport(props: ExportReportProps) {
                       </div>
                       <div className="col-span-2 min-w-0">
                         <p className="text-xs font-bold uppercase text-muted-foreground">Fine / Penalty</p>
-                        <p className="mt-1 break-words font-semibold">{getFineText(row)}</p>
+                        <p className="mt-1 wrap-break-word font-semibold">{getFineText(row)}</p>
                       </div>
                     </div>
                   </article>
@@ -500,7 +500,7 @@ export default function ExportReport(props: ExportReportProps) {
           </div>
 
           <div className="table-scroll-hint hidden min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-2xl border lg:block">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-225 text-left text-sm">
             <thead className="sticky top-0 z-10 border-b bg-background text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="sticky left-0 z-20 bg-background px-3 py-3">Student ID</th>
@@ -517,7 +517,7 @@ export default function ExportReport(props: ExportReportProps) {
                     <tr key={`${college}-heading`} className="bg-muted/60">
                       <td
                         colSpan={5}
-                        className="break-words px-3 py-3 font-black"
+                        className="wrap-break-word px-3 py-3 font-black"
                       >
                         {college}
                       </td>
@@ -527,16 +527,16 @@ export default function ExportReport(props: ExportReportProps) {
                         <td className="sticky left-0 z-10 max-w-40 break-all bg-background px-3 py-3">
                           {row.studentId || "—"}
                         </td>
-                        <td className="max-w-56 break-words px-3 py-3 font-semibold">
+                        <td className="max-w-56 wrap-break-word px-3 py-3 font-semibold">
                           {row.name || "—"}
                         </td>
-                        <td className="max-w-56 break-words px-3 py-3">
+                        <td className="max-w-56 wrap-break-word px-3 py-3">
                           {row.college}
                         </td>
                         <td className="px-3 py-3 text-center">
                           {getAbsenceText(row)}
                         </td>
-                        <td className="max-w-sm break-words px-3 py-3 text-muted-foreground">
+                        <td className="max-w-sm wrap-break-word px-3 py-3 text-muted-foreground">
                           {getFineText(row)}
                         </td>
                       </tr>

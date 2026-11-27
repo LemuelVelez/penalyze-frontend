@@ -312,7 +312,7 @@ export default function RepositorySyncPage() {
         {uploadErrors.length > 0 && (
           <div role="alert" className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
             <p className="font-semibold">Files needing attention ({uploadErrors.length})</p>
-            <ul className="list-disc space-y-1 pl-5">{uploadErrors.map((message, index) => <li key={index} className="break-words">{message}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-5">{uploadErrors.map((message, index) => <li key={index} className="wrap-break-word">{message}</li>)}</ul>
           </div>
         )}
         <p className="text-xs text-muted-foreground">Review up to 10 workbooks per attendance import (5 MB each); manual status actions allow up to 200. Correct colleges, review student rows and event merges before saving.</p>
@@ -332,7 +332,7 @@ export default function RepositorySyncPage() {
             <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4">
               <Checkbox disabled={busy} checked={selected.includes(item.id)} onCheckedChange={(checked) => setSelected((prev) => checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} aria-label={`Select ${item.originalName}`} />
               <div className="min-w-48 flex-1 space-y-1">
-                <div className="break-words font-medium">{item.originalName}</div>
+                <div className="wrap-break-word font-medium">{item.originalName}</div>
                 <div className="text-xs text-muted-foreground">{item.college || "No college"} · {item.rowCount} rows · Updated {new Date(item.updatedAt).toLocaleString()}</div>
                 {item.penalyzeUploadedAt && <div className="text-xs text-muted-foreground">Marked uploaded {new Date(item.penalyzeUploadedAt).toLocaleString()}{item.penalyzeUploadedBy ? ` by ${item.penalyzeUploadedBy}` : ""}</div>}
               </div>

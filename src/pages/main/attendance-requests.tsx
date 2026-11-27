@@ -1057,7 +1057,7 @@ export default function AttendanceRequestsPage() {
               return (
             <article
               key={request.id}
-              className="min-w-0 space-y-5 rounded-3xl border bg-card p-5 shadow-sm [overflow-wrap:anywhere]"
+              className="min-w-0 space-y-5 rounded-3xl border bg-card p-5 shadow-sm wrap-anywhere"
             >
               <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between">
                 <div>
@@ -1067,7 +1067,7 @@ export default function AttendanceRequestsPage() {
                       ? "Second Semester"
                       : "First Semester"}
                   </p>
-                  <h2 className="mt-1 break-words text-xl font-black [overflow-wrap:anywhere]">
+                  <h2 className="mt-1 text-xl font-black wrap-anywhere">
                     {request.student_id} · {request.name}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -1183,11 +1183,11 @@ export default function AttendanceRequestsPage() {
           ) : (
             <article
               key={group.studentKey}
-              className="min-w-0 space-y-4 rounded-3xl border bg-card p-5 shadow-sm [overflow-wrap:anywhere]"
+              className="min-w-0 space-y-4 rounded-3xl border bg-card p-5 shadow-sm wrap-anywhere"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="break-words text-xl font-black">{group.studentId} · {group.name}</h2>
+                  <h2 className="wrap-break-word text-xl font-black">{group.studentId} · {group.name}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Latest submitted {formatDate(group.latestCreatedAt)}
                   </p>
@@ -1216,11 +1216,11 @@ export default function AttendanceRequestsPage() {
                   disabled={Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
                   onClick={() => openGroupReview(group, null)}
                 >Review All ({group.requests.length})</Button>
-                <Button type="button" className="min-h-10 rounded-xl !bg-emerald-600 !text-white hover:!bg-emerald-700"
+                <Button type="button" className="min-h-10 rounded-xl bg-emerald-600! text-white! hover:bg-emerald-700!"
                   disabled={!group.pendingRequests.length || Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
                   onClick={() => openGroupReview(group, "approved")}
                 >Approve All Pending</Button>
-                <Button type="button" className="min-h-10 rounded-xl !bg-red-600 !text-white hover:!bg-red-700"
+                <Button type="button" className="min-h-10 rounded-xl bg-red-600! text-white! hover:bg-red-700!"
                   disabled={!group.pendingRequests.length || Boolean(reviewingId) || group.requests.some((request) => request.events.some((event) => event.id === removingEventId))}
                   onClick={() => openGroupReview(group, "rejected")}
                 >Reject All Pending</Button>
@@ -1314,7 +1314,7 @@ export default function AttendanceRequestsPage() {
                 if (a.request_type !== b.request_type) return a.request_type === "details_correction" ? -1 : 1;
                 return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
               }).map((request) => (
-                <section key={request.id} className="space-y-4 rounded-3xl border bg-muted/10 p-4 [overflow-wrap:anywhere] sm:p-5">
+                <section key={request.id} className="space-y-4 rounded-3xl border bg-muted/10 p-4 wrap-anywhere sm:p-5">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="secondary" className="rounded-full font-black">
                       {request.request_type === "details_correction" ? "Details Correction" : request.request_type === "zero_attendance" ? "No-Participation Review" : "Event Review"}
@@ -1383,7 +1383,7 @@ export default function AttendanceRequestsPage() {
                 <>
                   <Button type="button" variant="outline" onClick={() => setGroupConfirmation(false)}>Back</Button>
                   <Button type="button"
-                    className={groupReview?.action === "rejected" ? "!bg-red-600 !text-white hover:!bg-red-700" : "!bg-emerald-600 !text-white hover:!bg-emerald-700"}
+                    className={groupReview?.action === "rejected" ? "bg-red-600! text-white! hover:bg-red-700!" : "bg-emerald-600! text-white! hover:bg-emerald-700!"}
                     onClick={() => { if (groupReview?.action) void handleGroupReview(groupReview.action); }}
                     disabled={!selectedGroupRequests.length || groupIsBusy}
                   >Confirm {groupReview?.action === "approved" ? "Approval" : "Rejection"} ({selectedGroupRequests.length})</Button>
@@ -1392,7 +1392,7 @@ export default function AttendanceRequestsPage() {
                 <>
                   <Button type="button" variant="outline" onClick={closeGroupReview} disabled={groupIsBusy}>Cancel</Button>
                   <Button type="button"
-                    className="!bg-red-600 !text-white hover:!bg-red-700"
+                    className="bg-red-600! text-white! hover:bg-red-700!"
                     disabled={!selectedGroupRequests.length || groupIsBusy}
                     onClick={() => {
                       setGroupReview((current) => current ? { ...current, action: "rejected" } : current);
@@ -1400,7 +1400,7 @@ export default function AttendanceRequestsPage() {
                     }}
                   >Reject Selected ({selectedGroupRequests.length})</Button>
                   <Button type="button"
-                    className="!bg-emerald-600 !text-white hover:!bg-emerald-700"
+                    className="bg-emerald-600! text-white! hover:bg-emerald-700!"
                     disabled={!selectedGroupRequests.length || groupIsBusy}
                     onClick={() => {
                       setGroupReview((current) => current ? { ...current, action: "approved" } : current);
@@ -1525,8 +1525,8 @@ export default function AttendanceRequestsPage() {
                   disabled={Boolean(reviewingId)}
                   className={
                     reviewConfirmation?.status === "rejected"
-                      ? "!bg-red-600 !text-white hover:!bg-red-700"
-                      : "!bg-emerald-600 !text-white hover:!bg-emerald-700"
+                      ? "bg-red-600! text-white! hover:bg-red-700!"
+                      : "bg-emerald-600! text-white! hover:bg-emerald-700!"
                   }
                   onClick={() => {
                     const confirmation = reviewConfirmation;

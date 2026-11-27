@@ -1861,7 +1861,7 @@ export default function HistoryPage() {
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
-                            <p className="break-words font-black">
+                            <p className="wrap-break-word font-black">
                               {request.student_id} · {request.name}
                             </p>
                             <p className="mt-1 text-sm text-muted-foreground">
@@ -1892,7 +1892,7 @@ export default function HistoryPage() {
                               {correctionChanges.length ? (
                                 correctionChanges.map(
                                   ([label, currentValue, requestedValue]) => (
-                                    <p key={String(label)} className="break-words">
+                                    <p key={String(label)} className="wrap-break-word">
                                       {label}: {currentValue || "—"} → {requestedValue || "—"}
                                     </p>
                                   ),
@@ -1914,7 +1914,7 @@ export default function HistoryPage() {
                                     key={event.id}
                                     className="flex flex-col gap-2 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
                                   >
-                                    <span className="break-words text-sm font-semibold">
+                                    <span className="wrap-break-word text-sm font-semibold">
                                       {event.event_name}
                                     </span>
                                     {event.evidence_url ? (
@@ -1947,7 +1947,7 @@ export default function HistoryPage() {
                             <p className="text-xs font-bold uppercase text-muted-foreground">
                               Student note
                             </p>
-                            <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                            <p className="mt-2 whitespace-pre-wrap wrap-break-word text-sm">
                               {request.request_note}
                             </p>
                           </div>
@@ -1958,7 +1958,7 @@ export default function HistoryPage() {
                             <p className="text-xs font-bold uppercase text-muted-foreground">
                               Reviewer note
                             </p>
-                            <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                            <p className="mt-2 whitespace-pre-wrap wrap-break-word text-sm">
                               {request.review_note}
                             </p>
                           </div>

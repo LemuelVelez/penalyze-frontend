@@ -114,11 +114,11 @@ export default function SettingsPage() {
           <div className="space-y-4 text-sm">
             <div>
               <p className="text-xs text-muted-foreground">Name</p>
-              <p className="mt-1 break-words font-medium [overflow-wrap:anywhere]">{user?.name || "—"}</p>
+              <p className="mt-1 font-medium wrap-anywhere">{user?.name || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Email</p>
-              <p className="mt-1 break-words font-medium [overflow-wrap:anywhere]">{user?.email || "—"}</p>
+              <p className="mt-1 font-medium wrap-anywhere">{user?.email || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Role</p>

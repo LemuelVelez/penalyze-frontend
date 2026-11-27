@@ -940,7 +940,7 @@ export default function FinesPage() {
             <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <SchoolYearBadge
                 label={selectedSchoolYearLabel}
-                className="min-w-0 w-full justify-center text-center whitespace-normal break-words"
+                className="min-w-0 w-full justify-center text-center whitespace-normal wrap-break-word"
               />
 
               <SortSelect
@@ -1003,19 +1003,19 @@ export default function FinesPage() {
             <p className="text-sm font-bold text-muted-foreground">
               School Year / Semester
             </p>
-            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
+            <p className="mt-2 text-2xl font-black wrap-anywhere">
               {selectedSchoolYearLabel}
             </p>
           </div>
           <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Results</p>
-            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
+            <p className="mt-2 text-2xl font-black wrap-anywhere">
               {summary.total.toLocaleString()}
             </p>
           </div>
           <div className="min-w-0 rounded-3xl border bg-card p-4 sm:p-5">
             <p className="text-sm font-bold text-muted-foreground">Absences</p>
-            <p className="mt-2 break-words text-2xl font-black [overflow-wrap:anywhere]">
+            <p className="mt-2 text-2xl font-black wrap-anywhere">
               {summary.absences.toLocaleString()}
             </p>
           </div>
@@ -1148,12 +1148,12 @@ export default function FinesPage() {
               </div>
             </div>
             <div className="flex min-w-0 flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
-              <p aria-live="polite" aria-atomic="true" className="min-w-0 break-words font-semibold [overflow-wrap:anywhere]">
+              <p aria-live="polite" aria-atomic="true" className="min-w-0 font-semibold wrap-anywhere">
                 {filteredPenaltyResults.length.toLocaleString()} of {penaltyResults.length.toLocaleString()} results
                 {activeStudentSearch ? ` match '${activeStudentSearch}'` : ""}
               </p>
               {activeStudentSearch ? (
-                <p className="min-w-0 break-words text-xs font-medium [overflow-wrap:anywhere]">
+                <p className="min-w-0 text-xs font-medium wrap-anywhere">
                   Delete All and Fines Report apply to the filtered results.
                 </p>
               ) : null}
@@ -1175,7 +1175,7 @@ export default function FinesPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={result.student_id}>{result.student_id}</p>
-                      <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]" title={result.name}>{result.name}</p>
+                      <p className="mt-1 text-sm font-semibold wrap-anywhere" title={result.name}>{result.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -1204,13 +1204,13 @@ export default function FinesPage() {
                   <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p>
                     </div>
                   </div>
 
-                  <div className="mt-4 min-w-0 rounded-xl bg-muted/40 p-3 [overflow-wrap:anywhere]">
+                  <div className="mt-4 min-w-0 rounded-xl bg-muted/40 p-3 wrap-anywhere">
                     <p className="text-xs font-bold uppercase text-muted-foreground">Prescribed penalty</p>
-                    <p className="mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere]">{result.prescribed_penalty || "—"}</p>
+                    <p className="mt-1 text-sm font-semibold wrap-anywhere">{result.prescribed_penalty || "—"}</p>
                   </div>
                 </article>
               ))
@@ -1233,7 +1233,7 @@ export default function FinesPage() {
           </div>
 
           <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-245 text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
@@ -1390,7 +1390,7 @@ export default function FinesPage() {
                       <p className="font-black">
                         {penalty.no_of_absences} absence/s
                       </p>
-                      <p className="mt-1 break-words text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground wrap-anywhere">
                         {penalty.prescribed_penalty}
                       </p>
                     </div>
@@ -1453,13 +1453,13 @@ export default function FinesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="break-all font-black">{result.student_id}</p>
-                        <p className="break-words font-semibold" title={result.name}>{result.name}</p>
+                        <p className="wrap-break-word font-semibold" title={result.name}>{result.name}</p>
                       </div>
                     </div>
                     <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">College</p><p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere" title={getPenaltyResultCollege(result) || "—"}>{getPenaltyResultCollege(result) || "—"}</p></div>
                       <div><p className="text-xs font-bold uppercase text-muted-foreground">Absences</p><p className="mt-1 break-all font-black">{Number(result.no_of_absences || 0).toLocaleString()}</p></div>
-                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 break-words">{result.prescribed_penalty || "—"}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-bold uppercase text-muted-foreground">Penalty</p><p className="mt-1 wrap-break-word">{result.prescribed_penalty || "—"}</p></div>
                     </div>
                   </article>
                 ))}
@@ -1631,7 +1631,7 @@ export default function FinesPage() {
                     <div className="flex gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-full border bg-card text-sm font-semibold">{index + 1}</span>
                       <div className="min-w-0">
-                        <p className="break-words font-semibold">
+                        <p className="wrap-break-word font-semibold">
                           {event.eventOrder ? `${event.eventOrder}. ` : ""}{event.eventName}
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">

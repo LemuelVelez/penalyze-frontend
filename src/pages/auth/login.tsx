@@ -64,8 +64,8 @@ export default function LoginPage() {
   return (
     <main className="photo-layout relative isolate flex min-h-svh w-full min-w-0 items-center justify-center px-3 py-5 text-foreground sm:px-6 sm:py-10">
       <PageBackground image={BACKGROUNDS.auth} overlay="medium" mobileOverlay="light" objectPosition="center 32%" />
-      <section className="grid w-full min-w-0 max-w-5xl grid-cols-[minmax(0,1fr)] overflow-hidden rounded-3xl border bg-card/95 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
-        <aside className="relative flex h-40 min-w-0 flex-col justify-end overflow-hidden md:h-auto md:min-h-[38rem]">
+      <section className="grid w-full min-w-0 max-w-5xl grid-cols-1 overflow-hidden rounded-3xl border bg-card/95 shadow-2xl shadow-black/10 backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
+        <aside className="relative flex h-40 min-w-0 flex-col justify-end overflow-hidden md:h-auto md:min-h-152">
           <picture className="absolute inset-0">
             <source media="(max-width: 767px)" srcSet={BACKGROUND_CARD.loginPanel} />
             <img
@@ -156,7 +156,7 @@ export default function LoginPage() {
               checked={remember}
               onCheckedChange={(checked) => setRemember(checked === true)}
             />
-            <span className="min-w-0 break-words">Remember this device</span>
+            <span className="min-w-0 wrap-break-word">Remember this device</span>
           </label>
 
           {error ? (

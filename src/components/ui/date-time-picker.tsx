@@ -205,7 +205,7 @@ export function DateTimePicker({
           variant="outline"
           disabled={disabled}
           className={cn(
-            "min-h-12 h-auto w-full min-w-0 justify-start whitespace-normal break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-2 text-left font-semibold",
+            "min-h-12 h-auto w-full min-w-0 justify-start whitespace-normal wrap-anywhere rounded-2xl px-4 py-2 text-left font-semibold",
             !displayValue && "text-muted-foreground",
             className,
           )}
@@ -226,7 +226,7 @@ export function DateTimePicker({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid min-h-0 min-w-0 grid-cols-1 gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
           <div className="min-w-0 space-y-2">
             <span className="text-xs font-bold">Month</span>
             <Select
@@ -270,7 +270,7 @@ export function DateTimePicker({
         </div>
 
         {mode === "datetime" ? (
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="min-w-0 space-y-2">
               <span className="text-xs font-bold">Hour</span>
               <NumberSelect

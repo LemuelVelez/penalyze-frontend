@@ -669,7 +669,7 @@ async function runWithConcurrency<T>(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal wrap-anywhere min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -888,7 +888,7 @@ const CalculationCard = memo(function CalculationCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="break-all font-black" title={row.studentId}>{row.studentId}</p>
-          <p className="mt-1 break-words text-sm font-semibold" title={row.name}>{row.name}</p>
+          <p className="mt-1 wrap-break-word text-sm font-semibold" title={row.name}>{row.name}</p>
           <p className="mt-1 text-xs text-muted-foreground">{row.sourceRecordCount} source record/s</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -914,11 +914,11 @@ const CalculationCard = memo(function CalculationCard({
       <div className="mt-4 grid min-w-0 grid-cols-2 gap-3 text-sm">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
+          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={row.college || "—"}>{row.college || "—"}</p>
         </div>
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={row.program || "—"}>{row.program || "—"}</p>
+          <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={row.program || "—"}>{row.program || "—"}</p>
         </div>
         <div>
           <p className="text-xs font-bold uppercase text-muted-foreground">Events</p>
@@ -932,7 +932,7 @@ const CalculationCard = memo(function CalculationCard({
 
       <div className="mt-4 rounded-xl bg-muted/40 p-3">
         <p className="text-xs font-bold uppercase text-muted-foreground">Fine / Penalty</p>
-        <p className={`mt-1 break-words text-sm font-semibold ${row.totalAbsences > 0 ? "" : "text-emerald-700 dark:text-emerald-300"}`}>
+        <p className={`mt-1 wrap-break-word text-sm font-semibold ${row.totalAbsences > 0 ? "" : "text-emerald-700 dark:text-emerald-300"}`}>
           {row.totalAbsences > 0
             ? row.prescribedPenalty ?? row.penalty?.prescribed_penalty ?? "No prescribed penalty configured."
             : "No fine"}
@@ -2718,9 +2718,9 @@ export default function CalculatePage() {
           {hasOutsideSelectionPending ? (
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                <div className="min-w-0 flex-1 wrap-anywhere">
                   <p className="font-black">New calculation data is not selected.</p>
-                  <p className="mt-1 min-w-0 break-words font-semibold">
+                  <p className="mt-1 min-w-0 wrap-break-word font-semibold">
                     {pendingOutsideSelection.uncalculatedImports.length > 0
                       ? `Files: ${pendingOutsideSelection.uncalculatedImports
                           .map((item) => item.name)
@@ -2754,10 +2754,10 @@ export default function CalculatePage() {
             <div className="mt-5 min-w-0 rounded-2xl border bg-background p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-sm font-black">
+                  <p className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere text-sm font-black">
                     {calculationProgress.label}
                   </p>
-                  <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs font-semibold text-muted-foreground">
+                  <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere text-xs font-semibold text-muted-foreground">
                     {calculationProgress.detail}
                   </p>
                 </div>
@@ -2821,7 +2821,7 @@ export default function CalculatePage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Choose attendance sources and imported files in the selection dialog.
               </p>
-              <div className="mt-4 min-w-0 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+              <div className="mt-4 min-w-0 rounded-2xl border bg-background p-4 text-sm font-semibold text-muted-foreground wrap-anywhere">
                 <p>
                   Selected sources:{" "}
                   {selectedCalculationSourceLabels.length
@@ -2970,7 +2970,7 @@ export default function CalculatePage() {
           </div>
 
           <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border lg:block">
-            <table className="w-full min-w-[1180px] text-left text-sm">
+            <table className="w-full min-w-295 text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
@@ -3094,10 +3094,10 @@ export default function CalculatePage() {
                   className="mt-1"
                 />
                 <span className="min-w-0">
-                  <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-black">
+                  <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-black">
                     {sourceOption.title}
                   </span>
-                  <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
+                  <span className="mt-1 block wrap-anywhere text-muted-foreground">
                     {sourceOption.description}
                   </span>
                 </span>
@@ -3155,10 +3155,10 @@ export default function CalculatePage() {
                       className="mt-1"
                     />
                     <span className="min-w-0">
-                      <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-black">
+                      <span className="block min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-black">
                         {importRecord.file_name}
                       </span>
-                      <span className="mt-1 block break-words [overflow-wrap:anywhere] text-muted-foreground">
+                      <span className="mt-1 block wrap-anywhere text-muted-foreground">
                         {importRecord.event_name || "No linked event"} •{" "}
                         {formatDateTime(importRecord.created_at)}
                       </span>
@@ -3233,10 +3233,10 @@ export default function CalculatePage() {
                   {selectedConsistencyGroup.rows.map((row) => (
                     <article key={row.key} className="min-w-0 space-y-2 rounded-xl border bg-background p-3">
                       <div className="min-w-0">
-                        <p className="break-words font-semibold">{row.name}</p>
+                        <p className="wrap-break-word font-semibold">{row.name}</p>
                         <p className="break-all text-xs text-muted-foreground">{row.studentId}</p>
                       </div>
-                      <p className="break-words text-xs">Year level: {row.yearLevel || "Unresolved"}</p>
+                      <p className="wrap-break-word text-xs">Year level: {row.yearLevel || "Unresolved"}</p>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <p>Expected: <strong className="text-red-700 dark:text-red-300">{row.expectedEvents}</strong></p>
                         <p>Attended: <strong>{row.attendedEvents}</strong></p>
@@ -3258,7 +3258,7 @@ export default function CalculatePage() {
                   ))}
                 </div>
                 <div className="hidden min-w-0 max-w-full overflow-x-auto lg:block">
-                  <table className="w-full min-w-[480px] text-left text-sm">
+                  <table className="w-full min-w-120 text-left text-sm">
                     <thead className="sticky top-0 bg-muted">
                       <tr>
                         <th className="px-3 py-2">Student</th>

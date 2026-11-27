@@ -132,8 +132,8 @@ function CategoryRecords({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="break-words font-black" title={actor.name}>{actor.name}</p>
-                      <p className="mt-0.5 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs text-muted-foreground" title={actor.detail}>{actor.detail}</p>
+                      <p className="wrap-break-word font-black" title={actor.name}>{actor.name}</p>
+                      <p className="mt-0.5 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere text-xs text-muted-foreground" title={actor.detail}>{actor.detail}</p>
                     </div>
                     <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${successful ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
                       {outcomeLabel(log.status_code)} · {log.status_code}
@@ -142,12 +142,12 @@ function CategoryRecords({
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Action</p>
-                      <p className="mt-1 break-words font-semibold" title={log.action}>{log.action}</p>
-                      {actionSummary(log) ? <p className="mt-1 break-words text-xs font-normal text-muted-foreground">{actionSummary(log)}</p> : null}
+                      <p className="mt-1 wrap-break-word font-semibold" title={log.action}>{log.action}</p>
+                      {actionSummary(log) ? <p className="mt-1 wrap-break-word text-xs font-normal text-muted-foreground">{actionSummary(log)}</p> : null}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Resource</p>
-                      <p className="mt-1 break-words font-semibold" title={log.resource_type}>{log.resource_type}</p>
+                      <p className="mt-1 wrap-break-word font-semibold" title={log.resource_type}>{log.resource_type}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Source</p>
@@ -158,7 +158,7 @@ function CategoryRecords({
                       <p className="mt-1 text-xs font-semibold">{formatDateTime(log.created_at)}</p>
                     </div>
                   </div>
-                  <p className="mt-3 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground" title={log.route}>{log.route}</p>
+                  <p className="mt-3 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-mono text-xs text-muted-foreground" title={log.route}>{log.route}</p>
                 </button>
               );
             })
@@ -166,7 +166,7 @@ function CategoryRecords({
         </div>
 
         <div className="table-scroll-hint hidden max-h-[65vh] min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-contain lg:block">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-245 text-left text-sm">
             <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="sticky top-0 left-0 z-30 w-64 min-w-64 bg-muted/95 px-4 py-3 font-medium">Date &amp; time</th>
@@ -200,15 +200,15 @@ function CategoryRecords({
                       <td className="sticky left-0 z-10 w-64 min-w-64 whitespace-nowrap bg-background px-4 py-3.5 text-muted-foreground">{formatDateTime(log.created_at)}</td>
                       <td className="sticky left-64 z-10 bg-background px-4 py-3.5">
                         <div className="font-medium">{actor.name}</div>
-                        <div className="mt-0.5 max-w-64 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs text-muted-foreground">{actor.detail}</div>
+                        <div className="mt-0.5 max-w-64 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere text-xs text-muted-foreground">{actor.detail}</div>
                       </td>
                       <td className="px-4 py-3.5 font-medium">
                         <div>{log.action}</div>
-                        {actionSummary(log) ? <div className="mt-1 max-w-80 break-words text-xs font-normal text-muted-foreground">{actionSummary(log)}</div> : null}
+                        {actionSummary(log) ? <div className="mt-1 max-w-80 wrap-break-word text-xs font-normal text-muted-foreground">{actionSummary(log)}</div> : null}
                       </td>
                       <td className="px-4 py-3.5">
                         <div>{log.resource_type}</div>
-                        <div className="mt-0.5 max-w-44 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{log.resource_id || "—"}</div>
+                        <div className="mt-0.5 max-w-44 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-mono text-xs text-muted-foreground">{log.resource_id || "—"}</div>
                       </td>
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${successful ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
@@ -217,7 +217,7 @@ function CategoryRecords({
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="break-all font-mono text-xs font-medium">{log.method}</div>
-                        <div className="mt-0.5 max-w-56 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-mono text-xs text-muted-foreground">{log.route}</div>
+                        <div className="mt-0.5 max-w-56 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-mono text-xs text-muted-foreground">{log.route}</div>
                       </td>
                     </tr>
                   );
@@ -472,7 +472,7 @@ export default function AuditLogPage() {
               <div className="grid gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2">
                 <div><span className="text-xs text-muted-foreground">Action</span><div className="mt-1 font-medium">{selectedLog.action}</div></div>
                 <div><span className="text-xs text-muted-foreground">Category</span><div className="mt-1 font-medium">{selectedLog.category}</div></div>
-                <div className="sm:col-span-2"><span className="text-xs text-muted-foreground">Summary</span><div className="mt-1 break-words">{actionSummary(selectedLog) || "—"}</div></div>
+                <div className="sm:col-span-2"><span className="text-xs text-muted-foreground">Summary</span><div className="mt-1 wrap-break-word">{actionSummary(selectedLog) || "—"}</div></div>
                 <div><span className="text-xs text-muted-foreground">Timestamp</span><div className="mt-1">{formatDateTime(selectedLog.created_at)}</div></div>
                 <div><span className="text-xs text-muted-foreground">Actor</span><div className="mt-1">{formatActor(selectedLog).name}</div></div>
                 <div><span className="text-xs text-muted-foreground">Email</span><div className="mt-1 break-all">{selectedLog.actor_email || "—"}</div></div>
@@ -483,7 +483,7 @@ export default function AuditLogPage() {
               </div>
               <div>
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Captured details</div>
-                <pre className="max-h-80 min-w-0 max-w-full overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-xl border bg-muted/30 p-4 font-mono text-xs leading-5">
+                <pre className="max-h-80 min-w-0 max-w-full overflow-y-auto whitespace-pre-wrap wrap-anywhere rounded-xl border bg-muted/30 p-4 font-mono text-xs leading-5">
                   {JSON.stringify(selectedLog.details ?? {}, null, 2)}
                 </pre>
               </div>

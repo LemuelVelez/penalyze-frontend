@@ -492,7 +492,7 @@ function buildEventPayload(form: EventFormState): AttendanceEventInput {
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal wrap-anywhere min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -2338,7 +2338,7 @@ export default function EventsPage() {
                           ))}
                         </div>
                         {group.reasons.length ? (
-                          <p className="mt-3 break-words text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+                          <p className="mt-3 text-xs font-semibold text-muted-foreground wrap-anywhere">
                             {group.reasons.join(" • ")}
                           </p>
                         ) : null}
@@ -2487,7 +2487,7 @@ export default function EventsPage() {
                       <p className="text-xs font-black uppercase text-muted-foreground">
                         Event #{(event.event_order || (rowsPerPage === "all" ? index + 1 : (currentPage - 1) * Number(rowsPerPage) + index + 1)).toLocaleString()}
                       </p>
-                      <p className="mt-1 break-words text-base font-black" title={event.name}>{event.name}</p>
+                      <p className="mt-1 wrap-break-word text-base font-black" title={event.name}>{event.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -2523,7 +2523,7 @@ export default function EventsPage() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">School year</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}>
                         {getSchoolYearLabel(schoolYears, event.school_year_id ?? "")}
                       </p>
                     </div>
@@ -2565,7 +2565,7 @@ export default function EventsPage() {
           </div>
 
           <div className="table-scroll-hint mt-5 hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border lg:block">
-            <table className="w-full min-w-[1100px] text-left text-sm">
+            <table className="w-full min-w-275 text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
@@ -2780,7 +2780,7 @@ export default function EventsPage() {
                     {pendingCheckerEventGroups.map((group) => (
                       <article key={group.id} className="min-w-0 rounded-xl border border-l-4 border-l-destructive bg-card p-4">
                         <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                          <h4 className="min-w-0 flex-1 break-words text-base font-bold text-foreground">
+                          <h4 className="min-w-0 flex-1 wrap-break-word text-base font-bold text-foreground">
                             {group.name}
                           </h4>
                           <Badge variant="destructive" className="shrink-0">
@@ -2792,7 +2792,7 @@ export default function EventsPage() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {group.colleges.map((college) => (
-                            <span key={college} className="max-w-full break-words rounded-lg border border-destructive/25 bg-destructive/10 px-2.5 py-1.5 text-sm font-semibold text-destructive">
+                            <span key={college} className="max-w-full wrap-break-word rounded-lg border border-destructive/25 bg-destructive/10 px-2.5 py-1.5 text-sm font-semibold text-destructive">
                               {college}
                             </span>
                           ))}
@@ -2917,7 +2917,7 @@ export default function EventsPage() {
                           className="min-w-0 rounded-2xl border bg-background p-4 sm:p-5"
                         >
                           <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                            <p className="break-words font-black">{collegeLabel}</p>
+                            <p className="wrap-break-word font-black">{collegeLabel}</p>
                             <label className="flex shrink-0 items-center gap-2 text-xs font-bold">
                               <Checkbox
                                 checked={
@@ -2958,9 +2958,9 @@ export default function EventsPage() {
                                     }
                                   />
                                   <div className="min-w-0">
-                                    <p className="break-words font-bold">{item.event_name}</p>
+                                    <p className="wrap-break-word font-bold">{item.event_name}</p>
                                     {item.reason ? (
-                                      <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                                      <p className="mt-1 wrap-break-word text-xs leading-5 text-muted-foreground">
                                         {item.reason}
                                       </p>
                                     ) : null}
@@ -3040,14 +3040,14 @@ export default function EventsPage() {
                             }
                           />
                           <div className="min-w-0">
-                            <p className="break-words font-black">
+                            <p className="wrap-break-word font-black">
                               {item.year_level_label} · {item.college_label ?? "All colleges"}
                             </p>
-                            <p className="mt-1 break-words text-sm font-semibold">
+                            <p className="mt-1 wrap-break-word text-sm font-semibold">
                               {item.event_name}
                             </p>
                             {item.reason ? (
-                              <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                              <p className="mt-1 wrap-break-word text-xs leading-5 text-muted-foreground">
                                 {item.reason}
                               </p>
                             ) : null}
@@ -3115,7 +3115,7 @@ export default function EventsPage() {
 
           {exemptionDetailsEvent ? (
             <>
-              <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-clip overflow-y-auto overscroll-y-contain pr-1 [overflow-wrap:anywhere]">
+              <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-clip overflow-y-auto overscroll-y-contain pr-1 wrap-anywhere">
                   <div className="rounded-xl border bg-muted/20 p-3">
                   <p className="text-sm font-black">{exemptionDetailsEvent.name}</p>
                   <p className="mt-1 text-xs font-semibold text-muted-foreground">
@@ -3164,7 +3164,7 @@ export default function EventsPage() {
                               )
                             }
                           />
-                          <span className="break-words">{college.college_label}</span>
+                          <span className="wrap-break-word">{college.college_label}</span>
                         </label>
                       ))}
                     </div>
@@ -3212,7 +3212,7 @@ export default function EventsPage() {
                               )
                             }
                           />
-                          <span className="break-words">
+                          <span className="wrap-break-word">
                             {yearLevel.year_level_label} · {yearLevel.college_label ?? "All colleges"}
                           </span>
                         </label>
@@ -3268,7 +3268,7 @@ export default function EventsPage() {
             </p>
             <ul className="max-h-56 space-y-1 overflow-y-auto rounded-xl border bg-muted/20 p-3 text-sm font-semibold">
               {selectedExemptionDescriptions.map((description) => (
-                <li key={description} className="break-words">
+                <li key={description} className="wrap-break-word">
                   {description}
                 </li>
               ))}
@@ -3305,7 +3305,7 @@ export default function EventsPage() {
                 <p className="text-sm font-black">{descriptionDetailsEvent.name}</p>
               </div>
               <div className="rounded-xl border p-4">
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                <p className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-foreground">
                   {descriptionDetailsEvent.description}
                 </p>
               </div>
@@ -3370,7 +3370,7 @@ export default function EventsPage() {
 
           <fieldset
             disabled={isSavingExemptions}
-            className="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-clip overflow-y-auto overscroll-y-contain border-0 p-0 pr-1 disabled:cursor-wait [overflow-wrap:anywhere]"
+            className="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-clip overflow-y-auto overscroll-y-contain border-0 p-0 pr-1 disabled:cursor-wait wrap-anywhere"
           >
             <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-1.5">
               <Button
@@ -3402,7 +3402,7 @@ export default function EventsPage() {
                     onClick={() => setExemptionCollegePickerOpen((open) => !open)}
                     className="min-h-12 w-full justify-between rounded-2xl px-4 text-left font-semibold"
                   >
-                    <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">
+                    <span className="min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere">
                       {!exemptionColleges.length
                         ? "Select colleges"
                         : exemptionColleges.length === 1

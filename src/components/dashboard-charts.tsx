@@ -41,7 +41,7 @@ function DashboardTooltip({
   return (
     <div className="max-w-72 rounded-xl border bg-popover px-3 py-2 text-popover-foreground shadow-md">
       {label !== undefined && label !== null ? (
-        <p className="mb-1 break-words text-xs font-black">
+        <p className="mb-1 wrap-break-word text-xs font-black">
           {labelFormatter ? labelFormatter(label) : String(label)}
         </p>
       ) : null}
@@ -56,7 +56,7 @@ function DashboardTooltip({
                 className="size-2 shrink-0 rounded-full"
                 style={{ background: entry.color ?? "var(--chart-1)" }}
               />
-              <span className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere]">{String(entry.name ?? entry.dataKey ?? "Value")}</span>
+              <span className="truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere">{String(entry.name ?? entry.dataKey ?? "Value")}</span>
             </span>
             <span className="shrink-0 font-black tabular-nums">
               {typeof entry.value === "number"

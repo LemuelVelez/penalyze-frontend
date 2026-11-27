@@ -91,7 +91,7 @@ function StatCard(props: {
       <div className="absolute inset-0 -z-10 bg-linear-to-r from-card/88 via-card/65 to-card/22 dark:from-card/90 dark:via-card/70 dark:to-card/26" />
       <p className="text-sm font-bold text-muted-foreground">{props.label}</p>
       <p className="mt-3 text-3xl font-black">{props.value}</p>
-      <p className="mt-2 max-w-full break-words text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
+      <p className="mt-2 max-w-full wrap-break-word text-xs font-semibold text-muted-foreground sm:max-w-[85%]">
         {props.helper}
       </p>
     </article>
@@ -101,7 +101,7 @@ function StatCard(props: {
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-11 items-center rounded-xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal wrap-anywhere min-h-11 items-center rounded-xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -478,7 +478,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mt-6 grid gap-6">
-          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur-sm sm:p-6">
             <h2 className="text-xl font-black">Attendance trend</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Attendance records from the last 14 days for {yearLabel}.{attendanceStatus.summary === "stale" ? " Showing last loaded data." : ""}
@@ -497,7 +497,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mt-6 grid gap-6 lg:grid-cols-3">
-          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6 lg:col-span-2">
+          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur-sm sm:p-6 lg:col-span-2">
             <h2 className="text-xl font-black">Recent attendance</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Latest saved attendance records for {yearLabel}.{attendanceStatus.recentRecords === "stale" ? " Showing last loaded data." : ""}
@@ -513,7 +513,7 @@ export default function DashboardPage() {
                     >
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <p className="break-words font-black">{record.name}</p>
+                          <p className="wrap-break-word font-black">{record.name}</p>
                           <p className="break-all text-sm text-muted-foreground">
                             {record.student_id}
                           </p>
@@ -558,7 +558,7 @@ export default function DashboardPage() {
                           <td className="max-w-40 break-all px-3 py-3">
                             {record.student_id}
                           </td>
-                          <td className="max-w-56 break-words px-3 py-3">
+                          <td className="max-w-56 wrap-break-word px-3 py-3">
                             {record.name}
                           </td>
                           <td className="px-3 py-3">{record.no_of_absences}</td>
@@ -592,7 +592,7 @@ export default function DashboardPage() {
             </button>
           </article>
 
-          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
+          <article className="flex h-full flex-col rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur-sm sm:p-6">
             <h2 className="text-xl font-black">Recent imports</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Latest attendance import batches for {yearLabel}.{attendanceStatus.recentImports === "stale" ? " Showing last loaded data." : ""}
@@ -615,7 +615,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
                       <p
-                        className="w-full min-w-0 flex-none truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] text-xs font-black sm:w-auto sm:flex-1"
+                        className="w-full min-w-0 flex-none truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere text-xs font-black sm:w-auto sm:flex-1"
                         title={item.file_name}
                       >
                         {item.file_name}
@@ -653,7 +653,7 @@ export default function DashboardPage() {
         </section>
 
         <section className="mt-6">
-          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur sm:p-6">
+          <article className="rounded-3xl border bg-card/90 p-4 shadow-sm backdrop-blur-sm sm:p-6">
             <h2 className="text-xl font-black">Attendance by college</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Top colleges by visible attendance records for {yearLabel}.{attendanceStatus.summary === "stale" ? " Showing last loaded data." : ""}

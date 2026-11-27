@@ -440,7 +440,7 @@ function renderCurrentStudentSelectOption(
   if (!cleanValue || hasStudentSelectOption(options, cleanValue)) return null;
 
   return (
-    <SelectItem value={cleanValue} className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+    <SelectItem value={cleanValue} className="max-w-full whitespace-normal wrap-anywhere">
       {cleanValue}
     </SelectItem>
   );
@@ -661,7 +661,7 @@ function mergeCalculatedAndManualEvents(
 function SchoolYearBadge(props: { label: string; className?: string }) {
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
+      className={`inline-flex min-w-0 max-w-full whitespace-normal wrap-anywhere min-h-12 items-center rounded-2xl border bg-background px-4 text-sm font-black ${props.className ?? ""}`}
     >
       {props.label}
     </span>
@@ -2007,7 +2007,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={yearLevel}
                         value={yearLevel}
-                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
+                        className="max-w-full whitespace-normal wrap-anywhere"
                       >
                         {yearLevel}
                       </SelectItem>
@@ -2027,7 +2027,7 @@ export default function ManualAttendancePage() {
               <div className="space-y-2">
                 <span className="text-sm font-bold">College</span>
                 <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-2xl border bg-muted/30 px-3">
-                  <span className="min-w-0 flex-1 break-words font-semibold">{form.college || "No college selected"}</span>
+                  <span className="min-w-0 flex-1 wrap-break-word font-semibold">{form.college || "No college selected"}</span>
                   <Button type="button" size="sm" variant="outline"
                     onClick={() => setManualCollegeDialogOpen(true)}>
                     Change college
@@ -2058,7 +2058,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={program}
                         value={program}
-                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
+                        className="max-w-full whitespace-normal wrap-anywhere"
                       >
                         {program}
                       </SelectItem>
@@ -2100,7 +2100,7 @@ export default function ManualAttendancePage() {
                       <SelectItem
                         key={institution}
                         value={institution}
-                        className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]"
+                        className="max-w-full whitespace-normal wrap-anywhere"
                       >
                         {institution}
                       </SelectItem>
@@ -2270,14 +2270,14 @@ export default function ManualAttendancePage() {
                       {index + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="break-words text-sm font-black">
+                      <p className="wrap-break-word text-sm font-black">
                         {getRecordEventLabel(record)}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-muted-foreground">
                         {formatDateTime(record.scanned_at ?? record.created_at)}
                       </p>
                       {record.remarks ? (
-                        <p className="mt-2 break-words text-xs text-muted-foreground">
+                        <p className="mt-2 wrap-break-word text-xs text-muted-foreground">
                           {record.remarks}
                         </p>
                       ) : null}
@@ -2356,7 +2356,7 @@ export default function ManualAttendancePage() {
                               {formatDateTime(eventItem.scanned_at)}
                             </p>
                             {eventItem.remarks ? (
-                              <p className="mt-2 break-words text-sm text-muted-foreground">
+                              <p className="mt-2 wrap-break-word text-sm text-muted-foreground">
                                 {eventItem.remarks}
                               </p>
                             ) : null}
@@ -2454,7 +2454,7 @@ export default function ManualAttendancePage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all font-black" title={group.studentId}>{group.studentId}</p>
-                      <p className="mt-1 break-words text-sm font-semibold" title={group.name}>{group.name}</p>
+                      <p className="mt-1 wrap-break-word text-sm font-semibold" title={group.name}>{group.name}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Checkbox
@@ -2496,11 +2496,11 @@ export default function ManualAttendancePage() {
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">College</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={group.college || "—"}>{group.college || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={group.college || "—"}>{group.college || "—"}</p>
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Program</p>
-                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:[overflow-wrap:anywhere] font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
+                      <p className="mt-1 truncate max-lg:overflow-visible max-lg:whitespace-normal max-lg:text-clip max-lg:wrap-anywhere font-semibold" title={group.program || "—"}>{group.program || "—"}</p>
                     </div>
                     <div className="col-span-2 min-w-0">
                       <p className="text-xs font-bold uppercase text-muted-foreground">Date</p>
@@ -2517,7 +2517,7 @@ export default function ManualAttendancePage() {
           </div>
 
           <div className="table-scroll-hint hidden min-w-0 max-w-full overscroll-x-contain overflow-x-auto rounded-2xl border bg-background lg:block">
-            <table className="w-full min-w-[1050px] text-left text-sm">
+            <table className="w-full min-w-262.5 text-left text-sm">
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="sticky left-0 z-30 w-12 bg-muted/95 px-4 py-3">
