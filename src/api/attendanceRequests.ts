@@ -263,6 +263,7 @@ export type AttendanceRequestReviewProgress = {
 export type ReviewAttendanceRequestResult = {
   request: AttendanceRequest | null;
   createdAttendanceCount?: number;
+  appliedEventCount?: number;
   updatedRowCount?: number;
   removedExemptedEventCount?: number;
   autoClosedByExemption?: boolean;
@@ -282,6 +283,7 @@ export type ReviewAttendanceRequestGroupResult = {
   rejectedCount: number;
   autoClosedCount: number;
   createdAttendanceCount: number;
+  appliedEventCount?: number;
   updatedRowCount: number;
   removedExemptedEventCount: number;
 };
@@ -433,14 +435,9 @@ export async function reviewAttendanceRequestWithProgress(
     return payload.data ?? null;
   } catch (error) {
     if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
-    const latest = await listAttendanceRequests();
-    const request = latest.find((r) => r.id === id);
-    if (request && request.status !== "pending") {
-      notifyAttendanceRequestsUpdated();
-      notifyCalculationStatusUpdated();
-      return { request } as ReviewAttendanceRequestResult;
-    }
-    throw new Error("The connection closed before the server confirmed the approval. The request may still be pending. The server may still be processing it; refresh the list in a minute before retrying.");
+    notifyAttendanceRequestsUpdated();
+    notifyCalculationStatusUpdated();
+    throw new Error("The connection closed before the saved approval and attendance refresh were confirmed. Refresh the requests list; do not assume approval completed.");
   }
 }
 
@@ -497,23 +494,9 @@ export async function reviewAttendanceRequestGroupWithProgress(
     return payload.data ?? null;
   } catch (error) {
     if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
-    const latest = await listAttendanceRequests({ studentId: input.studentId });
-    const selected = latest.filter((r) => input.requestIds.includes(r.id));
-    if (selected.length === input.requestIds.length && selected.every((r) => r.status !== "pending")) {
-      notifyAttendanceRequestsUpdated();
-      notifyCalculationStatusUpdated();
-      return {
-        requests: selected,
-        approvedCount: selected.filter((r) => r.status === "approved").length,
-        rejectedCount: selected.filter((r) => r.status === "rejected").length,
-        autoClosedCount: 0,
-        createdAttendanceCount: 0,
-        updatedRowCount: 0,
-        removedExemptedEventCount: 0,
-      };
-    }
-    const pendingCount = input.requestIds.length - selected.filter((r) => r.status !== "pending").length;
-    throw new Error(`The connection closed before the server confirmed the approval. ${pendingCount} of ${input.requestIds.length} request(s) are still pending. The server may still be processing them; refresh the list in a minute before retrying.`);
+    notifyAttendanceRequestsUpdated();
+    notifyCalculationStatusUpdated();
+    throw new Error("The connection closed before the saved group review and attendance refresh were confirmed. Refresh the requests list; do not assume approval completed.");
   }
 }
 

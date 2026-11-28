@@ -738,7 +738,7 @@ export default function AttendanceRequestsPage() {
           toast.success(
             (result?.createdAttendanceCount
               ? `Request approved. ${result.createdAttendanceCount} attendance record/s added.`
-              : "Request approved. Existing attendance records were kept without duplicates.") + removedMessage,
+              : "Request approved. Existing attendance records were kept without duplicates.") + (request.request_type === "event_review" ? ` ${result?.appliedEventCount ?? 0} event(s) applied.` : "") + removedMessage,
           );
         }
 
@@ -866,7 +866,7 @@ export default function AttendanceRequestsPage() {
       await loadRequests();
       toast.success(
         `${result?.approvedCount ?? 0} approved, ${result?.rejectedCount ?? 0} rejected, ` +
-        `${result?.createdAttendanceCount ?? 0} attendance record(s) added, ` +
+        `${result?.appliedEventCount ?? 0} event(s) applied, ${result?.createdAttendanceCount ?? 0} attendance record(s) added, ` +
         `${result?.updatedRowCount ?? 0} row(s) updated, ` +
         `${result?.autoClosedCount ?? 0} request(s) auto-closed by exemption` +
         (result?.removedExemptedEventCount

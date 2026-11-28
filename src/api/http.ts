@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 const retryableStatus = new Set([502, 503, 504]);
 function wait(ms: number, signal?: AbortSignal | null): Promise<void> {
   if (signal?.aborted) return Promise.reject(signal.reason);
@@ -20,13 +21,22 @@ export async function fetchWithRetry(
 ): Promise<Response> {
   const { maxRetries = 3, maxRetryDelayMs = 15000 } = retryOptions;
   const method = (init.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
-  if (method !== "GET" && method !== "HEAD") return fetch(input, init);
+  if (method !== "GET" && method !== "HEAD") {
+    try { return await fetch(input, init); }
+    catch (error) {
+      if (error instanceof TypeError && !init.signal?.aborted) throw new Error("API unreachable. The operation was not automatically retried; check its saved status before retrying.");
+      throw error;
+    }
+  }
   const signal = init.signal ?? (input instanceof Request ? input.signal : undefined);
   for (let attempt = 0; ; attempt++) {
     let response: Response | undefined;
     try { response = await fetch(input, init); }
     catch (error) {
-      if (signal?.aborted || (error instanceof Error && error.name === "AbortError") || attempt >= maxRetries) throw error;
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+      if (!(error instanceof TypeError)) throw error;
+      if (attempt >= maxRetries) throw new Error("API unreachable after retries. Please try again.");
+      toast.info("API unreachable, retrying", { id: "api-unreachable" });
     }
     if (response && (!retryableStatus.has(response.status) || attempt >= maxRetries)) return response;
     if (response?.body) void response.body.cancel().catch(() => undefined);

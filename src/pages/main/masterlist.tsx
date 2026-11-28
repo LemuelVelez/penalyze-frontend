@@ -97,7 +97,12 @@ export default function MasterlistPage() {
       if (action === "discard" && discardTarget) { await discardMasterlistUpload(discardTarget.id); setData(previous => previous ? {...previous,pendingUpload:null} : previous); setDiscardOpen(false); setDiscardTarget(null); }
       if (action !== "discard") invalidateMasterlistStatus();
       setPage(0); toast.success(action === "delete" ? "Masterlist removed." : action === "discard" ? "Saved upload discarded. You can start a new upload." : "Masterlist reconciled.");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Request failed."); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Request failed.");
+      if (action === "reconcile" && active?.id) {
+        try { const jobs = await listMaintenanceJobs({kind:"masterlist_reconcile",schoolYearId:active.id,open:true}); setReconcileJob(jobs[0] ?? null); } catch { /* polling will retry */ }
+      }
+    }
     finally { deleting.current = false; setLoading(true); setRevision(v => v + 1); setBusy(false); setAction(null); }
   }
   const steps: {label:string; stages:MasterlistProgress["stage"][]}[] = [
@@ -122,6 +127,7 @@ export default function MasterlistPage() {
       <FilePicker accept=".xlsx,.csv" disabled={!allowed || busy || !!pending || loading} buttonLabel={file?.name ?? "Choose masterlist (.xlsx, .csv)"} onChange={e => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
       <div className="flex flex-wrap gap-2">
         {pending ? <Button disabled={!allowed || busy || loading} onClick={() => void run("resume")}>Resume upload</Button> : <Button disabled={!allowed || busy || loading || !data || !file} onClick={() => data?.import ? setReplaceOpen(true) : void run("upload")}>Upload &amp; Reconcile</Button>}
+        {reconcileJob?.last_error && <p className="text-sm text-destructive">{reconcileJob.last_error}</p>}
         <Button variant="outline" disabled={!allowed || busy || rebuildRunning || loading || !!pending || !data?.import || reconcileJob?.status === "running"} onClick={() => void run("reconcile")}>{reconcileJob?.status === "running" ? "Running in another tab" : reconcileJob ? "Resume reconciliation" : "Reconcile now"}</Button>
         {pending?.phase === "staged" && <Button variant="destructive" disabled={!allowed || busy || loading} onClick={() => {setDiscardTarget(pending);setDiscardOpen(true);}}>Discard saved upload</Button>}
         <Button variant="destructive" disabled={!allowed || busy || loading || pending?.phase === "staged" || !data?.import} onClick={() => {setDeleteTarget(data?.import ?? null);setDeleteOpen(true);}}>{pending && pending.phase !== "staged" ? "Delete masterlist & start over" : "Delete masterlist"}</Button>
