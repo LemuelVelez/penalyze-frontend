@@ -73,6 +73,7 @@ type ReviewProgressState = {
   detail: string;
   steps: LoadingStatusStep[];
   error?: string;
+  errorCode?: string;
   done?: boolean;
 };
 
@@ -755,12 +756,15 @@ export default function AttendanceRequestsPage() {
           error instanceof Error
             ? error.message
             : "Unable to review attendance request.";
+        const errorCode = (error as Error & { code?: string })?.code;
         setReviewProgress((current) => ({
           progress: current?.progress ?? 0,
           detail: message,
           steps: current?.steps ?? createReviewSteps(),
           error: message,
+          errorCode,
         }));
+        if (errorCode === "MAINTENANCE_RESUME_REQUIRED") void loadRequests();
         toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
       } finally {
         setReviewingId("");
@@ -881,12 +885,15 @@ export default function AttendanceRequestsPage() {
     } catch (error) {
       const message = error instanceof Error
         ? error.message : "Unable to review attendance request group.";
+      const errorCode = (error as Error & { code?: string })?.code;
       setGroupProgress((current) => ({
         progress: current?.progress ?? 0,
         detail: message,
         steps: current?.steps ?? createReviewSteps(),
         error: message,
+        errorCode,
       }));
+      if (errorCode === "MAINTENANCE_RESUME_REQUIRED") void loadRequests();
       toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
     } finally {
       setGroupSubmitting(false);
@@ -1268,11 +1275,19 @@ export default function AttendanceRequestsPage() {
         >
           <DialogHeader>
             <DialogTitle className="text-xl font-black">
-              {activeGroup?.studentId} · {activeGroup?.name}
+              {groupProgress?.errorCode === "MAINTENANCE_RESUME_REQUIRED"
+                ? "Approval saved — recalculation paused"
+                : <>{activeGroup?.studentId} · {activeGroup?.name}</>}
             </DialogTitle>
             <DialogDescription>
-              Review {activeGroup?.requests.length ?? 0} request(s), including {activeGroup?.pendingRequests.length ?? 0} pending.
-              {groupReview?.action ? ` Selected action: ${groupReview.action === "approved" ? "Approve" : "Reject"}.` : ""}
+              {groupProgress?.errorCode === "MAINTENANCE_RESUME_REQUIRED" ? (
+                "The request was approved, but results are not fully recalculated yet. Press Resume on the banner at the top of this page."
+              ) : (
+                <>
+                  Review {activeGroup?.requests.length ?? 0} request(s), including {activeGroup?.pendingRequests.length ?? 0} pending.
+                  {groupReview?.action ? ` Selected action: ${groupReview.action === "approved" ? "Approve" : "Reject"}.` : ""}
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -1432,18 +1447,22 @@ export default function AttendanceRequestsPage() {
             <>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {reviewProgress.error
-                    ? "Approval failed"
-                    : reviewProgress.done
-                      ? "Approval complete"
-                      : reviewConfirmation?.request.request_type === "details_correction"
-                        ? "Approving details correction"
-                        : "Approving attendance request"}
+                  {reviewProgress.errorCode === "MAINTENANCE_RESUME_REQUIRED"
+                    ? "Approval saved — recalculation paused"
+                    : reviewProgress.error
+                      ? "Approval failed"
+                      : reviewProgress.done
+                        ? "Approval complete"
+                        : reviewConfirmation?.request.request_type === "details_correction"
+                          ? "Approving details correction"
+                          : "Approving attendance request"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {reviewProgress.error
-                    ? "The request was not approved. Review the message below."
-                    : "Progress is reported by the server as each real approval step runs."}
+                  {reviewProgress.errorCode === "MAINTENANCE_RESUME_REQUIRED"
+                    ? "The request was approved, but results are not fully recalculated yet. Press Resume on the banner at the top of this page."
+                    : reviewProgress.error
+                      ? "The request was not approved. Review the message below."
+                      : "Progress is reported by the server as each real approval step runs."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
