@@ -158,7 +158,7 @@ export type AttendanceRequestEvent = {
 };
 
 
-// Public lookups expose request status and reviewer notes, but not evidence.
+// Public lookups expose status, reviewer notes and approved event names, but not evidence.
 export type StudentAttendanceRequestStatus = {
   id: string;
   school_year_id: string;
@@ -168,6 +168,7 @@ export type StudentAttendanceRequestStatus = {
   status: AttendanceRequestStatus;
   review_note: string | null;
   review_note_access: boolean;
+  approved_events?: Array<{ event_id: string | null; event_name: string }>;
   reviewed_at: string | null;
   created_at: string;
 };

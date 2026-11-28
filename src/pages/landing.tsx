@@ -1661,9 +1661,13 @@ function getFinalResultAbsentEventSummaries(
   if (!finalResult) return null;
 
   const totalAbsences = Math.max(0, Number(finalResult.total_absences || 0));
-  const missedEvents = finalResult.missed_events ?? [];
+  const missedEvents = Array.isArray(finalResult.event_details)
+    ? finalResult.event_details.filter((event) => !event.attended)
+    : finalResult.missed_events;
 
-  if (totalAbsences === 0 || !missedEvents.length) return [];
+  // Missing detail data is not proof that the student has no missed events.
+  if (!missedEvents) return totalAbsences === 0 ? [] : null;
+  if (!missedEvents.length) return [];
 
   const studentCollegeKey = getResolvedStudentCollegeKey(
     attendance,
@@ -3676,6 +3680,10 @@ export default function LandingPage() {
         matchesSelectedYear(result.school_year_id || "", resultYearFilter),
       )
       .sort((left, right) => {
+        // A school-year result includes approved manual attendance; an import-only
+        // result can have a newer timestamp but cannot represent the whole term.
+        const consolidatedOrder = Number(Boolean(left.import_id)) - Number(Boolean(right.import_id));
+        if (consolidatedOrder) return consolidatedOrder;
         const leftTime = new Date(left.updated_at || left.created_at).getTime();
         const rightTime = new Date(right.updated_at || right.created_at).getTime();
         return rightTime - leftTime;
@@ -3687,7 +3695,7 @@ export default function LandingPage() {
   const displayedAttendanceRequests = useMemo(() => {
     if (!lookup) return [];
 
-    // Public status responses intentionally do not include event or student details.
+    // Public status responses include approved event names, but not private evidence.
     return lookup.attendanceRequests.filter((request) =>
       matchesSelectedYear(request.school_year_id, resultYearFilter),
     );
@@ -5684,8 +5692,30 @@ export default function LandingPage() {
                       </div>
                     </div>
 
+                    {request.status === "approved" && request.request_type === "event_review" ? (
+                      <div className="mt-4 space-y-2 rounded-xl border bg-muted/40 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase text-muted-foreground">Approved events</p>
+                          {request.approved_events ? (
+                            <span className="text-xs font-semibold text-muted-foreground">{request.approved_events.length} event/s</span>
+                          ) : null}
+                        </div>
+                        {request.approved_events?.length ? (
+                          <ul className="space-y-2">
+                            {request.approved_events.map((event, index) => (
+                              <li key={event.event_id ?? `${event.event_name}-${index}`} className="flex items-start gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-semibold">
+                                <span className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true">✓</span>
+                                <span className="min-w-0 wrap-break-word">{event.event_name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Approved event details are unavailable.</p>
+                        )}
+                      </div>
+                    ) : null}
                     <p className="mt-4 text-sm font-semibold text-muted-foreground">
-                      Request details and evidence are available to authorized officers.
+                      Evidence and private request details are available to authorized officers.
                     </p>
 
                     {request.review_note ? (
@@ -5706,7 +5736,7 @@ export default function LandingPage() {
                             ? "Your corrected details have been applied."
                             : request.request_type === "zero_attendance"
                               ? "Your no-participation declaration has been recorded."
-                              : "Your attendance for these events has been added."
+                              : "Your event review was approved. Attendance totals reflect completed processing and any subsequent officer corrections."
                           : request.status === "pending"
                             ? "Waiting for review."
                             : request.review_note
