@@ -91,6 +91,16 @@ function createReviewSteps(): LoadingStatusStep[] {
   return REVIEW_STEP_LABELS.map((label) => ({ label, status: "pending" }));
 }
 
+function failReviewSteps(steps: LoadingStatusStep[], message: string): LoadingStatusStep[] {
+  return steps.map((step) => step.status === "loading" ? { ...step, status: "error", detail: message } : step);
+}
+
+function reviewFailureTitle(errorCode?: string) {
+  if (errorCode === "MAINTENANCE_RESUME_REQUIRED") return "Approval saved — recalculation paused. Use Resume on the Attendance request review banner.";
+  if (errorCode === "REVIEW_NOT_SAVED") return "Nothing was saved. You can retry.";
+  return undefined;
+}
+
 function getReviewStepIndex(
   stage: AttendanceRequestReviewProgress["stage"],
   requestType: AttendanceRequestType,
@@ -760,12 +770,12 @@ export default function AttendanceRequestsPage() {
         setReviewProgress((current) => ({
           progress: current?.progress ?? 0,
           detail: message,
-          steps: current?.steps ?? createReviewSteps(),
+          steps: failReviewSteps(current?.steps ?? createReviewSteps(), message),
           error: message,
           errorCode,
         }));
-        if (errorCode === "MAINTENANCE_RESUME_REQUIRED") void loadRequests();
-        toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
+        void loadRequests();
+        toast.error(reviewFailureTitle(errorCode) ?? message, { ...(errorCode === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : {}), ...(reviewFailureTitle(errorCode) ? { description: message } : {}) });
       } finally {
         setReviewingId("");
       }
@@ -889,12 +899,12 @@ export default function AttendanceRequestsPage() {
       setGroupProgress((current) => ({
         progress: current?.progress ?? 0,
         detail: message,
-        steps: current?.steps ?? createReviewSteps(),
+        steps: failReviewSteps(current?.steps ?? createReviewSteps(), message),
         error: message,
         errorCode,
       }));
-      if (errorCode === "MAINTENANCE_RESUME_REQUIRED") void loadRequests();
-      toast.error(message, error instanceof Error && (error as Error & { code?: string }).code === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : undefined);
+      void loadRequests();
+      toast.error(reviewFailureTitle(errorCode) ?? message, { ...(errorCode === "MASTERLIST_ACTIVE" ? { id: "masterlist-active-approval" } : {}), ...(reviewFailureTitle(errorCode) ? { description: message } : {}) });
     } finally {
       setGroupSubmitting(false);
       setReviewingId("");
@@ -1280,8 +1290,8 @@ export default function AttendanceRequestsPage() {
                 : <>{activeGroup?.studentId} · {activeGroup?.name}</>}
             </DialogTitle>
             <DialogDescription>
-              {groupProgress?.errorCode === "MAINTENANCE_RESUME_REQUIRED" ? (
-                "The request was approved, but results are not fully recalculated yet. Press Resume on the banner at the top of this page."
+              {groupProgress?.error ? (
+                reviewFailureTitle(groupProgress.errorCode) ?? "Refresh the request list to check the saved status before retrying."
               ) : (
                 <>
                   Review {activeGroup?.requests.length ?? 0} request(s), including {activeGroup?.pendingRequests.length ?? 0} pending.
@@ -1293,9 +1303,9 @@ export default function AttendanceRequestsPage() {
 
           {groupProgress && (groupSubmitting || groupProgress.error) ? (
             <div className="min-h-0 space-y-4 overflow-y-auto py-2">
-              {groupSubmitting && groupReview?.action === "approved" ? (
+              {groupReview?.action === "approved" ? (
                 <LoadingStatus
-                  title="Processing group approval"
+                  title={groupProgress.error ? "Group approval stopped" : "Processing group approval"}
                   detail={groupProgress.detail}
                   progress={groupProgress.progress}
                   steps={groupProgress.steps}
@@ -1458,16 +1468,14 @@ export default function AttendanceRequestsPage() {
                           : "Approving attendance request"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {reviewProgress.errorCode === "MAINTENANCE_RESUME_REQUIRED"
-                    ? "The request was approved, but results are not fully recalculated yet. Press Resume on the banner at the top of this page."
-                    : reviewProgress.error
-                      ? "The request was not approved. Review the message below."
-                      : "Progress is reported by the server as each real approval step runs."}
+                  {reviewProgress.error
+                    ? reviewFailureTitle(reviewProgress.errorCode) ?? "Refresh the request list to check the saved status before retrying."
+                    : "Progress is reported by the server as each real approval step runs."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
               <LoadingStatus
-                title={reviewProgress.done ? "Done" : "Processing approval"}
+                title={reviewProgress.error ? "Approval stopped" : reviewProgress.done ? "Done" : "Processing approval"}
                 detail={reviewProgress.detail}
                 progress={reviewProgress.progress}
                 steps={reviewProgress.steps}

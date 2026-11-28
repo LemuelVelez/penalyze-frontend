@@ -417,7 +417,7 @@ export async function reviewAttendanceRequestWithProgress(
       : null;
     const message = payload?.message || `Request failed with status ${response.status}.`;
     const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
+    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" || !requestId || message.includes(requestId) ? message : `${message} (Request ID: ${requestId})`), { code: payload?.code, requestId });
   }
 
   const missingSuccessMessage = "Attendance request review finished without a result.";
@@ -434,9 +434,9 @@ export async function reviewAttendanceRequestWithProgress(
     notifyCalculationStatusUpdated();
     return payload.data ?? null;
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
     notifyAttendanceRequestsUpdated();
     notifyCalculationStatusUpdated();
+    if (!(error instanceof Error) || (error.message !== missingSuccessMessage && !(error instanceof TypeError))) throw error;
     throw new Error("The connection closed before the saved approval and attendance refresh were confirmed. Refresh the requests list; do not assume approval completed.");
   }
 }
@@ -478,7 +478,7 @@ export async function reviewAttendanceRequestGroupWithProgress(
       : null;
     const message = payload?.message || `Request failed with status ${response.status}.`;
     const requestId = payload?.requestId || response.headers.get("X-Request-ID");
-    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" ? message : requestId ? `${message} (Request ID: ${requestId})` : message), { code: payload?.code });
+    throw Object.assign(new Error(payload?.code === "MASTERLIST_ACTIVE" || !requestId || message.includes(requestId) ? message : `${message} (Request ID: ${requestId})`), { code: payload?.code, requestId });
   }
   const missingSuccessMessage = "Attendance request group review finished without a result.";
   try {
@@ -493,9 +493,9 @@ export async function reviewAttendanceRequestGroupWithProgress(
     notifyCalculationStatusUpdated();
     return payload.data ?? null;
   } catch (error) {
-    if (!(error instanceof Error) || error.message !== missingSuccessMessage) throw error;
     notifyAttendanceRequestsUpdated();
     notifyCalculationStatusUpdated();
+    if (!(error instanceof Error) || (error.message !== missingSuccessMessage && !(error instanceof TypeError))) throw error;
     throw new Error("The connection closed before the saved group review and attendance refresh were confirmed. Refresh the requests list; do not assume approval completed.");
   }
 }

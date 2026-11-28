@@ -1,7 +1,7 @@
 export type ProgressStreamMessage<TProgress, TData> =
   | { type: "progress"; progress: TProgress }
   | { type: "success"; message?: string; data?: TData }
-  | { type: "error"; message?: string; code?: string };
+  | { type: "error"; message?: string; code?: string; requestId?: string };
 
 export type ProgressStreamEnvelope<TData> = {
   message?: string;
@@ -46,7 +46,7 @@ export async function readProgressStream<TProgress, TData>(
       return;
     }
 
-    throw Object.assign(new Error(message.message || options.errorFallback || "Request failed."), { code: message.code });
+    throw Object.assign(new Error(message.message || options.errorFallback || "Request failed."), { code: message.code, requestId: message.requestId });
   };
 
   while (true) {
