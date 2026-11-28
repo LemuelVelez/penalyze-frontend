@@ -1660,7 +1660,9 @@ function getFinalResultAbsentEventSummaries(
 ) {
   if (!finalResult) return null;
 
-  const totalAbsences = Math.max(0, Number(finalResult.total_absences || 0));
+  const totalAbsences = Array.isArray(finalResult.event_details)
+    ? finalResult.event_details.filter((event) => !event.attended).length
+    : Math.max(0, Number(finalResult.total_absences || 0));
   const missedEvents = Array.isArray(finalResult.event_details)
     ? finalResult.event_details.filter((event) => !event.attended)
     : finalResult.missed_events;
@@ -2363,8 +2365,11 @@ function getResultClassification(props: {
   if (props.totalAbsences > 0) return "With absences";
 
   const final = props.finalResult;
-  const expected = Number(final?.expected_events ?? 0);
-  if (final && expected > 0 && props.attendedEvents.length >= expected && Number(final.attended_events) >= expected && props.totalAbsences === 0 && Number(final.total_absences) === 0) return "Perfect attendance";
+  const details = final?.event_details;
+  const hasDetails = Array.isArray(details);
+  const expected = hasDetails ? details.length : Number(final?.expected_events ?? 0);
+  const attended = hasDetails ? details.filter((event) => event.attended).length : Number(final?.attended_events ?? 0);
+  if (final && expected > 0 && props.attendedEvents.length >= expected && attended >= expected && props.totalAbsences === 0 && (hasDetails || Number(final.total_absences) === 0)) return "Perfect attendance";
   if (props.displayedFines.length > 0) return "With absences";
   if (props.attendedEvents.length > 0) return !final && props.lookup.masterlist?.active && props.lookup.masterlist.onMasterlist === false ? "Not on masterlist" : "Pending final result";
   return "No attendance record";
@@ -3836,26 +3841,6 @@ export default function LandingPage() {
           const eventId = String(event.id ?? "").trim();
           const eventName = String(event.name ?? "").trim();
           const normalizedEventName = normalizeEventKey(eventName);
-          const isMissed = absentEvents.some((absentEvent) => {
-            if (
-              eventId &&
-              absentEvent.key === `final-result-missed-event:${eventId}`
-            ) {
-              return true;
-            }
-
-            if (
-              normalizeEventKey(absentEvent.eventName) !== normalizedEventName
-            ) {
-              return false;
-            }
-
-            return (
-              event.event_order === null ||
-              absentEvent.eventOrder == null ||
-              absentEvent.eventOrder === event.event_order
-            );
-          });
 
           return {
             key: eventId
@@ -3868,7 +3853,7 @@ export default function LandingPage() {
                 : "Required event"),
             eventDate: event.event_start_at ?? event.event_end_at ?? null,
             eventOrder: event.event_order ?? null,
-            attended: !isMissed,
+            attended: event.attended,
           };
         })
         .sort((left, right) => {
@@ -3962,9 +3947,9 @@ export default function LandingPage() {
     return hasZeroAttendanceResult(displayedAttendance, allDisplayedFines);
   }, [displayedAttendance, allDisplayedFines]);
   const displayedFines = useMemo(() => {
-    const authoritativeAbsenceCount = displayedFinalResult
-      ? Math.max(0, Number(displayedFinalResult.total_absences || 0))
-      : null;
+    const authoritativeAbsenceCount = Array.isArray(displayedFinalResult?.event_details)
+      ? absentEvents.length
+      : displayedFinalResult ? Math.max(0, Number(displayedFinalResult.total_absences || 0)) : null;
 
     if (authoritativeAbsenceCount === 0) return [];
 
@@ -4010,6 +3995,7 @@ export default function LandingPage() {
     });
 
     if (displayedFinalResult) {
+      if (Array.isArray(displayedFinalResult.event_details)) return absentEvents.length;
       const savedTotal = Math.max(
         0,
         Number(displayedFinalResult.total_absences || 0),
@@ -4751,7 +4737,9 @@ export default function LandingPage() {
     event.preventDefault();
     if (isSearching) return;
 
-    const cleanStudentId = normalizeStudentNumberKey(studentId);
+    const normalizedStudentId = normalizeStudentNumberKey(studentId);
+    const cleanStudentId = /^TC-\d{2}-[A-Z]-\d{5}$/.test(normalizedStudentId)
+      ? normalizedStudentId : studentId.trim();
     if (!cleanStudentId) {
       setError("Enter your Student ID.");
       setLookup(null);
@@ -4874,8 +4862,9 @@ export default function LandingPage() {
         const activeSchoolYearId = getLandingActiveSchoolYearId(schoolYearRows);
         const authoritativeAbsenceCount = finalResults
           .filter((result) => !activeSchoolYearId || result.school_year_id === activeSchoolYearId)
-          .reduce((highest, result) => Math.max(highest, Number(result.total_absences || 0)), 0);
-        const fallbackAbsenceCount = Math.max(
+          .reduce((highest, result) => Math.max(highest, (Array.isArray(result.event_details) ? result.event_details.filter((event) => !event.attended).length : Number(result.total_absences || 0))), 0);
+        const hasFinalDetails = finalResults.some((result) => (!activeSchoolYearId || result.school_year_id === activeSchoolYearId) && Array.isArray(result.event_details));
+        const fallbackAbsenceCount = hasFinalDetails ? authoritativeAbsenceCount : Math.max(
           authoritativeAbsenceCount,
           getFallbackAbsenceCount(attendance, attendanceRecords, attendanceEvents, records.resolvedCollege ?? records.profile?.college, records.profile?.year_level),
         );
@@ -5093,11 +5082,12 @@ export default function LandingPage() {
         )
         .reduce(
           (highestAbsenceCount, result) =>
-            Math.max(highestAbsenceCount, Number(result.total_absences || 0)),
+            Math.max(highestAbsenceCount, (Array.isArray(result.event_details) ? result.event_details.filter((event) => !event.attended).length : Number(result.total_absences || 0))),
           0,
         );
       const newestFinal = [...finalResults].sort((a,b)=>String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")))[0];
-      const fallbackAbsenceCount = Math.max(
+      const hasFinalDetails = finalResults.some((result) => (!activeSchoolYearId || result.school_year_id === activeSchoolYearId) && Array.isArray(result.event_details));
+      const fallbackAbsenceCount = hasFinalDetails ? authoritativeAbsenceCount : Math.max(
         authoritativeAbsenceCount,
         getFallbackAbsenceCount(
           attendance,
